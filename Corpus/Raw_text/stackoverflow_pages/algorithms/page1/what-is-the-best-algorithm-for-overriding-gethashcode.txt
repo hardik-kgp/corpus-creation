@@ -1,0 +1,189 @@
+*** what-is-the-best-algorithm-for-overriding-gethashcode ***
+https://stackoverflow.com/questions/263400/what-is-the-best-algorithm-for-overriding-gethashcode
+
+ In .NET, the   method  is used in a lot of places throughout the .NET base class libraries. Implementing it properly is especially important to find items quickly in a collection or when determining equality. 
+ Is there a standard algorithm or best practice on how to implement   for my custom classes so I don't degrade performance? 
+ 
+ I usually go with something like the implementation given in Josh Bloch's  fabulous   Effective Java . It's fast and creates a pretty good hash which is unlikely to cause collisions. Pick two different prime numbers, e.g. 17 and 23, and do: 
+ 
+ As noted in comments, you may find it's better to pick a large prime to multiply by instead. Apparently 486187739 is good... and although most examples I've seen with small numbers tend to use primes, there are at least similar algorithms where non-prime numbers are often used. In the not-quite- FNV  example later, for example, I've used numbers which apparently work well - but the initial value isn't a prime. (The multiplication constant  is  prime though. I don't know quite how important that is.) 
+ This is better than the common practice of  ing hashcodes for two main reasons. Suppose we have a type with two   fields: 
+ 
+ By the way, the earlier algorithm is the one currently used by the C# compiler for anonymous types. 
+ This page  gives quite a few options. I think for most cases the above is "good enough" and it's incredibly easy to remember and get right. The  FNV  alternative is similarly simple, but uses different constants and   instead of   as a combining operation. It looks  something  like the code below, but the normal FNV algorithm operates on individual bytes, so this would require modifying to perform one iteration per byte, instead of per 32-bit hash value. FNV is also designed for variable lengths of data, whereas the way we're using it here is always for the same number of field values. Comments on this answer suggest that the code here doesn't actually work as well (in the sample case tested) as the addition approach above. 
+ 
+ Note that one thing to be aware of is that ideally you should prevent your equality-sensitive (and thus hashcode-sensitive) state from changing after adding it to a collection that depends on the hash code. 
+ As per the  documentation : 
+ 
+ You can override GetHashCode for immutable reference types. In general, for mutable reference types, you should override GetHashCode only if: 
+ 
+ You can compute the hash code from fields that are not mutable; or 
+ You can ensure that the hash code of a mutable object does not change while the object is contained in a collection that relies on its hash code. 
+ 
+ 
+ 
+ Anonymous Type 
+ Microsoft already provides a good generic HashCode generator: Just copy your property/field values to an anonymous type and hash it: 
+ 
+ This will work for any number of properties. It does not use boxing. It just uses the algorithm already implemented in the framework for anonymous types. 
+ ValueTuple - Update for C# 7 
+ As @cactuaroid mentions in the comments, a value tuple can be used. This saves a few keystrokes and more importantly executes purely on the stack (no Garbage): 
+ 
+ (Note: The original technique using anonymous types seems to create an object on the heap, i.e. garbage, since anonymous types are implemented as classes, though this might be optimized out by the compiler. It would be interesting to benchmark these options, but the tuple option should be superior.) 
+ 
+ Here is my hashcode helper. 
+It's advantage is that it uses generic type arguments and therefore will not cause boxing: 
+ 
+ Also it has extension method to provide a fluent interface, so you can use it like this: 
+ 
+ or like this:   
+ 
+ 
+ I have a Hashing class in Helper library that I use it for this purpose. 
+ 
+ Then, simply you can use it as: 
+ 
+ I didn't assess its performance, so any feedback is welcomed. 
+ 
+ Here's my helper class using  Jon Skeet's implementation . 
+ 
+ Usage: 
+ 
+ If you want to avoid writing an extension method for System.Int32: 
+ 
+ It's still generic, it still avoids any heap allocation and it's used exactly the same way: 
+ 
+ **Update after Martin's comment:**
+
+  caused boxing so I switched to the default comparer. 
+ 
+ See  this answer  regarding the default comparer's performance. 
+ See  this question  for a discussion about the hash codes of null values. 
+ 
+ **Edit (May 2018):**
+
+  getter is now a JIT intrinsic - the  pull request  is mentioned by Stephen Toub in  this blog post . 
+ 
+ In most cases where Equals() compares multiple fields it doesn't really matter if your GetHash() hashes on one field or on many. You just have to make sure that calculating the hash is really cheap ( No allocations , please) and fast ( No heavy computations  and certainly no database connections) and provides a good distribution. 
+ The heavy lifting should be part of the Equals() method; the hash should be a very cheap operation to enable calling Equals() on as few items as possible. 
+ And one final tip:  Don't rely on GetHashCode() being stable over multiple aplication runs . Many .Net types don't guarantee their hash codes to stay the same after a restart, so you should only use the value of GetHashCode() for in memory data structures. 
+ 
+ Up until recently my answer would have been very close to Jon Skeet's here. However, I recently started a project which used power-of-two hash tables, that is hash tables where the size of the internal table is 8, 16, 32, etc. There's a good reason for favouring prime-number sizes, but there are some advantages to power-of-two sizes too. 
+ And it pretty much sucked. So after a bit of experimentation and research I started re-hashing my hashes with the following: 
+ 
+ And then my power-of-two hash table didn't suck any more. 
+ This disturbed me though, because the above shouldn't work. Or more precisely, it shouldn't work unless the original   was poor in a very particular way. 
+ Re-mixing a hashcode can't improve a great hashcode, because the only possible effect is that we introduce a few more collisions. 
+ Re-mixing a hash code can't improve a terrible hash code, because the only possible effect is we change e.g. a large number of collisions on value 53 to a large number of value 18,3487,291. 
+ Re-mixing a hash code can only improve a hash code that did at least fairly well in avoiding absolute collisions throughout its range (2 32  possible values) but badly at avoiding collisions when modulo'd down for actual use in a hash table. While the simpler modulo of a power-of-two table made this more apparent, it was also having a negative effect with the more common prime-number tables, that just wasn't as obvious (the extra work in rehashing would outweigh the benefit, but the benefit would still be there). 
+ Edit: I was also using open-addressing, which would also have increased the sensitivity to collision, perhaps more so than the fact it was power-of-two. 
+ And well, it was disturbing how much the   implementations in  .NET  (or study  here ) could be improved this way (on the order of tests running about 20-30 times faster due to fewer collisions) and more disturbing how much my own hash codes could be improved (much more than that). 
+ **All the GetHashCode() implementations I'd coded in the past, and indeed used as the basis of answers on this site, were much worse than I'd throught**
+. Much of the time it was "good enough" for much of the uses, but I wanted something better. 
+ So I put that project to one side (it was a pet project anyway) and started looking at how to produce a good, well-distributed hash code in .NET quickly. 
+ In the end I settled on porting  SpookyHash  to .NET. Indeed the code above is a fast-path version of using SpookyHash to produce a 32-bit output from a 32-bit input. 
+ Now, SpookyHash is not a nice quick to remember piece of code. My port of it is even less so because I hand-inlined a lot of it for better speed*. But that's what code reuse is for. 
+ Then I put  that  project to one side, because just as the original project had produced the question of how to produce a better hash code, so that project produced the question of how to produce a better .NET memcpy. 
+ Then I came back, and produced a lot of overloads to easily feed just about all of the native types (except  †) into a hash code. 
+ It's fast, for which Bob Jenkins deserves most of the credit because his original code I ported from is faster still, especially on 64-bit machines which the algorithm is optimised for‡. 
+ The full code can be seen at  https://bitbucket.org/JonHanna/spookilysharp/src  but consider that the code above is a simplified version of it. 
+ However, since it's now already written, one can make use of it more easily: 
+ 
+ It also takes seed values, so if you need to deal with untrusted input and want to protect against Hash DoS attacks you can set a seed based on uptime or similar, and make the results unpredictable by attackers: 
+ 
+ *A big surprise in this is that hand-inlining a rotation method that returned   improved things. I would have been sure that the jitter would have inlined that for me, but profiling showed otherwise. 
+ †  isn't native from the .NET perspective though it is from the C#. The problem with it is that its own   treats precision as significant while its own   does not. Both are valid choices, but not mixed like that. In implementing your own version, you need to choose to do one, or the other, but I can't know which you'd want. 
+ ‡By way of comparison. If used on a string, the SpookyHash on 64 bits is considerably faster than   on 32 bits which is slightly faster than   on 64 bits, which is considerably faster than SpookyHash on 32 bits, though still fast enough to be a reasonable choice. 
+ 
+ .NET Core 2.1 And Above 
+ If you are using .NET Core 2.1 or above, you can use the  System.HashCode  struct. There are two methods of using it: 
+ **HashCode.Combine**
+
+ The   method can be used to create a hash code, given up to eight objects. 
+ 
+ **HashCode.Add**
+
+ The   method helps you to deal with collections: 
+ 
+ GetHashCode Made Easy 
+ You can read the full blog post ' GetHashCode Made Easy ' for more details and comments. 
+ **Usage Example**
+
+ 
+ **Implementation**
+
+ 
+ 
+ This is a good one: 
+ 
+ And here is how to use it: 
+ 
+ 
+ As of  https://github.com/dotnet/coreclr/pull/14863 , there is a new way to generate hash codes that is super simple! Just write 
+ 
+ This will generate a quality hash code without you having to worry about the implementation details. 
+ 
+ Here is another fluent implementation of  the algorithm posted above by Jon Skeet , but which includes no allocations or boxing operations: 
+ 
+ Usage: 
+ 
+ The compiler will ensure   is not called with a class due to the generic type constraint. But there is no compiler support for   since adding a generic argument also adds a boxing operation. 
+ 
+ Here is my simplistic approach. I am using the classic builder pattern for this. It is typesafe (no boxing/unboxing) and also compatbile with .NET 2.0 (no extension methods etc.). 
+ It is used like this: 
+ 
+ And here is the acutal builder class: 
+ 
+ 
+ ReSharper  users can generate GetHashCode, Equals, and others with  . 
+ 
+ 
+ If we have no more than 8 properties (hopefully), here is another alternative. 
+  is a struct and appears to have a solid   implementation. 
+ That means we could simply do this: 
+ 
+ Let's take a look at .NET Core's current implementation for  's  . 
+ This is from  : 
+ 
+ And this is from  : 
+ 
+ In English: 
+ 
+ Left rotate (circular shift) h1 by 5 positions. 
+ Add the result and h1 together. 
+ XOR the result with h2. 
+ Start by performing the above operation on { static random seed, h1 }. 
+ For each further item, perform the operation on the previous result and the next item (e.g. h2). 
+ 
+ It would be nice to know more about the properties of this ROL-5 hash code algorithm. 
+ Regrettably, deferring to   for our own   may not be as fast as we would like and expect.  This comment  in a related discussion illustrates that directly calling   is more performant. On the flip side, that one is internal, so we'd have to copy the code, sacrificing much of what we had gained here. Also, we'd be responsible for remembering to first   with the random seed. I don't know what the consequences are if we skip that step. 
+ 
+ Most of my work is done with database connectivity which means that my classes all have a unique identifier from the database.  I always use the ID from the database to generate the hashcode. 
+ 
+ 
+ Pretty much similar to nightcoder's solution except it's easier to raise primes if you want to.  
+ PS: This is one of those times where you puke a little in your mouth, knowing that this could be refactored into one method with 9 default's but it would be slower, so you just close your eyes and try to forget about it. 
+ 
+ 
+ I ran into an issue with floats and decimals using the implementation selected as the answer above.   
+ This test fails (floats; hash is the same even though I switched 2 values to be negative): 
+ 
+ But this test passes (with ints): 
+ 
+ I changed my implementation to not use GetHashCode for the primitive types and it seems to work better 
+ 
+ 
+ This is a static helper class that implements Josh Bloch's implementation; and provides explicit overloads to "prevent" boxing, and also to implement the hash specifically for the long primitives. 
+ You can pass a string comparison that matches your equals implementation. 
+ Because the Hash output is always an int, you can just chain Hash calls. 
+ 
+ 
+ Microsoft lead for several way of hashing... 
+ 
+ I can guess that for multiple big int you can use this: 
+ 
+ And same for multi-type: all converted first to   using  
+then the int values will be xor'ed and the result is your hash. 
+ For those who use hash as ID (I mean an unique value), hash is naturally limited to a number of digits, I think it was 5 bytes for hashing algorithm, at least MD5. 
+ You may turn multiple values to a hashed value and some of them be same, so don't use it as an identifier. (maybe some day I am going to use your component) 
+ 

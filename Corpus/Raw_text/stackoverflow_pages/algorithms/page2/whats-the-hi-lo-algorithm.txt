@@ -1,0 +1,64 @@
+*** whats-the-hi-lo-algorithm ***
+https://stackoverflow.com/questions/282099/whats-the-hi-lo-algorithm
+
+ What's the Hi/Lo algorithm? 
+ I've found this in the  NHibernate  documentation (it's one method to generate unique keys, section 5.1.4.2), but I haven't found a good explanation of how it works. 
+ I know that Nhibernate handles it, and I don't need to know the inside, but I'm just curious. 
+ 
+ The basic idea is that you have two numbers to make up a primary key- a "high" number and a "low" number. A client can basically increment the "high" sequence, knowing that it can then safely generate keys from the entire range of the previous "high" value with the variety of "low" values. 
+ For instance, supposing you have a "high" sequence with a current value of 35, and the "low" number is in the range 0-1023. Then the client can increment the sequence to 36 (for other clients to be able to generate keys while it's using 35) and know that keys 35/0, 35/1, 35/2, 35/3... 35/1023 are all available. 
+ It can be very useful (particularly with ORMs) to be able to set the primary keys on the client side, instead of inserting values without primary keys and then fetching them back onto the client. Aside from anything else, it means you can easily make parent/child relationships and have the keys all in place before you do  any  inserts, which makes batching them simpler. 
+ 
+ In addition to Jon's answer:  
+ It is used to be able to work disconnected. A client can then ask the server for a hi number and create objects increasing the lo number itself. It does not need to contact the server until the lo range is used up.  
+ 
+ The hi/lo algorithms splits the sequences domain into “hi” groups. A “hi” value is assigned synchronously. Every “hi” group is given a maximum number of “lo” entries, that can by assigned off-line without worrying about concurrent duplicate entries. 
+ 
+ The “hi” token is assigned by the database, and two concurrent calls are guaranteed to see unique consecutive values 
+ Once a “hi” token is retrieved we only need the “incrementSize” (the number of “lo” entries) 
+ The identifiers range is given by the following formula: 
+ 
+ and the “lo” value will be in the range: 
+ 
+ being applied from the start value of: 
+ 
+ When all “lo” values are used, a new “hi” value is fetched and the cycle continues 
+ 
+ You can find a more detailed explanation in  this article :  
+ And this visual presentation is easy to follow as well: 
+ 
+ While hi/lo optimizer is fine for optimizing identifier generation, it doesn't play well with other systems inserting rows into our database, without knowing anything about our identifier strategy. 
+ Hibernate offers the  pooled-lo  optimizer, which combines a hi/lo generator strategy with an interoperability sequence allocation mechanism. This optimizer is both efficient and interoperable with other systems, being a better candidate than the previous legacy hi/lo identifier strategy. 
+ 
+ Lo is a cached allocator that splits the keyspace into large chunks, typically based on some machine word size, rather than the meaningfully-sized ranges (eg obtaining 200 keys at a time) which a human might sensibly choose. 
+ Hi-Lo usage tends to waste large numbers of keys on server restart, and generate large human-unfriendly key values. 
+ Better than the Hi-Lo allocator, is the "Linear Chunk" allocator. This uses a similar table-based principle but allocates small, conveniently-sized chunks & generates nice human-friendly values. 
+ 
+ To allocate the next, say, 200 keys (which are then held as a range in the server & used as needed): 
+ 
+ Providing you can commit this transaction (use retries to handle contention), you have allocated 200 keys & can dispense them as needed. 
+ With a chunk-size of just 20, this scheme is 10x faster than allocating from an Oracle sequence, and is 100% portable amongst all databases. Allocation performance is equivalent to hi-lo. 
+ Unlike Ambler's idea, it treats the keyspace as a contiguous linear numberline. 
+ This avoids the impetus for composite keys (which were never really a good idea) and avoids wasting entire lo-words when the server restarts. It generates "friendly", human-scale key values. 
+ Mr Ambler's idea, by comparison, allocates the high 16- or 32-bits, and generates large human-unfriendly key values as the hi-words increment. 
+ Comparison of allocated keys:   
+ 
+ Design-wise, his solution is fundamentally more complex on the number-line (composite keys, large hi_word products) than Linear_Chunk while achieving no comparative benefit.  
+ The Hi-Lo design arose early in OO mapping and persistence. These days persistence frameworks such as Hibernate offer simpler and better allocators as their default. 
+ 
+ I found the Hi/Lo algorithm is perfect for multiple databases with replication scenarios based in my experience. Imagine this. you have a server in New York (alias 01) and another server in Los Angeles (alias 02) then you have a PERSON table...
+so in New York when a person is create... you always use 01 as the HI value and the LO value is the next secuential. por example. 
+ 
+ 010000010 Jason 
+ 010000011 David 
+ 010000012 Theo 
+ 
+ in Los Angeles you always use the HI 02. for example: 
+ 
+ 020000045 Rupert 
+ 020000046 Oswald 
+ 020000047 Mario 
+ 
+ So, when you use the database replication (no matter what brand) all the primary keys and data combine easily and naturally without to worry about duplicate primary keys, collissions, etc. 
+ This is the best way to go in this scenario. 
+ 

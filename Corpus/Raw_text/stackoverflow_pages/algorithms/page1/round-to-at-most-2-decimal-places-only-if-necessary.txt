@@ -1,0 +1,236 @@
+*** round-to-at-most-2-decimal-places-only-if-necessary ***
+https://stackoverflow.com/questions/11832914/round-to-at-most-2-decimal-places-only-if-necessary/12830454
+
+ I'd like to round at most 2 decimal places, but  only if necessary . 
+ Input: 
+ 
+ Output: 
+ 
+ How can I do this in JavaScript?  
+ 
+ Use  
+ 
+ If the value is a text type: 
+ 
+ If the value is a number: 
+ 
+ There is a downside that values like 1.5 will give "1.50" as the output. A fix suggested by @minitech: 
+ 
+ It seems like   is a better solution.  **But it is not!**
+ In some cases it will  **NOT**
+ round correctly: 
+ 
+ toFixed() will also  **NOT**
+ round correctly in some cases (tested in Chrome v.55.0.2883.87)! 
+ Examples: 
+ 
+ I guess, this is because 1.555 is actually something like float 1.55499994 behind the scenes. 
+ **Solution 1**
+ is to use a script with required rounding algorithm, for example: 
+ 
+ https://plnkr.co/edit/uau8BlS1cqbvWPCHJeOy?p=preview 
+ **Solution 2**
+ is to avoid front end calculations and pull rounded values from the backend server. 
+ 
+ You can use 
+ 
+ I found this over on  MDN . Their way avoids the problem with 1.005 that was  mentioned . 
+ 
+ 
+ MarkG's answer is the correct one.  Here's a generic extension for any number of decimal places. 
+ 
+ Usage: 
+ 
+ Unit test: 
+ 
+ 
+ You should use: 
+ 
+ No one seems to be aware of  . 
+ Also it's worth noting that this is not a  JavaScript weirdness  like some people stated. 
+ **That is simply the way floating point numbers works in a computer.**
+ Like 99% of programming languages, JavaScript doesn't have  home made  floating point numbers; it relies on the CPU/FPU for that. A computer uses binary, and in binary, there isn't any numbers like  , but a mere binary approximation for that. Why? For the same reason than 1/3 cannot be written in decimal: its value is 0.33333333... with an infinity of threes. 
+ Here come  . That number is the difference between 1 and the  next  number existing in the double precision floating point numbers.  **That's it: There is no number between **
+** and 1 + **
+**.**
+
+ **EDIT:**
+
+ As asked in the comments, let's clarify one thing: adding   is relevant only when the value to round is the result of an arithmetic operation, as it can swallow some floating point error delta. 
+ It's not useful when the value comes from a direct source (e.g.: literal, user input or sensor). 
+ **EDIT (2019):**
+
+ Like @maganap and some peoples have pointed out, it's best to add   before multiplying: 
+ 
+ 
+ One can use  . 
+ 
+ 
+ Consider   and  : 
+ http://www.javascriptkit.com/javatutors/formatnumber.shtml 
+ 
+ This question is complicated. 
+ Suppose we have a function,  , that takes a float as an argument and returns a value rounded to 2 decimal places. What should each of these expressions evaluate to? 
+ 
+ 
+ 
+ 
+ 
+ The 'obvious' answer is that the first example should round to 0.01 (because it's closer to 0.01 than to 0.02) while the other two should round to 0.02 (because 0.0150000000000000001 is closer to 0.02 than to 0.01, and because 0.015 is exactly halfway between them and there is a mathematical convention that such numbers get rounded up). 
+ The catch, which you may have guessed, is that    cannot possibly  be implemented to give those obvious answers, because all three numbers passed to it are  the same number . IEEE 754 binary floating point numbers (the kind used by JavaScript) can't exactly represent most non-integer numbers, and so all three numeric literals above get rounded to a nearby valid floating point number. This number, as it happens, is  exactly 
+ 0.01499999999999999944488848768742172978818416595458984375 
+ which is closer to 0.01 than to 0.02. 
+ You can see that all three numbers are the same at your browser console, Node shell, or other JavaScript interpreter. Just compare them: 
+ 
+ So when I write  , the  exact value of   that I end up with is closer to   than it is to  . And yet, if I convert   to a String... 
+ 
+ ... I get 0.015, which should round to 0.02, and which is noticeably  not  the 56-decimal-place number I earlier said that all of these numbers were exactly equal to. So what dark magic is this? 
+ The answer can be found in the ECMAScript specification, in section  7.1.12.1: ToString applied to the Number type . Here the rules for converting some Number  m  to a String are laid down. The key part is point 5, in which an integer  s  is generated whose digits will be used in the String representation of  m : 
+ 
+ let  n ,  k , and  s  be integers such that  k  ≥ 1, 10 k -1  ≤  s  < 10 k , the Number value for  s  × 10 n - k  is  m , and  k  is as small as possible. Note that k is the number of digits in the decimal representation of  s , that  s  is not divisible by 10, and that the least significant digit of  s  is not necessarily uniquely determined by these criteria. 
+ 
+ The key part here is the requirement that " k  is as small as possible". What that requirement amounts to is a requirement that, given a Number  , the value of   must have  the least possible number of digits  while still satisfying the requirement that  . Since we already know that  , it's now clear why   must be true. 
+ Of course, none of this discussion has directly answered what    should  return. If  's exact value is 0.01499999999999999944488848768742172978818416595458984375, but its String representation is '0.015', then what is the  correct  answer - mathematically, practically, philosophically, or whatever - when we round it to two decimal places? 
+ There is no single correct answer to this. It depends upon your use case. You probably want to respect the String representation and round upwards when: 
+ 
+ The value being represented is inherently discrete, e.g. an amount of currency in a 3-decimal-place currency like dinars. In this case, the  true  value of a Number like 0.015  is  0.015, and the 0.0149999999... representation that it gets in binary floating point is a rounding error. (Of course, many will argue, reasonably, that you should use a decimal library for handling such values and never represent them as binary floating point Numbers in the first place.) 
+ The value was typed by a user. In this case, again, the exact decimal number entered is more 'true' than the nearest binary floating point representation. 
+ 
+ On the other hand, you probably want to respect the binary floating point value and round downwards when your value is from an inherently continuous scale - for instance, if it's a reading from a sensor. 
+ These two approaches require different code. To respect the String representation of the Number, we can (with quite a bit of reasonably subtle code) implement our own rounding that acts directly on the String representation, digit by digit, using the same algorithm you would've used in school when you were taught how to round numbers. Below is an example which respects the OP's requirement of representing the number to 2 decimal places "only when necessary" by stripping trailing zeroes after the decimal point; you may, of course, need to tweak it to your precise needs. 
+ 
+ Example usage: 
+ 
+ The function above is  probably  what you want to use to avoid users ever witnessing numbers that they have entered being rounded wrongly. 
+ (As an alternative, you could also try the  round10  library which provides a similarly-behaving function with a wildly different implementation.) 
+ But what if you have the second kind of Number - a value taken from a continuous scale, where there's no reason to think that approximate decimal representations with fewer decimal places are more  accurate  than those with more? In that case, we  don't  want to respect the String representation, because that representation (as explained in the spec) is already sort-of-rounded; we don't want to make the mistake of saying "0.014999999...375 rounds up to 0.015, which rounds up to 0.02, so 0.014999999...375 rounds up to 0.02". 
+ Here we can simply use the built-in   method. Note that by calling   on the String returned by  , we get a Number whose String representation has no trailing zeroes (thanks to the way JavaScript computes the String representation of a Number, discussed earlier in this answer). 
+ 
+ 
+ A precise rounding method. Source:  Mozilla 
+ 
+ Examples: 
+ 
+ 
+ **None of the answers found here is correct**
+. @stinkycheeseman asked to  **round up**
+, you all rounded the number. 
+ To round up, use this: 
+ 
+ 
+ Here is a simple way to do it: 
+ 
+ You might want to go ahead and make a separate function to do it for you though: 
+ 
+ Then you would simply pass in the value. 
+ You could enhance it to round to any arbitrary number of decimals by adding a second parameter. 
+ 
+ 
+ 
+ 
+ For me  Math.round()  was not giving correct answer. I found  toFixed(2)  works better. 
+Below are examples of both: 
+ 
+ 
+ 
+ 
+ 
+ 
+ Use this function  
+ 
+ Try this  **light weight**
+ solution: 
+ 
+ 
+ 2017 
+Just use native code  
+ 
+ If you need to be strict and add digits just if needed it can use  
+ 
+ 
+ There are a couple of ways to do that. For people like me, the Lodash's variant 
+ 
+ **Usage:**
+
+ 
+ If your project uses jQuery or lodash, you can also find proper   method in the libraries. 
+ **Update 1**
+
+ I removed the variant  , because it is not correct. Thank you @avalanche1 
+ 
+ If you are using lodash library, you can use the round method of lodash like following. 
+ 
+ Eg:  
+ 
+ 
+ MarkG and Lavamantis offered a much better solution than the one that has been accepted. It's a shame they don't get more upvotes! 
+ Here is the function I use to solve the floating point decimals issues  also based on MDN . It is even more generic (but less concise) than Lavamantis's solution: 
+ 
+ Use it with: 
+ 
+ Compared to Lavamantis's solution, we can do... 
+ 
+ 
+ Since ES6 there is a 'proper' way (without overriding statics and creating workarounds) to do this by  using toPrecision 
+ 
+ 
+ 
+ 
+ 
+ then you can just   and zeroes will 'go away'. 
+ 
+ 
+ 
+ 
+ 
+ 
+ This may help you: 
+ 
+ for more information, you can have a look at this link 
+ Math.round(num) vs num.toFixed(0) and browser inconsistencies 
+ 
+ 
+  here 2 is number of digits upto which we want to round this num. 
+ 
+ It may work for you, 
+ 
+ to know the difference between toFixed and round. You can have a look at  Math.round(num) vs num.toFixed(0) and browser inconsistencies . 
+ 
+ Easiest way: 
+ 
+ It converts it to a string, and then back into an integer / float. 
+ 
+ Here is a prototype method: 
+ 
+ 
+ Use something like this 
+"parseFloat(parseFloat(value).toFixed(2))"  
+ 
+ 
+ One way to achieve such a rounding  only if necessary  is to use  Number.prototype.toLocaleString() : 
+ 
+ This will provide exactly the output you expect, but as strings. You can still convert those back to numbers if that's not the data type you expect. 
+ 
+ In general, rounding is done by scaling:  
+ Using the exponential notation handles rounding of +ve numbers, correctly.
+However, this method fails to round -ve edge cases correctly.  
+ 
+ 
+ 
+ 
+ 
+ Here, also is one function I wrote to do arithmetic rounding correctly. You can test it yourself. 
+ 
+ 
+ 
+ 
+ 
+ 
+ To not deal with many 0s, use this variant: 
+ 
+ 
+ If you happen to already be using the d3 library, they have a powerful number formatting library:  https://github.com/mbostock/d3/wiki/Formatting 
+ Rounding specifically is here:  https://github.com/mbostock/d3/wiki/Formatting#d3_round 
+ In your case, the answer is: 
+ 
+ 

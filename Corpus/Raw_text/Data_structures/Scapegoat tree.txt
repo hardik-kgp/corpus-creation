@@ -1,0 +1,680 @@
+***Scapegoat tree***
+In computer science, a  scapegoat tree  is a self-balancing binary search tree, invented by Arne Andersson and again by Igal Galperin and Ronald L. Rivest.  It provides worst-case  O (log  n ) lookup time, and  O (log  n ) amortized insertion and deletion time.
+ Unlike most other self-balancing binary search trees which provide worst case  O (log  n ) lookup time, scapegoat trees have no additional per-node memory overhead compared to a regular binary search tree: a node stores only a key and two pointers to the child nodes. This makes scapegoat trees easier to implement and, due to data structure alignment, can reduce node overhead by up to one-third.
+ Instead of the small incremental rebalancing operations used by most balanced tree algorithms, scapegoat trees rarely but expensively choose a "scapegoat" and completely rebuild the subtree rooted at the scapegoat into a complete binary tree.  Thus, scapegoat trees have  O ( n ) worst-case update performance.
+ 
+
+ **Theory**
+
+ A binary search tree is said to be weight-balanced if half the nodes are on the left of the root, and half on the right.
+An α-weight-balanced node is defined as meeting a relaxed weight balance criterion:
+ 
+ size(left) ≤ α*size(node)
+size(right) ≤ α*size(node)
+ 
+ Where size can be defined recursively as:
+ 
+ function size(node)
+ if node = nil
+  return 0
+ else
+  return size(node->left) + size(node->right) + 1
+end
+ 
+ Even a degenerate tree (linked list) satisfies this condition if α=1, whereas an α=0.5 would only match almost complete binary trees.
+ A binary search tree that is α-weight-balanced must also be  α-height-balanced , that is 
+ 
+ height(tree) ≤ ⌊log 1/α (size(tree))⌋
+ 
+ By contraposition, a tree that is not α-height-balanced is not α-weight-balanced.
+ Scapegoat trees are not guaranteed to keep α-weight-balance at all times, but are always loosely α-height-balanced in that
+ 
+ height(scapegoat tree) ≤ ⌊log 1/α (size(tree))⌋ + 1.
+ 
+ Violations of this height balance condition can be detected at insertion time, and imply that a violation of the weight balance condition must exist.  
+ This makes scapegoat trees similar to red-black trees in that they both have restrictions on their height. They differ greatly though in their implementations of determining where the rotations (or in the case of scapegoat trees, rebalances) take place. Whereas red-black trees store additional 'color' information in each node to determine the location, scapegoat trees find a  scapegoat  which isn't α-weight-balanced to perform the rebalance operation on. This is loosely similar to AVL trees, in that the actual rotations depend on 'balances' of nodes, but the means of determining the balance differs greatly. Since AVL trees check the balance value on every insertion/deletion, it is typically stored in each node; scapegoat trees are able to calculate it only as needed, which is only when a scapegoat needs to be found.
+ Unlike most other self-balancing search trees, scapegoat trees are entirely flexible as to their balancing. They support any α such that 0.5 < α < 1. A high α value results in fewer balances, making insertion quicker but lookups and deletions slower, and vice versa for a low α. Therefore in practical applications, an α can be chosen depending on how frequently these actions should be performed.
+ 
+
+ **Operations**
+
+ **Lookup**
+
+ Lookup is not modified from a standard binary search tree, and has a worst-case time of O(log  n ). This is in contrast to splay trees which have a worst-case time of O( n ). The reduced node memory overhead compared to other self-balancing binary search trees can further improve locality of reference and caching.
+ 
+
+ **Insertion**
+
+ Insertion is implemented with the same basic ideas as an unbalanced binary search tree, however with a few significant changes.
+ When finding the insertion point, the depth of the new node must also be recorded. This is implemented via a simple counter that gets incremented during each iteration of the lookup, effectively counting the number of edges between the root and the inserted node. If this node violates the α-height-balance property (defined above), a rebalance is required.
+ To rebalance, an entire subtree rooted at a  scapegoat  undergoes a balancing operation. The scapegoat is defined as being an ancestor of the inserted node which isn't α-weight-balanced. There will always be at least one such ancestor. Rebalancing any of them will restore the α-height-balanced property.
+ One way of finding a scapegoat, is to climb from the new node back up to the root and select the first node that isn't α-weight-balanced.
+ Climbing back up to the root requires O(log  n ) storage space, usually allocated on the stack, or parent pointers. This can actually be avoided by pointing each child at its parent as you go down, and repairing on the walk back up.
+ To determine whether a potential node is a viable scapegoat, we need to check its α-weight-balanced property. To do this we can go back to the definition:
+ 
+ size(left) ≤ α*size(node)
+size(right) ≤ α*size(node)
+ 
+ However a large optimisation can be made by realising that we already know two of the three sizes, leaving only the third to be calculated.
+ Consider the following example to demonstrate this. Assuming that we're climbing back up to the root:
+ 
+ size(parent) = size(node) + size(sibling) + 1
+ 
+ But as:
+ 
+ size(inserted node) = 1.
+ 
+ The case is trivialized down to:
+ 
+ size[x+1] = size[x] + size(sibling) + 1
+ 
+ Where x = this node, x + 1 = parent and size(sibling) is the only function call actually required.
+ Once the scapegoat is found, the subtree rooted at the scapegoat is completely rebuilt to be perfectly balanced.  This can be done in O( n ) time by traversing the nodes of the subtree to find their values in sorted order and recursively choosing the median as the root of the subtree.
+ As rebalance operations take O( n ) time (dependent on the number of nodes of the subtree), insertion has a worst-case performance of O( n ) time.  However, because these worst-case scenarios are spread out, insertion takes O(log  n ) amortized time.
+ 
+
+ **Sketch of proof for cost of insertion**
+
+ Define the Imbalance of a node  v  to be the absolute value of the difference in size between its left node and right node minus 1, or 0, whichever is greater.  In other words:
+ 
+   
+     
+       
+         I 
+         ( 
+         v 
+         ) 
+         = 
+         max 
+         ⁡ 
+         ( 
+         
+           | 
+         
+         left 
+         ⁡ 
+         ( 
+         v 
+         ) 
+         − 
+         right 
+         ⁡ 
+         ( 
+         v 
+         ) 
+         
+           | 
+         
+         − 
+         1 
+         , 
+         0 
+         ) 
+       
+     
+     {\displaystyle I(v)=\operatorname {max} (|\operatorname {left} (v)-\operatorname {right} (v)|-1,0)} 
+   
+ Immediately after rebuilding a subtree rooted at  v , I( v ) = 0.
+ Lemma:  Immediately before rebuilding the subtree rooted at  v ,  
+   
+     
+       
+         I 
+         ( 
+         v 
+         ) 
+         ∈ 
+         Ω 
+         ( 
+         
+           | 
+         
+         v 
+         
+           | 
+         
+         ) 
+       
+     
+     {\displaystyle I(v)\in \Omega (|v|)} 
+   
+( 
+   
+     
+       
+         Ω 
+       
+     
+     {\displaystyle \Omega } 
+    is Big O Notation.)
+ Proof of lemma:
+ Let  
+   
+     
+       
+         
+           v 
+           
+             0 
+           
+         
+       
+     
+     {\displaystyle v_{0}} 
+    be the root of a subtree immediately after rebuilding.   
+   
+     
+       
+         h 
+         ( 
+         
+           v 
+           
+             0 
+           
+         
+         ) 
+         = 
+         log 
+         ⁡ 
+         ( 
+         
+           | 
+         
+         
+           v 
+           
+             0 
+           
+         
+         
+           | 
+         
+         + 
+         1 
+         ) 
+       
+     
+     {\displaystyle h(v_{0})=\log(|v_{0}|+1)} 
+   .  If there are  
+   
+     
+       
+         Ω 
+         ( 
+         
+           | 
+         
+         
+           v 
+           
+             0 
+           
+         
+         
+           | 
+         
+         ) 
+       
+     
+     {\displaystyle \Omega (|v_{0}|)} 
+    degenerate insertions (that is, where each inserted node increases the height by 1), then  
+   
+     
+       
+         I 
+         ( 
+         v 
+         ) 
+         ∈ 
+         Ω 
+         ( 
+         
+           | 
+         
+         
+           v 
+           
+             0 
+           
+         
+         
+           | 
+         
+         ) 
+       
+     
+     {\displaystyle I(v)\in \Omega (|v_{0}|)} 
+   , 
+   
+     
+       
+         h 
+         ( 
+         v 
+         ) 
+         = 
+         h 
+         ( 
+         
+           v 
+           
+             0 
+           
+         
+         ) 
+         + 
+         Ω 
+         ( 
+         
+           | 
+         
+         
+           v 
+           
+             0 
+           
+         
+         
+           | 
+         
+         ) 
+       
+     
+     {\displaystyle h(v)=h(v_{0})+\Omega (|v_{0}|)} 
+    and 
+   
+     
+       
+         log 
+         ⁡ 
+         ( 
+         
+           | 
+         
+         v 
+         
+           | 
+         
+         ) 
+         ≤ 
+         log 
+         ⁡ 
+         ( 
+         
+           | 
+         
+         
+           v 
+           
+             0 
+           
+         
+         
+           | 
+         
+         + 
+         1 
+         ) 
+         + 
+         1 
+       
+     
+     {\displaystyle \log(|v|)\leq \log(|v_{0}|+1)+1} 
+   .
+ Since  
+   
+     
+       
+         I 
+         ( 
+         v 
+         ) 
+         ∈ 
+         Ω 
+         ( 
+         
+           | 
+         
+         v 
+         
+           | 
+         
+         ) 
+       
+     
+     {\displaystyle I(v)\in \Omega (|v|)} 
+    before rebuilding, there were  
+   
+     
+       
+         Ω 
+         ( 
+         
+           | 
+         
+         v 
+         
+           | 
+         
+         ) 
+       
+     
+     {\displaystyle \Omega (|v|)} 
+    insertions into the subtree rooted at  
+   
+     
+       
+         v 
+       
+     
+     {\displaystyle v} 
+    that did not result in rebuilding.  Each of these insertions can be performed in  
+   
+     
+       
+         O 
+         ( 
+         log 
+         ⁡ 
+         n 
+         ) 
+       
+     
+     {\displaystyle O(\log n)} 
+    time.  The final insertion that causes rebuilding costs  
+   
+     
+       
+         O 
+         ( 
+         
+           | 
+         
+         v 
+         
+           | 
+         
+         ) 
+       
+     
+     {\displaystyle O(|v|)} 
+   .  Using aggregate analysis it becomes clear that the amortized cost of an insertion is  
+   
+     
+       
+         O 
+         ( 
+         log 
+         ⁡ 
+         n 
+         ) 
+       
+     
+     {\displaystyle O(\log n)} 
+   :
+ 
+   
+     
+       
+         
+           
+             
+               Ω 
+               ( 
+               
+                 | 
+               
+               v 
+               
+                 | 
+               
+               ) 
+               O 
+               ( 
+               log 
+               ⁡ 
+               
+                 n 
+               
+               ) 
+               + 
+               O 
+               ( 
+               
+                 | 
+               
+               v 
+               
+                 | 
+               
+               ) 
+             
+             
+               Ω 
+               ( 
+               
+                 | 
+               
+               v 
+               
+                 | 
+               
+               ) 
+             
+           
+         
+         = 
+         O 
+         ( 
+         log 
+         ⁡ 
+         
+           n 
+         
+         ) 
+       
+     
+     {\displaystyle {\Omega (|v|)O(\log {n})+O(|v|) \over \Omega (|v|)}=O(\log {n})} 
+   
+ 
+
+ **Deletion**
+
+ Scapegoat trees are unusual in that deletion is easier than insertion. To enable deletion, scapegoat trees need to store an additional value with the tree data structure. This property, which we will call MaxNodeCount simply represents the highest achieved NodeCount. It is set to NodeCount whenever the entire tree is rebalanced, and after insertion is set to max(MaxNodeCount, NodeCount).
+ To perform a deletion, we simply remove the node as you would in a simple binary search tree, but if
+ 
+ NodeCount ≤ α*MaxNodeCount
+ 
+ then we rebalance the entire tree about the root, remembering to set MaxNodeCount to NodeCount.
+ This gives deletion its worst-case performance of O( n ) time; however, it is amortized to O(log  n ) average time.
+ 
+
+ **Sketch of proof for cost of deletion**
+
+ Suppose the scapegoat tree has  
+   
+     
+       
+         n 
+       
+     
+     {\displaystyle n} 
+    elements and has just been rebuilt (in other words, it is a complete binary tree).  At most  
+   
+     
+       
+         n 
+         
+           / 
+         
+         2 
+         − 
+         1 
+       
+     
+     {\displaystyle n/2-1} 
+    deletions can be performed before the tree must be rebuilt.  Each of these deletions take  
+   
+     
+       
+         O 
+         ( 
+         log 
+         ⁡ 
+         
+           n 
+         
+         ) 
+       
+     
+     {\displaystyle O(\log {n})} 
+    time (the amount of time to search for the element and flag it as deleted).  The  
+   
+     
+       
+         n 
+         
+           / 
+         
+         2 
+       
+     
+     {\displaystyle n/2} 
+    deletion causes the tree to be rebuilt and takes  
+   
+     
+       
+         O 
+         ( 
+         log 
+         ⁡ 
+         
+           n 
+         
+         ) 
+         + 
+         O 
+         ( 
+         n 
+         ) 
+       
+     
+     {\displaystyle O(\log {n})+O(n)} 
+    (or just  
+   
+     
+       
+         O 
+         ( 
+         n 
+         ) 
+       
+     
+     {\displaystyle O(n)} 
+   ) time.  Using aggregate analysis it becomes clear that the amortized cost of a deletion is  
+   
+     
+       
+         O 
+         ( 
+         log 
+         ⁡ 
+         
+           n 
+         
+         ) 
+       
+     
+     {\displaystyle O(\log {n})} 
+   :
+ 
+   
+     
+       
+         
+           
+             
+               
+                 ∑ 
+                 
+                   1 
+                 
+                 
+                   
+                     n 
+                     2 
+                   
+                 
+               
+               O 
+               ( 
+               log 
+               ⁡ 
+               
+                 n 
+               
+               ) 
+               + 
+               O 
+               ( 
+               n 
+               ) 
+             
+             
+               
+                 n 
+                 2 
+               
+             
+           
+         
+         = 
+         
+           
+             
+               
+                 
+                   n 
+                   2 
+                 
+               
+               O 
+               ( 
+               log 
+               ⁡ 
+               
+                 n 
+               
+               ) 
+               + 
+               O 
+               ( 
+               n 
+               ) 
+             
+             
+               
+                 n 
+                 2 
+               
+             
+           
+         
+         = 
+         O 
+         ( 
+         log 
+         ⁡ 
+         
+           n 
+         
+         ) 
+           
+       
+     
+     {\displaystyle {\sum _{1}^{n \over 2}O(\log {n})+O(n) \over {n \over 2}}={{n \over 2}O(\log {n})+O(n) \over {n \over 2}}=O(\log {n})\ } 
+   
+ 
+
+ 

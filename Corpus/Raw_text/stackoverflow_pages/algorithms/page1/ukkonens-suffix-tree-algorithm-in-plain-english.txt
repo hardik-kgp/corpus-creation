@@ -1,0 +1,691 @@
+*** ukkonens-suffix-tree-algorithm-in-plain-english ***
+https://stackoverflow.com/questions/9452701/ukkonens-suffix-tree-algorithm-in-plain-english
+
+ I feel a bit thick at this point. I've spent days trying to fully wrap my head around suffix tree construction, but because I don't have a mathematical background, many of the explanations elude me as they start to make excessive use of mathematical symbology. The closest to a good explanation that I've found is  Fast String Searching With Suffix Trees , but he glosses over various points and some aspects of the algorithm remain unclear. 
+ A step-by-step explanation of this algorithm here on Stack Overflow would be invaluable for many others besides me, I'm sure. 
+ For reference, here's Ukkonen's paper on the algorithm:  http://www.cs.helsinki.fi/u/ukkonen/SuffixT1withFigs.pdf 
+ My basic understanding, so far: 
+ 
+ I need to iterate through each prefix P of a given string T 
+ I need to iterate through each suffix S in prefix P and add that to tree 
+ To add suffix S to the tree, I need to iterate through each character in S, with the iterations consisting of either walking down an existing branch that starts with the same set of characters C in S and potentially splitting an edge into descendent nodes when I reach a differing character in the suffix, OR if there was no matching edge to walk down. When no matching edge is found to walk down for C, a new leaf edge is created for C. 
+ 
+ The basic algorithm appears to be O(n 2 ), as is pointed out in most explanations, as we need to step through all of the prefixes, then we need to step through each of the suffixes for each prefix. Ukkonen's algorithm is apparently unique because of the suffix pointer technique he uses, though I think  that  is what I'm having trouble understanding. 
+ I'm also having trouble understanding: 
+ 
+ exactly when and how the "active point" is assigned, used and changed 
+ what is going on with the canonization aspect of the algorithm 
+ Why the implementations I've seen need to "fix" bounding variables that they are using 
+ 
+ 
+ Here is the completed  **C#**
+ source code. It not only works correctly, but supports automatic canonization and renders a nicer looking text graph of the output. Source code and sample output is at: 
+ 
+ **https://gist.github.com/2373868**
+
+ 
+ 
+ **Update 2017-11-04**
+
+ After many years I've found a new use for suffix trees, and have implemented the algorithm in  **JavaScript**
+. Gist is below. It should be bug-free. Dump it into a js file,   from the same location, and then run with node.js to see some colourful output. There's a stripped down version in the same Gist, without any of the debugging code. 
+ 
+ **https://gist.github.com/axefrog/c347bf0f5e0723cbd09b1aaed6ec6fc6**
+
+ 
+ 
+ The following is an attempt to describe the Ukkonen algorithm by first showing what it does when the string is simple (i.e. does not contain any repeated characters), and then extending it to the full algorithm. 
+ **First, a few preliminary statements.**
+
+ 
+ What we are building, is  basically  like a search trie. So there
+is a root node, edges going out of it leading to new nodes, and
+further edges going out of those, and so forth 
+ **But**
+: Unlike in a search trie, the edge labels are not single
+characters. Instead, each edge is labeled using a pair of integers
+ . These are pointers into the text. In this sense, each
+edge carries a string label of arbitrary length, but takes only O(1)
+space (two pointers). 
+ 
+ **Basic principle**
+
+ I would like to first demonstrate how to create the suffix tree of a
+particularly simple string, a string with no repeated characters: 
+ 
+ The algorithm  **works in steps, from left to right**
+. There is  **one step for every character of the string**
+. Each step might involve more than one individual operation, but we will see (see the final observations at the end) that the total number of operations is O(n). 
+ So, we start from the  left , and first insert only the single character
+  by creating an edge from the root node (on the left) to a leaf,
+and labeling it as  , which means the edge represents the
+substring starting at position 0 and ending at  the current end . I
+use the symbol   to mean  the current end , which is at position 1
+(right after  ). 
+ So we have an initial tree, which looks like this: 
+ 
+ And what it means is this: 
+ 
+ Now we progress to position 2 (right after  ).  **Our goal at each step**
+
+is to insert  **all suffixes up to the current position**
+. We do this
+by 
+ 
+ expanding the existing  -edge to  
+ inserting one new edge for  
+ 
+ In our representation this looks like 
+ 
+ And what it means is: 
+ 
+ **We observe**
+ two things: 
+ 
+ The edge representation for   is  **the same**
+ as it used to be
+in the initial tree:  . Its meaning has automatically changed
+because we updated the current position   from 1 to 2. 
+ Each edge consumes O(1) space, because it consists of only two
+pointers into the text, regardless of how many characters it
+represents. 
+ 
+ Next we increment the position again and update the tree by appending
+a   to every existing edge and inserting one new edge for the new
+suffix  . 
+ In our representation this looks like 
+ 
+ And what it means is: 
+ 
+ **We observe:**
+
+ 
+ The tree is the correct suffix tree  up to the current position 
+after each step 
+ There are as many steps as there are characters in the text 
+ The amount of work in each step is O(1), because all existing edges
+are updated automatically by incrementing  , and inserting the
+one new edge for the final character can be done in O(1)
+time. Hence for a string of length n, only O(n) time is required. 
+ 
+ **First extension: Simple repetitions**
+
+ Of course this works so nicely only because our string does not
+contain any repetitions. We now look at a more realistic string: 
+ 
+ It starts with   as in the previous example, then   is repeated
+and followed by  , and then   is repeated followed by  . 
+ **Steps 1 through 3:**
+ After the first 3 steps we have the tree from the previous example: 
+ 
+ **Step 4:**
+ We move   to position 4. This implicitly updates all existing
+edges to this: 
+ 
+ and we need to insert the final suffix of the current step,  , at
+the root. 
+ Before we do this, we introduce  **two more variables**
+ (in addition to
+ ), which of course have been there all the time but we haven't used
+them so far: 
+ 
+ The  **active point**
+, which is a triple
+ 
+ The  , which is an integer indicating how many new suffixes
+we need to insert 
+ 
+ The exact meaning of these two will become clear soon, but for now
+let's just say: 
+ 
+ In the simple   example, the active point was always
+ , i.e.   was the root node,   was specified as the null character  , and   was zero. The effect of this was that the one new edge that
+we inserted in every step was inserted at the root node as a
+freshly created edge. We will see soon why a triple is necessary to
+represent this information. 
+ The   was always set to 1 at the beginning of each
+step. The meaning of this was that the number of suffixes we had to
+actively insert at the end of each step was 1 (always just the
+final character). 
+ 
+ Now this is going to change. When we insert the current final
+character   at the root, we notice that there is already an outgoing
+edge starting with  , specifically:  . Here is what we do in
+such a case: 
+ 
+ We  **do not**
+ insert a fresh edge   at the root node. Instead we
+simply notice that the suffix   is already in our
+tree. It ends in the middle of a longer edge, but we are not
+bothered by that. We just leave things the way they are. 
+ We  **set the active point**
+ to  . That means the active
+point is now somewhere in the middle of outgoing edge of the root node that starts with  , specifically, after position 1 on that edge. We
+notice that the edge is specified simply by its first
+character  . That suffices because there can be  only one  edge
+starting with any particular character (confirm that this is true after reading through the entire description). 
+ We also increment  , so at the beginning of the next step
+it will be 2. 
+ 
+ **Observation:**
+ When the final  **suffix we need to insert is found to
+exist in the tree already**
+, the tree itself is  **not changed**
+ at all (we only update the active point and  ). The tree
+is then not an accurate representation of the suffix tree  up to the
+current position  any more, but it  **contains**
+ all suffixes (because the final
+suffix   is contained  implicitly ). Hence, apart from updating the
+variables (which are all of fixed length, so this is O(1)), there was
+ **no work**
+ done in this step. 
+ **Step 5:**
+ We update the current position   to 5. This
+automatically updates the tree to this: 
+ 
+ And  **because **
+** is 2**
+, we need to insert two final
+suffixes of the current position:   and  . This is basically because: 
+ 
+ The   suffix from the previous step has never been properly
+inserted. So it has  remained , and since we have progressed one
+step, it has now grown from   to  . 
+ And we need to insert the new final edge  . 
+ 
+ In practice this means that we go to the active point (which points to
+behind the   on what is now the   edge), and insert the
+current final character  .  **But:**
+ Again, it turns out that   is
+also already present on that same edge. 
+ So, again, we do not change the tree. We simply: 
+ 
+ Update the active point to   (same node and edge
+as before, but now we point to behind the  ) 
+ Increment the   to 3 because we still have not properly
+inserted the final edge from the previous step, and we don't insert
+the current final edge either. 
+ 
+ To be clear: We had to insert   and   in the current step, but
+because   was already found, we updated the active point and did
+not even attempt to insert  . Why? Because if   is in the tree,
+ **every suffix**
+ of it (including  ) must be in the tree,
+too. Perhaps only  implicitly , but it must be there, because of the
+way we have built the tree so far. 
+ We proceed to  **step 6**
+ by incrementing  . The tree is
+automatically updated to: 
+ 
+ Because  ** is 3**
+, we have to insert  ,   and
+ . The active point tells us where   ends, so we only need to
+jump there and insert the  . Indeed,   is not there yet, so we
+split the   edge and insert an internal node: 
+ 
+ The edge representations are still pointers into the text, so
+splitting and inserting an internal node can be done in O(1) time. 
+ So we have dealt with   and decrement   to 2. Now we
+need to insert the next remaining suffix,  . But before we do that
+we need to update the active point. The rule for this, after splitting
+and inserting an edge, will be called  **Rule 1**
+ below, and it applies whenever the
+  is root (we will learn rule 3 for other cases further
+below). Here is rule 1: 
+ 
+ After an insertion from root, 
+ 
+  remains root 
+  is set to the first character of the new suffix we
+  need to insert, i.e.  
+  is reduced by 1 
+ 
+ 
+ Hence, the new active-point triple   indicates that the
+next insert has to be made at the   edge, behind 1 character,
+i.e. behind  . We can identify the insertion point in O(1) time and
+check whether   is already present or not. If it was present, we
+would end the current step and leave everything the way it is. But  
+is not present, so we insert it by splitting the edge: 
+ 
+ Again, this took O(1) time and we update   to 1 and the
+active point to   as rule 1 states. 
+ But there is one more thing we need to do. We'll call this  **Rule 2:**
+
+ 
+ If we split an edge and insert a new node, and if that is  not the
+  first node  created during the current step, we connect the previously
+  inserted node and the new node through a special pointer, a  **suffix
+  link**
+. We will later see why that is useful. Here is what we get, the
+  suffix link is represented as a dotted edge: 
+ 
+ 
+ We still need to insert the final suffix of the current step,
+ . Since the   component of the active node has fallen
+to 0, the final insert is made at the root directly. Since there is no
+outgoing edge at the root node starting with  , we insert a new
+edge: 
+ 
+ As we can see, in the current step all remaining inserts were made. 
+ We proceed to  **step 7**
+ by setting  =7, which automatically appends the next character,
+ , to all leaf edges, as always. Then we attempt to insert the new final
+character to the active point (the root), and find that it is there
+already. So we end the current step without inserting anything and
+update the active point to  . 
+ In  **step 8**
+,  =8, we append  , and as seen before, this only
+means we update the active point to   and increment   without doing
+anything else, because   is already present.  **However,**
+ we notice (in O(1) time) that the active point
+is now at the end of an edge. We reflect this by re-setting it to
+ . Here, I use   to refer to the
+internal node the   edge ends at. 
+ Then, in  **step **
+**=9**
+, we need to insert 'c' and this will help us to
+understand the final trick: 
+ **Second extension: Using suffix links**
+
+ As always, the   update appends   automatically to the leaf edges
+and we go to the active point to see if we can insert 'c'. It turns
+out 'c' exists already at that edge, so we set the active point to
+ , increment   and do nothing else. 
+ Now in  **step **
+**=10**
+,   is 4, and so we first need to insert
+  (which remains from 3 steps ago) by inserting   at the active
+point. 
+ Attempting to insert   at the active point causes an edge split in
+O(1) time: 
+ 
+ The  , from which the split was initiated, is marked in
+red above. Here is the final rule,  **Rule 3:**
+
+ 
+ After splitting an edge from an   that is not the root
+  node, we follow the suffix link going out of that node, if there is
+  any, and reset the   to the node it points to. If there is
+  no suffix link, we set the   to the root.  
+  and   remain unchanged. 
+ 
+ So the active point is now  , and   is marked in
+red below: 
+ 
+ Since the insertion of   is complete, we decrement   to
+3 and consider the next remaining suffix of the current step,
+ . Rule 3 has set the active point to just the right node and edge
+so inserting   can be done by simply inserting its final character
+  at the active point. 
+ Doing this causes another edge split, and  **because of rule 2**
+, we
+must create a suffix link from the previously inserted node to the new
+one: 
+ 
+ **We observe:**
+ Suffix links enable us to reset the active point so we
+  can make the next  remaining insert  at O(1) effort. Look at the
+  graph above to confirm that indeed node at label   is linked to
+  the node at   (its suffix), and the node at   is linked to
+   . 
+ The current step is not finished yet.   is now 2, and we
+need to follow rule 3 to reset the active point again. Since the
+current   (red above) has no suffix link, we reset to
+root. The active point is now  . 
+ Hence the next insert occurs at the one outgoing edge of the root node
+whose label starts with  :  , behind the first character,
+i.e. behind  . This causes another split: 
+ 
+ And since this involves the creation of a new internal node,we follow
+rule 2 and set a new suffix link from the previously created internal
+node: 
+ 
+ (I am using  Graphviz Dot  for these little
+graphs. The new suffix link caused dot to re-arrange the existing
+edges, so check carefully to confirm that the only thing that was
+inserted above is a new suffix link.) 
+ With this,   can be set to 1 and since the   is
+root, we use rule 1 to update the active point to  . This
+means the final insert of the current step is to insert a single  
+at root: 
+ 
+ That was the final step and we are done. There are number of  **final
+observations**
+, though: 
+ 
+ In each step we move   forward by 1 position. This automatically
+updates all leaf nodes in O(1) time. 
+ But it does not deal with a) any suffixes  remaining  from previous
+steps, and b) with the one final character of the current step. 
+  tells us how many additional inserts we need to
+make. These inserts correspond one-to-one to the final suffixes of
+the string that ends at the current position  . We consider one
+after the other and make the insert.  **Important:**
+ Each insert is
+done in O(1) time since the active point tells us exactly where to
+go, and we need to add only one single character at the active
+point. Why? Because the other characters are  contained implicitly 
+(otherwise the active point would not be where it is). 
+ After each such insert, we decrement   and follow the
+suffix link if there is any. If not we go to root (rule 3). If we
+are at root already, we modify the active point using rule 1. In
+any case, it takes only O(1) time. 
+ If, during one of these inserts, we find that the character we want
+to insert is already there, we don't do anything and end the
+current step, even if  >0. The reason is that any
+inserts that remain will be suffixes of the one we just tried to
+make. Hence they are all  implicit  in the current tree. The fact
+that  >0 makes sure we deal with the remaining suffixes
+later. 
+ What if at the end of the algorithm  >0? This will be the
+case whenever the end of the text is a substring that occurred
+somewhere before. In that case we must append one extra character
+at the end of the string that has not occurred before. In the
+literature, usually the dollar sign   is used as a symbol for
+that.  **Why does that matter?**
+ --> If later we use the completed suffix tree to search for suffixes, we must accept matches only if they  end at a leaf . Otherwise we would get a lot of spurious matches, because there are  many  strings  implicitly  contained in the tree that are not actual suffixes of the main string. Forcing   to be 0 at the end is essentially a way to ensure that all suffixes end at a leaf node.  **However,**
+ if we want to use the tree to search for  general substrings , not only  suffixes  of the main string, this final step is indeed not required, as suggested by the OP's comment below. 
+ So what is the complexity of the entire algorithm? If the text is n
+characters in length, there are obviously n steps (or n+1 if we add
+the dollar sign). In each step we either do nothing (other than
+updating the variables), or we make   inserts, each taking O(1)
+time. Since   indicates how many times we have done nothing
+in previous steps, and is decremented for every insert that we make
+now, the total number of times we do something is exactly n (or
+n+1). Hence, the total complexity is O(n). 
+ However, there is one small thing that I did not properly explain:
+It can happen that we follow a suffix link, update the active
+point, and then find that its   component does not
+work well with the new  . For example, consider a situation
+like this: 
+ 
+ 
+ (The dashed lines indicate the rest of the tree. The dotted line is a
+suffix link.) 
+ Now let the active point be  , so it points to the place
+behind the   on the   edge. Now assume we made the necessary
+updates and now follow the suffix link to update the active point
+according to rule 3. The new active point is  . However,
+the  -edge going out of the green node is  , so it has only 2
+characters. In order to find the correct active point, we obviously
+need to follow that edge to the blue node and reset to  . 
+ In a particularly bad case, the   could be as large as
+ , which can be as large as n. And it might very well happen
+that to find the correct active point, we need not only jump over one
+internal node, but perhaps many, up to n in the worst case. Does that
+mean the algorithm has a hidden O(n 2 ) complexity, because
+in each step   is generally O(n), and the post-adjustments
+to the active node after following a suffix link could be O(n), too? 
+ No. The reason is that if indeed we have to adjust the active point
+(e.g. from green to blue as above), that brings us to a new node that
+has its own suffix link, and   will be reduced. As
+we follow down the chain of suffix links we make the remaining inserts,   can only
+decrease, and the number of active-point adjustments we can make on
+the way can't be larger than   at any given time. Since
+  can never be larger than  , and  
+is O(n) not only in every single step, but the total sum of increments
+ever made to   over the course of the entire process is
+O(n) too, the number of active point adjustments is also bounded by
+O(n). 
+ 
+ I tried to implement the Suffix Tree with the approach given in jogojapan's answer, but it didn't work for some cases due to wording used for the rules. Moreover, I've mentioned that nobody managed to implement an absolutely correct suffix tree using this approach. Below I will write an "overview" of jogojapan's answer with some modifications to the rules. I will also describe the case when we forget to create  **important**
+ suffix links. 
+ **Additional variables used**
+
+ 
+ **active point**
+ - a triple (active_node; active_edge; active_length), showing from where we must start inserting a new suffix. 
+ **remainder**
+ - shows the number of suffixes we must add  explicitly . For instance, if our word is 'abcaabca', and remainder = 3, it means we must process 3 last suffixes:  **bca**
+,  **ca**
+ and  **a**
+. 
+ 
+ Let's use a concept of an  **internal node**
+ - all the nodes, except the  root  and the  leafs  are  **internal nodes**
+. 
+ **Observation 1**
+
+ When the final suffix we need to insert is found to exist in the tree already, the tree itself is not changed at all (we only update the   and  ). 
+ **Observation 2**
+
+ If at some point   is greater or equal to the length of current edge ( ), we move our   down until   is strictly greater than  . 
+ Now, let's redefine the rules: 
+ **Rule 1**
+
+ 
+ If after an insertion from the  active node  =  root , the  active length  is greater than 0, then: 
+ 
+ active node  is not changed 
+ active length  is decremented 
+ active edge  is shifted right (to the first character of the next suffix we must insert) 
+ 
+ 
+ **Rule 2**
+
+ 
+ If we create a new  internal node   **OR**
+ make an inserter from an  internal node , and this is not the first  **SUCH**
+  internal node  at current step, then we link the previous  **SUCH**
+ node with  **THIS**
+ one through a  suffix link . 
+ 
+ This definition of the   is different from jogojapan', as here we take into account not only the  newly created  internal nodes, but also the internal nodes, from which we make an insertion. 
+ **Rule 3**
+
+ 
+ After an insert from the  active node  which is not the  root  node, we must follow the suffix link and set the  active node  to the node it points to. If there is no a suffix link, set the  active node  to the  root  node. Either way,  active edge  and  active length  stay unchanged. 
+ 
+ In this definition of   we also consider the inserts of leaf nodes (not only split-nodes). 
+ **And finally, Observation 3:**
+
+ When the symbol we want to add to the tree is already on the edge, we, according to  , update only   and  , leaving the tree unchanged.  **BUT**
+ if there is an  internal node  marked as  needing suffix link , we must connect that node with our current   through a suffix link. 
+ Let's look at the example of a suffix tree for  **cdddcdc**
+ if we add a suffix link in such case and if we don't: 
+ 
+ If we  **DON'T**
+ connect the nodes through a suffix link: 
+ 
+ before adding the last letter  **c**
+: 
+ 
+ 
+ 
+ after adding the last letter  **c**
+: 
+ 
+ 
+ If we  **DO**
+ connect the nodes through a suffix link: 
+ 
+ before adding the last letter  **c**
+: 
+ 
+ 
+ 
+ after adding the last letter  **c**
+: 
+ 
+ 
+ 
+ Seems like there is no significant difference: in the second case there are two more suffix links. But these suffix links are  correct , and one of them - from the blue node to the red one - is very  **important**
+ for our approach with  **active point**
+. The problem is that if we don't put a suffix link here, later, when we add some new letters to the tree, we might omit adding some nodes to the tree due to the  , because, according to it, if there's no a suffix link, then we must put the   to the root. 
+ When we were adding the last letter to the tree, the red node had  **already existed**
+ before we made an insert from the blue node (the edge labled  **'c'**
+). As there was an insert from the blue node, we mark it as  needing a suffix link . Then, relying on the  **active point**
+ approach, the   was set to the red node. But we don't make an insert from the red node, as the letter  **'c'**
+ is already on the edge. Does it mean that the blue node must be left without a suffix link? No, we must connect the blue node with the red one through a suffix link. Why is it correct? Because the  **active point**
+ approach guarantees that we get to a right place, i.e., to the next place where we must process an insert of a  **shorter**
+ suffix. 
+ Finally, here are my implementations of the Suffix Tree: 
+ 
+ Java 
+ C++ 
+ 
+ Hope that this "overview" combined with jogojapan's detailed answer will help somebody to implement his own Suffix Tree. 
+ 
+ Thanks for the well explained tutorial by  **@jogojapan**
+, I implemented the algorithm in Python.  
+ A couple of minor problems mentioned by @jogojapan turns out to be more  **sophisticated**
+ than I have expected, and need to be treated very carefully. It cost me several days to get my implementation  **robust enough**
+ (I suppose). Problems and solutions are listed below: 
+ 
+ **End with **
+ It turns out this situation can also happen  **during the unfolding step**
+, not just the end of the entire algorithm. When that happens, we can leave the remainder, actnode, actedge, and actlength  **unchanged**
+, end the current unfolding step, and start another step by either keep folding or unfolding depending on if the next char in the original string is on the current path or not. 
+ **Leap Over Nodes:**
+ When we follow a suffix link, update the active point, and then find that its active_length component does not work well with the new active_node. We have to  **move forward**
+ to the right place to split, or insert a leaf. This process might be  **not that straightforward**
+ because during the moving the actlength and actedge keep changing all the way, when you have to move back to the  **root node**
+, the  **actedge**
+ and  **actlength**
+ could be  **wrong**
+ because of those moves. We need additional variable(s) to keep that information. 
+ 
+ 
+ The other two problems have somehow been pointed out by  **@managonov**
+
+ 
+ **Split Could Degenerate**
+ When trying to split an edge, sometime you'll find the split operation is right on a node. That case we only need add a new leaf to that node, take it as a standard edge split operation, which means the suffix links if there's any, should be maintained correspondingly. 
+ **Hidden Suffix Links**
+ There is another special case which is incurred by  problem 1  and  problem 2 . Sometimes we need to hop over several nodes to the right point for split, we might  **surpass**
+ the right point if we move by comparing the remainder string and the path labels. That case the suffix link will be neglected unintentionally, if there should be any. This could be avoided by  **remembering the right point**
+ when moving forward. The suffix link should be maintained if the split node already exists, or even the  problem 1  happens during a unfolding step. 
+ 
+ Finally, my implementation in  **Python**
+ is as follows: 
+ 
+ **Python**
+  
+ 
+ 
+ **Tips:**
+  It includes a naive  **tree printing**
+ function in the code above, which is very important while debugging . It saved me a lot of
+  time and is convenient for locating special cases. 
+ 
+ 
+ @jogojapan you brought awesome explanation and visualisation. But as @makagonov mentioned it's missing some rules regarding setting suffix links. It's visible in nice way when going step by step on  http://brenden.github.io/ukkonen-animation/  through word 'aabaaabb'. When you go from step 10 to step 11, there is no suffix link from node 5 to node 2 but active point suddenly moves there. 
+ @makagonov since I live in Java world I also tried to follow your implementation to grasp ST building workflow but it was hard to me because of: 
+ 
+ combining edges with nodes 
+ using index pointers instead of references 
+ breaks statements; 
+ continue statements; 
+ 
+ So I ended up with such implementation in Java which I hope reflects all steps in clearer way and will reduce learning time for other Java people: 
+ 
+ 
+ Apologies if my answer seems redundant, but I implemented Ukkonen's algorithm recently, and found myself struggling with it for days; I had to read through multiple papers on the subject to understand the why and how of some core aspects of the algorithm. 
+ I found the 'rules' approach of previous answers unhelpful for understanding the underlying  reasons , so I've written everything below focusing solely on the pragmatics. If you've struggled with following other explanations, just like I did, perhaps my supplemental explanation will make it 'click' for you. 
+ I published my C# implementation here:  https://github.com/baratgabor/SuffixTree 
+ Please note that I'm not an expert on this subject, so the following sections may contain inaccuracies (or worse). If you encounter any, feel free to edit. 
+ **Prerequisites**
+
+ The starting point of the following explanation assumes you're familiar with the content and use of suffix trees, and the characteristics of Ukkonen's algorithm, e.g. how you're extending the suffix tree character by character, from start to end. Basically, I assume you've read some of the other explanations already.  
+ (However, I did have to add some basic narrative for the flow, so the beginning might indeed feel redundant.) 
+ The most interesting part is the  explanation on the difference between using suffix links and rescanning from the root . This is what gave me a lot of bugs and headaches in my implementation. 
+ **Open-ended leaf nodes and their limitations**
+
+ I'm sure you already know that the most fundamental 'trick' is to realize we can just leave the end of the suffixes 'open', i.e. referencing the current length of the string instead of setting the end to a static value. This way when we add additional characters, those characters will be implicitly added to all suffix labels, without having to visit and update all of them. 
+ But this open ending of suffixes – for obvious reasons – works only for nodes that represent the end of the string, i.e. the leaf nodes in the tree structure. The branching operations we execute on the tree (the addition of new branch nodes and leaf nodes) won't propagate automatically everywhere they need to. 
+ It's probably elementary, and wouldn't require mention, that repeated substrings don't appear explicitly in the tree, since the tree already contains these by virtue of them being repetitions; however, when the repetitive substring ends by encountering a non-repeating character, we need to create a branching at that point to represent the divergence from that point onwards. 
+ For example in case of the string  'ABCXABCY'  (see below), a branching to  X  and  Y  needs to be added to three different suffixes,  ABC ,  BC  and  C ; otherwise it wouldn't be a valid suffix tree, and we couldn't find all substrings of the string by matching characters from the root downwards. 
+ Once again, to emphasize –  any  operation we execute on a suffix in the tree needs to be reflected by its consecutive suffixes as well (e.g. ABC > BC > C), otherwise they simply cease to be valid suffixes. 
+ 
+ But even if we accept that we have to do these manual updates, how do we know how many suffixes need to be updated? Since, when we add the repeated character  A  (and the rest of the repeated characters in succession), we have no idea yet when/where do we need to split the suffix into two branches. The need to split is ascertained only when we encounter the first non-repeating character, in this case  Y  (instead of the  X  that already exists in the tree). 
+ What we can do is to match the longest repeated string we can, and count how many of its suffixes we need to update later. This is what  'remainder'  stands for. 
+ **The concept of 'remainder' and 'rescanning'**
+
+ The variable   tells us how many repeated characters we added implicitly, without branching; i.e. how many suffixes we need to visit to repeat the branching operation once we found the first character that we cannot match. This essentially equals to how many characters 'deep' we are in the tree from its root. 
+ So, staying with the previous example of the string  ABCXABCY , we match the repeated  ABC  part 'implicitly', incrementing   each time, which results in remainder of 3. Then we encounter the non-repeating character  'Y' . Here we split the previously added  ABCX  into  ABC -> X  and  ABC -> Y . Then we decrement   from 3 to 2, because we already took care of the  ABC  branching. Now we repeat the operation by matching the last 2 characters –  BC  – from the root to reach the point where we need to split, and we split  BCX  too into  BC -> X  and  BC -> Y . Again, we decrement   to 1, and repeat the operation; until the   is 0. Lastly, we need to add the current character ( Y ) itself to the root as well. 
+ This operation, following the consecutive suffixes from the root simply to reach the point where we need to do an operation is what's called  'rescanning'  in Ukkonen's algorithm, and typically this is the most expensive part of the algorithm. Imagine a longer string where you need to 'rescan' long substrings, across many dozens of nodes (we'll discuss this later), potentially thousands of times. 
+ As a solution, we introduce what we call  'suffix links' . 
+ **The concept of 'suffix links'**
+
+ Suffix links basically point to the positions we'd normally have to  'rescan'  to, so instead of the expensive rescan operation we can simply jump to the linked position, do our work, jump to the next linked position, and repeat – until there are no more positions to update. 
+ Of course one big question is how to add these links. The existing answer is that we can add the links when we insert new branch nodes, utilizing the fact that, in each extension of the tree, the branch nodes are naturally created one after another in the exact order we'd need to link them together. Though, we have to link from the last created branch node (the longest suffix) to the previously created one, so we need to cache the last we create, link that to the next one we create, and cache the newly created one. 
+ One consequence is that we actually often don't have suffix links to follow, because the given branch node was just created. In these cases we have to still fall back to the aforementioned  'rescanning'  from root. This is why, after an insertion, you're instructed to either use the suffix link, or jump to root. 
+ (Or alternatively, if you're storing parent pointers in the nodes, you can try to follow the parents, check if they have a link, and use that. I found that this is very rarely mentioned, but  the suffix link usage is not set in stones.  There are multiple possible approaches, and if you understand the underlying mechanism you can implement one that fits your needs the best.) 
+ **The concept of 'active point'**
+
+ So far we discussed multiple efficient tools for building the tree, and vaguely referred to traversing over multiple edges and nodes, but haven't yet explored the corresponding consequences and complexities. 
+ The previously explained concept of  'remainder'  is useful for keeping track where we are in the tree, but we have to realize it doesn't store enough information. 
+ Firstly, we always reside on a specific edge of a node, so we need to store the edge information. We shall call this  'active edge' . 
+ Secondly, even after adding the edge information, we still have no way to identify a position that is farther down in the tree, and not directly connected to the  root  node. So we need to store the node as well. Let's call this  'active node' . 
+ Lastly, we can notice that the  'remainder'  is inadequate to identify a position on an edge that is not directly connected to root, because  'remainder'  is the length of the entire route; and we probably don't want to bother with remembering and subtracting the length of the previous edges. So we need a representation that is essentially the  remainder on the current edge . This is what we call  'active length' . 
+ This leads to what we call  'active point'  – a package of three variables that contain all the information we need to maintain about our position in the tree: 
+ 
+ You can observe on the following image how the matched route of  ABCABD  consists of 2 characters on the edge  AB  (from  root ), plus 4 characters on the edge  CABDABCABD  (from node 4) – resulting in a  'remainder'  of 6 characters. So, our current position can be identified as  Active Node 4, Active Edge C, Active Length 4 . 
+ 
+ Another important role of the  'active point'  is that it provides an abstraction layer for our algorithm, meaning that parts of our algorithm can do their work on the  'active point' , irrespective of whether that active point is in the root or anywhere else. This makes it easy to implement the use of suffix links in our algorithm in a clean and straight-forward way. 
+ **Differences of rescanning vs using suffix links**
+
+ Now, the tricky part, something that – in my experience – can cause plenty of bugs and headaches, and is poorly explained in most sources, is the difference in processing the suffix link cases vs the rescan cases. 
+ Consider the following example of the string  'AAAABAAAABAAC' : 
+ 
+ You can observe above how the  'remainder'  of 7 corresponds to the total sum of characters from root, while  'active length'  of 4 corresponds to the sum of matched characters from the active edge of the active node. 
+ Now, after executing a branching operation at the active point, our active node might or might not contain a suffix link. 
+ **If a suffix link is present:**
+ We only need to process the  'active length'  portion. The  'remainder'  is irrelevant, because  the node where we jump to via the suffix link already encodes the correct 'remainder' implicitly , simply by virtue of being in the tree where it is. 
+ **If a suffix link is NOT present:**
+ We need to  'rescan'  from zero/root, which means processing the whole suffix from the beginning. To this end we have to use the whole  'remainder'  as the basis of rescanning. 
+ **Example comparison of processing with and without a suffix link**
+
+ Consider what happens at the next step of the example above. Let's compare how to achieve the same result – i.e. moving to the next suffix to process – with and without a suffix link. 
+ **Using **
+**'suffix link'**
+
+ 
+ Notice that if we use a suffix link, we are automatically 'at the right place'. Which is often not strictly true due to the fact that the  'active length'  can be 'incompatible' with the new position. 
+ In the case above, since the  'active length'  is 4, we're working with the suffix ' ABAA' , starting at the linked Node 4. But after finding the edge that corresponds to the first character of the suffix ( 'A' ), we notice that our  'active length'  overflows this edge by 3 characters. So we jump over the full edge, to the next node, and decrement  'active length'  by the characters we consumed with the jump. 
+ Then, after we found the next edge  'B' , corresponding to the decremented suffix  'BAA ', we finally note that the edge length is larger than the remaining  'active length'  of 3, which means we found the right place. 
+ Please note that it seems this operation is usually not referred to as 'rescanning', even though to me it seems it's the direct equivalent of rescanning, just with a shortened length and a non-root starting point. 
+ **Using **
+**'rescan'**
+
+ 
+ Notice that if we use a traditional 'rescan' operation (here pretending we didn't have a suffix link), we start at the top of the tree, at root, and we have to work our way down again to the right place, following along the entire length of the current suffix. 
+ The length of this suffix is the  'remainder'  we discussed before. We have to consume the entirety of this remainder, until it reaches zero. This might (and often does) include jumping through multiple nodes, at each jump decreasing the remainder by the length of the edge we jumped through. Then finally, we reach an edge that is longer than our remaining  'remainder' ; here we set the active edge to the given edge, set  'active length'  to remaining  'remainder ', and we're done. 
+ Note, however, that the actual  'remainder'  variable needs to be preserved, and only decremented after each node insertion. So what I described above assumed using a separate variable initialized to  'remainder' . 
+ **Notes on suffix links & rescans**
+
+ 1) Notice that both methods lead to the same result. Suffix link jumping is, however, significantly faster in most cases; that's the whole rationale behind suffix links. 
+ 2) The actual algorithmic implementations don't need to differ. As I mentioned above, even in the case of using the suffix link, the  'active length'  is often not compatible with the linked position, since that branch of the tree might contain additional branching. So essentially you just have to use  'active length'  instead of  'remainder' , and execute the same rescanning logic until you find an edge that is shorter than your remaining suffix length. 
+ 3) One important remark pertaining to performance is that there is no need to check each and every character during rescanning. Due to the way a valid suffix tree is built, we can safely assume that the characters match. So you're mostly counting the lengths, and the only need for character equivalence checking arises when we jump to a new edge, since edges are identified by their first character (which is always unique in the context of a given node). This means that 'rescanning' logic is different than full string matching logic (i.e. searching for a substring in the tree). 
+ 4) The original suffix linking described here is just  one of the possible approaches . For example  NJ Larsson et al.  names this approach as  Node-Oriented Top-Down , and compares it to  Node-Oriented Bottom-Up  and two  Edge-Oriented  varieties. The different approaches have different typical and worst case performances, requirements, limitations, etc., but it generally seems that  Edge-Oriented  approaches are an overall improvement to the original. 
+ 
+ My intuition is as follows: 
+ After k iterations of the main loop you have constructed a suffix tree which contains all suffixes of the complete string that start in the first k characters. 
+ At the start, this means the suffix tree contains a single root node that represents the entire string (this is the only suffix that starts at 0). 
+ After len(string) iterations you have a suffix tree that contains all suffixes. 
+ During the loop the key is the active point.  My guess is that this represents the deepest point in the suffix tree that corresponds to a proper suffix of the first k characters of the string. (I think proper means that the suffix cannot be the entire string.) 
+ For example, suppose you have seen characters 'abcabc'.  The active point would represent the point in the tree corresponding to the suffix 'abc'. 
+ The active point is represented by (origin,first,last).
+This means that you are currently at the point in the tree that you get to by starting at node origin and then feeding in the characters in string[first:last] 
+ When you add a new character you look to see whether the active point is still in the existing tree.  If it is then you are done.
+Otherwise you need to add a new node to the suffix tree at the active point, fallback to the next shortest match, and check again. 
+ Note 1:
+The suffix pointers give a link to the next shortest match for each node. 
+ Note 2:
+When you add a new node and fallback you add a new suffix pointer for the new node.
+The destination for this suffix pointer will be the node at the shortened active point.
+This node will either already exist, or be created on the next iteration of this fallback loop. 
+ Note 3: The canonization part simply saves time in checking the active point.
+For example, suppose you always used origin=0, and just changed first and last.
+To check the active point you would have to follow the suffix tree each time along all the intermediate nodes.
+It makes sense to cache the result of following this path by recording just the distance from the last node. 
+ Can you give a code example of what you mean by "fix" bounding variables? 
+ Health warning: I also found this algorithm particularly hard to understand so please realise that this intuition is likely to be incorrect in all important details... 
+ 
+ Hi i have tried to implement the above explained implementation in ruby , please check it out.
+it seems to work fine. 
+ the only difference in the implementation is that , i have tried to use the edge object instead of just using symbols. 
+ its also present at  https://gist.github.com/suchitpuri/9304856 
+ 
+ 

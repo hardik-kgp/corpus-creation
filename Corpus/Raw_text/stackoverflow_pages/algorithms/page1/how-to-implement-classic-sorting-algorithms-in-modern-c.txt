@@ -1,0 +1,188 @@
+*** how-to-implement-classic-sorting-algorithms-in-modern-c ***
+https://stackoverflow.com/questions/24650626/how-to-implement-classic-sorting-algorithms-in-modern-c
+
+ The   algorithm (and its cousins   and  ) from the C++ Standard Library is in most implementations  a complicated and hybrid amalgamation of more elementary sorting algorithms , such as selection sort, insertion sort, quick sort, merge sort, or heap sort. 
+ There are many questions here and on sister sites such as  https://codereview.stackexchange.com/  related to bugs, complexity and other aspects of implementations of these classic sorting algorithms. Most of the offered implementations consist of raw loops, use index manipulation and concrete types, and are generally non-trivial to analyse in terms of correctness and efficiency. 
+ **Question**
+: how can the above mentioned classic sorting algorithms be implemented using modern C++? 
+ 
+ **no raw loops**
+, but combining the Standard Library's algorithmic building blocks from  
+ **iterator interface**
+ and use of  **templates**
+ instead of index manipulation and concrete types 
+ **C++14 style**
+, including the full Standard Library, as well as syntactic noise reducers such as  , template aliases, transparent comparators and polymorphic lambdas. 
+ 
+ :  
+ 
+ for further references on implementations of sorting algorithms see  Wikipedia ,  Rosetta Code  or  http://www.sorting-algorithms.com/   
+ according to  **Sean Parent's conventions**
+ (slide 39), a raw loop is a  -loop longer than composition of two functions with an operator. So   or   or   are not raw loops, and neither are the loops in   and   below. 
+ I follow Scott Meyers's terminology to denote the current C++1y already as C++14, and to denote C++98 and C++03 both as C++98, so don't flame me for that. 
+ As suggested in the comments by @Mehrdad, I provide four implementations as a Live Example at the end of the answer: C++14, C++11, C++98 and Boost and C++98.  
+ The answer itself is presented in terms of C++14 only. Where relevant, I denote the syntactic and library differences where the various language versions differ. 
+ 
+ 
+ **Algorithmic building blocks**
+
+ We begin by assembling the algorithmic building blocks from the Standard Library: 
+ 
+ 
+ the iterator tools such as non-member   /   as well as with   are only available as of C++11 and beyond. For C++98, one needs to write these himself. There are substitutes from Boost.Range in   /  , and from Boost.Utility in  .  
+ the   algorithm is only available for C++11 and beyond. For C++98, this can be implemented in terms of   and a hand-written function object. Boost.Algorithm also provides a   as a substitute. 
+ the   algorithm is only available for C++11 and beyond. 
+ 
+ **Syntactical goodies**
+
+ C++14 provides  **transparent comparators**
+ of the form   that act polymorphically on their arguments. This avoids having to provide an iterator's type. This can be used in combination with C++11's  **default function template arguments**
+ to create  **a single overload**
+ for sorting algorithms that take   as comparison and those that have a user-defined comparison function object. 
+ 
+ In C++11, one can define a reusable  **template alias**
+ to extract an iterator's value type which adds minor clutter to the sort algorithms' signatures: 
+ 
+ In C++98, one needs to write two overloads and use the verbose   syntax 
+ 
+ 
+ Another syntactical nicety is that C++14 facilitates wrapping user-defined comparators through  **polymorphic lambdas**
+ (with   parameters that are deduced like function template arguments).      
+ C++11 only has monomorphic lambdas, that require the use of the above template alias  .  
+ In C++98, one either needs to write a standalone function object or resort to the verbose   /   /   type of syntax.  
+ Boost.Bind improves this with   and   /   placeholder syntax. 
+ C++11 and beyond also have  , whereas C++98 needs   with a   around a function object. 
+ 
+ **C++ Style**
+
+ There is no generally acceptable C++14 style yet. For better or for worse, I closely follow Scott Meyers's  **draft Effective Modern C++**
+ and Herb Sutter's  **revamped GotW**
+. I use the following style recommendations: 
+ 
+ Herb Sutter's  **"Almost Always Auto"**
+ and Scott Meyers's  **"Prefer auto to specific type declarations"**
+ recommendation, for which the brevity is unsurpassed, although its clarity is sometimes  **disputed**
+. 
+ Scott Meyers's  **"Distinguish **
+** and **
+** when creating objects"**
+ and consistently choose braced-initialization   instead of the good old parenthesized initialization   (in order to side-step all most-vexing-parse issues in generic code). 
+ Scott Meyers's  **"Prefer alias declarations to typedefs"**
+. For templates this is a must anyway, and using it everywhere instead of   saves time and adds consistency. 
+ I use a   pattern in some places, in order to allow for loop invariant checking for already sorted sub-ranges. In production code, the use of   and a   somewhere inside the loop might be slightly better. 
+ 
+ **Selection sort**
+
+ **Selection sort**
+ does not adapt to the data in any way, so its runtime is always  . However, selection sort has the property of  **minimizing the number of swaps**
+. In applications where the cost of swapping items is high, selection sort very well may be the algorithm of choice. 
+ To implement it using the Standard Library, repeatedly use   to find the remaining minimum element, and   to swap it into place: 
+ 
+ Note that   has the already processed range   sorted as its loop invariant. The minimal requirements are  **forward iterators**
+, compared to  's random access iterators. 
+ **Details omitted**
+: 
+ 
+ selection sort can be optimized with an early test   (or for forward / bidirectional iterators:  ). 
+ for  **bidirectional iterators**
+, the above test can be combined with a loop over the interval  , because the last element is guaranteed to be the minimal remaining element and doesn't require a swap. 
+ 
+ **Insertion sort**
+
+ Although it is one of the elementary sorting algorithms with   worst-case time,  **insertion sort**
+ is the algorithm of choice either when the data is nearly sorted (because it is  **adaptive**
+) or when the problem size is small (because it has low overhead). For these reasons, and because it is also  **stable**
+, insertion sort is often used as the recursive base case (when the problem size is small) for higher overhead divide-and-conquer sorting algorithms, such as merge sort or quick sort. 
+ To implement   with the Standard Library, repeatedly use   to find the location where the current element needs to go, and use   to shift the remaining elements upward in the input range: 
+ 
+ Note that   has the already processed range   sorted as its loop invariant. Insertion sort also works with forward iterators. 
+ **Details omitted**
+: 
+ 
+ insertion sort can be optimized with an early test   (or for forward / bidirectional iterators:  ) and a loop over the interval  , because the first element is guaranteed to be in place and doesn't require a rotate. 
+ for  **bidirectional iterators**
+, the binary search to find the insertion point can be replaced with a  **reverse linear search**
+ using the Standard Library's   algorithm.  
+ 
+ Four  **Live Examples**
+ ( **C++14**
+,  **C++11**
+,  **C++98 and Boost**
+,  **C++98**
+) for the fragment below: 
+ 
+ 
+ For random inputs this gives   comparisons, but this improves to   comparisons for almost sorted inputs. The binary search always uses   comparisons.  
+ For small input ranges, the better memory locality (cache, prefetching) of a linear search might also dominate a binary search (one should test this, of course). 
+ 
+ **Quick sort**
+
+ When carefully implemented,  **quick sort**
+ is robust and has   expected complexity, but with   worst-case complexity that can be triggered with adversarially chosen input data. When a stable sort is not needed, quick sort is an excellent general-purpose sort.  
+ Even for the simplest versions, quick sort is quite a bit more complicated to implement using the Standard Library than the other classic sorting algorithms. The approach below uses a few iterator utilities to locate the  **middle element**
+ of the input range   as the pivot, then use two calls to   (which are  ) to three-way partition the input range into segments of elements that are smaller than, equal to, and larger than the selected pivot, respectively. Finally the two outer segments with elements smaller than and larger than the pivot are recursively sorted: 
+ 
+ However, quick sort is rather tricky to get correct and efficient, as each of the above steps has to be carefully checked and optimized for production level code. In particular, for   complexity, the pivot has to result into a balanced partition of the input data, which cannot be guaranteed in general for an   pivot, but which can be guaranteed if one sets the pivot as the   median of the input range. 
+ **Details omitted**
+: 
+ 
+ the above implementation is particularly vulnerable to special inputs, e.g. it has   complexity for the " **organ pipe**
+" input   (because the middle is always larger than all other elements). 
+ **median-of-3**
+ pivot selection from  **randomly chosen elements**
+ from the input range guards against almost sorted inputs for which the complexity would otherwise deteriorate to  . 
+ **3-way partitioning**
+ (separating elements smaller than, equal to and larger than the pivot) as shown by the two calls to   is not the most efficient   algorithm to achieve this result.  
+ for  **random access iterators**
+, a guaranteed   complexity can be achieved through  **median pivot selection**
+ using  , followed by recursive calls to   and  .  
+ this guarantee comes at a cost, however, because the constant factor of the   complexity of   can be more expensive than that of the   complexity of a median-of-3 pivot followed by an   call to   (which is a cache-friendly single forward pass over the data). 
+ 
+ **Merge sort**
+
+ If using   extra space is of no concern, then  **merge sort**
+ is an excellent choice: it is the only  **stable**
+   sorting algorithm.  
+ It is simple to implement using Standard algorithms: use a few iterator utilities to locate the middle of the input range   and combine two recursively sorted segments with a  : 
+ 
+ Merge sort requires bidirectional iterators, the bottleneck being the  . Note that when sorting linked lists, merge sort requires only   extra space (for recursion). The latter algorithm is implemented by   in the Standard Library.  
+ **Heap sort**
+
+ **Heap sort**
+ is simple to implement, performs an   in-place sort, but is not stable. 
+ The first loop,   "heapify" phase, puts the array into heap order. The second loop, the  ) "sortdown" phase, repeatedly extracts the maximum and restores heap order. The Standard Library makes this extremely straightforward: 
+ 
+ In case you consider it "cheating" to use   and  , you can go one level deeper and write those functions yourself in terms of   and  , respectively: 
+ 
+ The Standard Library specifies both   and   as complexity  . Note however that the outer loop over the range   results in   complexity for  , whereas   has only   complexity. For the overall   complexity of   it doesn't matter. 
+ **Details omitted**
+:  ** implementation of **
+
+ **Testing**
+
+ Here are four  **Live Examples**
+ ( **C++14**
+,  **C++11**
+,  **C++98 and Boost**
+,  **C++98**
+) testing all five algorithms on a variety of inputs (not meant to be exhaustive or rigorous). Just note the huge differences in the LOC: C++11/C++14 need around 130 LOC, C++98 and Boost 190 (+50%) and C++98 more than 270 (+100%). 
+ 
+ Another small and rather elegant one  originally found on code review . I thought it was worth sharing. 
+ **Counting sort**
+
+ While it is rather specialized,  counting sort  is a simple integer sorting algorithm and can often be really fast provided the values of the integers to sort are not too far apart. It's probably ideal if one ever needs to sort a collection of one million integers known to be between 0 and 100 for example. 
+ To implement a very simple counting sort that works with both signed and unsigned integers, one needs to find the smallest and greatest elements in the collection to sort; their difference will tell the size of the array of counts to allocate.  Then, a second pass through the collection is done to count the number of occurrences of every element. Finally, we write back the required number of every integer back to the original collection. 
+ 
+ While it is only useful when the range of the integers to sort is known to be small (generally not larger than the size of the collection to sort), making counting sort more generic would make it slower for its best cases. If the range is not known to be small, another algorithm such a  radix sort ,  ska_sort  or  spreadsort  can be used instead. 
+ **Details omitted**
+: 
+ 
+ We could have passed the bounds of the range of values accepted by the algorithm as parameters to totally get rid of the first   pass through the collection. This will make the algorithm even faster when a usefully-small range limit is known by other means.  (It doesn't have to be exact; passing a constant 0 to 100 is still  much  better than an extra pass over a million elements to find out that the true bounds are 1 to 95.  Even 0 to 1000 would be worth it; the extra elements are written once with zero and read once). 
+ Growing   on the fly is another way to avoid a separate first pass.  Doubling the   size each time it has to grow gives amortized O(1) time per sorted element (see hash table insertion cost analysis for the proof that exponential grown is the key).    Growing at the end for a new   is easy with   to add new zeroed elements. 
+Changing   on the fly and inserting new zeroed elements at the front can be done with   after growing the vector.  Then   to zero the new elements. 
+ The   increment loop is a histogram.  If the data is likely to be highly repetitive, and the number of bins is small, it can be worth  unrolling over multiple arrays  to reduce the serializing data dependency bottleneck of store/reload to the same bin.  This means more counts to zero at the start, and more to loop over at the end, but should be worth it on most CPUs for our example of millions of 0 to 100 numbers, especially if the input might already be (partially) sorted and have long runs of the same number. 
+ In the algorithm above, we use a   check to return early when every element has the same value (in which case the collection is sorted). It is actually possible to instead fully check whether the collection is already sorted while finding the extreme values of a collection with no additional time wasted (if the first pass is still memory bottlenecked with the extra work of updating min and max). However such an algorithm does not exist in the standard library and writing one would be more tedious than writing the rest of counting sort itself. It is left as an exercise for the reader. 
+ Since the algorithm only works with integer values, static assertions could be used to prevent users from making obvious type mistakes. In some contexts, a substitution failure with   might be preferred.  
+ While modern C++ is cool, future C++ could be even cooler:  structured bindings  and some parts of the  Ranges TS  would make the algorithm even cleaner. 
+ 
+ 

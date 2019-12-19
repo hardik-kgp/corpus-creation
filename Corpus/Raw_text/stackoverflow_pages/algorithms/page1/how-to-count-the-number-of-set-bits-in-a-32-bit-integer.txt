@@ -1,0 +1,303 @@
+*** how-to-count-the-number-of-set-bits-in-a-32-bit-integer ***
+https://stackoverflow.com/questions/109023/how-to-count-the-number-of-set-bits-in-a-32-bit-integer
+
+ 8 bits representing the number 7 look like this: 
+ 
+ Three bits are set.    
+ What are algorithms to determine the number of set bits in a 32-bit integer? 
+ 
+ This is known as the ' Hamming Weight ', 'popcount' or 'sideways addition'. 
+ The 'best' algorithm really depends on which CPU you are on and what your usage pattern is. 
+ Some CPUs have a single built-in instruction to do it and others have parallel instructions which act on bit vectors. The parallel instructions (like x86's  , on CPUs where it's supported) will almost certainly be fastest.  Some other architectures may have a slow instruction implemented with a microcoded loop that tests a bit per cycle ( citation needed ). 
+ A pre-populated table lookup method can be very fast if your CPU has a large cache and/or you are doing lots of these instructions in a tight loop. However it can suffer because of the expense of a 'cache miss', where the CPU has to fetch some of the table from main memory. 
+ If you know that your bytes will be mostly 0's or mostly 1's then there are very efficient algorithms for these scenarios. 
+ I believe a very good general purpose algorithm is the following, known as 'parallel' or 'variable-precision SWAR algorithm'. I have expressed this in a C-like pseudo language, you may need to adjust it to work for a particular language (e.g. using uint32_t for C++ and >>> in Java): 
+ 
+ This has the best worst-case behaviour of any of the algorithms discussed, so will efficiently deal with any usage pattern or values you throw at it. 
+ 
+ This bitwise-SWAR algorithm could parallelize to be done in multiple vector elements at once, instead of in a single integer register, for a speedup on CPUs with SIMD but no usable popcount instruction.  (e.g. x86-64 code that has to run on any CPU, not just Nehalem or later.) 
+ However, the best way to use vector instructions for popcount is usually by using a variable-shuffle to do a table-lookup for 4 bits at a time of each byte in parallel.  (The 4 bits index a 16 entry table held in a vector register). 
+ On Intel CPUs, the hardware 64bit popcnt instruction can outperform an  SSSE3   bit-parallel implementation  by about a factor of 2, but only  if your compiler gets it just right .  Otherwise SSE can come out significantly ahead.  Newer compiler versions are aware of the  popcnt false dependency   problem on Intel . 
+ References: 
+ https://graphics.stanford.edu/~seander/bithacks.html 
+ https://en.wikipedia.org/wiki/Hamming_weight 
+ http://gurmeet.net/puzzles/fast-bit-counting-routines/ 
+ http://aggregate.ee.engr.uky.edu/MAGIC/#Population%20Count%20(Ones%20Count) 
+ 
+ Also consider the built-in functions of your compilers. 
+ On the GNU compiler for example you can just use: 
+ 
+ In the worst case the compiler will generate a call to a function. In the best case the compiler will emit a cpu instruction to do the same job faster. 
+ The GCC intrinsics even work across multiple platforms. Popcount will become mainstream in the x86 architecture, so it makes sense to start using the intrinsic now. Other architectures have the popcount for years. 
+ 
+ On x86, you can tell the compiler that it can assume support for   instruction with   or   to also enable the vector instructions that were added in the same generation.  See  GCC x86 options .    (or   whatever CPU you want your code to assume and to tune for) could be a good choice.   Running the resulting binary on an older CPU will result in an illegal-instruction fault. 
+ To make binaries optimized for the machine you build them on, use    (with gcc, clang, or ICC). 
+ MSVC provides an intrinsic for the x86   instruction , but unlike gcc it's really an intrinsic for the hardware instruction and requires hardware support. 
+ 
+ **Using **
+** instead of a built-in**
+
+ In theory, any compiler that knows how to popcount efficiently for the target CPU should expose that functionality through ISO C++  .  In practice, you might be better off with the bit-hack AND/shift/ADD in some cases for some target CPUs. 
+ For target architectures where hardware popcount is an optional extension (like x86), not all compilers have a   that takes advantage of it when available.  For example, MSVC has no way to enable   support at compile time, and always uses  a table lookup , even with   (which implies SSE4.2, although technically there is a separate feature bit for  .) 
+ But at least you get something portable that works everywhere, and with gcc/clang with the right target options, you get hardware popcount for architectures that support it. 
+ 
+ See  asm from gcc, clang, icc, and MSVC  on the Godbolt compiler explorer. 
+ x86-64   emits this: 
+ 
+ PowerPC64   emits (for the   arg version): 
+ 
+ This source isn't x86-specific or GNU-specific at all, but only compiles well for x86 with gcc/clang/icc. 
+ Also note that gcc's fallback for architectures without single-instruction popcount is a byte-at-a-time table lookup.  This isn't wonderful  for ARM, for example . 
+ 
+ In my opinion, the "best" solution is the one that can be read by another programmer (or the original programmer two years later) without copious comments.  You may well want the fastest or cleverest solution which some have already provided but I prefer readability over cleverness any time. 
+ 
+ If you want more speed (and assuming you document it well to help out your successors), you could use a table lookup: 
+ 
+ Although these rely on specific data type sizes so they're not that portable. But, since many performance optimisations aren't portable anyway, that may not be an issue. If you want portability, I'd stick to the readable solution. 
+ 
+ From Hacker's Delight, p. 66, Figure 5-2 
+ 
+ Executes in ~20-ish instructions (arch dependent), no branching. Hacker's Delight   is  delightful! Highly recommended. 
+ 
+ I think the fastest way—without using lookup tables and  popcount —is the following. It counts the set bits with just 12 operations. 
+ 
+ It works because you can count the total number of set bits by dividing in two halves, counting the number of set bits in both halves and then adding them up. Also know as   paradigm. Let's get into detail..  
+ 
+ The number of bits in two bits can be  ,   or  . Lets try to work this out on 2 bits..  
+ 
+ This is what was required: the last column shows the count of set bits in every two bit pair. If the two bit number is   then   produces  , else it produces  .  
+ 
+ This statement should be easy to understand. After the first operation we have the count of set bits in every two bits, now we sum up that count in every 4 bits. 
+ 
+ We then sum up the above result, giving us the total count of set bits in 4 bits. The last statement is the most tricky. 
+ 
+ Let's break it down further...  
+ 
+ It's similar to the second statement; we are counting the set bits in groups of 4 instead. We know—because of our previous operations—that every nibble has the count of set bits in it. Let's look an example. Suppose we have the byte  . It means the first nibble has its 4bits set and the second one has its 2bits set. Now we add those nibbles together.  
+ 
+ It gives us the count of set bits in a byte, in the first nibble   and therefore we mask the last four bytes of all the bytes in the number (discarding them). 
+ 
+ Now every byte has the count of set bits in it. We need to add them up all together. The trick is to multiply the result by   which has an interesting property. If our number has four bytes,  , it will result in a new number with these bytes  . A 4 byte number can have maximum of 32 bits set, which can be represented as  . 
+ All we need now is the first byte which has the sum of all set bits in all the bytes, and we get it by   . This algorithm was designed for   words but can be easily modified for   words. 
+ 
+ I got bored, and timed a billion iterations of three approaches. Compiler is gcc -O3. CPU is whatever they put in the 1st gen Macbook Pro. 
+ Fastest is the following, at 3.7 seconds: 
+ 
+ Second place goes to the same code but looking up 4 bytes instead of 2 halfwords. That took around 5.5 seconds. 
+ Third place goes to the bit-twiddling 'sideways addition' approach, which took 8.6 seconds. 
+ Fourth place goes to GCC's __builtin_popcount(), at a shameful 11 seconds. 
+ The counting one-bit-at-a-time approach was waaaay slower, and I got bored of waiting for it to complete. 
+ So if you care about performance above all else then use the first approach. If you care, but not enough to spend 64Kb of RAM on it, use the second approach. Otherwise use the readable (but slow) one-bit-at-a-time approach. 
+ It's hard to think of a situation where you'd want to use the bit-twiddling approach. 
+ Edit: Similar results  here . 
+ 
+ If you happen to be using Java, the built-in method   will do that. 
+ 
+ 
+ Let me explain this algorithm. 
+ This algorithm is based on Divide and Conquer Algorithm. Suppose there is a 8bit integer 213(11010101 in binary), the algorithm works like this(each time merge two neighbor blocks): 
+ 
+ 
+ This is one of those questions where it helps to know your micro-architecture.   I just timed two variants under gcc 4.3.3 compiled with -O3 using C++ inlines to eliminate function call overhead, one billion iterations, keeping the running sum of all counts to ensure the compiler doesn't remove anything important, using rdtsc for timing (clock cycle precise).   
+ 
+inline int pop2(unsigned x, unsigned y)
+{
+    x = x - ((x >> 1) & 0x55555555);
+    y = y - ((y >> 1) & 0x55555555);
+    x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
+    y = (y & 0x33333333) + ((y >> 2) & 0x33333333);
+    x = (x + (x >> 4)) & 0x0F0F0F0F;
+    y = (y + (y >> 4)) & 0x0F0F0F0F;
+    x = x + (x >> 8);
+    y = y + (y >> 8);
+    x = x + (x >> 16);
+    y = y + (y >> 16);
+    return (x+y) & 0x000000FF;
+}
+ 
+ The unmodified Hacker's Delight took 12.2 gigacycles.  My parallel version (counting twice as many bits) runs in 13.0 gigacycles.  10.5s total elapsed for both together on a 2.4GHz Core Duo.  25 gigacycles = just over 10 seconds at this clock frequency, so I'm confident my timings are right.   
+ This has to do with instruction dependency chains, which are very bad for this algorithm.  I could nearly double the speed again by using a pair of 64-bit registers.  In fact, if I was clever and added x+y a little sooner I could shave off some shifts.  The 64-bit version with some small tweaks would come out about even, but count twice as many bits again.   
+ With 128 bit SIMD registers, yet another factor of two, and the SSE instruction sets often have clever short-cuts, too.   
+ There's no reason for the code to be especially transparent.  The interface is simple, the algorithm can be referenced on-line in many places, and it's amenable to comprehensive unit test.  The programmer who stumbles upon it might even learn something.  These bit operations are extremely natural at the machine level.   
+ OK, I decided to bench the tweaked 64-bit version.  For this one  sizeof(unsigned long) == 8  
+ 
+inline int pop2(unsigned long x, unsigned long y)
+{
+    x = x - ((x >> 1) & 0x5555555555555555);
+    y = y - ((y >> 1) & 0x5555555555555555);
+    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
+    y = (y & 0x3333333333333333) + ((y >> 2) & 0x3333333333333333);
+    x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0F;
+    y = (y + (y >> 4)) & 0x0F0F0F0F0F0F0F0F;
+    x = x + y; 
+    x = x + (x >> 8);
+    x = x + (x >> 16);
+    x = x + (x >> 32); 
+    return x & 0xFF;
+}
+ 
+ That looks about right (I'm not testing carefully, though).   Now the timings come out at 10.70 gigacycles / 14.1 gigacycles.   That later number summed 128 billion bits and corresponds to 5.9s elapsed on this machine.   The non-parallel version speeds up a tiny bit because I'm running in 64-bit mode and it likes 64-bit registers slightly better than 32-bit registers.   
+ Let's see if there's a bit more OOO pipelining to be had here.   This was a bit more involved, so I actually tested a bit.  Each term alone sums to 64, all combined sum to 256.   
+ 
+inline int pop4(unsigned long x, unsigned long y, 
+                unsigned long u, unsigned long v)
+{
+  enum { m1 = 0x5555555555555555, 
+         m2 = 0x3333333333333333, 
+         m3 = 0x0F0F0F0F0F0F0F0F, 
+         m4 = 0x000000FF000000FF };
+
+    x = x - ((x >> 1) & m1);
+    y = y - ((y >> 1) & m1);
+    u = u - ((u >> 1) & m1);
+    v = v - ((v >> 1) & m1);
+    x = (x & m2) + ((x >> 2) & m2);
+    y = (y & m2) + ((y >> 2) & m2);
+    u = (u & m2) + ((u >> 2) & m2);
+    v = (v & m2) + ((v >> 2) & m2);
+    x = x + y; 
+    u = u + v; 
+    x = (x & m3) + ((x >> 4) & m3);
+    u = (u & m3) + ((u >> 4) & m3);
+    x = x + u; 
+    x = x + (x >> 8);
+    x = x + (x >> 16);
+    x = x & m4; 
+    x = x + (x >> 32);
+    return x & 0x000001FF;
+}
+ 
+ I was excited for a moment, but it turns out gcc is playing inline tricks with -O3 even though I'm not using the inline keyword in some tests.  When I let gcc play tricks, a billion calls to pop4() takes 12.56 gigacycles, but I determined it was folding arguments as constant expressions.   A more realistic number appears to be 19.6gc for another 30% speed-up.  My test loop now looks like this, making sure each argument is different enough to stop gcc from playing tricks.    
+ 
+   hitime b4 = rdtsc(); 
+   for (unsigned long i = 10L * 1000*1000*1000; i < 11L * 1000*1000*1000; ++i) 
+      sum += pop4 (i,  i^1, ~i, i|1); 
+   hitime e4 = rdtsc(); 
+ 
+ 256 billion bits summed in 8.17s elapsed.  Works out to 1.02s for 32 million bits as benchmarked in the 16-bit table lookup.  Can't compare directly, because the other bench doesn't give a clock speed, but looks like I've slapped the snot out of the 64KB table edition, which is a tragic use of L1 cache in the first place.   
+ Update: decided to do the obvious and create pop6() by adding four more duplicated lines.  Came out to 22.8gc, 384 billion bits summed in 9.5s elapsed.   So there's another 20%   Now at 800ms for 32 billion bits.   
+ 
+ Why not iteratively divide by 2? 
+ 
+count = 0
+while n > 0
+  if (n % 2) == 1
+    count += 1
+  n /= 2  
+ 
+ I agree that this isn't the fastest, but "best" is somewhat ambiguous. I'd argue though that "best" should have an element of clarity 
+ 
+ The Hacker's Delight bit-twiddling becomes so much clearer when you write out the bit patterns.   
+ 
+ The first step adds the even bits to the odd bits, producing a sum of bits in each two.  The other steps add high-order chunks to low-order chunks, doubling the chunk size all the way up, until we have the final count taking up the entire int. 
+ 
+ For a happy medium between a 2 32  lookup table and iterating through each bit individually: 
+ 
+ From  http://ctips.pbwiki.com/CountBits 
+ 
+ This can be done in  , where   is the number of bits set. 
+ 
+ 
+ It's not the fastest or best solution, but I found the same question in my way, and I started to think and think. finally I realized that it can be done like this if you get the problem from mathematical side, and draw a graph, then you find that it's a function which has some periodic part, and then you realize the difference between the periods... so here you go: 
+ 
+ 
+ The function you are looking for is often called the "sideways sum" or "population count" of a binary number.  Knuth discusses it in pre-Fascicle 1A, pp11-12 (although there was a brief reference in Volume 2, 4.6.3-(7).) 
+ The  locus classicus  is Peter Wegner's article "A Technique for Counting Ones in a Binary Computer", from the  Communications of the ACM , Volume 3 (1960) Number 5, page 322 .  He gives two different algorithms there, one optimized for numbers expected to be "sparse" (i.e., have a small number of ones) and one for the opposite case. 
+ 
+ Few open questions:- 
+ 
+ If the number is negative then? 
+ If the number is 1024 , then the "iteratively divide by 2" method will iterate 10 times. 
+ 
+ we can modify the algo to support the negative number as follows:- 
+ 
+ now to overcome the second problem we can write the algo like:- 
+ 
+ for complete reference see : 
+ http://goursaha.freeoda.com/Miscellaneous/IntegerBitCount.html 
+ 
+ I think the  Brian Kernighan's  method will be useful too...
+It goes through as many iterations as there are set bits. So if we have a 32-bit word with only the high bit set, then it will only go once through the loop.   
+ 
+ 
+ Published in 1988, the C Programming Language 2nd Ed. (by Brian W. Kernighan and Dennis M. Ritchie) mentions this in exercise 2-9. On April 19, 2006 Don Knuth pointed out to me that this method "was first published by Peter Wegner in CACM 3 (1960), 322. (Also discovered independently by Derrick Lehmer and published in 1964 in a book edited by Beckenbach.)" 
+ 
+ 
+ 
+ 
+ I use the below code which is more intuitive. 
+ 
+ Logic : n & (n-1)  resets the last set bit of n. 
+ P.S : I know this is not O(1) solution, albeit an interesting solution. 
+ 
+ What do you means with "Best algorithm"? The shorted code or the fasted code? Your code look very elegant and it has a constant execution time. The code is also very short. 
+ But if the speed is the major factor and not the code size then I think the follow can be faster: 
+ 
+ I think that this will not more faster for a 64 bit value but a 32 bit value can be faster. 
+ 
+ I wrote a fast bitcount macro for RISC machines in about 1990.  It does not use advanced arithmetic (multiplication, division, %), memory fetches (way too slow), branches (way too slow), but it does assume the CPU has a 32-bit barrel shifter (in other words, >> 1 and >> 32 take the same amount of cycles.)  It assumes that small constants (such as 6, 12, 24) cost nothing to load into the registers, or are stored in temporaries and reused over and over again. 
+ With these assumptions, it counts 32 bits in about 16 cycles/instructions on most RISC machines.  Note that 15 instructions/cycles is close to a lower bound on the number of cycles or instructions, because it seems to take at least 3 instructions (mask, shift, operator) to cut the number of addends in half, so log_2(32) = 5, 5 x 3 = 15 instructions is a quasi-lowerbound. 
+ 
+ Here is a secret to the first and most complex step: 
+ 
+ so if I take the 1st column (A) above, shift it right 1 bit, and subtract it from AB, I get the output (CD).  The extension to 3 bits is similar; you can check it with an 8-row boolean table like mine above if you wish. 
+ 
+ Don Gillies 
+ 
+ 
+ if you're using C++ another option is to use template metaprogramming: 
+ 
+ usage would be: 
+ 
+ you could of course further expand this template to use different types (even auto-detecting bit size) but I've kept it simple for clarity. 
+ **edit: forgot to mention this is good because it **
+**should**
+** work in any C++ compiler and it basically just unrolls your loop for you if a constant value is used for the bit count**
+ (in other words, I'm pretty sure it's the fastest general method you'll find) 
+ 
+ I'm particularly fond of this example from the fortune file: 
+ 
+#define BITCOUNT(x)    (((BX_(x)+(BX_(x)>>4)) & 0x0F0F0F0F) % 255)
+#define BX_(x)         ((x) - (((x)>>1)&0x77777777)
+                             - (((x)>>2)&0x33333333)
+                             - (((x)>>3)&0x11111111))
+ 
+ I like it best because it's so pretty! 
+ 
+ Java JDK1.5 
+ Integer.bitCount(n); 
+ where n is the number whose 1's are to be counted. 
+ check also, 
+ 
+ 
+ I found an implementation of bit counting in an array with using of SIMD instruction (SSSE3 and AVX2). It has in 2-2.5 times better performance than if it will use __popcnt64 intrinsic function. 
+ SSSE3 version: 
+ 
+ AVX2 version: 
+ 
+ 
+ I always use this in Competitive Programming and it's easy to write and efficient: 
+ 
+ 
+ There are many algorithm to count the set bits; but i think the best one is the faster one!
+You can see the detailed on this page: 
+ Bit Twiddling Hacks   
+ I suggest this one: 
+ **Counting bits set in 14, 24, or 32-bit words using 64-bit instructions**
+
+ 
+ This method requires a 64-bit CPU with fast modulus division to be efficient. The first option takes only 3 operations; the second option takes 10; and the third option takes 15.  
+ 
+ Fast C# solution using pre-calculated table of Byte bit counts with branching on input size. 
+ 
+ 
+ Here is a portable module ( ANSI-C ) which can benchmark each of your algorithms on any architecture.   
+ Your CPU has 9 bit bytes?  No problem :-)  At the moment it implements 2 algorithms, the K&R algorithm and a byte wise lookup table.  The lookup table is on average 3 times faster than the K&R algorithm.  If someone can figure a way to make the "Hacker's Delight" algorithm portable feel free to add it in. 
+ 
+ . 
+ 
+ 
+ 32-bit or not ? I just came with this method in Java after reading " cracking the coding interview " 4th edition exercice 5.5 ( chap 5:  Bit Manipulation). If the least significant bit is 1 increment  , then right-shift the integer. 
+ 
+ I think this one is more intuitive than the solutions with constant 0x33333333  no matter how fast they are. It depends on your definition of "best algorithm" . 
+ 
