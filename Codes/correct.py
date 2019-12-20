@@ -24,11 +24,10 @@ def remove_stopwords(text,stop_words):
 
 db = open('stopwords.pckl','rb')
 stop_words = pickle.load(db)
-
 word_count = Counter()
 
 
-for subdir, dirs, files in os.walk('Raw_text'):
+for subdir, dirs, files in os.walk('../Corpus/filtered'):
 	for file in files:
 		#print os.path.join(subdir, file)
 		filepath = subdir + os.sep + file
@@ -37,18 +36,18 @@ for subdir, dirs, files in os.walk('Raw_text'):
 			with open(filepath, 'r') as f:
 				text = '\n'.join(f.readlines())
 
-			#text = text_lowercase(text)
+			text = text_lowercase(text)
 			text = remove_nonalphanum(text)
-			#text = remove_stopwords(text,stop_words)
+			text = remove_stopwords(text,stop_words)
 			with open(filepath,'w') as f:
 				f.write(text)
 			print(text)
-			col = Counter(text.split())
-			word_count += col
+			#col = Counter(text.split())
+			#word_count += col
 
 
-with open('word_count.pckl', 'wb') as f:
-	pickle.dump(word_count, f)			
-print(word_count)
+#with open('word_count.pckl', 'wb') as f:
+#	pickle.dump(word_count, f)			
+#print(word_count)
 
 
