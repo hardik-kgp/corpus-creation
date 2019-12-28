@@ -1,0 +1,116 @@
+*** is-there-an-embedded-dbms-to-support-multiple-writer-applications-processes ***
+
+ I need to know if there is any embedded DBMS (preferably in Java and not necessarily relational) which supports multiple writer applications (processes) on the same set of db files.  BerkeleyDB supports multiple readers but just one writer.  I need multiple writers and multiple readers.  
+ **UPDATE:**
+  
+ It is not a multiple connection issue. I mean I do not need multiple connections to a running DBMS application (process) to write data. I need multiple DBMS applications (processes) to commit on the same storage files. 
+ HSQLDB, H2, JavaDB (Derby) and MongoDB do not support this feature. 
+ I think that there may be some File System limitations that prohibit this. If so, is there a File System that allows multiple writers on a single file? 
+ Use Case:  The use case is a high-throughput clustered system that intends to store its high-volume business log entries into a  SAN  storage. Storing business logs in separate files for each server does not fit because query and indexing capabilities are needed on the whole biz logs. 
+ Because  "a SAN typically is its own network of storage devices that are generally not accessible through the regular network by regular devices" , I want to use SAN network bandwidth for logging while cluster LAN bandwidth is being used for other server to server and client to server communications. 
+ 
+ You're basically out of luck, unless you somehow change your requirements. 
+ First, specifically on Unix systems, there's nothing to stop multiple processes from writing to the same files. On a SINGLE SYSTEM, this won't be a problem whatsoever, you'll just have a typical race condition should two or more writes conflict over the same space in the file as to which will actually get written. Since it's on a single system, this had perfect resolution, at the byte level. 
+ So, the game in terms of having multiple processes writing to the same file is how do those processes coordinate? How to they ensure that they don't walk on each other. In, again, Unix, there is an OS based locking mechanism that can be used to prevent that, but typically most systems implement a central server to and coordinate all of their write through that system, and it then writes to the disk while mitigating and handling any conflicts. 
+ Your problem is two fold. 
+ One, you're suggesting that the independent log processes will not cooperate, that they will not share information and coordinate their writes to the volume. That throws a wrench (a big wrench) in to the works right there. 
+ Second, you propose having not only multiple processes write to the same volume, but that the volume they are writing to is shared over a SAN. That's another wrench. 
+ Unlike NFS, SANs don't support "file systems". Rather they support "storage". Basically block level devices. SANs, once you get passed a bunch of volume management shenanigans, are actually pretty "stupid" from the OSs point of view. 
+ I'm pretty sure you can actually have a volume mounted on multiple machines, but I'm not sure more than one can actually WRITE to the device. There are good reasons for this. 
+ Simply, SANs are block level storage. A block being, say, 4K bytes. That's the "atomic" unit of work for the SAN. Want to change a single byte of data? Read a 4K block from the SAN, change your byte, and write the 4k block back. 
+ If you have several machines thinking that they have "universal" access to the SAN storage, and are treating it as a file system, you have a corrupted, ruined file system. It's that simple. The machines will write what they think the blocks should look like while the other machines and smashing it with their local version. Disaster. Ruin. Not happy. 
+ Even getting one machine to write to a SAN while another reads from it is tricky. It's also slow, as the reader can make few assumptions about the contents of the disk, so it needs to read, and re-read blocks (it can't cache anything, like file system TOCs, etc, as, well, they're changing behind it's back due to the activity of the writer -- so, read it again...and again...). 
+ Things like NFS "solve" this problem because you no longer work with raw storage. Rather you work with an actual filesystem. 
+ Finally, there's nothing wrong with having independent log files being streamed out from your servers. They can still be queried. You simply have to repeat the queries and consolidate the results. 
+ If you have 5 machines streaming, and you want "all activity between 12:00pm and 12:05pm", then make 5 queries, one to each log store, and consolidate the results. As for how to efficiently query your log data, that's an indexing problem, and not insurmountable depending on how you query. If you query by time, then create files by time (every minute, every hour, whatever), and scan them. If your system is "read rarely", this isn't a big deal. If you need more sophisticated indexing, then you'll need to come up with something else. 
+ You could use a database to write the files, and indexes, but I doubt you'll find many that enjoy reading from files that they don't control, or that change underneath them.  
+ CouchDB might work, or something similar, because of its specific crash resistant, always consistent database format. It's datafile is always readable by a database instance. That could be an option for you. 
+ But I would still do multiple queries and merge them. 
+ 
+ Have individual processes stream it's logs to separate files/DB's to avoid corruption. Then you can have a daemon process which asynchronously reads from all this files/DB's and writes to a single consolidated file/DB. When you have to index or query logs, do it on consolidated file/DB. The only issue here is that the you won't have real time access to your logs. There will be some lag until logs are consolidated. 
+ **Updated details below:**
+
+ 
+ Process-1 to Process-N writes in
+log-1 to log-N 
+ Asyncronously, Process-X reads from
+log-1 to log-N and consolidates it to
+a single log-X (whole biz log) 
+ Optionally Process-X can delete log-1 to log-N while it populates log-X to free up the space 
+ Log Reader uses log-X (whole biz log)
+with query and indexing capabilities 
+ 
+ 
+
+
+    -------------     -------------           -------------  
+    |           |     |           |           |           |  
+    | Process-1 |     | Process-2 |    ...    | Process-N |  
+    |           |     |           |           |           |  
+    -------------     -------------           -------------  
+          |                 |                       |        
+          |                 |                       |        
+          V                 V                       V        
+      ( log-1 )         ( log-2 )      ...      ( log-N )    
+            \                \                    /          
+             \                \                  /           
+              - - - -  \      |         / - - - -            
+                        \     |        /                     
+                          \   |     -                        
+                            \ |  /                           
+                             |||                             
+                             VVV                             
+                       -------------                         
+                       |           |                         
+                       | Process-X |                         
+                       |           |                         
+                       -------------                         
+                             |                               
+                             V                               
+                             V               --------------  
+                             V               |            |  
+                         ( log-X )  ------>>>| Log Reader |  
+                                             |            |  
+                                             --------------  
+
+ 
+ 
+ HSQLDB  is a full-featured database that supports multiple connections and transaction isolation level  . If this suits you, go for it. 
+ See  here  for ways to run the DB. 
+ 
+ Try  FirebirdSQL  (formerly Borland Interbase). It has a "Superserver" and "Classic" mode. The former is a conventional multi-threaded database server, while the latter follows a classic one-process-per-connection model. The different processes coordinate mainly via OS-level locking of the data files. For all I know, you can in fact embed the classic server into your own code. Your application will then be just one more classic process.  
+ http://www.firebirdfaq.org/faq25/   
+ http://www.firebirdfaq.org/Firebird-Embedded-Linux-HOWTO.html 
+ Update: Didn't read the Java part. In that case you are probably better off with any of the other answers. 
+ Update: When I say "locking", I don't mean it's locking the whole database at once. Even in classic mode it's still a full-fledged RDBMS. However, I don't know the software well enough to tell what's really going on under the hood. 
+ 
+ What about  **(**
+**in-memory**
+**) **
+**SQLite 3 databases**
+? 
+ 
+ H2 Database  is  fast  and appears to be  suitable . 
+ 
+ 
+ Java DB  is Sun's supported distribution of the open source Apache Derby 100% Java technology database. It is fully transactional, secure, easy-to-use, standards-based — SQL, JDBC API, and Java EE — yet small, only 2.5 MB. 
+ 
+ Java DB  **is included**
+ in  Java SE  the JDK, and is the developer database for the Sun GlassFish Enterprise Server.  
+ It can be run in  Client/Server (or even Embedded Server)  mode to allow multiple connections. 
+ **Update:**
+ Little mistake, Java DB is not part as Java SE as I wrote initially but of the JDK. 
+ **Update 2:**
+ Now that the question has been clarified, my understanding is that the OP is actually looking for something like "shared storage database servers" (and embeddable) and I actually do not think that Java DB belongs to this category. To be honest, I wonder if this even exists. I know that some database clustering solutions use shared storage ( Oracle RAC , DB2) but I don't understand the question as being about database clustering. Plus such solutions are to my knowledge not embeddable. But I will dig this a bit more (and keep a close eye on this question). 
+ 
+ 2Gregg - Nope,  Berkeley DB  is just that embedded. 
+2Amir - As Alix Axel said the SQlite is worth to try.  I've recently tested several of the above mentioned DB engines in embedded manner with Java and SQLite beaten em all! It's very fast on pretty large data volumes inserted/updated in transaction. Dont read those old questions. 
+So if SQLite's locking and concurrency suit you then try one. And IMHO the model with multiple logs/writers with single asynchronous reader/consolidater is the only reasonable solution. 
+ 
+ Correction:  MongoDB supports multiwriter, both directly and through mongos.   
+ 
+ Multi-process access (every process is equal and could both read and write) is the killer feature of  Chronicle Map . When creating Chronicle Maps from different processes, you should just specify the same persistence file: 
+ 
+ If you don't persistence as such, you should place this file in tmpfs or   directory in Linux. Concurrency/inter-process access is not affected by this. 
+ Apart from featuring multi-process access, Chronicle Map generally has very good concurrency properties, because it uses lock striping and multi-level locks. 
+ 

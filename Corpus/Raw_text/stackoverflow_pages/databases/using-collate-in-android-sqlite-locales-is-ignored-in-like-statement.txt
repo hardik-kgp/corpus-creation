@@ -1,0 +1,52 @@
+*** using-collate-in-android-sqlite-locales-is-ignored-in-like-statement ***
+
+ When creating my SQLite database in Android I set the database locale - db.setLocale(new Locale("cz_CZ")). This is a Czech locale. 
+ A SELECT statement works and takes the locale into account, for example: 
+ 
+ Will find the entry 'ščťžý'. 
+ But using LIKE will fail: 
+ 
+ No row is returned. 
+ BTW. There is no java.text.Normalized class in Android. I thought I could make a second column with a normalized text, stripped of special characters, which would be used for searching - but I am missing a class or way how to normalize the String. 
+ 
+ Have you had a look at the  SQLite documentation for LIKE ? It has come information about non ASCII characters and a bug. Maybe Android has an older version of SQLite installed where this is a problem. 
+ I think the second normalised column might be your best option unfortunately. 
+ 
+ Creating a second normalised column can be used to go around limitations (as mentioned briefly in other answers). 
+ This means in practice that you have to create another (shadow) column of your first where the same data in a fixed case (e.g. all upper chars) is stored. Case insensitive queries (including like queries) can be made on this new column with search values in the same case. 
+ If the first column "a" contains 
+ AAA 
+ aaa 
+ Bbb 
+ äää 
+ ééé 
+The second column a_shadow would contain for the same rows 
+ AAA 
+ AAA 
+ BBB 
+ ÄÄÄ 
+ ÉÉÉ 
+ and your original query (example) "select a from mytable where a='äää'" 
+would be replaced with "select a from mytable where A='ÄÄÄ'"  
+ Your code needs to be updated to fill the converted shadow content when adding the primary content.
+If the column is added after creation or you cannot change the code existing values may need to be converted using an update query. Example: 
+ 
+ 
+ Just today i had exactly the same task as you had. And in my situation making additional shadow columns is not a case because i'm having to search more than one column. So i came to the solution like this, which is tested in real project. In my case i'm handling only lower case letters but you can extend the function with upper case letters as well. 
+ 
+ 
+ Might be time consuming, but you can use the java.text.Normalizer like here 
+ Converting Symbols, Accent Letters to English Alphabet 
+ As is not part of the java subset that Android, you may try to look for it at the code of java, such as  Normalizer.java 
+With the Javadoc found  here : 
+ And copy the part of the code needed inside your project. 
+ Hope it works! 
+ 
+ In Android sqlite,   and   ignore both   and   (they only work for  ). However, as @asat explains in  his answer , you can use   with a pattern that will replace each letter with all the available alternatives of that letter. In Java: 
+ 
+ And then (not literally like this, of course): 
+ 
+ This way, for example in Spanish, a user searching for either  mas  or  más  will get the search converted into  m[aáàäâã]s , returning both results. 
+ It is important to notice that   ignores  , that's why I converted everything to lower case both in the function and in the query. Notice also that the   function in sqlite doesn't work on non-ASCII characters - but again those are probably the ones that you are already replacing! 
+ The function also replaces both   wildcards,   and  , with "escaped" versions. 
+ 

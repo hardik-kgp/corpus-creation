@@ -1,0 +1,82 @@
+*** sorted-string-table-sstable-or-b-tree-for-a-database-index ***
+
+ Using two databases to illustrate this example:  CouchDB  and  Cassandra . 
+ **CouchDB**
+
+ CouchDB uses a B+ Tree for document indexes (using  a clever modification  to work in their append-only environment) - more specifically as documents are modified (insert/update/delete) they are appended to the running database file as well as a full Leaf -> Node path from the B+ tree of all the nodes effected by the updated revision right after the document. 
+ These piece-mealed index revisions are inlined right alongside the modifications such that the full index is a union of the most recent index modifications appended at the end of the file along with additional pieces further back in the data file that are still relevant and haven't been modified yet. 
+ 
+ Searching the  B+ tree   is O(logn). 
+ 
+ **Cassandra**
+
+ Cassandra keeps record keys sorted, in-memory, in tables (let's think of them as arrays for this question) and writes them out as separate (sorted)  sorted-string tables  from time to time. 
+ We can think of the collection of all of these tables as the "index" (from what I understand). 
+ Cassandra is required to  compact/combine these sorted-string tables  from time to time, creating a more complete file representation of the index. 
+ 
+ Searching  a sorted array  is O(logn). 
+ 
+ **Question**
+
+ Assuming a similar level of complexity between either maintaining partial B+ tree chunks in CouchDB versus partial sorted-string indices in Cassandra and given that both provide O(logn) search time which one do you think would make a better representation of a database index and why? 
+ I am specifically curious if there is an implementation detail about one over the other that makes it  particularly  attractive or if they are both a wash and you just pick whichever data structure you prefer to work with/makes more sense to the developer. 
+ Thank you for the thoughts. 
+ 
+ When comparing a BTree index to an SSTable index, you should consider the write complexity:   
+ 
+ When writing randomly to a copy-on-write BTree, you will incur random reads (to do the copy of the leaf node and path).  So while the writes my be sequential on disk, for datasets larger than RAM, these random reads will quickly become the bottle neck.  For a SSTable-like index, no such read occurs on write - there will only be the sequential writes. 
+ You should also consider that in the worse case, every update to a BTree could incur log_b N IOs - that is, you could end up writing 3 or 4 blocks for every key.  If key size is much less than block size, this is extremely expensive.  For an SSTable-like index, each write IO will contain as many fresh keys as it can, so the IO cost for each key is more like 1/B. 
+ 
+ In practice, this make SSTable-like thousands of times faster (for random writes) than BTrees. 
+ When considering implementation details, we have found it a lot easier to implement SSTable-like indexes (almost) lock-free, where as locking strategies for BTrees has become quite complicated. 
+ You should also re-consider your read costs.  You are correct than a BTree is O(log_b N) random IOs for random point reads, but a SSTable-like index is actually O(#sstables . log_b N). Without an decent merge scheme, #sstables is proportional to N. There are various tricks to get round this (using Bloom Filters, for instance), but these don't help with small, random range queries.   This is what we found with Cassandra: 
+ Cassandra under heavy write load 
+ This is why Castle, our (GPL) storage engine, does merges slightly differently, and can achieve a lot better (O(log^2 N)) range queries performance with a slight trade off in write performance (O(log^2 N / B)).  In practice we find it to be quicker than Cassandra's SSTable index for writes as well. 
+ If you want to know more about this, I've given a talk about how it works: 
+ 
+ podcast 
+ slides   
+ 
+ 
+ I think fractal trees, as used by  Tokutek , are a better index for a database.  They offer real-world 20x to 80x improvements over b-trees. 
+ There are excellent explanations of how fractal tree indices work  here . 
+ 
+ Some things that should also be mentioned about each approach: 
+ **B-trees**
+
+ 
+ The read/write operations are supposed to be logarithmic  . However,  **a single database write can lead to multiple writes in the storage system**
+. For example, when a node is full, it has to be split and that means that there will be 2 writes for the 2 new nodes and 1 additional write for updating the parent node. You can see how that could increase if the parent node was also full. 
+ Usually, B-trees are stores in such a way that each node has the size of a page. This creates a phenomenon called  **write amplification**
+, where even if a single byte needs to be updated, a whole page is written. 
+ **Writes are usually random**
+ (not sequential),  **thus slower**
+ especially for magnetic disks.  
+ 
+ **SSTables**
+
+ 
+ SSTables are usually used in the following approach. There is an in-memory structure, called memtable, as you described. Every once in a while, this structure is flushed to disk to an SSTable. As a result,  **all the writes go to the memtable, but the reads might not be in the current memtable, in which case they are searched in the persisted SSTables**
+. 
+ As a result, writes are  . However, always bear in mind that they are done in memory, so they should be orders of magnitude faster than the logarithmic operations in disk of B-trees. For the sake of completeness, we should mention that writes are also written to a write-ahead log for crash recovery. But, given that these are all  **sequential writes, they are expected to be much more efficient than the random writes of B-trees**
+. 
+ When served from memory (from the memtable),  **reads are expected to be much faster as well**
+. But, when there's need to look in the older, disk-based SSTables, reads can potentially become quite slower than B-trees. There are several optimisations around that, such as use of bloom filters, to check whether an SSTable contains a value without performing disk reads. 
+ As you mentioned, there's also a background process, called  **compaction**
+, used to merge SSTables. This helps remove deleted values and prevent fragmentation, but it can cause significant write load, affecting the write throughput of the incoming operations. 
+ 
+ As it becomes evident, a comparison between these 2 approaches is much more complicated. In an extremely simplified attempt to provide a concrete comparison, I think we could say that: 
+ 
+ SSTables provide a much better write throughput than B-trees. However, they are expected to have less stable behaviour, because of ongoing compactions. An example of this can be seen in  this benchmark comparison . 
+ B-trees are usually preferred for use-cases, where transaction semantics are needed. This is because, each key can be found only in a single place (in contrast to the SSTable, where it could exist in multiple SSTables with obsolete values in some of them) and also because one could represent a range of values as part of the tree. This means that it's easier to perform key-level and range-level locking mechanisms. 
+ 
+ 
+ References 
+ [1]  A Performance Comparison of LevelDB and MySQL   
+ [2]  Designing Data-intensive Applications 
+ 
+ LSM-Trees is better than B-Trees  on storage engine structured.
+It converts random-write to aof in a way.
+Here is a LSM-Tree src:
+ https://github.com/shuttler/lsmtree 
+ 

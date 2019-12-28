@@ -1,0 +1,104 @@
+*** how-to-increase-the-performance-of-a-database ***
+
+ I have designed databases several times in my company. To increase the performance of the database, I look for Normalisation and Indexing only. 
+If you were asked to increase the performance of a database which has approx 250 tables and some tables with millions of records, what different things you would look for? 
+ Thanks in advance. 
+ 
+ **Optimize the logical design**
+
+ The logical level is about the structure of the query and tables themselves. Try to maximize this first. The goal is to access as few data as possible at the logical level. 
+ 
+ Have the most efficient SQL queries 
+ Design a logical schema that support the application's need (e.g. type of the columns, etc.) 
+ Design trade-off to support some use case better than other 
+ Relational constraints 
+ Normalization 
+ 
+ **Optimize the physical design**
+
+ The physical level deals with non-logical consideration, such as type of indexes, parameters of the tables, etc. Goal is to optimize the IO which is always the bottleneck. Tune each table to fit it's need. Small table can be loaded permanently loaded in the DBMS cache, table with low write rate can have different settings than table with high update rate to take less disk spaces, etc. Depending on the queries, different index can be used, etc. You can denormalized data transparently with materialized views, etc. 
+ 
+ Tables paremeters (allocation size, etc.) 
+ Indexes (combined, types, etc.) 
+ System-wide parameters (cache size, etc.) 
+ Partitioning 
+ Denormalization 
+ 
+ Try first to improve the logical design, then the physical design. (The boundary between both is however vague, so we can argue about my categorization). 
+ **Optimize the maintenance**
+
+ Database must be operated correctly to stay as efficient as possible. This include a few mainteanance taks that can have impact on the perofrmance, e.g. 
+ 
+ Keep statistics up to date 
+ Re-sequence critical tables periodically 
+ Disk maintenance 
+ All the system stuff to have a server that rocks 
+ 
+ 
+ That's a very vague question. 
+ You say you look for indexing, but you can't look at indexing in isolation.  You have to look at the queries that are being run, the execution plans, the indexes that are being used and how they are being used.  The Profiler tool can help a great deal in determining which queries are inefficient. 
+ Aside from that - make sure a maintenance plan is set up.  You should be updating statistics and defragmenting/rebuilding indexes at least once a week in a heavy transactional database. 
+ If you have the infrastructure, look at your file and filegroup settings.  You should try to put tables and/or indexes that are large and frequently used on different physical drives, if possible.  If you have any very large tables, you might think of partitioning them. 
+ If you're still having performance problems,  denormalization  can sometimes help - but it all depends on the situation. 
+ I'm going to stop there - don't want this answer to become the world's most random list of SQL performance tips.  I recommend you be more specific about where you think the performance issues are, and tell us a bit more about the database (size, current indexing strategy, transaction frequency, any large reports you need to generate, etc.) 
+ 
+ **Compression**
+. For the vast majority of loads I've tried, using compression was a tremendous free ride. Reduced data size means reduced I/O means better throughput. In SQL Server 2005 the compression options are limited ( ). But I would seriously consider upgrading to 2008 for page compression alone. Or 2008 R2 if you use   frequently to get Unicode compression. 
+ **Data Retention**
+. Establishing retention policies and deleting old data aggressively. Less data means less I/O, means better throughput. Often this is seen as operational, not design, but I like to think at this issue as an application design issue. 
+ Of course, I assume you already monitor each and every query to ensure none does stupid end-to-end table scans. 
+ Many more performance boosters are mostly operational or deployment, not design: maintenance (defragmentation, index rebuild etc), I/O and storage design etc. 
+ And last but not least understand the hidden cost of various turn-key solutions. Like, say, Replication, or Database Mirroring. 
+ 
+ To your toolkit of normalisation and indexing, with extremely large tables you may also want to consider the pros and cons of partioning the tables. But you've got the key ones there already. 
+ 
+ There are many things you could do, a lot of them already suggested above.  Some that I would look at (in this order): 
+ 
+ Errors/logs - many db engines have reporting tools that point out problem areas in a database.  Start here to see if there's anything you can focus on right away. 
+ Data retention - check business specification how long data should be kept for, make sure any older data is moved off to a data warehouse to keep table size small.  (Why keep 5 years of data if only need last 3 months?) 
+ Look for table scans, index the data if it will help (you have to gauge this one against table writes).  Your server logs can probably help you with finding table scans. 
+ Atomic elements of work, are some writes keeping locks on different tables before a commit point is reached?  Can those elements of work be simplified or commit points moved to speed up performance?  This is where you will need a developer to look at the code. 
+ Look for long running SQL statements, can it be made more efficient? Sometimes poorly structured queries can really bog an application down.  You may need to suggest a coding change to improve performance. 
+ dba realm: look at how tables are allocated: page size, multiple segments etc.  This is where diagnostics tools from the vendor come in handy, as they can often suggest how you can structure a table based on usage history.  An experienced dba would be useful here. 
+ look for hardware/network bottlenecks.  This is where you would need a hardware guy. :) 
+ 
+ These are really high level, I would also take a look at what the vendor of your db engine suggests as performance improvements. 
+ Also, I would gauge a list like this against what my boss is willing to pay for and how much time I have.  ;) 
+ Hope this helps. 
+ 
+ My roll at MySpace was "Performance Enhancement DBA/Developer".  I would say that Normalization and Indexes are a requirement in high performance databases, but you must really analyze your table structures and indexes to truly unlock the powers of database design.  
+ Here are a few suggestions I would have for you;  
+ 
+ Get to know the DB Engine.  A through knowledge of the underlining I/O structure goes a very long way in designing a proper index or table.  Using PerfMon and Profiler, alongside your knowledge of what Read/Write I/Os are, you can put some very specific numbers behind your theory of what is a well-formed table / index solution.  
+ Understand the difference between Clustered and Non-Clustered indexes and when to use which.   
+ Use sys.dm_os_waiting_tasks and the sys.dm_os_wait_stats DMVs.  They will tell you where you should put your effort into reducing wait-time.  
+ Use DBCC SET STATISTICS IO/TIME ON, and evaluate your execution plans to see if one query reduces or increases the number of page reads or duration.  
+ DBCC SHOWCONTIG will tell you if your tables are heavily fragmented.  This is often neglected by developers and Jr. DBAs from a performance point of view - however, this can have a very BIG effect on the number of page-reads you have.  If a table has 20% extent page density, that means you're reading about 5 times the data you otherwise would be if the table and it's indexes were defragmented.  
+ Evaluate dirty-reads ( nolock, read uncommited ). If you could do away with millisecond-precision on reads, save the locks!  
+ Consider taking out unnecessary Foreign Keys.  They're useful in Dev environments, not on high-performance transactional systems.   
+ Partitions in large tables make a big difference - only if properly designed.   
+ Application changes - If you could schedule batch updates for asynchronous transactions, put them into an index-free heap and process it on schedule so that you don't constently update the tables which you query heavily.  
+ Always Always Always!!! use the same data type variable to query the target columns;  For example, the following statement uses a bigint variable for a smallint column:  
+ 
+ declare @i bigint
+set @i = 0 
+ select * from MyTable where Col01SmallInt >= @i 
+ In the process of evaluating index / table pages, the query engine may opt to convert your smallint column data to bigint data type.  Consider instead, changing your varialbe type, or at-least converting it to smallint in your search condition.  
+ 
+ SQL 2005/08 gives you "Reports" in the Management Application, take a look at reports on how your indexes are performing.  Are they being Scanned, Seeked? when was your last Table Scan?  If it was recent, you indexes are not fulfilling all necessary queries.  If you have an index that is hardly being used (seeked or scaned) but is constantly being updated, consider dropping it..  It may save you a lot of unnecessary row-locks and key-locks. 
+..  
+ 
+ That's all I can think of off the top of my head.  If you run into a more specific problem, I would have a more specific answer for you..  
+ 
+ If a query is extremely mission-critical, you may want to consider  de -normalizing, to reduce the number of table-lookups per query.
+Aside from that, if you need more performance beyond what indexing and de-normalizing can perform, you might want to look program-side:  caching, optimizing queries/stored-procedures, etc. 
+ 
+ In order to increase performance you will need to monitor your database first. You can trace and then load it in sql server profiler to find out which are the slowest queries. After that you can concentrate on them. 
+ You can also use dynamic views and management function to find out which indexes are missing. You will also be able to retrieve statistics about existing indexes such as index usage and missed indexes. 
+ 
+ Optimizing the queries that are used to access that database is most important. Just by adding indexes you don't guarantee that queries will use them. 
+ 
+ We haven't written about one performance bit: 
+ Hardware. 
+ Databases are intensely I/O driven.  Moving to a faster hard drive should increase the speed of database queries.  Splitting the database among many fast hard drives might improve it even more. 
+ 

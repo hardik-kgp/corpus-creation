@@ -1,0 +1,110 @@
+*** how-to-work-with-git-branches-and-rails-migrations ***
+
+ I am working on a rails app with quite a few git branches and many of them include db migrations. We try to be careful but occasionally some piece of code in master asks for a column that got removed/renamed in another branch. 
+ 
+ **What would be a nice solution to "couple" git branches with DB states?**
+
+ **What would these "states" actually be?**
+
+ We can't just duplicate a database if it's a few GBs in size. 
+ **And what should happen with merges?**
+
+ **Would the solution translate to noSQL databases as well?**
+
+ We currently use MySQL, mongodb and redis 
+ 
+ 
+ EDIT: Looks like I forgot to mention a very important point, I am only interested in the  **development environment**
+ but with large databases (a few GBs in size). 
+ 
+ When you add a new migration in any branch, run   and commit both the migration  **and**
+  
+ If you do this, in development, you'll be able to switch to another branch that has a different set of migrations and simply run  . 
+ Note that this will  **recreate the entire database, and existing data will be lost**
+. 
+ You'll probably only want to run production off of one branch which you're very careful with, so these steps don't apply there (just run   as usual there).  But in development, it should be no big deal to recreate the database from the schema, which is what   will do. 
+ 
+ If you have a large database that you can't readily reproduce, then I'd recommend using the normal migration tools.  If you want a simple process, this is what I'd recommend: 
+ 
+ Before switching branches, rollback ( ) to the state before the branch point. Then, after switching branches, run  . This is mathematically correct, and as long as  you write   scripts, it will work.  
+ If you forget to do this before switching branches, in general you can safely switch back, rollback, and switch again, so I think as a workflow, it's feasible.  
+ If you have dependencies between migrations in different branches... well, you'll have to think hard. 
+ 
+ 
+ Here's a script I wrote for switching between branches that contain different migrations: 
+ https://gist.github.com/4076864 
+ It won't solve all the problems you mentioned, but given a branch name it will: 
+ 
+ Roll back any migrations on your current branch which do not exist on the given branch 
+ Discard any changes to the db/schema.rb file 
+ Check out the given branch 
+ Run any new migrations existing in the given branch 
+ Update your test database 
+ 
+ I find myself manually doing this all the time on our project, so I thought it'd be nice to automate the process. 
+ 
+ Separate Database for each Branch 
+ It's the only way to fly. 
+ **Update October 16th, 2017**
+
+ I returned to this after quite some time and made some improvements: 
+ 
+ I've added another namespace rake task to create a branch and clone the database in one fell swoop, with  . 
+ I realize now that cloning from master is not always what you want to do so I made it more explicit that the   task takes a   and a   environment variable. When using   it will automatically use the current branch as the  . 
+ Refactoring and simplification. 
+ 
+ 
+ And to make it easier on you, here's how you update your   file to dynamically determine the database name based on the current branch. 
+ 
+ 
+ Here's a Rake task to easily clone your database from one branch to another. This takes a   and a   environment variables. Based off of  @spalladino 's task. 
+ 
+ 
+ This task will create a git branch off of the current branch (master, or otherwise), check it out and clone the current branch's database into the new branch's database. It's slick AF. 
+ 
+ Now, all you need to do is run  , enter in the new branch name and start killing zombies. 
+ 
+ Perhaps you should take this as a hint that your development database is too big? If you can use db/seeds.rb and a smaller data set for development then your issue can be easily solved by using schema.rb and seeds.rb from the current branch. 
+ That assumes that your question relates to development; I can't imagine why you'd need to regularly switch branches in production. 
+ 
+ I was struggling with the same issue.  Here is my solution: 
+ 
+ Make sure that both schema.rb and all migrations are checked in by all developers. 
+ There should be one person/machine for deployments to production.  Let's call this machine as the merge-machine.  When the changes are pulled to the merge machine, the auto-merge for schema.rb will fail.  No issues.  Just replace the content with whatever the previous contents for schema.rb was (you can put a copy aside or get it from github if you use it ...). 
+ Here is the important step.  The migrations from all developers will now be available in db/migrate folder.  Go ahead and run bundle exec rake db:migrate.  It will bring the database on the merge machine at par with all changes.  It will also regenerate schema.rb.  
+ Commit and push the changes out to all repositories (remotes and individuals, which are remotes too).  You should be done! 
+ 
+ 
+ This is what I have done and I'm not quite sure that I have covered all the bases: 
+ In development (using postgresql): 
+ 
+ sql_dump  db_name > tmp/branch1.sql 
+ git checkout branch2 
+ dropdb db_name  
+ createdb db_name  
+ psql db_name < tmp/branch2.sql # (from previous branch switch) 
+ 
+ This is a lot faster than the rake utilities on a database with about 50K records. 
+ For production, maintain the master branch as sacrosanct and all migrations are checked in, shema.rb properly merged.  Go through your standard upgrade procedure. 
+ 
+ You want to preserve a "db environment" per branch. Look at smudge/clean script to point to different instances. If you run out of db instances, have the script spin off a temp instance so when you switch to a new branch, it's already there and just needs to be renamed by the script. DB updates should run just before you execute your tests. 
+ Hope this helps. 
+ 
+ I totally experience the pita you are having here. As I think about it, the real issue is that all the branches don't have the code to rollback certain branches. I'm in the django world, so I don't know rake that well. I'm toying with the idea that the migrations live in their own repo that doesn't get branched (git-submodule, which I recently learned about). That way all the branches have all the migrations. The sticky part is making sure each branch is restricted to only the migrations they care about. Doing/keeping track of that manually would be a pita and prone to error. But none of the migration tools are built for this. That is the point at which I am without a way forward. 
+ 
+ I would suggest one of two options: 
+ **Option 1**
+
+ 
+ Put your data in  . A nice option is to create your seed data via FactoryGirl/Fabrication gem. This way you can guarantee that the data is in sync with the code if we assume, that the factories are updated together with the addition/removal of columns. 
+ After switching from one branch to another, run  , which effectively drops/creates/seeds the database. 
+ 
+ **Option 2**
+
+ Manually maintain the states of the database by always running  /  before/after a branch checkout. The caveat is that all your migrations need to be reversible, otherwise this won't work. 
+ 
+ On development environment: 
+ You should work with   to test if your script are reversible, but keep in mind always should have a   with the data population. 
+ If you work with git, you seed.rb should be change with an migration change, and the execution of   for the begining (load the data for a new development on other machine or new database) 
+ Apart of ´change´, with yours up's and down's methods your code always be cover scenarios for the "change" in this moment and when start from zero. 
+ 

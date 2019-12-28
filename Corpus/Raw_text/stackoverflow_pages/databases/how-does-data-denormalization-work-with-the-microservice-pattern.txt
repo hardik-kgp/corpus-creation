@@ -1,0 +1,98 @@
+*** how-does-data-denormalization-work-with-the-microservice-pattern ***
+
+ I just read an article on  Microservices and PaaS Architecture . In that article, about a third of the way down, the author states (under  **Denormalize like Crazy**
+): 
+ 
+ Refactor database schemas, and de-normalize everything, to allow complete separation and partitioning of data. That is, do not use underlying tables that serve multiple microservices. There should be no sharing of underlying tables that span multiple microservices, and no sharing of data. Instead, if several services need access to the same data, it should be shared via a service API (such as a published REST or a message service interface). 
+ 
+ While this  sounds  great in theory, in practicality it has some serious hurdles to overcome. The biggest of which is that, often, databases are tightly coupled and every table has  some  foreign key relationship with at least one other table. Because of this it could be impossible to partition a database into  n  sub-databases controlled by  n  microservices. 
+ So I ask:  **Given a database that consists entirely of related tables, how does one denormalize this into smaller fragments (groups of tables) so that the fragments can be controlled by separate microservices?**
+
+ For instance, given the following (rather small, but exemplar) database: 
+ 
+ Don't spend too much time critiquing my design, I did this on the fly. The point is that, to me, it makes logical sense to split this database into 3 microservices: 
+ 
+  - for CRUDding users in the system; should ultimately manage the   table; and 
+  - for CRUDding products in the system; should ultimately manage the   table; and 
+  - for CRUDding orders in the system; should ultimately manage the   and   tables 
+ 
+ However all of these tables have foreign key relationships with each other. If we denormalize them and treat them as monoliths, they lose all their semantic meaning: 
+ 
+ **Now there's no way to know who ordered what, in which quantity, or when.**
+
+ So is this article typical academic hullabaloo, or is there a real world practicality to this denormalization approach, and if so, what does it look like (bonus points for using my example in the answer)? 
+ 
+ This is subjective but the following solution worked for me, my team, and our DB team. 
+ 
+ At the application layer, Microservices are decomposed to semantic function.
+
+ 
+ e.g. a   service might CRUD contacts (metadata about contacts: names, phone numbers, contact info, etc.) 
+ e.g. a   service might CRUD users with login credentials, authorization roles, etc. 
+ e.g. a   service might CRUD payments and work under the hood with a 3rd party PCI compliant service like Stripe, etc. 
+ 
+ At the DB layer, the tables can be organized however the devs/DBs/devops people want the tables organized 
+ 
+ The problem is with cascading and service boundaries: Payments might need a User to know who is making a payment. Instead of modeling your services like this: 
+ 
+ Model it like so: 
+ 
+ This way, entities that belong to other microservices only are  referenced  inside a particular service by ID, not by object reference. This allows DB tables to have foreign keys all over the place, but at the app layer "foreign" entities (that is, entities living in other services) are available via ID. This stops object cascading from growing out of control and cleanly delineates service boundaries. 
+ The problem it does incur is that it requires more network calls. For instance, if I gave each   entity a   reference, I could get the user for a particular payment with a single call: 
+ 
+ But using what I'm suggesting here, you'll need two calls: 
+ 
+ This may be a deal breaker. But if you're smart and implement caching, and implement well engineered microservices that respond in 50 - 100 ms each call, I have no doubt that these extra network calls can be crafted to  not  incur latency to the application. 
+ 
+ It is indeed one of key problems in microservices which is quite conviniently omitted in most of articles. Fortunatelly there are solutions for this. As a basis for discussion let's have tables which you have provided in the question.
+ 
+Image above shows how tables will look like in monolith. Just few tables with joins. 
+ 
+ To refactor this to microservices we can use few strategies: 
+ **Api Join**
+
+ In this strategy foreign keys between microservices are broken and microservice exposes an endpoint which mimics this key. For example: Product microservice will expose   endpoint. Order microservice can use this endpoint instead of join. 
+ 
+It has an obvious downside. It is slower. 
+ **Read only views**
+
+ In the second solution you can create copy of the table in the second database. Copy is read only. Each microservice can use mutable operations on its read/write tables. When it comes to read only tables which are copied from other databases they can (obviously) use only reads
+ 
+ **High performance read**
+
+ It is possible to achieve high performance read by introducing solutions such as redis/memcached on top of   solution. Both sides of join should be copied to flat structure optimized for reading. You can introduce completely new stateless microservice which can be used for reading from this storage. While it seems like a lot of hassle it is worth to note that it will have higher performance than monolithic solution on top of relational database. 
+ 
+ There are few possible solutions. Ones which are simplest in implementation have lowest performance. High performance solutions will take few weeks to implement. 
+ 
+ I realise this is possibly not a good answer but what the heck.  Your question was: 
+ 
+ Given a database that consists entirely of related tables, how does
+  one denormalize this into smaller fragments (groups of tables) 
+ 
+ WRT the database design I'd say  **"you can't without removing foreign keys"**
+.  
+ That is, people pushing Microservices with the strict no shared DB rule are asking database designers to give up foreign keys (and they are doing that implicitly or explicitly). When they don't explicitly state the loss of FK's it makes you wonder if they actually know and recognise the value of foreign keys (because it is frequently not mentioned at all). 
+ I have seen big systems broken into groups of tables. In these cases there can be either A) no FK's allowed between the groups or B) one special group that holds "core" tables that can be referenced by FK's to tables in other groups. 
+ ... but in these systems "groups of tables" is often 50+ tables so not small enough for strict compliance with microservices. 
+ To me the other related issue to consider with the Microservice approach to splitting the DB is the impact this has reporting, the question of how all the data is brought together for reporting and/or loading into a data warehouse.  
+ Somewhat related is also the tendency to ignore built in DB replication features in favor of messaging (and how DB based replication of the core tables / DDD shared kernel) impacts the design. 
+ **EDIT: (the cost of JOIN via REST calls)**
+  
+ When we split up the DB as suggested by microservices and remove FK's we not only lose the enforced declarative business rule (of the FK) but we also lose the ability for the DB to perform the join(s) across those boundaries. 
+ In OLTP FK values are generally not "UX Friendly" and we often want to join on them. 
+ In the example if we fetch the last 100 orders we probably don't want to show the customer id values in the UX. Instead we need to make a second call to customer to get their name.  However, if we also wanted the order lines we also need to make another call to the products service to show product name, sku etc rather than product id. 
+ In general we can find that when we break up the DB design in this way we need to do a lot of "JOIN via REST" calls. So what is the relative cost of doing this? 
+ **Actual Story: Example costs for 'JOIN via REST' vs DB Joins**
+
+ There are 4 microservices and they involve a lot of "JOIN via REST". A benchmark load for these 4 services comes to  **~15 minutes**
+. Those 4 microservices converted into 1 service with 4 modules against a shared DB (that allows joins) executes the same load in  **~20 seconds**
+. 
+ This unfortunately is not a direct apples to apples comparison for DB joins vs "JOIN via REST" as in this case we also changed from a NoSQL DB to Postgres. 
+ Is it a surprise that "JOIN via REST" performs relatively poorly when compared to a DB that has a cost based optimiser etc. 
+ To some extent when we break up the DB like this we are also walking away from the 'cost based optimiser' and all that in does with query execution planning for us in favor of writing our own join logic (we are somewhat writing our own relatively unsophisticated query execution plan). 
+ 
+ I would see each microservice as an Object, and as like any ORM , you use those objects to pull the data and then create joins within your code and query collections, Microservices should be handled in a similar manner. The difference only here will be each Microservice shall represent one Object at a time than a complete Object Tree. An API layer should consume these services and model the data in a way it has to be presented or stored. 
+ Making several calls back to services for each transaction will not have an impact as each service runs in a separate container and all these calles can be executed parallely. 
+ @ccit-spence, I liked the approach of intersection services, but how it can be designed and consumed by other services? I believe it will create a kind of dependency for other services. 
+ Any comments please? 
+ 

@@ -1,0 +1,80 @@
+*** business-logic-in-database-versus-code ***
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+                            As it currently stands, this question is not a good fit for our Q&A format. We expect answers to be supported by facts, references,   or expertise, but this question will likely solicit debate, arguments, polling, or extended discussion. If you feel that this question   can be improved and possibly reopened,  visit the help center  for guidance.
+                            
+                         
+ 
+ 
+ Closed  7 years ago . 
+ 
+ 
+ As a software engineer, I have a strong bias towards writing business logic in the application layer, while typically relying on the database for little more than CRUD (Create Retrieve Update and Delete) operations. On the other hand, I have run across applications (typically older ones) where a large amount of the business logic was written in stored procedures, so there are people out there that prefer to write business logic in the database layer. 
+ For the people that have and/or enjoy written/writing business logic in a stored procedure, what were/are your reasons for using this method? 
+ 
+ I try to seriously limit my business logic in the DB to only procs that have to do alot of querying and updating to perform a single application operation. Some may argue that even that should be in the app, but I like to keep the IO down if I can. 
+ Databases are great for CRUD but if they get bloated with logic: 
+ 
+ It becomes confusing where the logic is, 
+ Typically databases are a silo and do not scale horizontally nearly as well as the app servers.
+ t_sql/PLsql is hard to read and procedural in nature
+ You forfeit all of the benefits of OOAD.
+ 
+ 
+ To the maximum extent possible, keep your business logic in the environment that is  **the most testable and debuggable**
+.  There are some valid reasons for storing business logic in the database in other people's existing answers, but they are almost always far outweighed by this. 
+ 
+ Limiting the business logic to the application layer is short-sighted at best. Experienced professional database designers rarely allow it on their systems. Database need to have constraints and triggers and stored procs to help define how the data from any source will go into it.  
+ If the database is to maintain its integrity and to ensure that all sources of new data or data changes follow the rules, the database is the place to put the required logic. Putting it the application layer is a data nightmare waiting to happen. Databases do not get information just from one application. Business logic in the application is often unintentionally bypassed by imports (assume you got a new customer who wanted their old historical data imported to your system  or a large number of target records, no one is going to enter a million possible targets through the interface, it will happen in an import.) It is also bypassed by changes made through the query window to fix one-time issues (things like increasing the price of all products by 10%). If you have application layer logic that should have been applied to the data change, it won't be. Now it's ok to put it in the application layer as well, no sense sending bad data to the database and wasting network bandwidth, but to fail to put it in the database will sooner or later cause data problems. 
+ Another reason to keep all of this in the database has to to with the possibility of users committing fraud. If you put all your logic in the application layer, then you must grant the users access directly to the tables. If you encapsulate all your logic in stored procs, they can be limited to doing only what the stored procs allow and not anything else. I would not consider allowing any kind of access by users to a database that stores financial records or personal information (such as health records) as I would not allow anyone except a couple of dbas to directly access the production records in any way shape or form. More fraud is committed than many developers realize and almost none of them consider the possibility in their design.  
+ If you need to import large amount of data, going through a data access layer could slow down the import to a crawl becasue it doesn't take advanatge of the set-based operations that databases are designed to handle. 
+ 
+ Your usage of the term "business logic" is rather vague. 
+ It can be interpreted to mean to include the enforcement of constraints on the data (aka 'business rules').  Enforcement of these unequivocally belongs in the dbms, period. 
+ It can also be interpreted to mean to include things like "if a new customer arrives, then within a week we send him a welcome letter."  Trying to push stuff like this in the data layer is probably a big mistake.  In such cases, the driver for "create a new welcome letter" should probably be the application that also triggers the new customer row insertion.  Imagine every new database row insertion triggering a new welcome letter, and then suddenly we take over another company and we must integrate that company's customers in our own database ...  Ouch. 
+ 
+ We do a lot of processing in the DB tier, where appropriate.  There's a lot of operations you wouldn't want to pull back large datasets to the app tier to do analysis on.  It's also an easier deployment for us -- a single point vs. updating applications at all install points.  But a lot depends on your application and what it does; there's no single good answer here. 
+ 
+ On a couple of ocassions I have put 'logic' in sprocs because the CRUD might be happening in more than one place. By 'logic' I would have to say it is not really business logic but more 'integrity logic'. It might be the same - some cleanup might be necessary if something gets deleted or updated in a certain way, and if that delete or update could happen from more than one tool with different code-bases it made sense to put it in the proc they all used. 
+ In addition, sometimes the 'business logic line' is pretty blurry. Take reports for example - they may rely on stored procedures or views that encapsulate 'smarts' about what the schema means to the business. How often have you seen CASE statements and the like that 'do things' based on column values or other critieria? Could be construed as business logic and yet it probably does belong in the DB where it can be optimized, etc. 
+ 
+ I'd say if 'business-logic' means application flow, user control, timed operations and generally 'doing-business-stuff' then it should be in the application layer. But if it means making sure that no matter how you dig around in the data, it always makes sense and is a sensible, non-self-conflicting whole, then the checks to enforce those rules go in the DB, absolutely, no questions. There are always many ways to push data into the DB and manipulate it once its there. Not all those ways have 'business-logic' built in to them. You will find a SQL session into a DB through a DOS window on a support call at 3am is very liberal in what it allows for example! If the logic isn't in the DB to make sure that ALL data changes make sense, you can bet for sure that the data will get very, very screwed up over time. And since a system is only as valuable as the data it holds, that makes for a much lower return on investment. 
+ 
+ Two good reasons for putting the business logic in the database are: 
+ 
+ It secures your logic and data
+against additional applications that
+may access the database that don't
+implement similar logic. 
+ Database designs usually outlive the
+application layer and it reduces the
+work necessary when you move to new
+technologies on the client side. 
+ 
+ 
+ You often find business logic at the database layer because it can often be faster to make a change and deploy.  I think often the best intentions are not to put the logic there but because of the ease of deployment it ends up there. 
+ 
+ I work for a financial type company where certain rules are applied by states, and these rules and their calculations are subject to change almost daily if not surely weekly. That being the case, it made more sense to move parts of the logic dealing with calculations to the database; where a change can be tested and applied without having to recompile and redistibute an application, which is impossible to do daily without disrupting business. The stored proc is tested, approved, applied and the end user is none the wiser.
+With the move to web based applications, the reliance on moving the logic to the database is less but still present. Even web apps (depending on the language) must be compiled and published to the site which could cause downtime. 
+ 
+ Sometimes business logic is too slow to run on the app layer. This is especially true on on older systems where client power and bandwidth was more limited.  
+ 
+ The main reason for using the database to do the work is that you have a single point of control.  Often, app developers re-use or rewrite code fragments in different parts of the application.  Even assuming that these all work exactly the same way (which is doubtful), when the business logic changes, the app needs to be reviewed, recoded, recompiled.  Unless the parameters change, this would not be necessary where the business logic is stored only in the database. 
+ 
+ My preference is to keep any complicated business logic out of the database, simply for maintenance purposes. If I get a call at 2 o'clock in the morning I would rather debug my application code than try to step through database scripts. 
+ 
+ The primary reason I would put BL in stored procs in the past is that transactions were easier in the database.   
+ If deployments are difficult for your app and you don't have an app-server, changing the BL in stored procedures is the most effective way to deploy a change. 
+ 
+ I think Specially for older applications which i working on (Banking) where the Bussiness logic is huge, it's almost next to impossible to perform all these  business logic in application layer, and also It's a big performenance hit when we put these logic in Application layer where the number of fetch to the database is more, results in more resource utilization(more java objects if it's done in java layer) and network issues and forget abt performenance. 
+ 
+ I'm in a team to build-up and maintain a rather large financial system, and I find no way put the logic into the application layer for action that affect to or get constraints from dozens of thousand records. 
+ Beside the performance issue, should errors happen, rectifying a stored procedures is much faster than debugging the application, fixing, recompiling, redeploying the code with longer downtime 
+ 

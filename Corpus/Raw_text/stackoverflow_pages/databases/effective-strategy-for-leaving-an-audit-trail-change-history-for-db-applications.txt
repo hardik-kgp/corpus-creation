@@ -1,0 +1,36 @@
+*** effective-strategy-for-leaving-an-audit-trail-change-history-for-db-applications ***
+
+ What are some strategies that people have had success with for maintaining a change history for data in a fairly complex database. One of the applications that I frequently use and develop for could really benefit from a more comprehensive way of tracking how records have changed over time. For instance, right now records can have a number of timestamp and modified user fields, but we currently don't have a scheme for logging multiple change, for instance if an operation is rolled back. In a perfect world, it would be possible to reconstruct the record as it was after each save, etc. 
+ Some info on the DB: 
+ 
+ Needs to have the capacity to grow by thousands of records per week 
+ 50-60 Tables 
+ Main revisioned tables may have several million records each 
+ Reasonable amount of foreign keys and indexes set 
+ Using PostgreSQL 8.x 
+ 
+ 
+ In the past I have used triggers to construct db update/insert/delete logging.  
+ You could insert a record each time one of the above actions is done on a specific table into a logging table that keeps track of the action, what db user did it, timestamp, table it was performed on, and previous value.  
+ There is probably a better answer though as this would require you to cache the value before the actual delete or update was performed I think. But you could use this to do rollbacks.  
+ 
+ One strategy you could use is MVCC, Multi-Value Concurrency Control.  In this scheme, you never do updates to any of your tables, you just do inserts, maintaining version numbers for each record.  This has the advantage of providing an exact snapshot from any point in time, and it also completely sidesteps the update lock problems that plague many databases. 
+ But it makes for a huge database, and selects all require an extra clause to select the current version of a record. 
+ 
+ If you are using Hibernate, take a look at  JBoss Envers . From the project homepage: 
+ 
+ The Envers project aims to enable easy versioning of persistent JPA classes. All that you have to do is annotate your persistent class or some of its properties, that you want to version, with @Versioned. For each versioned entity, a table will be created, which will hold the history of changes made to the entity. You can then retrieve and query historical data without much effort.  
+ 
+ This is somewhat similar to  Eric's approach , but probably much less effort. Don't know, what language/technology you use to access the database, though. 
+ 
+ The only problem with using Triggers is that it adds to performance overhead of any insert/update/delete. For higher scalability and performance, you would like to keep the database transaction to a minimum. Auditing via triggers increase the time required to do the transaction and depending on the volume may cause performance issues.  
+ another way is to explore if the database provides any way of mining the "Redo" logs as is the case in Oracle. Redo logs is what the database uses to recreate the data in case it fails and has to recover.  
+ 
+ Similar to a trigger (or even with) you can have every transaction fire a logging event asynchronously and have another process (or just thread) actually handle the logging. There would be many ways to implement this depending upon your application. I suggest having the application fire the event so that it does not cause unnecessary load on your first transaction (which sometimes leads to locks from cascading audit logs).  
+ In addition, you may be able to improve performance to the primary database by keeping the audit database in a separate location. 
+ 
+ I use SQL Server, not PostgreSQL, so I'm not sure if this will work for you or not, but Pop Rivett had a great article on creating an audit trail here:
+ Pop rivett's SQL Server FAQ No.5: Pop on the Audit Trail 
+ Build an audit table, then create a trigger for each table you want to audit.  
+ Hint: use  Codesmith  to build your triggers. 
+ 

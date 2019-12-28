@@ -1,0 +1,150 @@
+*** store-many-of-relation-11-between-various-type-of-objects-decoupling-high-p ***
+
+ I have 300+ classes.  They are related in some ways. 
+ For simplicity, all relation are 1:1. 
+Here is a sample diagram.      
+   (In real case, there are around 50 relation-pairs.) 
+ **Note:**
+ For some instances, some relation may not exist. 
+For example, some  s don't relate to any  .      
+ **Note2:**
+ No link = never, e.g. every   doesn't relate to any  . 
+Such relation will never be added/removed/queried. 
+ **Question:**
+
+ How to store relation between them elegantly? 
+All 4 of my ideas (below) seem to have disadvantages.       
+ Here  is a related question but with 1:N and only 1 relation.  
+ My poor solutions 
+ These are semi-pseudo-codes. 
+ **Version 1 Direct**
+
+ My first thought is to add pointer(s) to each other. 
+ **Chick.h:-**
+
+ 
+ **Hen.h:-**
+
+ 
+ It is very cheap to add/remove relation and query, e.g. :-      
+ 
+ It works good, but as my program grow, I want to decouple them. 
+Roughly speaking,   should not contain word  , and vice versa.   
+ There are many ideas, but none seems very good. 
+I will show a brief snippet for each work-around then summarizes pros & cons at the end of question. 
+ **Version 2 Hash-map**
+
+ Use  . 
+It becomes a bottle neck of my program. (profiled in release mode) 
+ 
+ **Version 3 Mediator-single**
+
+ Store every relation in a single big mediator for every entity. 
+Waste a lot of memory for empty slots (e.g.   has   slot). 
+Total waste =  *2*4 bytes (if run at 32 bits) in every entity. 
+ 
+ **Version 4 Mediator-array (similar as 3)**
+
+ Try to standardize - high flexibility. 
+ 
+ **Pros & Cons**
+
+ Green ( ) are good.  Red ( ) are bad.
+ 
+ **Edit:**
+  I am using  Entity-Component  for a 60fps game. 
+It is a persistent database : a single instance used for the entire life of a game.           
+ **Edit2:**
+ All of the relation are weak relation rather than  is-a  or strong   ownership. (Thank Walter)       
+ 
+ A    **is in**
+ a  . 
+Some   are not in any  , and some   are empty.     
+ A    **come from**
+ an  . 
+However, some   didn't come from any   (they are just dropped from sky), 
+and some   are not lucky enough to become  .       
+ A   and a    **are eating**
+ a (probably same) plate of  . 
+Some   plates are just prepared but not served.     
+ 
+ **Edit3:**
+ Assign an integer id for each object can be a good idea. 
+(Thank Oliv, ahoxha, and Simone Cifani) 
+ **Edit4::**
+ No need to provide a compilable code, just an essential part / concept is enough.        
+ 
+ Based on the requirements, if you have only one-to-one relations, then it sounds to me like a graph. In this case, if it is densely populated (there are many relations), I would use the matrix representation of the graph. In the tables below, I have associated numbers 0 through 4 to the entities (Hen, Cage, Food, Egg and Chick) respectively. If the relation Hen - Egg exists, then the matrix will have a 1 at the position  , if it doesn't then the value would be 0 (you can choose values of your choice to decide how to tell when the relation exists or doesn't). If the relations are undirected, then you only need one side of the matrix (the upper triangle, for example). 
+ 
+ The downside of this solution hides in the memory usage, especially if the matrix contains a lot of 0's (relations that don't exist); you would be unnecessarily occupying a lot of space. In this case you may use the  linked-list representation of the graphs .  
+ 
+ My suggestion: 
+ 
+ Add a common base class. 
+ Add a list of parents and children to the base class. 
+ Add functions to add, remove, insert, query parents and children to the base class. 
+ Add higher level non-member functions as needed. 
+ 
+ 
+ 
+ Now you can implement higher level functions. E.g. 
+ 
+ To query the unique   from a  , you could use a generic function template. 
+ 
+ and then use it as: 
+ 
+ 
+ There must be some game-related logic behind your relations. Sometimes relations can be uni-directional, sometimes one-to-many etc. How to implement them highly depends on the logic and architecture. 
+ 1) typical   relation, e.g. your   case. Sounds like it's a simple inheritance, when   class should be derived from   class 
+ 2) aggregation, e.g.   case. Here you know that each   can have (produce?) one or more  s, this is part of your game logic and this info deserves to be hardcoded, for convenience, readability and performance: e.g.  . In this case you know what (almost concrete) type is expected, so declaration looks like 
+ 
+ I'm not sure decoupling here is beneficial as to use   you do need to know about   class. 
+ 3) abstract components. On the abstract level of a game engine, when you don't have any specific game logic (or don't want to use it). E.g. Unity3D  s, or Unreal Engine  s. Their main purpose is to help you to organise your stuff in an hierarchy, so you can clone part of your game world (e.g. compound building consisting of many parts), move it, reorganise etc. You have a base class for these components and you can enumerate a component children or query a particular child by its name or some ID. This method is abstract and helps to decouple game engine logic from a particular game logic. It doesn't mean it's applicable only for re-usable game engines. Even games that were built from scratch not using a 3rd-party game engines usually have some "game engine" logic. Usually such component model involves some overhead, e.g.   - much more typing, less readable and there're some runtime overhead to enumerate only  s and count them. 
+ 
+ As you can see here you don't have any dependencies between classes that derive from  . So ideally dealing with   you don't need to know their concrete type and abstract   is enough to do generic things like to specify a place in your game world, delete or re-parent it. Though on practice it's common to cast it to a concrete type, so decoupling here is just to separate game engine logic from game logic. 
+ It's OK to combine all three methods. 
+ 
+ There is and can be no good answer to this question, since your algorithm is not known. What can be said in general, is that you want locality on your data and indirection is always a way to break it. 
+ If you have an algorithm, that works on hens, you want them to be packed as closely as possible and ideally to be linear in memory, for the maximum cache hit rate. 
+ If your algorithm needs to work on the relation, between hens and eggs. They need to be local. This can not be achieved by saving them as pointers in the hens, but you need an array of all hen <-> egg relation. 
+ You see, it relly depends on what you intend to do. If you really aim to gain high permance, you have to prevent deep indiretion. Every pointer, you try to resolve may trash a cache line. If your cpu, is only chasing them down, the performance will be very low. 
+ 
+ I followed an approach similar to that of R Sahu to create a raw persistence library. In my implementation each entity must implement a base interface, called IEntity. The entity basically contains a vector of fields, represented by the interface IField, like follows: 
+ 
+ Then, I have an entity manager that provides basic persistence functions: 
+ 
+ The PROs of this solution are reusability, high abstraction level and ease of changing DB engine. 
+The CONs is that it will be slower with respect to a direct solution 
+However I use it with sqlite on a db of a thousand of records with time of response in the range of 100 - 600 ms, which is acceptable to me.  
+In your case you will have something like: 
+ 
+ Then, you can get your Hen record, containing its Egg reference, from the EntityManager 
+ 
+ This example represents a 1:1 relation between Hen and Egg. For a 1:N relation you can invert the representation and put a reference of Hen in Egg 
+ 
+ You could have each class contain a vector of strings that they accept upon creation of the class if the associations are known ahead of time. You could also add an update method that would update this container of names if more are discovered later. If the update function to update the list has been called and the class's container of names has been changed then the function also needs to have the class update itself with the proper class associations or relationships.  
+ Each class would need these elements at minimum and for storing different types into a single container will require the use of a common non functional abstract base class with some purely virtual methods. 
+ I'm using 2 classes that are derived from a common base interface for my example and the Primary class is named to represent the class that is having the relationship assigned to where the Associate class is the class is the delegated class that is being assigned to give the primary class that link of association. 
+ 
+ We can then use a function template that takes two class objects to search to see if the Associate Object is in the list of names of the Primary Object 
+ 
+ **EDIT**
+
+ The OP made a comment about using string and being slow; I used string here in the pseudo code just for clarity of understanding, you can replace the   with an   and just use a numeric ID. It will do the same and should be fairly efficient. 
+ **EDIT**
+
+ For the OP - 
+ A common interface of classes without definitions and implementations but their declarations might look something like this: 
+ **Example.h**
+
+ 
+ **Example.cpp**
+
+ 
+ With this example I have both a string and ID. I do this for several reasons; if you ever need to write to a readable file, or to print to the screen or some other output device the contents or properties of this object I have string for human readability. The ability to search, remove and add by a string is available but for the sake of efficiency it should be done by the mechanics of the hidden engine that will instead automatically generate the IDs for you and use the ID system instead for faster searches, comparisons and removals.  
+ For example let's say I generated 3 distinct objects that are of different classes:   their names and id's are set upon creation. I didn't show how to automatically generate a unique string with a base set of characters for a specific class and then append to that string a unique value each time that class is instantiated, but that is what I typically do if a name is not supplied. Supplying a name is optional and name generation is normally automatic. The table of the different classes and their properties name field would look like this: 
+ 
+ Now what also makes this setup powerful is the fact that you can have multiple instances of the same class but each has their own unique name. Such as This 
+ 
+ Now if you want to distinguish between the name of the actually class and the name of the actual object description; just make sure that you add a   as a protected member to the   or Super class that these classes derive from. This way that name would represent the string representation of that class type, where the property sheet name would be the actual descriptive name of that object. But when doing the actual searches and removals from your containers, using ids for simple loops, counters and indexing are quite efficient.  
+ 

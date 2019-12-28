@@ -1,0 +1,74 @@
+*** throttle-alter-table-disk-utilization ***
+
+ I'll start off with something from the MySQL  Online DDL Limitations  page: 
+ 
+ There is no mechanism to pause an online DDL operation or to throttle I/O or CPU usage for an online DDL operation. 
+ 
+ However, I'm still interested in solutions that I might have missed. 
+ The situation: Indexes are getting larger and larger, and they're getting so large that there won't be enough memory for the queries that are used, causing disk I/O to skyrocket, and everything to descend into utter chaos. New composite indexes have been created that are smaller, but the problem is running the   without breaking anything. 
+ The facts are as follows: 
+ 
+ It's an InnoDB table. 
+ The table has no primary key or unique index. 
+ No combination of columns is suited as a primary key or unique index. 
+ The table has no foreign keys. 
+ The table is partitioned per month (currently 50). 
+ The table must accept writes at all times. 
+ The newest 3-6 partitions must accept reads. 
+ There is an   column, but this is not unique. 
+ The table consists of approximately 2 billion rows. 
+ The partition of the current month is the only one that receives writes. 
+ Partitions are made 1 month in advance; there's always one empty partition. 
+ 
+ The   (I didn't include all partitions): 
+ 
+ Regarding queries: It's always a   on  , with everything else being used to filter. 
+ What I would like to avoid: 
+ 
+ Turning off the database instance. 
+ Disk I/O of 100% 
+ 
+ I've thought of using the   tool to throttle, but ran into the no primary key wall. A different solution would be to do this in code, effectively moving the triggers to the code base, and slowly copying over data using somewhat weird chunks (e.g. chunks of an hour's worth of data using a timestamp column) because there's no unique index.  
+ Are there other solutions and/or tools available?  
+ 
+ 
+ Create a   table similar to the   table, but with the revised indexes.  Include a   so that you won't be trapped again.  -- This is the  , but not yet the "populate". 
+ In the new table, use quarterly or annual partitions for old stuff; monthly for current and (later) future partitions.  -- This is to keep down the total number of partitions.  My Rule of Thumb is "no more than 50 partitions".  (Let me know if you have a problem with this plan.) 
+ Write a script to slowly copy all the data from the  old  partitions into the   table.  My advice on  chunking  may be useful here. 
+ Just before you are caught up, create a new partition.  But don't copy from it yet.  Stop the "copy" script at the end of the previous partition. 
+ When caught up  except for this new partition , stop writes. 
+ Copy the last partition. -- Here's where step #4 pays off. 
+ Atomic swap:   .  And turn write on again. 
+ 
+ Writing all the scripts and practicing on another machines is strongly advised.  The practice can be on a small subset of the total, but it needs to have at least a few partitions. 
+ 
+ I present this as a separate Answer, since the innermost part is totally different. 
+ As with my other answer, you need the   table with new indexes, plus a script to copy all the data over.  However, the meat is to simulate the Trigger in  your application . 
+ Fortunately, you have  , even though it is not the  .  And, even if it is not  , it can be used (assuming you don't have thousands of rows with the same id -- if you do, we can talk further). 
+ The "copy script" and the application talk to each other. 
+ The copy script is in a long loop: 
+ 
+   -- (or some other timeout) 
+ Copy rows with  . 
+ 
+ Pause briefly  (1 second?) 
+ Loop until no more  
+ 
+ The application, when reading, continues to read from the old table.  But when writing, it does: 
+ 
+   -- (or some other timeout) 
+ If timed out, something needs fixing. 
+ Write to old table -- (hence, reads continue to work) 
+ If   <=  , write to new table also. 
+ 
+ 
+ Monitor the progress.  At some point, you will need to stop everything, copy the last few rows and do the  . 
+ I don't know  your  optimal values for timeouts, sleep, or chunk size.  But I don't think it is wise for chunk size to be bigger than 1K. 
+ This technique has advantages for a variety of changes you might need to do in the future, so keep the guts in place. 
+ 
+ This is going to come down to what MySQL variant & version you are using, but if it's one thread per connection (my.cnf  , which might be default on your build), and you can put your   workload in a new connection, then workload is a unique PID, and you can use  /  on it. 
+ I have somewhat of a crappy answer, but it's less invasive than the other options. 
+ If you look at   you can see the threads/lightweight-processes, and just need to figure out what PID belongs to your specific connection. If you connect via TCP, you could match your local connection port and map that against lsof to find the specific thread. Other ways are possible w/ strace, systemtap and more, or running an initial query you can watch for. 
+ After that, you can use  /  to affect the PID on the system. You will really want to make sure you capture what PID it was, and reset the nice & priority level afterwards, to not affect anything else. 
+ As with the others, you really need to reshape this table in the long term. Partitions are useful, but not the endgame, since you're running 1.3TiB of online data, and you state that you only need to read from the most recent 3-6 partitions. Coming from MySQL before native partitions were added, I think this would be a good case for a VIEW and separate tables (atomically update the VIEW when you need to rollover). It would also let you trivially move some older tables to offline storage. 
+ 

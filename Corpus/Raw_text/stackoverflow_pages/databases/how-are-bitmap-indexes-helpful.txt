@@ -1,0 +1,53 @@
+*** how-are-bitmap-indexes-helpful ***
+
+ Wikipedia  gives this example 
+ 
+ But I do not understand this. 
+ 
+ How is this an index first of all? Isn't an index supposed to point to rows (using rowid's) given the key? 
+ What would be the typical queries where such indexes would be useful? How are they better than B-tree indexes? I know that if we use a B-tree index on   here, we will get a lot of results if for example, we look for  , which need to be filtered out further (so not very useful). How does a Bitmap improve the situation? 
+ 
+ 
+ A better representation of a bitmap index, is if given the sample above: 
+ 
+ the a bitmap index on the gender column would (conceptually) look like this: 
+ 
+ Bitmap indexes are used when the number of distinct values in a column is relatively low (consider the opposite where all values are unique: the bitmap index would be as wide as every row,  and  as long making it kind of like one big identity matrix.) 
+ So with this index in place a query like 
+ 
+ the database looks for a match in the gender values in the index, finds all the rowids where the bit was set to 1, and then goes and gets the table results. 
+ A query like: 
+ 
+ would get the 1 bits for Male, the 1 bits for Unspecified, do a bitwise-OR then go get the rows where the resulting bits are 1. 
+ So, the advantages of using a bitmap index over a b*tree index are storage (with low cardinality, bitmap indexes are pretty compact), and the ability to do bitwise operations before resolving the actual rowids which can be pretty quick. 
+ Note that bitmap indexes can have performance implications with inserts/deletes (conceptually, you add/remove a column to/from the bitmap and rejig it accordingly...), and can create a whole lot of contention as an update on a row can lock the entire corresponding bitmap entry and you can't update a different row (with the same bitmap value) until the first update is committed/rolled back. 
+ 
+ The benefit comes when filtering on multiple columns, then the corresponding indexes can be merged with bitwise operations before actually selecting the data.
+If you have gender, eye_colour, hair_colour
+then the query 
+ 
+ would first make a bitwise or between the eye_colour['blue'] index and the hair_colour['blonde'] index and finally bitwise and between the result and the gender['male'] index. This operation performs really fast both computationally and I/O. 
+The resulting bit stream would be used for picking the actual rows. 
+ Bitmap indexes are typically used in "star joins" in data warehouse applications. 
+ 
+ As indicated in the Wikipedia article, they use bitwise operations, which can perform better than comparing data types such as integers, so the short answer is increased speed of queries.  
+ Theoretically, it should take up less computations and less time to select all males or all females from your example. 
+ Just thinking about how this works under the hood should make why this is faster obvious.  A bit is logically either true or false.  If you want to do a query using a WHERE clause, this will eventually evaluate to either a true or a false for the records in order to determine whether to include them in your results. 
+ **Preface - the rest of this is meant to be layman's terns and non-techie**
+
+ So the next question is what does it take to evaluate to true?  Even comparing numeric values means that the computer has to... 
+ 
+ Allocate memory for the value you want to evaluate 
+ Allocate memory for the control value 
+ Assign the value to each (count this as two steps) 
+ Compare the two - for a numeric this should be quick, but for strings, there are more bytes to compare. 
+ Assign the results to a 0(false) or 1 (true) value.   
+ 
+ repeat if you're using a multiple part where clause such as Where "this = this AND that = that" 
+ 
+ perform bitwise operations on the results generated in step 5 
+ Come up with the final value 
+ deallocate the memory allocated in steps 1-3 
+ 
+ But using bitwise logic, you're just looking at 0 (false) and 1 (true) values.  90% of the overhead for the comparison work is eliminated. 
+ 

@@ -1,0 +1,62 @@
+*** improving-offset-performance-in-postgresql ***
+
+ I have a table I'm doing an ORDER BY on before a LIMIT and OFFSET in order to paginate. 
+ Adding an index on the ORDER BY column makes a massive difference to performance (when used in combination with a small LIMIT). On a 500,000 row table, I saw a 10,000x improvement adding the index, as long as there was a small LIMIT. 
+ However, the index has no impact for high OFFSETs (i.e. later pages in my pagination). This is understandable: a b-tree index makes it easy to iterate in order from the beginning but not to find the nth item. 
+ It seems that what would help is a  **counted b-tree index**
+, but I'm not aware of support for these in PostgreSQL. Is there another solution? It seems that optimizing for large OFFSETs (especially in pagination use-cases) isn't that unusual. 
+ Unfortunately, the PostgreSQL manual simply says "The rows skipped by an OFFSET clause still have to be computed inside the server; therefore a large OFFSET might be inefficient." 
+ 
+ You might want a computed index. 
+ Let's create a table: 
+ 
+ And fill it with some random stuff: 
+ 
+ Index it by day, nothing special here: 
+ 
+ Create a row position function. There are other approaches, this one is the simplest: 
+ 
+ Check if it works (don't call it like this on large datasets though): 
+ 
+ Now the tricky part: add another index computed on the sales_pos function values: 
+ 
+ Here is how you use it. 5 is your "offset", 10 is the "limit": 
+ 
+ It is fast, because when you call it like this, Postgres uses precalculated values from the index: 
+ 
+ Hope it helps. 
+ 
+ I don't know anything about "counted b-tree indexes", but one thing we've done in our application to help with this is break our queries into two, possibly using a sub-query. My apologies for wasting your time if you're already doing this. 
+ 
+ The advantage here is that, while it still has to calculate the proper ordering of everything, it doesn't order the entire row--only the  **id**
+ column. 
+ 
+ 
+ It seems that optimizing for large
+  OFFSETs (especially in pagination
+  use-cases) isn't that unusual. 
+ 
+ It seems a little unusual to me. Most people, most of the time, don't seem to skim through very many pages. It's something I'd support, but wouldn't work hard to optimize. 
+ But anyway . . . 
+ Since your application code knows which ordered values it's already seen, it should be able to reduce the result set and reduce the offset by excluding those values in the WHERE clause. Assuming you order a single column, and it's sorted ascending, your app code can store the last value on the page, then add   to the WHERE clause in some appropriate way. 
+ 
+ recently i worked over a problem like this, and i wrote a blog about how face that problem. is very like, i hope be helpfull for any one. 
+i use lazy list approach with partial adquisition. i Replaced the limit and offset or the pagination of query to a manual pagination. 
+In my example, the select returns 10 millions of records, i get them and insert them in a "temporal table": 
+ 
+ after that, i can paginate without count each row but using the sequence assigned: 
+ 
+ From java perspective, i implemented this pagination through partial adquisition with a lazy list. this is, a list that extends from Abstract list and implements get() method. The get method can use a data access interface to continue get next set of data and release the memory heap: 
+ 
+ by other hand, the data access interface use query to paginate and implements one method to iterate progressively, each 25000 records to  complete it all. 
+ results for this approach can be seen here
+ http://www.arquitecturaysoftware.co/2013/10/laboratorio-1-iterar-millones-de.html   
+ 
+ Instead of using an OFFSET, a very efficient trick is to use a temporary table: 
+ 
+ For 10 000 000 rows it needs about 10s to be created.
+Then you want to use SELECT or UPDATE your table, you simply: 
+ 
+ Filtering mytable with only just_index is more efficient (in my case) with a INNER JOIN than with a WHERE myID IN (SELECT ...) 
+ This way you don't have to store the last myId value, you simply replace the offset with a WHERE clause, that uses indexes 
+ 

@@ -1,0 +1,140 @@
+*** swapping-column-values-in-mysql ***
+
+ I have a MySQL table with coordinates, the column names are X and Y. Now I want to swap the column values in this table, so that X becomes Y and Y becomes X. The most apparent solution would be renaming the columns, but I don't want to make structure changes since I don't necessarily have permissions to do that. 
+ Is this possible to do with  UPDATE  in some way?  UPDATE table SET X=Y, Y=X  obviously won't do what I want. 
+ 
+ Edit: Please note that my restriction on permissions, mentioned above, effectively prevents the use of ALTER TABLE or other commands that change the table/database structure. Renaming columns or adding new ones are unfortunately not options. 
+ 
+ I just had to deal with the same and I'll summarize my findings. 
+ 
+ The   approach obviously doesn't work, as it'll just set both values to Y. 
+ Here's a method that uses a temporary variable. Thanks to Antony from the comments of  http://beerpla.net/2009/02/17/swapping-column-values-in-mysql/  for the "IS NOT NULL" tweak. Without it, the query works unpredictably. See the table schema at the end of the post. This method doesn't swap the values if one of them is NULL. Use method #3 that doesn't have this limitation. 
+ 
+ This method was offered by Dipin in, yet again, the comments of  http://beerpla.net/2009/02/17/swapping-column-values-in-mysql/ . I think it’s the most elegant and clean solution. It works with both NULL and non-NULL values. 
+ 
+ Another approach I came up with that seems to work: 
+ 
+ 
+ Essentially, the 1st table is the one getting updated and the 2nd one is used to pull the old data from. 
+Note that this approach requires a primary key to be present. 
+ This is my test schema: 
+ 
+ 
+ You could take the sum and subtract the opposing value using X and Y 
+ 
+ Here is a sample test (and it works with negative numbers) 
+ 
+ Here is the swap being performed 
+ 
+ Give it a Try !!! 
+ 
+ The following code works for all scenarios in my quick testing: 
+ 
+ 
+ **UPDATE table SET X=Y, Y=X**
+ will do precisely what you want (edit: in PostgreSQL, not MySQL, see below). The values are taken from the old row and assigned to a new copy of the same row, then the old row is replaced. You do not have to resort to using a temporary table, a temporary column, or other swap tricks. 
+ @D4V360: I see. That is shocking and unexpected. I use PostgreSQL and my answer works correctly there (I tried it). See the  PostgreSQL UPDATE docs  (under Parameters, expression), where it mentions that expressions on the right hand side of SET clauses explicitly use the old values of columns. I see that the corresponding  MySQL UPDATE docs  contain the statement "Single-table UPDATE assignments are generally evaluated from left to right" which implies the behaviour you describe. 
+ Good to know. 
+ 
+ Ok, so just for fun, you could do this! (assuming you're swapping string values) 
+ 
+ A nice bit of fun abusing the left-to-right evaluation process in MySQL. 
+ Alternatively, just use XOR if they're numbers. You mentioned coordinates, so do you have lovely integer values, or complex strings? 
+ Edit: The XOR stuff works like this by the way: 
+ 
+ 
+ Two alternatives 
+ 1. Use a temporary table 
+ 2. Investigate
+    the  XOR algorithm 
+ 
+ 
+Something like this? 
+ Edit: About Greg's comment:
+No, this doesn't work: 
+ 
+ mysql> update test set x=y, y=x;
+Query OK, 2 rows affected (0.00 sec)
+Rows matched: 2  Changed: 2  Warnings: 0 
+ mysql> select * from test;
++------+------+
+| x    | y    |
++------+------+
+|    2 |    2 |
+|    4 |    4 |
++------+------+
+2 rows in set (0.00 sec)
+ 
+ 
+ I believe have a intermediate exchange variable is the best practice in such way: 
+ 
+ First, it works always; second, it works regardless of data type. 
+ Despite of Both 
+ 
+ and 
+ 
+ are working usually, only for number data type by the way, and it is your responsibility to prevent overflow, you can not use XOR between signed and unsigned, you also can not use sum for overflowing possibility. 
+ And 
+ 
+ is not working
+if c1 is 0 or NULL or zero length string or just spaces. 
+ We need change it to 
+ 
+ Here is the scripts: 
+ 
+ 
+ This surely works! I've just needed it to swap Euro and SKK price columns. :) 
+ 
+ The above will not work (ERROR 1064 (42000): You have an error in your SQL syntax) 
+ 
+ Assuming you have signed integers in your columns, you may need to use CAST(a ^ b AS SIGNED), since the result of the ^ operator is an unsigned 64-bit integer in MySQL. 
+ In case it helps anyone, here's the method I used to swap the same column between two given rows: 
+ 
+ where $1 and $2 are the keys of two rows and $3 is the result of the first query. 
+ 
+ I've not tried it but 
+ 
+ Might do it. 
+ Mark 
+ 
+ You  could  change column names, but this is more of a hack. But be cautious of any indexes that may be on these columns  
+ 
+ Swapping of column values using single query 
+ UPDATE my_table SET a=@tmp:=a, a=b, b=@tmp; 
+ cheers...! 
+ 
+ I had to just move value from one column to the other (like archiving) and reset the value of the original column. 
+The below (reference of #3 from accepted answer above) worked for me. 
+ 
+ 
+ 
+ 
+ This example swaps  **start_date**
+ and  **end_date**
+ for records where the dates are the wrong way round (when performing ETL into a major rewrite, I found some  **start**
+ dates later than their  **end**
+ dates.  Down, bad programmers!). 
+ In situ, I'm using MEDIUMINTs for performance reasons (like Julian days, but having a 0 root of 1900-01-01), so I was OK doing a condition of  **WHERE mdu.start_date > mdu.end_date**
+. 
+ The PKs were on all 3 columns individually (for operational / indexing reasons). 
+ 
+ 
+ **Table name is customer.**
+
+ **fields are a and b, swap a value to b;.**
+
+ **UPDATE customer  SET a=(@temp:=a), a = b, b = @temp**
+
+ I checked this is working fine. 
+ 
+ In SQL Server, you can use this query: 
+ 
+ 
+ Let's say you want to swap the value of first and last name in tb_user. 
+ The safest would be: 
+ 
+ Copy tb_user. So you will have 2 tables: tb_user and tb_user_copy 
+ Use UPDATE INNER JOIN query 
+ 
+ 
+ 

@@ -1,0 +1,141 @@
+*** composite-primary-keys-versus-unique-object-id-field ***
+
+ I inherited a database built with the idea that composite keys are much more ideal than using a unique object ID field and that when building a database, a single unique ID should  never  be used as a primary key.  Because I was building a Rails front-end for this database, I ran into difficulties getting it to conform to the Rails conventions (though it was possible using custom views and a few additional gems to handle composite keys). 
+ The reasoning behind this specific schema design from the person who wrote it had to do with how the database handles ID fields in a non-efficient manner and when it's building indexes, tree sorts are flawed.  This explanation lacked any depth and I'm still trying to wrap my head around the concept (I'm familiar with using composite keys, but not 100% of the time). 
+ Can anyone offer opinions or add any greater depth to this topic?   
+ 
+ Most of the commonly used engines (MS SQL Server, Oracle, DB2, MySQL, etc.) would not experience noticeable issues using a surrogate key system. Some may even experience a performance boost from the use of a surrogate, but performance issues are highly platform-specific. 
+ In general terms, the natural key (and by extension, composite key) verses surrogate key debate has a long history with no likely “right answer” in sight. 
+ The arguments for natural keys (singular or composite) usually include some the following: 
+ 1)   **They are already available in the data model.**
+ Most entities being modeled already include one or more attributes or combinations of attributes that meet the needs of a key for the purposes of creating relations. Adding an additional attribute to each table incorporates an unnecessary redundancy. 
+ 2)   **They eliminate the need for certain joins.**
+ For example, if you have customers with customer codes, and invoices with invoice numbers (both of which are "natural" keys), and you want to retrieve all the invoice numbers for a specific customer code, you can simply use  . In the classic surrogate key approach, the SQL would look something like this:  . 
+ 3)   **They contribute to a more universally-applicable approach to data modeling.**
+ With natural keys, the same design can be used largely unchanged between different SQL engines. Many surrogate key approaches use specific SQL engine techniques for key generation, thus requiring more specialization of the data model to implement on different platforms. 
+ Arguments for surrogate keys tend to revolve around issues that are SQL engine specific: 
+ 1)   **They enable easier changes to attributes when business requirements/rules change.**
+ This is because they allow the data attributes to be isolated to a single table. This is primarily an issue for SQL engines that do not efficiently implement standard SQL constructs such as DOMAINs. When an attribute is defined by a DOMAIN statement, changes to the attribute can be performed schema-wide using an ALTER DOMAIN statement. Different SQL engines have different performance characteristics for altering a domain, and some SQL engines do not implement DOMAINS at all, so data modelers compensate for these situations by adding surrogate keys to improve the ability to make changes to attributes. 
+ 2)   **They enable easier implementations of concurrency than natural keys.**
+ In the natural key case, if two users are concurrently working with the same information set, such as a customer row, and one of the users modifies the natural key value, then an update by the second user will fail because the customer code they are updating no longer exists in the database. In the surrogate key case, the update will process successfully because immutable ID values are used to identify the rows in the database, not mutable customer codes. However, it is not always desirable to allow the second update – if the customer code changed it is possible that the second user should not be allowed to proceed with their change because the actual “identity” of the row has changed – the second user may be updating the wrong row. Neither surrogate keys nor natural keys, by themselves, address this issue. Comprehensive concurrency solutions have to be addressed outside of the implementation of the key. 
+ 3)   **They perform better than natural keys.**
+ Performance is most directly affected by the SQL engine. The same database schema implemented on the same hardware using different SQL engines will often have dramatically different performance characteristics, due to the SQL engines data storage and retrieval mechanisms. Some SQL engines closely approximate flat-file systems, where data is actually stored redundantly when the same attribute, such as a Customer Code, appears in multiple places in the database schema. This redundant storage by the SQL engine can cause performance issues when changes need to be made to the data or schema. Other SQL engines provide a better separation between the data model and the storage/retrieval system, allowing for quicker changes of data and schema. 
+ 4)   **Surrogate keys function better with certain data access libraries and GUI frameworks.**
+ Due to the homogeneous nature of most surrogate key designs (example: all relational keys are integers), data access libraries, ORMs, and GUI frameworks can work with the information without needing special knowledge of the data. Natural keys, due to their heterogeneous nature (different data types, size etc.), do not work as well with automated or semi-automated toolkits and libraries. For specialized scenarios, such as embedded SQL databases, designing the database with a specific toolkit in mind may be acceptable. In other scenarios, databases are enterprise information resources, accessed concurrently by multiple platforms, applications, report systems, and devices, and therefore do not function as well when designed with a focus on any particular library or framework. In addition, databases designed to work with specific toolkits become a liability when the next great toolkit is introduced. 
+ I tend to fall on the side of natural keys (obviously), but I am not fanatical about it. Due to the environment I work in, where any given database I help design may be used by a variety of applications, I use natural keys for the majority of the data modeling, and rarely introduce surrogates. However, I don’t go out of my way to try to re-implement existing databases that use surrogates. Surrogate-key systems work just fine – no need to change something that is already functioning well. 
+ There are some excellent resources discussing the merits of each approach: 
+ http://www.google.com/search?q=natural+key+surrogate+key 
+ http://www.agiledata.org/essays/keys.html 
+ http://www.informationweek.com/news/software/bi/201806814 
+ 
+ I've been developing database applications for 15 years and I have yet to come across a case where a non-surrogate key was a better choice than a surrogate key.   
+ I'm not saying that such a case does not exist, I'm just saying when you factor in the practical issues of actually developing an application that accesses the database, usually the benefits of a surrogate key start to overwhelm the theoretical purity of non-surrogate keys. 
+ 
+ the primary key should be  constant and meaningless ; non-surrogate keys usually fail one or both requirements, eventually 
+ 
+ if the key is not constant, you have a future update issue that can get quite complicated 
+ if the key is not meaningless, then it is more likely to change, i.e. not be constant; see above 
+ 
+ take a simple, common example: a table of Inventory items. It may be tempting to make the item number (sku number, barcode, part code, or whatever) the primary key, but then a year later  all the item numbers change  and you're left with a very messy update-the-whole-database problem... 
+ EDIT: there's an additional issue that is more practical than philosophical. In many cases you're going to find a particular row somehow, then later update it or find it again (or both). With composite keys there is more data to keep track of and more contraints in the WHERE clause for the re-find or update (or delete). It is also possible that one of the key segments may have changed in the meantime!. With a surrogate key, there is always only one value to retain (the surrogate ID) and by definition it cannot change, which simplifies the situation significantly. 
+ 
+ It  **sounds**
+ like the person who created the database is on the natural keys side of the great natural keys vs. surrogate keys debate. 
+ I've never heard of any problems with btrees on ID fields, but I also haven't studied it in any great depth... 
+ I fall on the surrogate key side: You have less repetition when using a surrogate key, because you're only repeating a single value in the other tables.  Since humans rarely join tables by hand, we don't care if it's a number or not.  Also, since there's only one fixed-size column to look up in the index, it's safe to assume surrogates have a faster lookup time by primary key as well. 
+ 
+ Using 'unique (object) ID' fields simplifies joins, but you should aim to have the other (possibly composite) key still unique -- do NOT relax the not-null constraints and DO maintain the unique constraint. 
+ If the DBMS can't handle unique integers effectively, it has big problems.  However, using both a 'unique (object) ID' and the other key does use more space (for the indexes) than just the other key, and has two indexes to update on each insert operation.  So it isn't a freebie -- but as long as you maintain the original key, too, then you'll be OK.  If you eliminate the other key, you are breaking the design of your system; all hell will break loose eventually (and you might or might not spot that hell broke loose). 
+ 
+ I basically am a member of the surrogate key team, and even if I appreciate and understand arguments such as the ones presented here by JeremyDWill, I am still looking for the case where "natural" key is better than surrogate ...  
+ Other posts dealing with this issue usually refer to relational database theory and database performance. Another interesting argument, always forgotten in this case, is related to  **table normalisation**
+ and  **code productivity**
+:  
+ each time I create a table, shall I
+    lose time 
+ 
+ identifying its primary key and its
+physical characteristics (type,
+size) 
+ remembering these characteristics
+each time I want to refer to it in
+my code? 
+ explaining my PK choice to other
+developers in the team? 
+ 
+ My answer is no to all of these questions:  
+ 
+ I have no time to lose trying to
+identify "the best Primary Key" when
+dealing with a list of persons. 
+ I do not want to remember that the
+Primary Key of my " " table
+is a 64 characters long string (does
+Windows accepts that many characters
+for a computer name?). 
+ I don't want to explain my choice to
+other developers, where one of them
+will finally say "Yeah man, but
+consider that you have to manage
+computers over different domains?
+Does this 64 characters string allow
+you to store the domain name + the
+computer name?". 
+ 
+ So I've been working for the last five years with a very basic rule: each table (let's call it ' ') has its first field called ' ' which is of uniqueIdentifier type. Even if this table supports a "many-to-many" relation, such as a ' ' table, where the combination of ' ' and ' ' forms a very acceptable Primary Key, I prefer to create this ' ' field being a uniqueIdentifier, just to stick to the rule.  
+ The major advantage is that you don't have to care animore about the use of Primary Key and/or Foreign Key within your code. Once you have the table name, you know the PK name and type. Once you know which links are implemented in your data model, you'll know the name of available foreign keys in the table. 
+ I am not sure that my rule is the best one. But it is a very efficient one! 
+ 
+ A practical approach to developing a new architecture is one that utilizes surrogate keys for tables that will contain thousands of multi-column highly unique records and composite keys for short descriptionary tables.  I usually find that the colleges dictate the use of surrogate keys while the real world programmers prefer composite keys.  You really need to apply the right type of primary key to the table - not just one way or the other. 
+ 
+ using natural keys makes a nightmare using any automatic ORM as persistence layer. Also, foreign keys on multiple column tend to overlap one another and this will give further problem when navigating and updating the relationship in a OO way. 
+ Still you could transform the natural key in an unique constrain and add an auto generated id; this doesn't remove the problem with the foreign keys, though, those will have to be changed by hand; hopefully multiple columns and overlapping constraints will be a minority of all the relationship, so you could concentrate on refactoring where it matter most. 
+ natural pk have their motivation and usages scenario and are not a bad thing(tm), they just tend to not get along well with ORM. 
+ my feeling is that as any other concepts, natural  keys and table normalization should be used when sensible and not as blind design constraints 
+ 
+ I'm going to be short and sweet here: Composite primary keys are not good these days. Add in surrogate arbitrary keys if you can and maintain the current key schemes via unique constraints. ORM is happy, you're happy, original programmer not-so-happy but unless he's your boss then he can just deal with it. 
+ 
+ Composite keys can be good - they may affect performance - but they are not the only answer, in much the same way that a unique (surrogate) key isn't the only answer. 
+ What concerns me is the vagueness in the reasoning for choosing composite keys. More often than not vagueness about anything technical indicates a lack of understanding - maybe following someone else's guidelines, in a book or article.... 
+ There is nothing wrong with a single unique ID - infact if you've got an application connected to a database server and you can choose which database you're using it will all be good, and you can pretty much do anything with your keys and not really suffer too badly. 
+ There has been, and will be, a lot written about this, because there is no single answer. There are methods and approaches that need to be applied carefully in a skilled manner. 
+ I've had lots of problems with ID's being provided automatically by the database - and I avoid them wherever possible, but still use them occasionally. 
+ 
+ 
+ ... how the database handles ID fields in a non-efficient manner and when it's building indexes, tree sorts are flawed ... 
+ 
+ This was almost certainly nonsense, but may have related to the issue of index block contention when assigning incrementing numbers to a PK at a high rate from different sessions. If so then the REVERSE KEY index is there to help, albeit at the expense of a larger index size due to a change in block-split algorithm.  http://download.oracle.com/docs/cd/B19306_01/server.102/b14220/schema.htm#sthref998 
+ Go synthetic, particularly if it aids more rapid development with your toolset. 
+ 
+ I am not a experienced one but still i m in favor of Using primary key as id here is the explanation using an example.. 
+ The format of external data may change over time. For example, you might think that the ISBN of a book would make a good primary key in a table of books. After all, ISBNs are unique. But as this particular book is being written, the publishing industry in the United States is gearing up for a major change as additional digits are added to all ISBNs.
+If we’d used the ISBN as the primary key in a table of books, we’d have to update each row to reflect this change. But then we’d have another problem. There’ll be other tables in the database that reference rows in the books table via the primary key. We can’t change the key in the books table unless we first go through and update all of these references. And that will involve dropping foreign key constraints, updating tables, updating the books table, and finally reestablishing the constraints. All in all, this is something of a pain.
+The problems go away if we use our own internal value as a primary key. No third party can come along and arbitrarily tell us to change our schema—we control our own keyspace. And if something such as the ISBN does need to change, it can change without affecting any of the existing relationships in the database. In effect, we’ve decoupled the knitting together of rows from the external representation of data in those rows. 
+ Although the explanation is quite bookish but i think it explains the things in a simpler way. 
+ 
+ @JeremyDWill 
+ Thank you for providing some much-needed balance to the debate. In particular, thanks for the info on  s. 
+ I actually use surrogate keys system-wide for the sake of consistency, but there  are  tradeoffs involved. The most common cause for me to curse using surrogate keys is when I have a lookup table with a short list of canonical values—I'd use less space and all my queries would be shorter/easier/faster if I had just made the values the PK instead of having to join to the table. 
+ 
+ You can do both - since any big company database is likely to be used by several applications, including human DBAs running one-off queries and data imports, designing it purely for the benefit of ORM systems is not always practical or desirable. 
+ What I tend to do these days is to add a "RowID" property to each table - this field is a GUID, and so unique to each row. This is NOT the primary key - that is a natural key (if possible). However, any ORM layers working on top of this database can use the RowID to identify their derived objects. 
+ Thus you might have: 
+ 
+CREATE TABLE dbo.Invoice (
+  CustomerId varchar(10),
+  CustomerOrderNo varchar(10),
+  InvoiceAmount money not null,
+  Comments nvarchar(4000),
+  RowId uniqueidentifier not null default(newid()),
+
+  primary key(CustomerId, CustomerOrderNo)
+)
+ 
+ So your DBA is happy, your ORM architect is happy, and your database integrity is preserved! 
+ 
+ I just wanted to add something here that I don't ever see covered when discussing auto-generated integer identity fields with relational databases (because I see them a lot), and that is, it's base type can an will overflow at some point. 
+ Now I'm not trying to say this automatically makes composite ids the way to go, but it's just a matter of fact that even though more data could be logically added to a table (which is still unique), the single auto-generated integer identity could prevent this from happening. 
+ Yes I realize that for most situations it's unlikely, and using a 64bit integer gives you lots of headroom, and realistically the database probably should have been designed differently if an overflow like this ever occurred.  
+ But that doesn't prevent someone from doing it... a table using a single auto-generated 32bit integer as it's identity, which is expected to store all transactions at a global level for a particular fast-food company, is going fail as soon as it tries to insert it's 2,147,483,648th transaction (and that is a completely feasible scenario). 
+ It's just something to note, that people tend to gloss over or just ignore entirely. If any table is going to be inserted into with regularity, considerations should be made to just how often and how much data will accumulate over time, and whether or not an integer based identifier should even be used. 
+ 

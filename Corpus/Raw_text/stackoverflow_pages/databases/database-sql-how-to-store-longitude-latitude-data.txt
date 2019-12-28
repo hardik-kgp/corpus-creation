@@ -1,0 +1,58 @@
+*** database-sql-how-to-store-longitude-latitude-data ***
+
+ Performance question ... 
+ I have a database of houses that have geolocation data (longitude & latitude). 
+ What I want to do is find the best way to store the locational data in my MySQL (v5.0.24a) using InnoDB database-engine so that I can perform a lot of queries where I'm returning all the home records that are between x1 and x2   and y1 and y2  . 
+ Right now, my database schema is 
+ 
+ And my query is: 
+ 
+ 
+ Is what I described above the best way to store the
+latitude and longitude data in MySQL using Float (10,6) and separating out the longitude/latitude? If not, what is? There exist Float, Decimal and even Spatial as a data type. 
+ Is this the best way to perform the
+SQL from a performance standpoint? If not, what is? 
+ Does using a different MySQL
+database-engine make sense? 
+ 
+ **UPDATE: Still Unanswered**
+
+ I have 3 different answers below. One person say to use  . One person says to use  . One person says to use  . 
+ So I used MySQL "EXPLAIN" statement to measure the SQL execution speed. It appears that absolutely no difference in SQL execution (result set fetching) exist if using   or   for the longitude and latitude data type.. 
+ It also appears that using the " " statement is SIGNIFICANTLY faster than using the " " or " " SQL statements. It's nearly 3x faster to use " " than to use the " " and " " statement. 
+ With that being said, I still am unceratin on what the performance impact would be if using Spatial since it's unclear to me if it's supported with my version of MySQL running (v5.0.24) ... as well as how I enable it if supported. 
+ **Any help would be greatly appreacited**
+
+ 
+ float(10,6) is just fine. 
+ Any other convoluted storage schemes will require more translation in and out, and floating-point math is plenty fast. 
+ 
+ I know you're asking about MySQL, but if spatial data is important to your business, you might want to reconsider.  PostgreSQL  +  PostGIS  are also free software, and they have a great reputation for managing spatial and geographic data efficiently. Many people use PostgreSQL only because of PostGIS. 
+ I don't know much about the MySQL spatial system though, so perhaps it works well enough for your use-case. 
+ 
+ The problem with using any other data type than "spatial" here is that your kind of "rectangular selection" can (usually, this depends on how bright your DBMS is - and MySQL certainly isn't generally the brightest) only be optimised in one single dimension. 
+ The system can pick either the longitude index or the latitude index, and use that to reduce the set of rows to inspect.  But after it has done that, there is a choice of : (a) fetching all found rows and scanning over those and test for the "other dimension", or (b) doing the similar process on the "other dimension" and then afterwards matching those two result sets to see which rows appear in both.  This latter option may not be implemented as such in your particular DBMS engine. 
+ Spatial indexes sort of do the latter "automatically", so I think it's safe to say that a spatial index will give the best performance in any case, but it may also be the case that it doesn't significantly outperform the other solutions, and that it's just not worth the bother.  This depends on all sorts of things like the volume of and the distribution in your actual data etc. etc. 
+ It is certainly true that float (tree) indexes are by necessity slower than integer indexes, because of the longer time it usually takes to execute '>' on floats than it does on integers.  But I would be surprised if this effect were actually noticeable. 
+ 
+ I would store it as integers ( , 4-bytes) represented in 1/1,000,000th degrees. That would give you a resolution of few inches. 
+ I don't think there is any intrinsic spatial datatype in MySQL. 
+ 
+ Google uses float(10,6) in their "Store locator" example. That's enough for me to go with that. 
+ https://stackoverflow.com/a/5994082/1094271 
+ Also, starting MySQL 5.6.x, spatial extensions support is much better and comparable to PostGIS in features and performance. 
+ 
+ 
+ Float (10,6) 
+ 
+ Where is latitude or longitude 5555.123456? 
+ Don't you mean Float(9,6) instead? 
+ 
+ I have the exact same schema (float(10,6)) and query (selecting inside a rectangle) and I found that switching the db engine from innoDB to myisam doubled the speed for a "point in rectangle look-up" in a table with 780,000 records. 
+ Additionally, I converted all lng/lat values to cartesian integers (x,y) and created a two-column index on the x,y and my speed went from ~27 ms to 1.3 ms for the same look-up. 
+ 
+ It really depends on how you are using the data. But in a gross over-simplification of the facts, decimal is faster but less accurate in aproximations. More info here: 
+ http://msdn.microsoft.com/en-us/library/aa223970(SQL.80).aspx 
+ Also, The standard for GPS coordinates is specified in ISO 6709:  
+ http://en.wikipedia.org/wiki/ISO_6709 
+ 

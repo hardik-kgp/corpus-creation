@@ -1,0 +1,106 @@
+*** recommended-location-for-document-storage-in-database-or-elsewhere ***
+
+ **Background:**
+  
+ We have an in house document storage system that was implemented long ago.  For whatever reason, using the database as the storage mechanism for the documents was chosen. 
+ **My question is this:**
+  
+ What is the best practice for storing documents?  What are the alternatives? What are the pros and cons?   Answers do not have to be technology or platform specific, it is more of a general best practice question. 
+ **My Thoughts:**
+
+ Databases are not meant for document storage.  File Systems or 3rd party Document Management systems may be of better use.  Document Storage in Databases is expensive.  Operations are slow.  Are these logic assumptions?  Perhaps this is best, but in my mind, we have better alternatives.  Could oracle BFILE's (links to document on NAS or SAN) be better than BLOB / CLOB? 
+ **Details:**
+
+ 
+ Documents are various types (pdf, word, xml) 
+ The Middle Tier code is written in .net 2.0 / c# 
+ Documents are stored in a Oracle 10g database in BLOB with compression (NAS Storage) 
+ File sizes rage  
+ The number of document is growing drastically and has no signs of slowing down 
+ Inserts is typically is in the hunderds per hour during peak 
+ Retreival is typically in the thousands per hour during peak 
+ NAS storage and SAN storage is available 
+ 
+ **UPDATE (from questions below):**
+
+ 
+ my background is development 
+ there is associated meta-data about the files stored next to file in the database 
+ 
+ 
+ The only limit to storing documents in the database is technological.  
+ A  relation database  is meant to be the persistent store of the mission critical data of an enterprise. How well it can perform that function varies from database to database and system to system, of course. But  ideally  the  ACID  properties of a  relational database  are  **intended**
+ to make it the store of all  enterprise data . The file system, revision controller systems and other local store storage systems might have specific advantages but they are not designed for enterprise data storage as such.  
+ If the documents you are storing qualify as enterprise data - if they are used persistently through-out the enterprise - then it is logical to keep them in the database. If you are having problems with storing in the database, perhaps a DBA can find a better solution. You might even have to move them out of the database for performance reasons but I don't think you should move them out of the database for best-practices reasons.  
+ Of course, if the documents aren't enterprise data, if they're only used for one application, say, then moving them out of the database would also make sense.  
+ 
+ Based on my experience I'd say keep them in the database. We've moved two of our systems to doing this. 
+ Putting it in the database means: 
+ 
+ It's easy to access, even from multiple servers 
+ It's backed up automatically (instead of having to have a separate job to do that) 
+ You don't have to worry about space (since people keep the DB from overfilling the disk, but may forget to monitor where the documents are stored) 
+ You don't have to have a complicated directory scheme 
+ 
+ We had documents out of the database. It becomes a problem with lots of documents. A normal directory in Linux is one block, which is usually 4K. We had a directory that was  **58MB**
+ because it had so many files in it (it was just a flat directory, no hierarchy). It had  that many  indirect blocks. It took over an hour to delete. It took minutes to get a count of the number of files in the directory. It was abysmal. This is on ext3. 
+ With the filesystem you need: 
+ 
+ Separate backup mechanism (from the DB backup) 
+ To keep things in sync (so the record doesn't exist in the DB without the file being there) 
+ A hierarchy for storage (to prevent the problem listed above, so no directory ends up with 10,000s of files) 
+ Some way to view them from other servers if you need a cluster (so probably NFS or some such) 
+ 
+ It's really a pain. For any non-trivial number of documents, I'd recommend against the file system based on what I've seen. 
+ 
+ I prefer to  **store the document in the file system**
+ and then  **store a link to the file and associated file meta-data in the database**
+.  
+ It has proven more convenient, easier to maintain, and less expensive than the alternative. 
+ 
+ Most enterprise-class document management systems do NOT store the object file in the database.  Just because you  can  doesn't mean you  should .  If scalability and performance are important to you and you have a large document set you need to be very careful about storing the objects in the db.  Consider the following: 
+ In the case case of document imaging, 200 million TIFF files can be considered a relatively large, but not massive, system.  Larger-scale systems can have over 1 billion object files.  At, say, 20KB per bitonal TIFF you could have 4TB of object file storage.   How long are your DB backups going to take?  How long are your queries going to take?  What is the frequency of access for these objects?  If these objects have a high access frequency, do you want your high-end DB server spending all its time serving up files?  If you have millions of objects then you need to be pretty darn careful about how you architect a solution where the objects are stored in the db.   
+ Suppose that you are now tasked with converting those 200M TIFF files to PDF files.  Be prepared to bring your solution to its knees as your database server wastes its time serving up each and every object file to the conversion process and then re-saving the results.   
+ Just as an example, Sharepoint is famous for storing objects in the db.  Sharepoint is also famous for scalability issues. 
+ My answer: 
+For small systems (< 1M files) storing files in the DB can be considered.
+For large systems (> 1M files) storing files in the DB is a mistake. 
+ 
+ My biggest concern with storing the files in the database itself is managing the size and complexity of backups and other db maintenance operations. 
+ One strategy to mitigate this difficulty (at least in MS SQL) is to create separate database partitions, potentially stored on different drives.  
+ Then separate your data schema so that your metadata  about  the files are located on one partition, and the actual BLOB files are located in a separate partition. 
+ These partitions can be backed up on different schedules, or even recovered separately. 
+ 
+ I've stored images as BLOBs in the database once and regretted it the first time I had to perform a batch operation on those images. It would've been much easier to do it in the file system. Also, as you mentioned, it is much faster to retrieve the documents if they live on a file system. 
+ My simple view: the file system should store files, and a relational database should store relational data. 
+ 
+ Store the binary files in the file system. Create a ASP.NET application for the storage and retrieval operations. You can be fancy with the web app (doc versioning, multi-tier security, etc). I think this is the consensus in the doc management industry. 
+ Since your "number of document is growing drastically", looks like this is becoming large scale. You may want to start looking at third-party, out-of-the-box solutions (such as  http://kofax.com/capture/  - I have an extensive experience with this!) to do the "dirty job" for you. Or better yet, consider looking at SaaS offering such as these guys  http://www.edocumentsolutionsllc.com/ 
+ :-) 
+ 
+ Store your documents as files such as .doc if you want to be able to access the files and edit and resave them. 
+ Store your documents as files such as .pdf or .tiff if you want actual historical copies which can be pulled back up and reproduced. 
+ Store all the information concerning your files (such as dates, authors, location) in your database. 
+ 
+ I always store core info and file path for documents in the database, but never the document itself. Rarely does the entire document need to be in the database. 
+ This allows much more flexibility in using those documents. For example, want to used tiered backup storage and deduping mechanisms? Try that in Oracle BLOBs. 
+ 
+ The only advantage I can see to storing documents in the database is the ease of moving those documents to another environment. Apart from that, I wouldn't do it for all the reasons already mentioned. 
+ 
+ Personal Expertise:  Are you a db admin or a programmer?  
+ Security: one setting for the database vs 2 for the database and file system. Is it a concern of someone accidentally moving/deleting the files? In a complex setting an admin may choose to move files to another server and just change the Share or mapping. I know, this would never happen. 
+ New databases are improving in this area. 
+ 
+ Consider storing your documents in subversion, or other version control system. You'll have a good backup, the ability to look at old versions of documents and splendid network access. See " My life on subversion ". 
+ 
+ On the contrary I would go for storage in the database for a couple of reasons: 
+ 
+ Simpler backup strategy 
+ Documents stored in the database can be indexed and searched 
+ You don't have to worry about files being moved/security tampered with 
+ Easy to port to another server in the event of a crash 
+ If the government mandates you must store data going back x years, managing this using a database is much easier 
+ 
+ Databases are made to store data. Files are just data. 
+ Although having said that there are benefits to storing files on the filesystem, chief one being database performance is better and the size is kept down. SQL Server 2008 allows you to have the best of both worlds using the FileStream.  Read this whitepaper  for more information 
+ 

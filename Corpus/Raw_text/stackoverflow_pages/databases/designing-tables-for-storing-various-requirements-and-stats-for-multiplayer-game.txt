@@ -1,0 +1,174 @@
+*** designing-tables-for-storing-various-requirements-and-stats-for-multiplayer-game ***
+
+ **Original Question:**
+
+ Hello, 
+ I am creating very simple hobby project - browser based multiplayer game. I am stuck at designing tables for storing information about quest / skill requirements.  
+ For now, I designed my tables in following way: 
+ 
+ table  **user**
+ (basic information about users) 
+ table  **stat**
+ (variety of stats) 
+ table  **user_stats**
+ (connecting each user with stats) 
+ 
+ Another example: 
+ 
+ table  **monsters**
+ (basic information about npc enemies) 
+ table  **monster_stats**
+ (connecting monsters with stats, using the same stat table from above) 
+ 
+ Those were the simple cases. I must admit, that I am stuck while designing requirements for different things, e.g quests. Sample quest A might have only minimum character level requirement (and that is easy to implement) - but another one, quest B has multitude of other reqs (finished quests, gained skills, possessing specific items, etc) - what is a good way of designing tables for storing this kind of information? 
+ In a similar manner - what is an efficient way of storing information about skill requirements? (specific character class, min level, etc). 
+ I would be grateful for any help or information about creating database driven games. 
+ **Edit:**
+
+ Thank You for the answers, yet I would like to receive more. As I am having some problems designing an rather complicated database layout for craftable items, I am starting a max bounty for this question.  
+ I would like to receive links to articles / code snippets / anything connected with best practices of designing databases for storing game data (an good example of this kind of information is availibe on  buildingbrowsergames.com ). 
+ I would be grateful for any help.  
+ 
+ I'll edit this to add as many other pertinent issues as I can, although I wish the OP would address my comment above. I speak from several years as a professional online game developer and many more years as a hobbyist online game developer, for what it's worth. 
+ Online games imply some sort of persistence, which means that you have broadly two types of data - one is designed by you, the other is created by the players in the course of play. Most likely you are going to store both in your database. Make sure you have different tables for these and cross-reference them properly via the usual database normalisation rules. (eg. If your player crafts a broadsword, you don't create an entire new row with all the properties of a sword. You create a new row in the player_items table with the per-instance properties, and refer to the broadsword row in the item_types table which holds the per-itemtype properties.) If you find a row of data is holding some things that you designed and some things that the player is changing during play, you need to normalise it out into two tables. 
+ This is really the typical class/instance separation issue, and applies to many things in such games: a goblin instance doesn't need to store all the details of what it means to be a goblin (eg. green skin), only things pertinent to that instance (eg. location, current health). Some times there is a subtlety to the act of construction, in that instance data needs to be created based on class data. (Eg. setting a goblin instance's starting health based upon a goblin type's max health.) My advice is to hard-code these into your code that creates the instances and inserts the row for it. This information only changes rarely since there are few such values in practice. (Initial scores of depletable resources like health, stamina, mana... that's about it.) 
+ Try and find a consistent terminology to separate instance data from type data - this will make life easier later when you're patching a live game and trying not to trash the hard work of your players by editing the wrong tables. This also makes caching a lot easier - you can typically cache your class/type data with impunity because it only ever changes when you, the designer, pushes new data up there. You can run it through  memcached , or consider loading it all at start up time if your game has a continuous process (ie. is not PHP/ASP/CGI/etc), etc. 
+ Remember that deleting anything from your design-side data is risky once you go live, since player-generated data may refer back to it. Test everything thoroughly locally before deploying to the live server because once it's up there, it's hard to take it down. Consider ways to be able to mark rows of such data as removed in a safe fashion - maybe a boolean 'live' column which, if set to false, means it just won't show up in the typical query. Think about the impact on players if you disable items they earned (and doubly if these are items they paid for). 
+ The actual crafting side can't really be answered without knowing how you want to design your game. The database design must follow the game design. But I'll run through a trivial idea. Maybe you will want to be able to create a basic object and then augment it with runes or crystals or whatever. For that, you just need a one-to-many relationship between item instance and augmentation instance. (Remember, you might have item type and augmentation type tables too.) Each augmentation can specify a property of an item (eg. durability, max damage done in combat, weight) and a modifier (typically as a multiplier, eg. 1.1 to add a 10% bonus). You can see my explanation for how to implement these modifying effects  here  and  here  - the same principles apply for temporary skill and spell effects as apply for permanent item modification. 
+ For character stats in a database driven game, I would generally advise to stick with the naïve approach of one column (integer or float) per statistic. Adding columns later is not a difficult operation and since you're going to be reading these values a lot, you might not want to be performing joins on them all the time. However, if you really do need the flexibility, then your method is fine. This strongly resembles the skill level table I suggest below: lots of game data can be modelled in this way - map a class or instance of one thing to a class or instance of other things, often with some additional data to describe the mapping (in this case, the value of the statistic). 
+ Once you have these basic joins set up - and indeed any other complex queries that result from the separation of class/instance data in a way that may not be convenient for your code - consider creating a view or a stored procedure to perform them behind the scenes so that your application code doesn't have to worry about it any more. 
+ Other good database practices apply, of course - use transactions when you need to ensure multiple actions happen atomically (eg. trading), put indices on the fields you search most often, use VACUUM/OPTIMIZE TABLE/whatever during quiet periods to keep performance up, etc. 
+ (Original answer below this point.) 
+ To be honest I wouldn't store the quest requirement information in the relational database, but in some sort of script. Ultimately your idea of a 'requirement' takes on several varying forms which could draw on different sorts of data (eg. level, class, prior quests completed, item possession) and operators (a level might be a minimum or a maximum, some quests may require an item whereas others may require its absence, etc) not to mention a combination of conjunctions and disjunctions (some quests require all requirements to be met, whereas others may only require 1 of several to be met). This sort of thing is much more easily specified in an imperative language. That's not to say you don't have a quest table in the DB, just that you don't try and encode the sometimes arbitrary requirements into the schema. I'd have a requirement_script_id column to reference an external script. I suppose you could put the actual script into the DB as a text field if it suits, too. 
+ Skill requirements are suited to the DB though, and quite trivial given the typical game system of learning skills as you progress through levels in a certain class: 
+ 
+ Need a skill tree? Add a column  prerequisite_skill_id . And so on. 
+ 
+ **Update:**
+
+ Judging by the comments, it looks like a lot of people have a problem with XML. I know it's cool to bash it now and it does have its problems, but in this case I think it works. One of the other reasons that I chose it is that there are a ton of libraries for parsing it, so that can make life easier. 
+ The other key concept is that the information is really  **non-relational**
+. So yes, you could store the data in any particular example in a bunch of different tables with lots of joins, but that's a pain. But if I kept giving you a slightly different examples I bet you'd have to modify your design ad infinitum. I don't think adding tables and modifying complicated SQL statements is very much fun. So it's a little frustrating that @scheibk's comment has been voted up. 
+ **Original Post:**
+
+ I think the problem you might have with storing quest information in the database is that it isn't really relational (that is, it doesn't really fit easily into a table). That might be why you're having trouble designing tables for the data. 
+ On the other hand, if you put your quest information directly into code, that means you'll have to edit the code and recompile each time you want to add a quest. Lame. 
+ So if I was you I might consider storing my quest information in an XML file or something similar. I know that's the generic solution for just about anything, but in this case it sounds right to me. XML is really made for storing non-relation and/or hierarchical data, just like the stuff you need to store for your quest. 
+ Summary: You could come up with your own schema, create your XML file, and then load it at run time somehow (or even store the XML in the database). 
+ Example XML: 
+ 
+ 
+ It sounds like you're ready for general  **object oriented design**
+ (OOD) principles. I'm going to purposefully ignore the context (gaming, MMO, etc) because that really doesn't matter to how you do a design process. And me giving you links is less useful than explaining what terms will be most helpful to look up yourself, IMO; I'll put those in bold. 
+ In OOD, the database  **schema**
+ comes directly from your system  **design**
+, not the other way around. Your design will tell you what your base object classes are and which properties can live in the same table (the ones in  **1:1 relationship**
+ with the object) versus which to make mapping tables for (anything with  **1:n**
+ or  **n:m**
+ relationships - for exmaple, one user has multiple stats, so it's 1:n). In fact, if you do the OOD correctly, you will have zero decisions to make regarding the final DB layout.  
+ The "correct" way to do any OO mapping is learned as a multi-step process called  **"Database Normalization"**
+. The basics of which is just as I described: find the  **"arity"**
+ of the object relationships (1:1, 1:n,...) and make  **mapping tables**
+ for the 1:n's and n:m's. For 1:n's you end up with two tables, the "base" table and a "base_subobjects" table (eg. your "users" and "user_stats" is a good example) with the  **"foreign key"**
+ (the Id of the base object) as a column in the subobject mapping table. For n:m's, you end up with three tables: "base", "subobjects", and "base_subobjects_map" where the map has one column for the base Id and one for the subobject Id. This might be necessary in your example for N quests that can each have M requirements (so the requirement conditions can be shared among quests). 
+ That's 85% of what you need to know. The rest is how to handle inheritance, which I advise you to just skip unless you're masochistic. Now just go figure out how you want it to work before you start coding stuff up and the rest is cake. 
+ 
+ The thread in @Shea Daniel's  answer  is on the right track:  the specification for a quest is  **non-relational**
+, and also includes  **logic**
+ as well as  **data**
+. 
+ Using XML or Lua are examples, but the more general idea is to develop your own  Domain-Specific Language  to encode quests.  Here are a few articles about this concept, related to game design: 
+ 
+ The Whimsy Of Domain-Specific Languages 
+ Using a Domain Specific Language for Behaviors 
+ Using Domain-Specific Modeling towards Computer Games Development Industrialization 
+ 
+ You can store the block of code for a given quest into a   field in your database, but you won't have much flexibility to use SQL to query specific parts of it.  For instance, given the skills a character currently has, which quests are open to him?  This won't be  easy to query in SQL, if the quest prerequisites are encoded in your DSL in a   field. 
+ You can try to encode individual prerequisites in a relational manner, but it quickly gets out of hand.  Relational and object-oriented just don't go well together.  You can try to model it this way: 
+ 
+ And then do a   looking for any quests for which no prereqs are missing in the character's attributes.  Here's pseudo-code: 
+ 
+ But the problem with this is that now you have to model every aspect of your character that could be a prerequisite (stats, skills, level, possessions, quests completed) as some kind of abstract " Attribute " that fits into this structure.   
+ This solves this problem of tracking quest prerequisites, but it leaves you with another problem:  the character is modeled in a non-relational way, essentially an Entity-Attribute-Value architecture which breaks a bunch of relational rules and makes other types of queries incredibly difficult. 
+ 
+ Not directly related to the design of your database, but a similar question was asked a few weeks back about  class diagram examples for an RPG 
+ I'm sure you can find something useful in there :) 
+ 
+ Regarding your basic structure, you may (depending on the nature of your game) want to consider driving toward convergence of representation between player character and non-player characters, so that code that would naturally operate the same on either doesn't have to worry about the distinction.  This would suggest, instead of having   and   tables, having a   table that represents everything PCs and NPCs have in common, and then a   table for information unique to PCs and/or user accounts.  The   table would have a   foreign key, and you could tell a player character row by the fact that a   row exists corresponding to it. 
+ For representing quests in a model like yours, the way I would do it would look like: 
+ 
+ So a   is the core definition of the quest structure; each   can have 0..n associated   rows, which are requirements specific to that quest model.  Every   is associated with a  , which defines the general type of requirement: achieving a Minimum Level, having a Skill, possessing a piece of Equipment, and so on.  The   also has a  , which configures the requirement for this specific quest; for example, a Minimum Level type requirement might have a   of 20, meaning you must be at least level 20. 
+ The   table, then, is individual  instances  of quests that players are undertaking or have undertaken.  The   is associated with a   and a   (or perhaps  , if you ever want NPCs to be able to do quests!), and has a   indicating where the progress of the quest stands, and whatever other tracking turns out useful. 
+ This is a bare-bones structure that would, of course, have to be built out to accomodate the needs of particular games, but it should illustrate the direction I'd recommend. 
+ Oh, and since someone else threw around their credentials, mine are that I've been a hobbyist game developer on live, public-facing projects for 16 years now. 
+ 
+ I'd be extremely careful of what you actually store in a DB, especially for an MMORPG.  Keep in mind, these things are designed to be MASSIVE with thousands of users, and game code has to execute excessively quickly and send a crap-ton of data over the network, not only to the players on their home connections but also between servers on the back-end.  You're also going to have to scale out eventually and databases and scaling out are not two things that I feel mix particularly well, particularly when you start sharding into different regions and then adding instance servers to your shards and so on.  You end up with a whole lot of servers talking to databases and passing a lot of data, some of which isn't even relevant to the game at all (SQL text going to a SQL server is useless network traffic that you should cut down on).   
+ Here's a suggestion:  Limit your SQL database to storing only things that will change as players play the game.  Monsters and monster stats will not change.  Items and item stats will not change.  Quest goals will not change.  Don't store these things in a SQL database, instead store them in the code somewhere. 
+ Doing this means that every server that ever lives will always know all of this information without ever having to query a database.  Now, you don't store quests at all, you just store accomplishments of the player and the game programatically determines the affects of those quests being completed.  You don't waste data transferring information between servers because you're only sending event ID's or something of that nature (you can optimize the data you pass by only using just enough bits to represent all the event ID's and this will cut down on network traffic.  May seem insignificant but nothing is insignificant in massive network apps).   
+ Do the same thing for monster stats and item stats.  These things don't change during gameplay so there's no need to keep them in a DB at all and therefore this information NEVER needs to travel over the network.  The only thing you store is the ID of the items or monster kills or anything like that which is non-deterministic (i.e. it can change during gameplay in a way which you can't predict).  You can have dedicated item servers or monster stat servers or something like that and you can add those to your shards if you end up having huge numbers of these things that occupy too much memory, then just pass the data that's necessary for a particular quest or area to the instance server that is handling that thing to cut down further on space, but keep in mind that this will up the amount of data you need to pass down the network to spool up a new instance server so it's a trade-off.  As long as you're aware of the consequences of this trade-off, you can use good judgement and decide what you want to do.  Another possibility is to limit instance servers to a particular quest/region/event/whatever and only equip it with enough information to the thing it's responsible for, but this is more complex and potentially limits your scaling out since resource allocation will become static instead of dynamic (if you have 50 servers of each quest and suddenly everyone goes on the same quest, you'll have 49 idle servers and one really swamped server).  Again, it's a trade-off so be sure you understand it and make good choices for your application. 
+ Once you've identified exactly what information in your game is non-deterministic, then you can design a database around that information.  That becomes a bit easier: players have stats, players have items, players have skills, players have accomplishments, etc, all fairly easy to map out.  You don't need descriptions for things like skills, accomplishments, items, etc, or even their effects or names or anything since the server can determine all that stuff for you from the ID's of those things at runtime without needing a database query.   
+ Now, a lot of this probably sounds like overkill to you.  After all, a good database can do queries very rapidly. However, your bandwidth is extremely precious, even in the data center, so you need to limit your use of it to only what is absolutely necessary to send and only send that data when it's absolutely necessary that it be sent.   
+ Now, for representing quests in code, I would consider the specification pattern ( http://en.wikipedia.org/wiki/Specification_pattern ).  This will allow you to easily build up quest goals in terms of what events are needed to ensure that the specification for completing that quest is met.  You can then use LUA (or something) to define your quests as you build the game so that you don't have to make massive code changes and rebuild the whole damn thing to make it so that you have to kill 11 monsters instead of 10 to get the Sword of 1000 truths in a particular quest.  How to actually do something like that I think is beyond the scope of this answer and starts to hit the edge of my knowledge of game programming so maybe someone else on here can help you out if you choose to go that route. 
+ Also, I know I used a lot of terms in this answer, please ask if there are any that you are unfamiliar with and I can explain them. 
+ Edit:  didn't notice your addition about craftable items.  I'm going to assume that these are things that a player can create specifically in the game, like custom items.  If a player can continually change these items, then you can just combine the attributes of what they're crafted as at runtime but you'll need to store the ID of each attribute in the DB somewhere.  If you make a finite number of things you can add on (like gems in Diablo II) then you can eliminate a join by just adding that number of columns to the table.  If there are a finite number of items that can be crafted and a finite number of ways that differnet things can be joined together into new items, then when certain items are combined, you needn't store the combined attributes; it just becomes a new item which has been defined at some point by you already.  Then, they just have that item instead of its components.  If you clarify the behavior your game is to have I can add additional suggestions if that would be useful. 
+ 
+ I would approach this from an Object Oriented point of view, rather than a Data Centric point of view.  It looks like you might have quite a lot of (poss complex) objects -  I would recommend getting them modeled (with their relationships) first, and relying on an ORM for persistence. 
+ 
+ When you have a data-centric problem, the database is your friend. What you have done so far seems to be quite right. 
+ On the other hand, the other problems you mention seem to be behaviour-centric. In this case, an object-oriented analisys and solution will work better. 
+ For example:
+Create a quest class with specificQuest child classes. Each child should implement a   method. 
+ 
+ Another option is some sort of rules engine (Drools, for example if you are using Java).   
+ 
+ If i was designing a database for such a situation, i might do something like this: 
+ 
+ In this, the ID's map to the respective tables then you retrieve all entries under that ID to get the list of required items, skills, what have you. If you allow dynamic creation of items then you should have a mapping to another table that contains all possible items. 
+ Another thing to keep in mind is normalization. There's a long article  here  but i've condensed the first three levels into the following more or less: 
+ 
+ first normal form means that there are no database entries where a specific field has more than one item in it 
+ second normal form means that if you have a composite primary key all other fields are fully dependent on the entire key not just parts of it in each table  
+ third normal is where you have no non-key fields that are dependent on other non-key fields in any table 
+ 
+ [Disclaimer: i have very little experience with SQL databases, and am new to this field. I just hope i'm of help.] 
+ 
+ I've done something sort of similar and my general solution was to use a lot of meta data. I'm using the term loosely to mean that any time I needed new data to make a given decision(allow a quest, allow using an item etc.) I would create a new attribute. This was basically just a table with an arbitrary number of values and descriptions. Then each character would have a list of these types of attributes. 
+ Ex: List of Kills, Level, Regions visited, etc. 
+ The two things this does to your dev process are: 
+ 1) Every time there's an event in the game you need to have a big old switch block that checks all these attribute types to see if something needs updating 
+ 2) Everytime you need some data, check all your attribute tables BEFORE you add a new one. 
+ I found this to be a good rapid development strategy for a game that grows organically(not completely planned out on paper ahead of time) - but it's one big limitation is that your past/current content(levels/events etc) will not be compatible with future attributes - i.e. that map won't give you a region badge because there were no region badges when you coded it. This of course requires you to update past content when new attributes are added to the system. 
+ 
+ just some little points for your consideration :  
+ 1)  Always Try to make your "get quest" requirements simple.. and "Finish quest" requirements complicated..  
+ Part1 can be done by "trying to make your quests in a Hierarchical order":  
+example :  
+ QuestA   :  (Kill Raven the demon)  (quest req: Lvl1)   
+ QuestA.1  :  Save "unkown" in the forest to obtain some info..  (quest req :  QuestA)   
+ QuestA.2 :   Craft the sword of Crystal ... etc..  (quest req : QuestA.1 == Done)    
+ QuestA.3  : ... etc..  (quest req : QuestA.2 == Done)    
+ QuestA.4  : ... etc..  (quest req : QuestA.3 == Done)    
+etc...  
+ QuestB  (Find the lost tomb) (quest req :   ( QuestA.statues == Done) )   
+ QuestC  (Go To the demons Hypermarket)  ( Quest req: ( QuestA.statues == Done && player.level== 10)   
+etc.... 
+ Doing this would save you lots of data fields/table joints. 
+ ADDITIONAL THOUGHTS:  
+if you use the above system, u can add an extra Reward field to ur quest table called "enableQuests" and add the name of the quests that needs to be enabled.. 
+Logically.. you'd have an "enabled" field assigned to each quest.. 
+ 2)  A minor solution for Your crafting problem, create crafting recipes, Items that contains To-be-Crafted-item crafting requirements stored in them..
+so when a player tries to craft an item.. he needs to buy a recipe 1st.. then try crafting..
+a simple example of such item Desc would be: 
+ItemName: "Legendary Sword of the dead" 
+Craftevel req. : 75 
+Items required: 
+Item_1 : Blade of the dead 
+Item_2 : A cursed seal 
+item_3 : Holy Gemstone of the dead  
+etc... 
+ and when he presses the "craft" Action, you can parse it and compare against his inventory/craft box... 
+ so Your Crafting DB will have only 1 field (or 2 if u want to add a crafting LvL req. , though it will already be included in the recipe. 
+ ADDITIONAL THOUGHTS:  
+Such items, can be stored in xml format in the table .. which would make it much easier to parse... 
+ 3)  A similar XML System can be applied to Your quest system.. to implement quest-ending requirements.. 
+ 

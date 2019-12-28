@@ -1,0 +1,33 @@
+*** handling-migration-of-database-views-in-a-multi-developer-environment ***
+
+ Are there any established practises for how the migration of database views can be successfully handled in a multi-developer / multi-branch (VCS) environment? 
+ We've been using a database migration library for all our schema changes, but have run into problems when different developers in different branches of code alter the same view, but their point of origin was the same. 
+ Each developer has their own copy of the database, but as views typically require the whole definition to be specified in the migration, this means that when we come to run the migrations against the staging or production database, whichever view migration gets run last overwrites any changes made  in any previous view migrations. 
+ **Example:**
+
+ 
+ View currently looks like:  . 
+ Developer 1 starts branch A and adds a new column. Their 'up' migration looks like:  . 
+ Developer 2 starts branch B and adds a new column. Their 'up' migration looks like:  . 
+ Developer 2 finishes her branch first and runs the migrations. The view now looks like  . 
+ Developer 1 now finishes his branch and runs the migrations. The view now looks like   and developer 2's changes have been lost. 
+ 
+ 
+ For views, or any database object that can be redefined at any time (e.g. functions), the best practice that I've found is to store the current definition of the function in its own file, e.g.,  ; then, whenever a developer wants to change that view, they change that file, then add a boilerplate migration which simply redefines the view from the latest version (I don't know if you're in Rails or not, but the idea here should be pretty clear): 
+ 
+ Note that the actual view file should look like: 
+ 
+ This solves your problem, because the workflow is now: 
+ 
+ View currently looks like:  . 
+ Developer 1 starts branch A and adds a new column. They modify   to reflect this change; their migration simply runs the new view. 
+ Developer 2 starts branch B and adds a new column. They modify the same file, and add a new migration just as above. 
+ Developer 2 finishes her branch first and runs the migrations. The view now looks like SELECT 'x', 'z'. 
+ Developer 1 now finishes his branch. However, to merge into master,  **he must resolve the conflict in the view file**
+. Once he does, and runs the migrations, the view now includes all three columns. 
+ 
+ 
+ If they are working in different code branches, they should be using different databases; and when the branches are merged the differences should be resolved. 
+ That said, I am of the opinion a schema should be treated as it's own "project". You mention multiple developers changing a shared VIEW, when it is no less significant a change than someone changing the signature of a commonly used function in a shared dll. 
+ My answer is to (if it is not too late into development) have standard client code connect under a MySQL user that does not have permission to alter the database anymore than necessary; and have a "migration" application/script/whatever that runs with a connection under a user account with the needed permissions to alter tables, views, procedures, etc... 
+ 

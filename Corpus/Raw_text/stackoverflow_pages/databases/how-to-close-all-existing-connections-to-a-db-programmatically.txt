@@ -1,0 +1,56 @@
+*** how-to-close-all-existing-connections-to-a-db-programmatically ***
+
+ I want to close the existing connections to an SQL Server so that I can do a restore on that database. I am using the entity framework.  I tried executing 
+ 
+ but then I get an exception saying that 
+ 
+ Connection was not closed 
+ 
+ I can not figure out why the connections are not allowed to close?  
+ This image shows the full exception 
+ 
+ this is the method, 
+ 
+ **Edit:**
+
+I removed the first .Open(). Now I have only Open() 
+ 
+ You get that error when you are call   on a connection twice. You should make all SqlConnection objects you create inside   blocks and only open them once.  
+ If you are reusing connections "to make it faster" .NET already does that by default for you via  Connection Pooling  but you must dispose of the connection object to make it work. 
+ 
+ It does seem that Entity Framework keeps a connection to the database. You can see it be executing   in SQL Server Management Studio where Entity Framework is listed as  EntityFrameworkMUE  under ProgramName. 
+ You don't have to use "raw" sql statements to disconnect the active connections though, it can be solved this way as well: 
+ 
+ 
+ You need to dispose the reader, the command and the connection. Your reader is not disposed. This code snippet will guarantee that the connection is closed even if there are exceptions thrown during the read process.   
+ 
+ 
+ The error is pretty clear...using Linq that way, you can't close the connection you are currently on.  I haven't tried this but I think the following would work...try creating a stored procedure in your database and run it in your C# code using either a TableAdapter or SqlCommand(you can still use Linq too).  Your code won't know you are about to run a stored procedure that is about to kill it's connection so it should work. 
+ 
+ Now you can run this stored procedure from code and it will kill open connections even your own.  Enjoy! 
+ 
+ Your first problem (now that you have posted your code) is you call open twice: 
+ 
+ Next your problem will require you to reset the database to force close all connections.  You will have to use a separate connection string to connect to MASTER not the database you are trying to close all connections to. 
+ 
+ Once you have executed the above SQL from MASTER against the database needing reset you should be good to do whatever you need to do.  Remember, connect to master!!  If you connect to the database you are trying to reset you end up closing all connections, including yourself, which will not work! 
+ Change your Catalog to master. 
+ Example Connection String ( from MSDN ): 
+ 
+ Also ensure the SQL User you are using has full permissions to master.  You do this by opening management studio and looking at the users collection under master. 
+ 
+ It is good practice to check to see if the connection is open before attempting to open it.  Try adding a check before trying to open your connection, something like this: 
+ 
+ This will help prevent the issue you described. 
+ 
+ You can use  SqlConnection.ClearAllPools  and  SqlConnection.ClearPool  to close all or one connection in from .NET. 
+ **ClearPool**
+ clears the connection pool that is associated with the connection. If additional connections associated with connection are in use at the time of the call, they are marked appropriately and are discarded (instead of being returned to the pool) when Close is called on them. 
+ **ClearAllPools**
+ resets (or empties) the connection pool. If there are connections in use at the time of the call, they are marked appropriately and will be discarded (instead of being returned to the pool) when Close is called on them. 
+ for examples: 
+ 
+ 
+ Once exam this way, this is my Data access layer samples: 
+ 
+ 

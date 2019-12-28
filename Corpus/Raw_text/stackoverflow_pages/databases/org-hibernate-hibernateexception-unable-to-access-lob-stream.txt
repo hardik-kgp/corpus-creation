@@ -1,0 +1,44 @@
+*** org-hibernate-hibernateexception-unable-to-access-lob-stream ***
+
+ I am using hibernate 3.6.7 to do mapping from my classes to oracle tables.
+I don't usually get this exception: 
+ 
+ When I call saveOrUpdate method. 
+ Could anyone please give me some suggestion? 
+ 
+ I use it all for a long time. 
+ now I am transferring file parallelly and then update database use saveOrUpdate method.Althrough there are many threads, I snychronized this part in my code.
+I think we have connection to the database all the time, but it gives excpetion of closed connection.
+Could anyone please give me some suggestion about this exception.What the problem should be?  
+ I thought it could because of using saveOrUpdate, so I changed to merge, but it sames to have the same problem. 
+ 
+ my merge code: 
+ 
+ 
+ Try adding  **@Transactional**
+ over the service method where you are trying to access lob field object. 
+It worked for me. 
+ 
+ I believe I had this one before.  
+ When a large object (CLOB, BLOB) is loaded from Oracle, it is returned as a reference to a stream. If the record is mapped to hibernate and the session is closed after the object is loaded (so the object becomes detached) the java field blob is mapped to is not containing the data yet; so when you're trying to save it back it cannot work with it because the clob/blob stream is gone. 
+ For a start, try to keep loading and saving within the same session.  
+ If I remember right, another workaround would be to "touch" the clob/bloc java field while the loading session is still open. Then the data will be read from the DB. But it is painfully inefficient (it is LOB for a reason, i.e. it is  big ). 
+ Yet another option is to split the small data and lobs into two different tables, and load lobs only when needed. 
+ Hope that helps you with the direction.  
+ 
+ In all probability I believe that this is due to  
+ mismanagement. But without reviewing a lot of code I cannot tell you what the exact problem of your current implementation is. 
+ I believe   is a ThreadLocal. Instead of doing this manually please use 
+ 
+ and set thread in the hibernate config file. 
+ And make your HibernateUtil is simple without all those checks. Personally I feel that those checks will cover up Session mismanagement and other errors... But well that may be just me... 
+ 
+ My pure guess is that you have some field that is very large, so it is mapped to sql lob. Mapping itself is incorrect, I suspect. But it only happens when you try to save entity with nonnull value. Try to save all your entities with nonnull fields in app one by one. This will isolate the problem. 
+ 
+ This might has to do something with JDBC drivers as discussed in this  thread . Can you post the Oracle version and ojdbc jar version you using in project. 
+ 
+ As you use multithreading, my guess is that you could have some problem with transactions. It could be because of some transactions is somehow commited before you had done necessary changes to the object. Or you are trying to access object being saved from the different thread, that means the object is not in the scope of transaction. 
+ 
+ If using spring, adding following application properties make it work for us: 
+ 
+ 

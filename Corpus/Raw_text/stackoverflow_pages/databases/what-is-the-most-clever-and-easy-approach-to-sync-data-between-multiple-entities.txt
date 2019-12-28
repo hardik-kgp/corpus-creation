@@ -1,0 +1,98 @@
+*** what-is-the-most-clever-and-easy-approach-to-sync-data-between-multiple-entities ***
+
+ In today’s world where a lot of computers, mobile devices or web services share data or act like hubs, syncing gets more important. As we all know solutions that sync aren’t the most comfortable ones and it’s best not to sync at all. 
+ I’m still curious how you would implement a syncing solution to sync between multiple entities. There are already a lot of different approaches, like comparing a changed date field or a hash and using the most recent data or letting the user chose what he wants to use in a case of a conflict. Another approach is to try to automatically merge conflicted data (which in my opinion isn’t so clever, because a machine can’t guess what the user meant). 
+ Anyway, here are a couple of questions related to sync that we should answer before starting to implement syncing: 
+ 
+ What is the most recent data? How do I want to represent it? 
+ What do I do in case of a conflict? Merge? Do I prompt and ask the user what to do? 
+ What do I do when I get into an inconsistent state (e.g. a disconnect due to a flakey mobile network connection)? 
+ What do I have to do when I don’t want to get into an inconsistent state? 
+ How do I resume a current sync that got interrupted? 
+ How do I handle data storage (e.g. MySQL database on a web service, Core Data on an iPhone; and how do I merge/sync the data without a lot of glue code)? 
+ How should I handle edits from the user that happen during the sync (which runs in the background, so the UI isn’t blocked)? 
+ How and in which direction do I propagate changes (e.g. a user creates a „Foo“ entry on his computer and doesn’t sync; then he’s on the go and creates another „Foo“ entry; what happens when he tries to sync both devices)? Will the user have two „Foo“ entries with different unique IDs? Will the user have only one entry, but which one? 
+ How should I handle sync when I have hierarchical data? Top-down? Bottom-up? Do I treat every entry atomically or do I only look at a supernode? How big is the trade-off between oversimplifying things and investing too much time into the implementation? 
+ … 
+ 
+ There are a lot of other questions and I hope that I could inspire you enough. Syncing is a fairly general problem. Once a good, versatile syncing approach is found, it should be easier to apply it to a concrete application, rather than start thinking from scratch. I realize that there are already a lot of applications that try to solve (or successfully solve) syncing, but they are already fairly specific and don’t give enough answers to syncing approaches in general. 
+ 
+ Where I work we have developed an "offline" version of our main (web) application for users to be able to work on their laptops in locations where they do not have internet access (I'm not sure how many of these places actually exist these days, but I've been told they do ;)). When the user comes back to the main site they need to synchronise the data they entered offline with our main application.  
+ So, to answer your questions: 
+ 
+ 
+ What is the most recent data? How do I want to represent it? 
+ 
+ 
+ We have a LAST_UPDATED_DATE column on every table. The server keeps a track of when synchronisations take place, so when the offline application requests a synchronisation the server says "hey, only give me data changed since this date". 
+ 
+ 
+ What do I do in case of a conflict? Merge? Do I prompt and ask
+  the user what to do? 
+ 
+ 
+ In our case the offline application is only able to update a relatively small subset of all the data. As each record is synchronised we check if it is one of these cases, and if so then we compare the LAST_UPDATED_DATE for the record both online and offline. If the dates are different then we also check the values (because it's not a conflict if they're both updated to the same value). If there is a conflict we record the difference, set a flag to say there is at least one conflict, and carry on checking the rest of the details. Once the process is finished then if the "isConflict" flag is set the user is able to go to a special page which displays the differences and decide which data is the "correct" version. This version is then saved on the host and the "isConflict" flag is reset. 
+ 
+ 
+ What do I have to do when I don’t want to get into an inconsistent
+  state? 
+ How do I resume a current sync that got interrupted? 
+ 
+ 
+ Well, we try to avoid getting into an inconsistent state in the first place. If a synchronistaion is interrupted for any reason then the last_synchronisation_date is not updated, and so the next time a synchronisation is started it will start from the same date as the start date for the previous (interuppted) synchronisation. 
+ 
+ 
+ How do I handle data storage (e.g. MySQL database on a web service, Core
+  Data on an iPhone; and how do I
+  merge/sync the data without a lot of
+  glue code)? 
+ 
+ 
+ We use standard databases on both applications, and Java objects in between. The objects are serialised to XML (and gzipped to speed up the transfer) for the actual synchronisation process, then decompressed/deserialised at each end. 
+ 
+ 
+ How should I handle edits from the user that happen during the sync
+  (which runs in the background, so the
+  UI isn’t blocked)? 
+ 
+ 
+ These edits would take place after the synchronisation start date, and so would not be picked up on the other side until the next synchronisation. 
+ 
+ 
+ How and in which direction do I propagate changes (e.g. a user creates
+  a „Foo“ entry on his computer and
+  doesn’t sync; then he’s on the go and
+  creates another „Foo“ entry; what
+  happens when he tries to sync both
+  devices)? Will the user have two „Foo“
+  entries with different unique IDs?
+  Will the user have only one entry, but
+  which one? 
+ 
+ 
+ That's up to you to decide how you want to handle this particular Foo... i.e. depending on what the primary key of Foo is and how you determine whether one Foo is the same as another. 
+ 
+ 
+ How should I handle sync when I have hierarchical data? Top-down?
+  Bottom-up? Do I treat every entry
+  atomically or do I only look at a
+  supernode? 
+ 
+ 
+ The synchronisation is atomic, so if one record fails then the whole process is marked as incomplete, similar to a subversion commit transaction. 
+ 
+ 
+ How big is the trade-off between oversimplifying things and investing
+  too much time into the implementation? 
+ 
+ 
+ I'm not sure exactly what you mean, but I'd say it all depends on your situation and the type / quantity of data you want to sync. It might take a long time to design and implement the process, but it's possible. 
+ Hope that helps you or at least gives you a few ideas! :) 
+ 
+ Probably "Not a real question", here is not a real answer: 
+ I think distributed version control systems (such as Mercurial or git) have figured out a big part of this. However, they require that people accept that there can be more than one "most recent" version, and that sometimes conflicting updates need manual resolution to resolve. Also, if you are not interested in keeping the whole change history, there is quite a bit of overhead in these systems (but of course the recent history is necessary to find common ancestors to determine how the two versions relate). 
+ But I agree with you that in a world where everyone has data spread across multiple devices and services, the need to automatically keep track of and distribute the updates will become so urgent that the common file formats used by applications will include enough meta-data to facilitate some kind of intelligent merging behaviour. But that behaviour will probably have to happen on the application level, because there is no generic way to resolve conflicting updates. 
+ In the mean-time, the iTunes-iPod approach is the easiest: You have only one master library and every device pulls from there. Obviously, single-master-sync is not very satisfactory in all scenarios (especially when more than one user is involved), but still, I would appreciate it if more applications offered the option to work like that (pet peeve: I have three Macs, with three iPhoto installations. If they sync'd automatically from one dedicated master, just like the photos sync to my iPod, that would be an improvement). 
+ 
+ Although it is really usuful in microsoft ecosystem, you could study  Mobile Application Blocks . 
+ 

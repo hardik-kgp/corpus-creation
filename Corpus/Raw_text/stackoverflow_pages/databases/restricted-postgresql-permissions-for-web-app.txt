@@ -1,0 +1,53 @@
+*** restricted-postgresql-permissions-for-web-app ***
+
+ **Goal**
+
+ Create a database with three users and restrict their privileges (I'm just thinking out loud, so my user separation is also open to correction): 
+ 
+ Superuser - this user allows for the very initial provisioning of the database. Create the application database, create the other users, set their privileges. Default   superuser works for me, so this one is done. 
+ Administrator - this user has access only to the database that was created during provisioning. Administrator can  CRUD  all data in all tables, and can also CRUD tables, etc. "Superuser for only this database" type of situation. When the application is being updated, the administrator is the user used by automated tooling to handle database migrations. 
+ App user - this user is ultimately the one who supports the web app's functionality. Note this has nothing to do with users on web pages etc - this is the user the server leverages to run queries, insert and remove data. I explicitly  do not  want this user to be able to modify permissions of anything, nor create/destroy tables or indices or anything structural. 
+ 
+ **What I've tried**
+
+ First off, looking at the (generally excellent) PostgreSQL documentation, the  page on Grant  pretty much leaves me cross-eyed. After spending a few hours reading about PostgreSQL roles and privileges I'm generally confused. I think with a bit more work I'll be able to nail down what I want for the admin user, but I'm pretty stuck on the "app user". I've gotten about this far (naming and passwords are all just placeholders): 
+ 
+ And here's where I get unsure. I feel like the answer I'm trying to avoid is "revoke everything by default then enumerate all the privileges you'll need at all the different levels on all the different objects". I'm trying to avoid that because I straight up don't know what I need there. If that ends up being the answer, then I'll just have to hunker down and read a bunch more, but generally when I start going down paths like that I've missed something. 
+ **Issues**
+
+ How do I restrict privileges for   so they are unable to modify any structural data (e.g. cannot add or destroy tables) but are able to connect and do anything with rows (row level security is not even on my radar). Is this general model of privileges not really in sync with what PostgreSQL expects? I feel like I'm missing something if I have to walk through every option on that "grant" page to accomplish something like this - whether it be my motivation for doing it in the first place or the means by which I'm going about it. 
+ **Context**
+
+ I'm trying to build my first end-to-end web application. I've done enough general software development and web app development, now I'm trying to understand the pieces that I generally take for granted day to day. I'm trying to set up a PostgreSQL server while keeping the  principle of least privilege  in mind. 
+ **Side-quest**
+
+ I haven't seen this done on web apps where I have simply joined the development team, although they're generally small and not heavily used. Does doing this actually accomplish anything? Does anyone have compelling reasons for why to do something like this, or why it's a bad or ineffective idea? My assumption was that if I ultimately ended up with a SQL injection vulnerability, this would mitigate the damage because the database user would have limited access. Is that misguided? 
+ **Neat articles I've found on the subject:**
+
+ 
+ http://www.ibm.com/developerworks/opensource/library/os-postgresecurity/index.html   
+ **PDF WARNING:**
+  https://wiki.postgresql.org/images/d/d1/Managing_rights_in_postgresql.pdf   
+ https://www.digitalocean.com/community/tutorials/how-to-use-roles-and-manage-grant-permissions-in-postgresql-on-a-vps--2   
+ http://blog.2ndquadrant.com/auditing-users-and-roles-in-postgresql/   
+ 
+ 
+ I'll answer your “side-quest” question first: 
+ you are completely right with your worries and concerns, and everybody who designs an application should think about the same things. Everything else is sloppy and careless. 
+ To mitigate the damage that can be caused by a successful SQL injection attack, you should definitely employ the principle of least privilege. 
+ It should be quite simple to set up a system that matches your requirements. 
+ I'll use the object names from your exaple, except that I'll use underscores instead of minuses. It is good practive to use only lower case letters, underscores and numbers in object names, since it will make your life easier. 
+ 
+ But if you take the principle of least seriously, you should grant table permissions individually and e.g. not allow   to   and   data in tables where there is no need for the user to do so. 
+ 
+ For Web Applications, I split the permissions into three roles, where each role inherits from its predecessor. 
+ 
+ Read Only - Used for SELECT queries and function calls 
+ Insert - Used for INSERT statements 
+ Update and Delete - These are used mostly for Administration, as the public facing front-end application does not usually modify or deletes data 
+ 
+ That way, even if some hacker manages to do SQL Injection he is limited to the permissions of the role that is used, usually only SELECT or INSERT. 
+ My web applications usually do not need the more intrusive permissions like CREATE, DROP, TRUNCATE, etc., so I don't GRANT those permissions to web apps. 
+ In the rare instances where the the second role needs to update or delete something, I either give it permission for that specific table, or put the code in a function that is created with  . 
+ 
+ 

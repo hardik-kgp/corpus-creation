@@ -1,0 +1,49 @@
+*** how-to-design-a-multi-tenant-mysql-database ***
+
+ Let us say I need to design a database which will host data for multiple companies. Now for security and admin purposes I need to make sure that the data for different companies is properly isolated but I also do not want to start 10 mysql processes for hosting the data for 10 companies on 10 different servers. What are the best ways to do this with the mysql database. 
+ 
+ There are several approaches to multi-tenant databases. For discussion, they're usually broken into three categories. 
+ 
+ One database per tenant. 
+ Shared database, one schema per
+tenant. 
+ Shared database, shared schema. A tenant identifier (tenant key) associates every row with the right tenant. 
+ 
+ MSDN has a good article on the  pros and cons of each design , and  examples of implementations . 
+ 
+Microsoft has apparently taken down the pages I referred to, but they are on  on archive.org. Links have been changed to point there. 
+
+ For reference, this is the  original link for the second article 
+ 
+ The simple way is: for each shared table, add a column says SEGMENT_ID.  Assigned proper SEGMENT_ID to each customer.  Then create views for each customer base on the SEGMENT_ID,  These views will keep data separated from each customers. With this method, information can be shared, make it simple for both operation & development (stored procedure can also be shared) simple. 
+ 
+ Assuming you'd run one MySQL database on a single MySQL instance - there are several ways how to distinguish between what's belonging to whom.
+Most obvious choice (for me at least) would be creating a composite primary key such as: 
+ 
+ and then distinguishing between companies by changing the companyId part of the primary key.
+That way you can have all the data of all the companies in the same table / database and at application level you can control what company is tied to which companyId and determine which data to display for certain company. 
+ If this wasn't what you were looking for - my apologies for misunderstanding your question. 
+ 
+ In MySQL I prefer to use a single database for all tenants.  I restrict access to the data by using a separate database user for each tenant that only has access to views that only show rows that belong to that tenant. 
+ This can be done by: 
+ 
+ Add a tenant_id column to every table 
+ Use a trigger to populate the tenant_id with the current database username on insert 
+ Create a view for each table where tenant_id = current_database_username 
+ Only use the views in your application 
+ Connect to the database using the tenant specific username 
+ 
+ I've fully documented this in a blog post:
+ https://opensource.io/it/mysql-multi-tenant/ 
+ 
+ Given a specific DB User, you could give a user membership to group(s) indicating the companies whose data they are permitted to access. 
+ I presume you're going to have a   table, so just create a one-to-many relationship between   and   or something similar. 
+ Then, as a condition of all your queries, just match the   based on the  
+ 
+ Have you considered creating a different  schema  for each company?  
+ You should try to define more precisely what you want to achieve, though. 
+ If you want to make sure that an HW failure doesn't compromise data for more than one company, for example, you have to create different instances and run them on different nodes. 
+ If you want to make sure that someone from company A cannot see data that belong to company B you can do that at the application level as per Matthew PK answer, for example 
+ If you want to be sure that someone who manages to compromise the security and run arbitrary SQL against the DB you need something more robust than that, though. 
+ If you want to be able to backup data independently so that you can safely backup Company C on mondays and Company A on sundays and be able to restore just company C then, again, a purely application-based solution won't help. 
+ 

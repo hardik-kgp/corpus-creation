@@ -1,0 +1,57 @@
+*** working-with-cross-context-joins-in-linq-to-sql ***
+
+ Initially I had written this query using LINQ-to-SQL 
+ 
+ And when I executed it, and saw   in the  QuickWatch.. , it showed this message: 
+ 
+ the query contains references to items defined on a different data context 
+ 
+ On googling, I found  this topic  at Stackoverflow itself, where I learned  simulating cross context joins  and as suggested there, I changed my query a bit to this: 
+ 
+ This query is using these  SimulateXyz  methods: 
+ 
+ But even this approach didn't solve the problem. I'm still getting this message in  QuickWatch... : 
+ 
+ the query contains references to items defined on a different data context 
+ 
+ Any solution for this problem?  Along with the solution, I would also want to know why the problem still exists, and how exactly the new solution removes it, so that from next time I could solve such problems myself. I'm new to LINQ, by the way. 
+ 
+ I've had to do this before, and there are two ways to do it. 
+ The first is to move all the servers into a single context.  You do this by pointing LINQ-to-SQL to a single server, then, in that server, create  linked servers  to all the other servers.   Then you just create views for any tables you're interested from the other servers, and add those views to your context. 
+ The second is to manually do the joins yourself, by pulling in data from one context, and using just the properties you need to join into another context.  For example, 
+ 
+ 
+ Though the first is easier to work with, it does have its share of problems.  The problem is that you're relying on SQL Server to be performant with linked servers, something it is notoriously bad at.  For example, consider this query: 
+ 
+ When you enumerate this query, the following will occur  (let's call the normal and linked servers   and  , respectively) 
+ 
+  asks   for the Results 
+  sends the Results back to  
+  takes those Results, joins them on the Patterns table, and returns only the ones with Results.userId = 10 
+ 
+ So now the question is:  When is the filtering done - on   or  ?  In my experience, for such a simple query, it will usually be done on  .  However, once the query gets more complicated, you'll suddenly find that   is requesting the  entire  Results table from   and doing the filtering  after  the join!  This wastes bandwidth, and, if the Results tables is large enough, could turn a 50ms query into a 50 second query! 
+ You could fix unperformant cross-server joins using stored procedures, but if you do a lot of complex cross-server joins, you may end up writing stored procedures for most of your queries, which is a lot of work and defeats part of the purpose of using L2SQL in the first place  (not having to write a lot of SQL) . 
+ In comparison, the following code would  always  perform the filtering on the server containing the Results table: 
+ 
+ Which is best for your situation is up to your best judgement. 
+ 
+ Note that there is a third potential solution which I did not mention, as it is not really a programmer-solution:  you could ask your server admins to set up a  replication task  to copy the necessary data from   to   once a day/week/month.  This is  only  an option if: 
+ 
+ Your program can work with slightly stale data from  
+ You only need to read, never write, to  
+ The tables you need from   are not exorbitantly huge 
+ You have the space/bandwidth available 
+ Your database admins are not stingy/lazy 
+ 
+ 
+ Your SimulateJoins can't work because they return  . Your current solution is exactly the same as your former one and that is the reason why you get the same exception. If you check the linked question again you will see that their helper methods return   which is the only way to make cross context operations. As you probably already know it means that join will be performed in memory on the application server instead of the database server = it will pull all data from your partial queries and execute join as linq-to-objects. 
+ Cross context join on database level is IMO not possible. You can have different connections, different connection strings with different servers, etc. Linq-to-sql does not handle this.  
+ 
+ You could work around it by "escaping from" Linq to SQL on the second context, i.e., calling for instance   on   and   so that your query ended up looking like: 
+ 
+ Or   as long as you "get out" of Linq to SQL and into Linq to Objects for the "offending" context. 
+ 
+ Old question, but as I happened to have the same problem, my solution was to pass the manually crafted T-SQL cross-server query (with linked servers) directly to the provider through the ExecuteQuery method of the first context: 
+ 
+ This just saves you from having to create a view server side, and Linq to SQL still maps the results to the proper type. This is useful when there is that one query that is just impossible to formulate in Linq. 
+ 

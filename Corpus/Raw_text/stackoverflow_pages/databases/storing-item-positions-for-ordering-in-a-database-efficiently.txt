@@ -1,0 +1,50 @@
+*** storing-item-positions-for-ordering-in-a-database-efficiently ***
+
+ Scenario: 
+ There is a database of movies a user owns, movies are displayed on a page called "my-movies", the movies can be displayed in the order that the user desires. For example "Fight Club" in position #1, "Drive" in position #3 and so on and so forth.  
+ The obvious solution is to store a position with each item, for example: 
+ movieid, userid, position 
+1      | 1     | 1 
+2      | 1     | 2 
+3      | 1     | 3   
+ Then when outputting the data is ordered by the position. This method works fine for output however it has a problem when updating: the position of an item all the other positions need to be updated because positions are relative. If movie #3 is now in position number 2 then movie #3 now needs to be updated to position #2. If the database contains 10,000 movies and a movie is moved from position #1 to position #9999 that's almost 10,000 rows to be updated! 
+ My only solution is to store positioning separately, instead of having an individual field for each items position it's just one big data dump of positions that are taken in run time and associated with each item (json, xml, whatever) but that feels... inefficient because the database can't be left to do the sorting. 
+ My summarised question:  **What's the most efficient way of storing items positions in a list that is friendly to fetching and updating?**
+
+ 
+ If you use a combination of the position and a timestamp that the user put a movie in a given position rather than trying to maintain the actual position, then you can achieve a fairly simple means of both SELECTing and UPDATEing the data. For example; a base set of data: 
+ 
+ If you query the user's movies using a query like this: 
+ 
+ Then you'll get the expected result: 
+ 
+ To move one of the rankings of the movies we need to update the position and the positionsetdatetime columns. For example, if userid 123 moves movie 95 from rank 5 to rank 2 then we do this: 
+ 
+ Which results in this (using the SELECT query above following the update): 
+ 
+ Then if userid 123 moves movie 96 to rank 1: 
+ 
+ We get: 
+ 
+ Of course you'll end up with duplicate position column values within the usermovies table, but with this method you'll never show that column, you simply use it along with positionsetdatetime to determine a sorted rank for each user and the rank you determine is the real position.  
+ If at some point you want the position column to properly reflect the movie rankings without reference to the positionsetdatetime you can use the movierank from the select query above to update the usermovies position column value, as it wouldn't actually affect the determined movie rankings. 
+ 
+ I've been struggling with what best to do with this situation and have come to the realisation that  **BY FAR**
+ the best solution is a list/array of the movies in the order you want them eg; 
+ userId, moviesOrder 
+ 1 : [4,3,9,1...] 
+ obviously you will serialise your array. 
+ 'that feels... inefficient'? 
+ consider the user had a list of 100 movies. Searching by position will be one database query, a string to array conversion and then moviesOrder[index]. Possibly slower than a straight DB lookup but still very very fast. 
+ OTOH, consider if you change the order; 
+ with a position stored in the db you need up to 100 row changes, compared to an array splice. The linked list idea is interesting but doesn't work as presented, would break everything if a single element failed, and looks a hell of a lot slower too. Other ideas like leaving gaps, use float are workable although a mess, and prone to failure at some point unless you GC. 
+ It seems like there should be a better way to do it in SQL, but there really isn't. 
+ 
+ Store the order linked-list style.  Instead of saving the absolute  position , save the ID of the previous item.  That way any change only requires you to update two rows. 
+ 
+ To get the movies in order ... 
+ 
+ To (say) move #4 up a space: 
+ 
+ That's still 1 read + 2 writes, but it beats 10,000 writes. 
+ 

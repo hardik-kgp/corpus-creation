@@ -1,0 +1,65 @@
+*** what-are-the-problems-with-a-join-between-two-tables-in-two-different-databases ***
+
+ I am interested in your thoughts about the the pitfalls of joining two or more tables from different databases. I'll try to give an example. 
+ Suppose table   is located in   database and   is located in   . 
+Let's say i have a view, in   that pulls out some data from  , and some other tables in  '.  
+ This view is used to push data to another database, let's call this one, unimaginatevely,  . 
+ If i need some data from  , my instinct is to join directly   in this view, sort of like this    
+ Doing this is pretty simple and quick, but i have a nagging voice in my head that keeps telling me not to do this. My worries are about not being able to track down all the objects depending on  , so if I change something there, I have to be very carefull and remember everywhere i use this table. So, sort of like breaking SRP for this view (and two databases), because this view can change from two different actions (performed on two different databases: Changing   or changing  ) 
+ I am interested in your opinions. Is this a good or bad idea? What would be the problems with this approach (performance wise, maintainence wise and so on) and if you have a real world experience where this approach either was a big mistake or was a life saver for you. 
+ P.S: I've searched this topic on google and SO, but could not find anything related to this. I will gladly take the minus votes, duplicate questions and other 'reprimands' from SO users just to have a different view on this problem. 
+ P.P.S: I am using SQL Server 2005. 
+ Thank you and hope i made myself clear:) 
+ 
+ If they are on the same server, there is no real problem pulling from separate database. In fact, you may want to separate them for good reasons. For instance if you have a combination of transactional tables and lookup tables that are imported from files. The transactional data needs full recovery and frequent transactional log backups to be able to properly restore, the lookup data does not and can benefit from being in a database in simple recovery mode. 
+ We have many different databases our applications use and we cross databases in queries all the time. As long as the indexing is done properly, there has been no noticable performance difference. The biggest potential issue is for data integrity as you can't set up foreign keys across databases. This can be handled in triggers if need be though. 
+ Now when the databases are on different servers, there can be a performance problem and getting the data is more complicated. 
+ 
+ Like everything else in SQL, it depends. 
+ At my job, we do this a LOT.  We have very large data sets, and separate DBs for header and detail level records, then additional DBs for reports or tables that we build off of other data, etc etc. 
+ There's not really a performance issue from joining across DBs, and in some cases depending on your hardware setup it may be FASTER.  If DatabaseA and DatabaseB are on separate physical drives with different controllers, it will likely be faster to run a query joining those than if they were in the same DB on the same volume. 
+ Maintenance can be an issue but no more than for any other database/tables.  It's not like you have different versions of the same tables, you just have those tables in different DBs. 
+ The only major drawback is SQL Server does a poor job of showing intra-database dependencies, so you will need to keep track of these yourself.  There are some scripts for this and also third party utilities, and I have heard that SQL Server Denali will add additional support for this but I'm not sure if that's accurate. 
+ 
+ Your nagging voice is probably right. 
+ Not least of the problems will be how to enforce declarative referential integrity since you cannot create foreign keys between databases, therefore sooner or later you will have to cope with inconsistent or mismatched or incomplete data. 
+ But if you don't care about that, I don't see a problem :-) 
+ 
+ The answer to your questions is...it depends. 
+ I have noticed that there is no serious degradation in performance when you keep the queries nice and simple (fewer join etc).   
+ The more complex the queries, the more chance that the optimizer will produce a suboptimal execution plan.   
+ The optimizer ultimately gets to decide how to execute the query. The more complex the query, the more opportunity for the optimizer to get the order of operations "wrong". 
+ I recently experimented with this problem... 
+ I ran a query with roughly 8 joins on a single database.  I then put up a copy of that database on the same server with a different name, and then I modified the query so that it would join to a couple tables in the second copy of the database.   
+ As a single database query, it ran in under 3 seconds; expected given the volume of data.  
+ The cross database joined query run in just under 3 minutes.   
+ 
+ 
+ Some general themes re cross-database joins: 
+ **Foreign keys**
+
+ As others have pointed out, in the absence of foreign keys, you'll need to roll your own referential integrity. Not a problem in itself, but issues can surface when you're not in control of the data in one or more of the databases. 
+ A related issue is the use of CASE tools. When reverse-engineering a schema, they will overlook links between tables where a FK->PK relationship doesn't exist. 
+ **Performance**
+
+ If the database are on different servers then you're exposed to the vagaries of whatever else is running on those servers as well as the cost of running the join operation itself. Again, if the servers are all within your control, this is something you can monitor but this may may not be the case. 
+ **Coupling**
+
+ If your solution relies on other databases you have multiple points of failure. If a database goes down, this could cascade to one or more systems. 
+ **Data modification**
+
+ Your solution may be coupled to what you believe to be static data in tables on another database. However, what if this were accidentally (or purposefully) amended, duplicated or deleted. Again, if the databases in question are out of your remit, other teams/departments may not be aware of how your system operates. 
+ 
+ All this being, true, there are many cases where cross-database joins are the norm. A few examples I've seen: 
+ **Mart-Repository**
+
+ Performant operations take place on the mart whilst the master data stash is kept on the repository. CRUD operations take place between the two on a frequent or infrequent basis (nightly update, real-time etc). 
+ **Legacy DB**
+
+ You might expose a legacy database for data migration and or reporting/auditing purposes. 
+ **Lookup**
+
+ One or more of your databases may contain static lookup information which can be re-used. 
+ 
+ So to answer your question - it depends on what exactly you're doing and whether the risk is acceptable. Other solutions exist such as replication but again, how feasible this is will depend on the structure of your department/company. 
+ 

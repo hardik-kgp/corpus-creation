@@ -1,0 +1,32 @@
+*** how-to-handle-mysql-deadlock-situations-on-an-application-level ***
+
+ When a deadlock situation occurs in MySQL/InnoDB, it returns this familiar error: 
+ 'Deadlock found when trying to get lock; try restarting transaction' 
+ So what i did was record all queries that go into a transaction so that they can simply be reissued if a statement in the transaction fails. Simple. 
+ **Problem: When you have queries that depend on the results of previous queries, this doesn't work so well.**
+  
+ For Example: 
+ 
+ In this situation, I can't simply reissue the transaction as it was originally created. The ID acquired by the first SQL statement is no longer valid after the transaction fails but is used by the second statement. Meanwhile, many objects have been populated with data from the transaction which then become obsolete when the transaction gets rolled back. The application code itself does not "roll back" with the database of course. 
+ **Question is: How can i handle these situations in the application code?**
+ (PHP) 
+ I'm assuming two things. Please tell me if you think I'm on the right track: 
+ 1) Since the database can't just reissue a transaction verbatim in all situations, my original solution doesn't work and should not be used. 
+ 2) The only good way to do this is to wrap any and all transaction-issuing code in it's own try/catch block and attempt to reissue the code itself, not just the SQL. 
+ Thanks for your input. You rock. 
+ 
+ A transaction can fail. Deadlock is a case of fail, you could have more fails in serializable levels as well. Transaction isolation problems is a nightmare. Trying to avoid fails is the bad way I think. 
+ I think any well written transaction code should effectively be prepared for failing transactions. 
+ As you have seen recording queries and replaying them is not a solution, as when you restart your transaction the database has moved. If it were a valid solution the SQL engine would certainly do that for you. For me the rules are: 
+ 
+ redo all your reads inside the transactions (any data you have read outside may have been altered) 
+ throw everything from previous attempt, if you have written things outside of the transaction (logs, LDAP, anything outside the SGBD) it should be cancelled because of the rollback 
+ redo everything in fact :-) 
+ 
+ This mean a  **retry loop**
+. 
+ So you have your try/catch block with the transaction inside. You need to add a   loop with maybe 3 attempts, you leave the while loop if the commit part of the code succeed. If after 3 retry the transaction is still failing then launch an Exception to the user -- so that you do not try an inifinite retry loop, you may have a really big problem in fact --. Note that you should handle SQL error and lock or serializable exception in different ways. 3 is an arbitrary number, you may try a bigger number of attempts. 
+ This may give something like that: 
+ 
+ And that means all the stuff (read, writes, fonctionnal things) must be enclosed in the  . Implying the transaction managing code is in the controllers, the  high-level-application-functional-main code , not split upon several  low-level-database-access-models objects . 
+ 

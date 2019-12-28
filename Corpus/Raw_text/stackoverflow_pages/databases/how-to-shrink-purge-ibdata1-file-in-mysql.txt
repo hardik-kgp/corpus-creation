@@ -1,0 +1,99 @@
+*** how-to-shrink-purge-ibdata1-file-in-mysql ***
+
+ I am using MySQL in localhost as a "query tool" for performing statistics in R, that is, everytime I run a R script, I create a new database (A), create a new table (B), import the data into B, submit a query to get what I need, and then I drop B and drop A. 
+ It's working fine for me, but I realize that the ibdata file size is increasing rapidly, I stored nothing in MySQL, but the ibdata1 file already exceeded 100 MB. 
+ I am using more or less default MySQL setting for the setup, is there a way for I can automatically shrink/purge the ibdata1 file after a fixed period of time? 
+ 
+ That   isn't shrinking is a particularly annoying feature of MySQL. The   file can't actually be shrunk unless you delete all databases, remove the files and reload a dump. 
+ But you can configure MySQL so that each table, including its indexes, is stored as a separate file. In that way   will not grow as large. According to  Bill Karwin's comment  this is enabled by default as of version 5.6.6 of MySQL. 
+ It was a while ago I did this. However, to setup your server to use separate files for each table you need to change   in order to enable this: 
+ 
+ http://dev.mysql.com/doc/refman/5.5/en/innodb-multiple-tablespaces.html 
+ As you want to reclaim the space from   you actually have to delete the file: 
+ 
+ Do a   of all databases, procedures, triggers etc  **except the **
+** and **
+** databases**
+
+ Drop all databases  **except the above 2 databases**
+
+ Stop mysql 
+ Delete   and   files 
+ Start mysql 
+ Restore from dump 
+ 
+ When you start MySQL in step 5 the   and   files will be recreated.  
+ Now you're fit to go. When you create a new database for analysis, the tables will be located in separate   files, not in  . As you usually drop the database soon after, the   files will be deleted.  
+ http://dev.mysql.com/doc/refman/5.1/en/drop-database.html 
+ You have probably seen this: 
+ http://bugs.mysql.com/bug.php?id=1341 
+ By using the command   or   one can extract data and index pages from ibdata1 to separate files. However, ibdata1 will not shrink unless you do the steps above. 
+ Regarding the  , that is not necessary nor possible to drop. It is in fact just a bunch of read-only views, not tables. And there are no files associated with the them, not even a database directory. The   is using the memory db-engine and is dropped and regenerated upon stop/restart of mysqld. See  https://dev.mysql.com/doc/refman/5.7/en/information-schema.html . 
+ 
+ Adding to  John P's answer ,  
+ For a linux system, steps 1-6 can be accomplished with these commands: 
+ 
+ 
+ 
+ 
+   
+ 
+(and delete any other ib_logfile's that may be named  ,   etc...) 
+ 
+ 
+ 
+ 
+ **Warning: these instructions will cause you to lose other databases if you have other databases on this mysql instance.  Make sure that steps 1,2 and 6,7 are modified to cover all databases you wish to keep.**
+
+ 
+ When you delete innodb tables, MySQL does not free the space inside the ibdata file, that's why it keeps growing. These files hardly ever shrink. 
+ How to shrink an existing ibdata file: 
+ http://dev.mysql.com/doc/refman/5.5/en/innodb-resize-system-tablespace.html 
+ You can script this and schedule the script to run after a fixed period of time, but for the setup described above it seems that multiple tablespaces are an easier solution. 
+ If you use the configuration option  , you create multiple tablespaces. That is, MySQL creates separate files for each table instead of one shared file. These separate files a stored in the directory of the database, and they are deleted when you delete this database. This should remove the need to shrink/purge ibdata files in your case. 
+ More information about multiple tablespaces: 
+ http://dev.mysql.com/doc/refman/5.5/en/innodb-multiple-tablespaces.html 
+ 
+ 
+ If you use the InnoDB storage engine for (some of) your MySQL tables, you’ve probably already came across a problem with its default configuration. As you may have noticed in your MySQL’s data directory (in Debian/Ubuntu – /var/lib/mysql) lies a file called ‘ibdata1′. It holds almost all the InnoDB data (it’s not a transaction log) of the MySQL instance and could get quite big. By default this file has a initial size of 10Mb and it automatically extends. Unfortunately, by design InnoDB data files cannot be shrinked. That’s why DELETEs, TRUNCATEs, DROPs, etc. will not reclaim the space used by the file. 
+ 
+ I think you can find good explanation and solution there : 
+ http://vdachev.net/2007/02/22/mysql-reducing-ibdata1/ 
+ 
+ Quickly scripted the accepted answer's procedure in bash: 
+ 
+ Save as   and run as  . 
+ Excludes  ,  ,   (and   directory). 
+ Assumes you have administrator credendials in   and that your database lives in default   directory. 
+ You can also purge binary logs after running this script to regain more disk space with: 
+ 
+ 
+ If your goal is to monitor MySQL free space and you can't stop MySQL to shrink your ibdata file, then get it through table status commands. Example: 
+ MySQL > 5.1.24: 
+ 
+ MySQL < 5.1.24: 
+ 
+ Then compare this value to your ibdata file: 
+ 
+ Source:  http://dev.mysql.com/doc/refman/5.1/en/show-table-status.html 
+ 
+ In a new version of mysql-server recipes above will crush "mysql" database.
+In old version it works. In new some tables switches to table type INNODB, and by doing so you will damage them.
+The easiest way is to: 
+ 
+ dump all you databases 
+ uninstall mysql-server, 
+ add in remained my.cnf: 
+ 
+ 
+ 
+ erase all in /var/lib/mysql 
+ install mysql-server 
+ restore users and databases 
+ 
+ 
+ As already noted you can't shrink ibdata1 (to do so you need to dump and rebuild), but there's also often no real need to. 
+ Using autoextend (probably the most common size setting) ibdata1 preallocates storage, growing each time it is nearly full. That makes writes faster as space is already allocated. 
+ When you delete data it doesn't shrink but the space inside the file is marked as unused. Now when you insert new data it'll reuse empty space in the file before growing the file any further. 
+ So it'll only continue to grow if you're actually needing that data. Unless you actually need the space for another application there's probably no reason to shrink it. 
+ 

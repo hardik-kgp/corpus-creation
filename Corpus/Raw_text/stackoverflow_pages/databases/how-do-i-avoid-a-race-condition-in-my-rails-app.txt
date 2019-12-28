@@ -1,0 +1,47 @@
+*** how-do-i-avoid-a-race-condition-in-my-rails-app ***
+
+ I have a really simple Rails application that allows users to register their attendance on a set of courses. The ActiveRecord models are as follows: 
+ 
+ A ScheduledRun instance has a finite number of places available, and once the limit is reached, no more attendances can be accepted. 
+ 
+ attendances_count is a counter cache column holding the number of attendance associations created for a particular ScheduledRun record. 
+ My problem is that I don't fully know the correct way to ensure that a race condition doesn't occur when 1 or more people attempt to register for the last available place on a course at the same time. 
+ My Attendance controller looks like this: 
+ 
+ As you can see, it doesn't take into account where the ScheduledRun instance has already reached capacity.  
+ Any help on this would be greatly appreciated. 
+ **Update**
+
+ I'm not certain if this is the right way to perform optimistic locking in this case, but here's what I did: 
+ I added two columns to the ScheduledRuns table -  
+ 
+ I also added a method to ScheduledRun model: 
+ 
+ When the Attendance model is saved, ActiveRecord goes ahead and updates the counter cache column on the ScheduledRun model. Here's the log output showing where this happens - 
+ 
+ If a subsequent update occurs to the ScheduledRun model before the new Attendance model is saved, this should trigger the StaleObjectError exception. At which point, the whole thing is retried again, if capacity hasn't already been reached. 
+ **Update #2**
+
+ Following on from @kenn's response here is the updated attend method on the SheduledRun object: 
+ 
+ 
+ Optimistic locking is the way to go, but as you might have noticed already, your code will never raise ActiveRecord::StaleObjectError, since child object creation in has_many association skips the locking mechanism. Take a look at the following SQL: 
+ 
+ When you update attributes in the  **parent**
+ object, you usually see the following SQL instead: 
+ 
+ The above statement shows how optimistic locking is implemented: Notice the   in WHERE clause. When race condition happens, concurrent processes try to run this exact query, but only the first one succeeds, because the first one atomically updates the lock_version to 2, and subsequent processes will fail to  **find**
+ the record and raise ActiveRecord::StaleObjectError, since the same record doesn't have   any longer. 
+ So, in your case, a possible workaround is to touch the parent right before you create/destroy a child object, like so: 
+ 
+ It's not meant to strictly avoid race conditions, but practically it should work in most cases. 
+ 
+ Don't you just have to test if  ? 
+ 
+ **Edit**
+
+ What if you add a validation like: 
+ 
+ It won't save the   if the associated   is full. 
+ I haven't tested this code... but I believe it's ok. 
+ 

@@ -1,0 +1,228 @@
+*** best-structure-for-inventory-database ***
+
+ I want to create a small database for my inventory but I have some problems on picking a structure. The inventory will be updated daily at the end of the day. 
+ The problem I am facing is the following. 
+ I have a table for my products, having an  
+ 
+ Now I have another table for my sales, but there is my problem. What kind of fields do I need to have. At the end of the day I want to store a record like this: 
+ 
+ So how do I model this in a sales record. Do I just create a concatenated record with the product id's comma separated.  
+ Or is there another way do model this the right way. 
+ 
+ I'd have a table with a row per item per day - store the date, the item ID, the quantity sold, and the price sold at (store this even though it's also in the product table - if that changes, you want the value you actually sold at preserved). You can compute totals per item-day and totals per day in queries. 
+ Tables: 
+ 
+ Reporting on a day: 
+ 
+ Reporting on all days: 
+ 
+ A nice master report over all days, with a summary line: 
+ 
+ 
+ This is a model which supports many aspects, 
+ 
+ Supports Sites, Locations and Warehouses etc. 
+ Supports Categorization and Grouping 
+ Support Generic Product (Ex. "Table Clock" and specific product "Citizen C123 Multi Alarm Clock" ) 
+ Also support Brand Variants (by various manufacturers) 
+ Has CSM (color / size / model support) Ex. Bata Sandles (Color 45 Inch Blue color) 
+ Product Instances with serials (such as TVs , Refrigerators etc.) 
+ Lot control / Batch control with serial numbers. 
+ Pack Size / UOM and UOM Conversion 
+ Manufacturer and Brands  as well as Suppliers 
+ Also included example transaction table (Purchase order) 
+ There are many other transaction types such as Issues, Transfers, Adjustments etc. 
+ 
+ Hope this would help. Please let me know if you need further information on each table. 
+ Cheers...!!! 
+ Wajira Weerasinghe.  
+ **Sites**
+
+ 
+ id 
+ site_code 
+ Site_name 
+ 
+ **Warehouse**
+
+ 
+ id 
+ site_id 
+ warehouse_code 
+ warehouse_name 
+ 
+ **Item Category**
+
+ 
+ id 
+ category_code 
+ category_name 
+ 
+ **Item Group**
+
+ 
+ id 
+ group_code 
+ group_name 
+ 
+ **Generic Product**
+
+ 
+ id 
+ generic_name 
+ 
+ **Product**
+
+ 
+ id 
+ product_code 
+ category_id 
+ group_id 
+ brand_id 
+ generic_id 
+ model_id/part_id 
+ product_name 
+ product_description 
+ product_price (current rate)  
+ has_instances(y/n) 
+ has_lots (y/n) 
+ has_attributes 
+ default_uom 
+ pack_size 
+ average_cost 
+ single_unit_product_code (for packs) 
+ dimension_group (pointing to dimensions) 
+ lot_information 
+ warranty_terms (general not specific) 
+ is_active 
+ deleted 
+ 
+ **product attribute type (color/size etc.)**
+
+ 
+ id 
+ attribute_name 
+ 
+ **product_attribute**
+
+ 
+ id 
+ product_id 
+ attribute_id 
+ 
+ **product attribute value (this product -> red)**
+
+ 
+ id 
+ product_attribute_id 
+ value 
+ 
+ **product_instance**
+
+ 
+ id 
+ product_id 
+ instance_name (as given by manufacturer) 
+ serial_number 
+ brand_id (is this brand) 
+ stock_id (stock record pointing  qih, location etc.) 
+ lot_information (lot_id) 
+ warranty_terms 
+ product attribute value id (if applicable) 
+ 
+ **product lot**
+
+ 
+ id 
+ lot_code/batch_code 
+ date_manufactured 
+ date_expiry 
+ product attribute value id (if applicable) 
+ 
+ **Brand**
+
+ 
+ id 
+ manufacturer_id 
+ brand_code 
+ brand_name 
+ 
+ **Brand Manufacturer**
+
+ 
+ id 
+ manufacturer_name 
+ 
+ **Stock**
+
+ 
+ id 
+ product_id 
+ warehouse_id, zone_id, level_id, rack_id etc. 
+ quantity in hand 
+ product attribute value id (if applicable) [we have 4 red color items etc.] 
+ 
+ **Product Price Records**
+
+ 
+ product_id 
+ from_date 
+ product_price 
+ 
+ **Purchase Order Header**
+
+ 
+ id 
+ supplier_id 
+ purchase_date 
+ total_amount 
+ 
+ **Purchase Order Line**
+
+ 
+ id 
+ po_id 
+ product_id 
+ unit_price 
+ quantity 
+ 
+ **Supplier**
+
+ 
+ id 
+ supplier_code 
+ supplier_name 
+ supplier_type 
+ 
+ **product_uom**
+
+ 
+ id 
+ uom_name 
+ 
+ **product_uom_conversion**
+
+ 
+ id 
+ from_uom_id 
+ to_uom_id 
+ conversion_rule 
+ 
+ 
+ Try modelling your sales as a transaction - with a "header", i.e. who sold to, when sold, invoice # (if applicable), etc. and "line items", i.e. 20 * product_x @ $5 = $100.  The safest approach is to avoid relying upon prices etc. from the products table - as these will presumably change over time, and instead copy much of the product information (if not all) into your line item - so even when prices, item descriptions etc. change, the transaction information remains as was at the time the transaction was made. 
+ 
+ Inventory can get quite complex to model. First you need to understand that you need to be able to tell the value of the inventory onhand based on what you paid for it. This means you cannot rely on a product table that is updated to the current price. While you might want such a table to help you figure out what to sell it for, there are tax reasons why you need to know the actual vlaue you paid for each item in the warehouse.  
+ So first you need the product table (you might want to make sure you have an updated date column in this, it can be handy to know if your prices seem out of date). 
+ Then you need a table that stores the actual warehouse location of each part and the price at purchase. If the items are large enough, you need a way to individually mark each item, so that you know what was taken out. Usually people use barcodes for that. This table needs to be updated to record that the part is no longer there when you sell it. I prefer to make the record inactive and have a link to my sales data to that record, so I know exactly what I paid for and what I sold each part for.  
+ Sales should have at least two tables. One for the general information about the sale, the customername (there should also be a customer table most of the time to get this data from), the date, where it was shipped to etc. 
+ Then a sales detail table that includes a record for each line item in the order. Include all the data you need about the part, color, size, quantity, price. This is not denormalizing, this is storing historical data. The one thing you do not want to do is rely on the prices in the product table for anything except the inital entry to this table. You do not want to do a sales report and have the numbers come out wrong becasue the product prices changed the day before.  
+ Do not design an inventory database without consulting with an accountant or specialist in taxes. You also should do some reading on internal controls. It is easy to steal from a company undetected that has not done their work on internal controls in the database.  
+ 
+ I think you need a table with fields showing the transaction properties per customer
+OR
+a table with fields - date, product(foreign), quantity - this way you'll have no problem with new products 
+ 
+ Try multiple tables with links 
+ 
+ Haven't tried it but will something like that work?  That allows you to keep each transactions separate so you can query things like average number sold per sale, total sold per date, total sales each day, etc. 
+ 

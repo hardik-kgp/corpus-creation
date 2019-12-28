@@ -1,0 +1,64 @@
+*** database-best-performance-way-to-query-geo-location-data ***
+
+ I have a MySQL database. I store homes in the database and perform literally just 1 query against the database,  **but I need this query to be performed super fast**
+, and that's to return all homes within a square box geo latitude & longitude. 
+ 
+ How is the best way for me to store my geo data so that I can perform this query of displaying all home within the geolocation box the quickest? 
+ Basically: 
+ 
+ Am I using the best SQL statement to perform this query the quickest? 
+ Does any other method exist, maybe not even using a database, for me to query the fastest way a result of homes within a boxed geolocation bounds? 
+ 
+ In case it helps, I've include my database table schema below: 
+ 
+ **UPDATE**
+
+ I understand spatial will factor in the curvature of the earth but I'm most interested in returning geo data the FASTEST. Unless these spatial database packages somehow return data faster, please don't recommend spatial extensions. Thanks 
+ **UPDATE 2**
+
+ Please note, no one below has truly answered the question. I'm really looking forward to any assistance I might receive. Thanks in advance. 
+ 
+ There is a good paper on MySQL geolocation performance  here . 
+ EDIT  Pretty sure this is using fixed radius. Also I am not 100% certain the algorithm for calculating distance is the most advanced (i.e. it'll "drill" through Earth). 
+ What's significant is that the algorithm is cheap to give you a ball park limit on the number of rows to do proper distance search. 
+ 
+ The algorithm pre-filters by taking candidates in a square around the source point, then calculating the distance in  **miles**
+. 
+ Pre-calculate this, or use a stored procedure as the source suggests: 
+ 
+ 
+ 
+ I had the same problem, and wrote a 3 part blogpost. This was faster than the geo index. 
+ Intro ,  Benchmark ,  SQL 
+ 
+ If you really need to go for performance you can define bounding boxes for your data and map the pre-compute bounding boxes to your objects on insertion and use them later for queries. 
+ If the resultsets are reasonably small you could still do accuracy corrections in the application logic (easier to scale horizontal than a database) while enabling to serve accurate results. 
+ Take a look at Bret Slatkin's  geobox.py  which contains great documentation for the approach. 
+ I would still recommend checking out PostgreSQL and  PostGIS  in comparison to MySQL if you intend to do more complex queries in the foreseeable future. 
+ 
+ The indices you are using are indeed B-tree indices and support the   keyword in your query. This means that the optimizer is able to use your indices to find the homes within your "box". It does however not mean that it will always use the indices. If you specify a range that contains too many "hits" the indices will not be used. 
+ 
+ Sticking with your current approach there is one change you should make,
+Rather than indexing geolat and geolong separately you should have a composite index:  
+ 
+ Currently your query will only be taking advantage of one of the two indexes. 
+ 
+ A very good alternative is  **MongoDB**
+ with its  **Geospatial Indexing**
+. 
+ 
+ Here's a trick I've used with some success is to create round-off regions.  That is to say, if you have a location that's at 36.12345,-120.54321, and you want to group it with other locations which are within a half-mile (approximate) grid box, you can call its region 36.12x-120.54, and all other locations with the same round-off region will fall in the same box. 
+ Obviously, that doesn't get you a clean radius, i.e. if the location you're looking at is closer to one edge than another.  However, with this sort of a set-up, it's easy enough to calculate the eight boxes that surround your main location's box.  To wit: 
+ 
+ Pull all the locations with matching round-off labels and then, once you've got them out of the database, you can do your distance calculations to determine which ones to use. 
+ 
+ Since MySQL 5.7 mysql can use geoindex like ST_Distance_Sphere() and ST_Contains() wich improve performances. 
+ 
+ This looks pretty fast. My only concern would be that it would use an index to get all the values within 3 miles of the latitude, then filter those for values within 3 miles of the longitude. If I understand how the underlying system works, you can only use one INDEX per table, so either the index on lat or long is worthless. 
+ If you had a large amount of data, it  might  speed things up to give every 1x1 mile square a unique logical ID, and then make an additional restriction on the SELECT that (area="23234/34234" OR area="23235/34234" OR ... ) for all the squares around your point, then force the database to use that index rather than the lat and long. Then you'll only be filtering much less square miles of data.  
+ 
+ Homes?  You probably won't even have ten thousand of them.  Just use an in-memory index like  STRTree . 
+ 
+ You might consider creating a separate table 'GeoLocations' that has a primary key of ('geolat','geolng') and has a column that holds the home_id if that particular geolocation happens to have a home. This should allow the optimizer to search for a range of geo locations that will be sorted on disk for a list of home_ids. You could then perform a join with your 'homes' table to find information about those home_ids. 
+ 
+ 

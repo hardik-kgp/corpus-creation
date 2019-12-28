@@ -1,0 +1,30 @@
+*** the-best-way-to-connect-sql-server-windows-authentication-vs-sql-server-authent ***
+
+ I have a database and a site having forms authentication. It is working fine with VS2008. This time, I am using "Trusted_connection =True". But when it is opened from outside or directly from browser then I am getting error "Login failed for user 'NT AUTHORITY\ANONYMOUS LOGON'." 
+ I know this is due to permission. SQL server is based on windows authentication.  
+ 
+ What is the best approach to manage user to connect SQL Server? 
+ Should I enable SQL Server authentication? 
+ 
+ Let me know what to do so that it makes the production feel and there wouldn't be any problem during deployment. 
+ Note: SQL Server is installed on domain server. 
+ 
+ The site authentication has nothing to do with the authentication between ASP and SQL. The 'forms authentication' is actually not a form of true authentication, is just a role and membership for the ASP.Net application, unrelated to the security infrastructure. 
+ When you run your site from Visual Studio you are launching the Visual Studio web server under your own account, and this web server will authenticate to SQL Server using NTLM/Kerberos as you, since is running under your credentials. 
+ When you visit the site from browser, your site is running from the IIS application pool with the identity of the said application pool, which usually is a local user named IUSER_... This local user, when authenticating with the SQL Server using NTLM/Kerberos will authenticate as the Anonymous user, since the local account has no meaning on the remote machine/domain hosting the SQL Server. 
+ The solution is to change the application pool identity to a user that can authenticate fine with the SQL Server. For this, the IIS hosting machine must be  joined to the same domain as SQL Server's host machine (or a domain that trusts the SQL Server host machine domain) and the application pool identity has to be changed to an account from this domain. So if the SQL Server machine runs on a machine joined to the domain FOO, then: 
+ 
+ make sure the IIS machine is joined to FOO 
+ create a domain user FOO\MyWebApp 
+ change the app pool identity to FOO\MyWebApp 
+ add a SQL login for FOO\MyWebApp 
+ grant the necessary permission in SQL to FOO\MyWebApp 
+ 
+ The alternative of using SQL Authentication is bad for several reasons (potential to expose the password in web.config, potential to expose the password during authentication on the wire). If the IIS hosting machine is not joined to the domain then you  may  use mirrored accounts (local accounts with same name and password on both IIS host and SQL host) but that is also flawed: cannot work with Kerberos, the account password has to be kept in sync on the two hosts etc. 
+ 
+ One approach is to create a service account for the application to use. You create the account in Active Directory or similar. In IIS, set the app pool to operate under that service account. In SQL Server, grant permissions for the service account, either directly or by putting the service account in a role. 
+ Here's one article about  how to do that . 
+ 
+ Create a managed service account in the domain where both SQL server machine and Web Server (IIS) machine belongs to or trust. Then run the web servers' application pool on the managed service account. Create a SQL Server login using the managed service account. Read the following Technet post for more information about creating managed service accounts; 
+ http://technet.microsoft.com/en-us/library/dd548356(v=ws.10).aspx 
+ 

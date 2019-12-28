@@ -1,0 +1,98 @@
+*** deadlock-between-update-and-insert-queries ***
+
+ I have faced a deadlock in my application between an Update and an Insert query and I am unable to understand why locks are given in a way which causes deadlock. 
+ **Environment-**
+
+ 
+ Application - Django 
+ Database - MySQL 5.7 
+ Engine - Innodb 
+ Isolation Level - READ COMMITTED. 
+ Tables (names changed for security)-
+
+ 
+ M - primary key - id 
+ MSC - has a foreign-key to M.id
+
+ 
+ Indexes on MSC
+
+ 
+ Index on M(FK) 
+ Index on S(FK) 
+ Index on C(FK) 
+ Index on unique together constraint (M, S, C) 
+ 
+ 
+ 
+ 
+ **Queries-**
+ Following two queries (Queries truncated to show only relevant columns)- 
+ 
+ **Update**
+-  
+ 
+ **Insert**
+- 
+ 
+ 
+ **Deadlock-**
+
+ 
+ First the update query is triggered and then insert query is triggered but the output of   shows that insert query initiated earlier. 
+ From the output, timing of their execution seems to be in below manner causing the deadlock-
+
+ 
+ Insert gets the exclusive(X) lock on MSC and waiting for shared(S) lock on foreign key M. 
+ Update gets the exclusive(X) lock on M and waiting for exclusive(X) lock on foreign key MSC. 
+ 
+ Following is the full output- 
+ 
+ 
+    ------------------------
+    LATEST DETECTED DEADLOCK
+    ------------------------
+    2017-03-17 15:41:03 0x7f8039550700
+     *** (1) TRANSACTION:
+    TRANSACTION 7784084, ACTIVE 2 sec inserting
+    mysql tables in use 1, locked 1
+    LOCK WAIT 11 lock struct(s), heap size 1136, 46 row lock(s), undo log entries 25
+    MySQL thread id 493648, OS thread handle 140188693010176, query id 55263589 ip-10-198-7-203.ec2.internal 10.198.7.203 root update
+    INSERT INTO **
+** (**
+**, **
+**, **
+**) VALUES (110, 1235, '9b39cd')
+    ***
+ (1) WAITING FOR THIS LOCK TO BE GRANTED:
+    RECORD LOCKS space id 1377 page no 10 n bits 152 index PRIMARY of table "db"."M" trx id 7784084 lock mode S locks rec but not gap waiting
+    Record lock, heap no 67 PHYSICAL RECORD: n_fields 42; compact format; info bits 0
+     0: len 4; hex 800000ac; asc     ;;
+     1: len 6; hex 00000076c69f; asc    v  ;;
+     2: len 7; hex 76000001cb24c5; asc v    $ ;;
+     3: len 8; hex 999be72e2e07032e; asc    ..  .;;
+     4: len 8; hex 999c22fa43025221; asc   " C R!;;
+
+ 
+ 
+ **Questions-**
+
+I am unable to understand the followings-
+1. Why did the update query have to wait and couldn't get the locks when insert query got one?
+2. Why does the update query needs/takes exclusive(X) lock on M table. 
+ Please share your thoughts here. Let me know if any extra info is required. 
+ 
+ Does the id value of 110 exist in the M table? Also it may be useful to wrap these individual transactions in   and   commands to ensure the insert completes before the update tries to run. 
+ Example: 
+ 
+ 
+ As said @SergGr your two queries cant cause deadlock. But possible next situation. For example, we have next records in   table: 
+ 
+ Now we trying to run next queries in parallel (I changed your update and wrote 1235 instead of 1234): 
+ 
+ We must have problem with unique index on ( ,  ,  ). 
+ Update and insert may start in parallel, because there is no problem with constraint before start of execution. But queries cant finished, because they both must produce equal lines and they must be conflicted with unique constraint. 
+ To avoid this situation you may use forced locks. For example,  
+ 
+ I dont like similar locks because after that problem may be solved here but moved into up level. If it is possible, revise your database schema or algorithm. May be you will find more elegancy way to store and update your data without probability of deadlocks. 
+ 

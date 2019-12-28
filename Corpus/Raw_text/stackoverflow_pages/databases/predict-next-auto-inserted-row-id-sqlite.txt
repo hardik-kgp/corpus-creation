@@ -1,0 +1,47 @@
+*** predict-next-auto-inserted-row-id-sqlite ***
+
+ I'm trying to find if there is a reliable way (using  SQLite ) to find the ID of the next row to be inserted,  before it gets inserted . I need to use the id for another insert statement, but don't have the option of instantly inserting and getting the next row. 
+ Is predicting the next id as simple as getting the last id and adding one? Is that a guarantee? 
+ Edit: A little more reasoning...
+I can't insert immediately because the insert may end up being canceled by the user. User will make some changes, SQL statements will be stored, and from there the user can either save (inserting all the rows at once), or cancel (not changing anything). In the case of a program crash, the desired functionality is that nothing gets changed. 
+ 
+ Either scrapping or committing a series of database operations all at once is exactly what transactions are for.  Query   before the user starts fiddling and   once he/she's done.  You're guaranteed that either all the changes are applied (if you commit) or everything is scrapped (if you query  , if the program crashes, power goes out, etc).  Once you read from the db, you're also guaranteed that the data is good until the end of the transaction, so you can grab   or whatever you want without worrying about race conditions. 
+ http://www.sqlite.org/lang_transaction.html 
+ 
+ Try  .  This will contain a field called   which is the largest number for the selected table.  Add 1 to this value to get the next ID. 
+ Also see the  SQLite Autoincrement article , which is where the above info came from. 
+ Cheers! 
+ 
+ You can probably get away with adding 1 to the value returned by  sqlite3_last_insert_rowid  under certain conditions, for example, using the same database connection and there are no other concurrent writers. Of course, you may refer to the sqlite source code to back up these assumptions.  
+ However, you might also seriously consider using a different approach that doesn't require predicting the next ID. Even if you get it right for the version of sqlite you're using, things could change in the future and it will certainly make moving to a different database more difficult. 
+ 
+ Insert the row with an INVALID flag of some kind, Get the ID, edit it, as needed, delete if necessary or mark as valid. That and don't worry about gaps in the sequence 
+ BTW, you will need to figure out how to do the invalid part yourself. Marking something as NULL might work depending on the specifics. 
+ Edit:  If you can, use Eevee's suggestion of using proper transactions. It's a lot less work. 
+ 
+ I realize your application using SQLite is small and SQLite has its own semantics. Other solutions posted here may well have the effect that you want in this specific setting, but in my view every single one of them I have read so far is fundamentally incorrect and should be avoided. 
+ In a normal environment holding a transaction for user input should be avoided at all costs.  The way to handle this, if you need to store intermediate data, is to write the information to a scratch table for this purpose and then attempt to write all of the information in an atomic transaction.  Holding transactions invites deadlocks and concurrency nightmares in a multi-user environment. 
+ In most environments you cannot assume data retrieved via SELECT within a transaction is repeatable. For example 
+ 
+ Subsequent to UPDATE the value of balance may well be changed.  Sometimes you can get around this by updating the row(s) your interested in Bank first within a transaction as this is guaranteed to lock the row preventing further updates from changing its value until your transaction has completed. 
+ However, sometimes a better way to ensure consistency in this case is to check your assumptions about the contents of the data in the WHERE clause of the update and check row count in the application.  In the example above when you "UPDATE Bank" the WHERE clause should provide the expected current value of balance: 
+ 
+ If the expected balance no longer matches neither does the WHERE condition -- UPDATE does nothing and rowcount returns 0.  This tells you there was a concurrency issue and you need to rerun the operation again when something else isn't trying to change your data at the same time. 
+ 
+ 
+ http://www.sqlite.org/autoinc.html 
+ "The normal ROWID selection algorithm described above will generate monotonically increasing unique ROWIDs as long as you never use the maximum ROWID value and you never delete the entry in the table with the largest ROWID. If you ever delete rows or if you ever create a row with the maximum possible ROWID, then ROWIDs from previously deleted rows might be reused when creating new rows and newly created ROWIDs might not be in strictly ascending order." 
+ 
+ I think this can't be done because there is no way to be sure that nothing will get inserted between you asking and you inserting. (you might be able to lock the table to inserts but Yuck) 
+ BTW I've only used MySQL but I don't think that will make any difference) 
+ 
+ Most likely you should be able to +1 the most recent id.  I would look at all (going back a while) of the existing id's in the ordered table .. Are they consistent and is each row's ID is one more than the last? If so, you'll probably be fine. I'd leave a comments in the code explaining the assumption however.  Doing a Lock will help guarantee that you're not getting additional rows while you do this as well. 
+ 
+ Select the last_insert_rowid() value. 
+ 
+ Most of everything that needs to be said in this topic already has...  **However, be very careful of race conditions**
+ when doing this. If two people both open your application/webpage/whatever, and one of them adds a row, the other user will try to insert a row with the same ID and you will have lots of issues. 
+ 
+ 
+ The next id will be +1 from the maximum id. 
+ 

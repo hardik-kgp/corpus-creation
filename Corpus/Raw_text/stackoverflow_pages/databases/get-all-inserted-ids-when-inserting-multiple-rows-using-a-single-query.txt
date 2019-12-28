@@ -1,0 +1,63 @@
+*** get-all-inserted-ids-when-inserting-multiple-rows-using-a-single-query ***
+
+ I've already looked at other answers and I still feel that my question is relevant and deserves a separate entry. 
+ I have a table named settings(which stores user settings) and I have to insert multiple settings for each user. Initially, I had executed a separate insert statement for each setting, but having felt this wasn't a particularly good way to do it, I thought of inserting multiple rows by the same insert statement. My only problem is that I want the auto_incremented IDs of each of the newly inserted rows. 
+ I've read answers that say this isn't possible/scalable etc, but I feel that I have hit upon the solution. I want feedback whether my way is correct or not and hence this question. 
+ What I've done is simple. After inserting the multiple rows, I call last_insert_id() to get the ID of the first row of the simultaneously inserted rows. I already have the count of the number of rows inserted, so I simply create a new array and populate it with IDs starting at last_insert_id() and ending at last_insert_id()+n-1 (where n is the number of rows inserted). 
+ I feel this will work because of the following reasons: 
+ 1.) MYSQL documentation states that last_insert_id() is connection dependent and if another client/connection inserts new records, then that won't affect other client's last_insert_id(). 
+ 2.) I feel that as the insert is being done by a single SQL statement, the whole insertion should be treated as a single transaction. If that is true, then ACID rules should apply and the auto_incremented values should be sequential. I'm not sure about this one. 
+ Those are my reasons why I feel the logic should work. So my question is, will the above logic work for ALL conditions? Can I rely on it to work correctly in all situations? I know it is working for me currently. 
+ 
+ If you like to gamble - then do this :) 
+ To be 99% sure you would have to lock the table for writing. You are not sure that the (in future) two transactions  will not be able to intertwine. 
+ To be 100% sure you read these values. (Or analyze the source MySQL)
+The best solution would be to add the date to tablei edit settings and read the latest. If you do not want to change the structure, you can use triggers  http://dev.mysql.com/doc/refman/5.0/en/create-trigger.html . 
+ Good solution will be refresh all your settings or only pairs: key - setting name 
+ 
+ This behaviour shouldn't be relied upon; besides the obvious locking issues, let's say you want to set up master<->master replication; all of a sudden, the id's increment by 2 every time. 
+ Besides that, instead of actually writing multiple insert statements, it might be worth using prepared statements: 
+ 
+ 
+ I agree with @anigel. You cant be sure that some transactions wouldnt get muddled up. You can split the inserts into separate queries, call last_insert_id() for each individual query and populate an array with the results. 
+ Granted, this may increase processing time but at least you can be sure of avoiding conflicts. Plus, since its a settings table, its highly unlikely that you'll have to run a ton of transactions per client request 
+ 
+ How about: 
+ 
+ Perhaps this would return your insert ids like you are wanting.  I haven't tested it, but perhaps you could adapt it for your purpose and who knows it might actually work. 
+ 
+ I already doing this is my app. I insert records in loop and when each record is inserted i will store the Auto increment id in array by call last_insert_id(). So i can use the array of inserted id's where ever i need. 
+ 
+ I did this for a bit though did not find the data useful in the end so stopped. 
+ I track the datetime and user_who_altered of each entry into the table so retrieving the list becomes simple. 
+ It is important to set a variable with the time however, rather than relying on NOW(): 
+ 
+ will insert the multiple rows nicely. 
+ to retrieve the array you seek: 
+ 
+ This is good practice as you are able to track which user modified the record and it does not depend on locks or chance. 
+ As for your own solution, it will work and saves a query.  I would worry about how it might respond to prepared statements on a busy table though and perhaps the method used ought to consider that.  The method I use is immune to such problems. 
+ 
+ Something has been bugging me about this question...why are you needing the insert_id of each row? It just seems to me if you are inserting into the settings table then to correlate the settings to the user it would be better to add some sort of user key to the table.  I'm probably just not seeing the whole picture, but this is the idea that I'm getting: 
+ 
+ My basic thinking here is that what you are doing with the insert_id(s) is then some how trying to create a reference between the users and the settings so you know who set what and you are give them back their settings later. 
+ If I've totally lost the point, please, guide me back on topic and I'll try to come up with another solution, but if I'm hitting anywhere close to where you are trying to go: 
+ If you are indeed trying to correlate the two tables using the insert_id(s) then wouldn't something like the below code make more sense (assuming you have a table structure similar to the above): 
+ I'll assume that $user is a reference to the particular user ( . ). 
+ I'll also assume you have an associative array called $settings which you are trying to put into the database. 
+ 
+ Now when you need the user's settings you could do a SELECT with a JOIN to put all the settings and the user info together and forgive me if I louse this bit up because I am by far not a mysql(i) expert, so I'm not sure if you'll need to do anything special being there are multiple entries in the settings table and a single entry in the users table, but I'm sure someone can set us both straight if I screw this up: 
+ 
+ As I previously stated, I am by far not a mysql(i) expert and there are probably ways to streamline things and I may have made some mistakes with the syntax on my JOIN statement or just used superfluous claus(es) like the GROUP BY.  I made the SELECT a pull from   and joined   to it because I wasn't sure if joining settings to users would make a single result containing users and all the possible values from settings that matched our WHERE clause.  I've only ever joined   with   where there was 1 result in each, but I feel confident that a JOIN is in the right general area. 
+ Alternatively to the multiple queries, I said I would give examples of building a single query string for a multi_query, so: 
+ 
+ or 
+ 
+ One last thing I want to note: Unless you are specifically needing multiple entries of the same setting for the user, Then you could do an UPDATE before your INSERT query and only do the INSERT if the resulting $mysqli->insert_id == 0.  If you are attempting to keep a history of the settings changes for users and that is why you need multiple entries then I would suggest creating a separate table with a log containing a table structure like: 
+ 
+ If you make the default of   the CURRENT_TIMESTAMP or just insert date('Y-m-d G:i:s') into that field then you can keep track of changes to settings by inserting into the log when new settings are created or changed. 
+ To do the INSERTS if the UPDATE didn't change anything you could use two separate statements.  It is also possible to do it with "INSERT VALUES() ON DUPLICATE KEY UPDATE ... ", but this method is apparently not recommended on tables with multiple UNIQUE fields. To use the latter method would mean a single query, but you would have to make the combination of   and   UNIQUE (or maybe DISTINCT?).  If you made   UNIQUE then you would only be able to have one  ='foo' in the table unless I am mistaken. To do it with two statements you would do something like: 
+ 
+ In the above code you could substitute $mysqli->insert_id for $mysqli->affected_rows if you prefer, but the end result is the same.  The INSERT statement is only called if the UPDATE didn't change anything in the table (which would indicate that there were no records for that setting and that user). 
+ I apologize that this is a very lengthy reply and it strayed from your original question, but I hope it is relavent to your true purpose/goal.  I look forward to your response and to the comments about ways to improve my SQL statements from the true SQL masters. 
+ 

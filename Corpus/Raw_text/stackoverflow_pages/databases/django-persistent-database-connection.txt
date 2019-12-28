@@ -1,0 +1,67 @@
+*** django-persistent-database-connection ***
+
+ I'm using django with apache and mod_wsgi and PostgreSQL (all on same host), and I need to handle a lot of simple dynamic page requests (hundreds per second). I faced with problem that the bottleneck is that a django don't have persistent database connection and reconnects on each requests (that takes near 5ms). 
+While doing a benchmark I got that with persistent connection I can handle near 500 r/s while without I get only 50 r/s. 
+ Anyone have any advice? How to modify django to use persistent connection? Or speed up connection from python to DB 
+ Thanks in advance. 
+ 
+ Django  **1.6**
+ has added  persistent connections support (link to doc for django 1.9) : 
+ 
+ Persistent connections avoid the overhead of re-establishing a
+  connection to the database in each request. They’re controlled by the
+  CONN_MAX_AGE parameter which defines the maximum lifetime of a
+  connection. It can be set independently for each database. 
+ 
+ 
+ Try  PgBouncer  - a lightweight connection pooler for PostgreSQL.
+Features: 
+ 
+ Several levels of brutality when rotating connections:
+
+ 
+ Session pooling 
+ Transaction pooling 
+ Statement pooling 
+ 
+ Low memory requirements (2k per connection by default). 
+ 
+ 
+ In Django trunk, edit   and comment out the line: 
+ 
+ This signal handler causes it to disconnect from the database after every request.  I don't know what all of the side-effects of doing this will be, but it doesn't make any sense to start a new connection after every request; it destroys performance, as you've noticed. 
+ I'm using this now, but I havn't done a full set of tests to see if anything breaks. 
+ I don't know why everyone thinks this needs a new backend or a special connection pooler or other complex solutions.  This seems very simple, though I don't doubt there are some obscure gotchas that made them do this in the first place--which should be dealt with more sensibly; 5ms overhead for every request is quite a lot for a high-performance service, as you've noticed.  (It takes me  150ms --I havn't figured out why yet.) 
+ Edit: another necessary change is in django/middleware/transaction.py; remove the two transaction.is_dirty() tests and always call commit() or rollback().  Otherwise, it won't commit a transaction if it only read from the database, which will leave locks open that should be closed. 
+ 
+ I created a small  Django patch  that implements connection pooling of MySQL and PostgreSQL via sqlalchemy pooling. 
+ This works perfectly on production of  http://grandcapital.net/  for a long period of time. 
+ The patch was written after googling the topic a bit. 
+ 
+ Disclaimer: I have not tried this. 
+ I believe you need to implement a custom database back end. There are a few examples on the web that shows how to implement a database back end with connection pooling. 
+ Using a connection pool would probably be a good solution for you case, as the network connections are kept open when connections are returned to the pool. 
+ 
+ This post  accomplishes this by patching Django (one of the comments points out that it is better to implement a custom back end outside of the core django code) 
+ This post  is an implementation of a custom db back end 
+ 
+ Both posts use MySQL - perhaps you are able to use similar techniques with Postgresql. 
+ **Edit:**
+
+ 
+ The Django Book mentions Postgresql connection pooling, using  pgpool  ( tutorial ). 
+ Someone posted  a patch  for the psycopg2 backend that implements connection pooling. I suggest creating a copy of the existing back end in your own project and patching that one. 
+ 
+ 
+ I made some small custom psycopg2 backend that implements persistent connection using global variable.
+With this I was able to improve the amout of requests per second from 350 to 1600 (on very simple page with few selects)
+Just save it in the file  called   in any directory (e.g. postgresql_psycopg2_persistent) and set in settings 
+ DATABASE_ENGINE to projectname.postgresql_psycopg2_persistent 
+ **NOTE!!! the code is not threadsafe - you can't use it with python threads because of unexpectable results, in case of mod_wsgi please use prefork daemon mode with threads=1**
+
+ 
+ 
+ 
+ Or here is a thread safe one, but python threads don't use multiple cores, so you won't get such performance boost as with previous one. You can use this one with multi process one too. 
+ 
+ 

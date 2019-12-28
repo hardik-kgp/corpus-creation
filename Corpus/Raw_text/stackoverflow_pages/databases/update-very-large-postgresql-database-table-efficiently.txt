@@ -1,0 +1,57 @@
+*** update-very-large-postgresql-database-table-efficiently ***
+
+ I have a very large database table in PostgresQL and a column like "copied". Every new row starts uncopied and will later be replicated to another thing by a background programm. There is an partial index on that table "btree(ID) WHERE replicated=0". The background programm does a select for at most 2000 entries (LIMIT 2000), works on them and then commits the changes in one transaction using 2000 prepared sql-commands. 
+ Now the problem ist that I want to give the user an option to reset this replicated-value, make it all zero again. 
+ An update table set replicated=0; 
+ is not possible: 
+ 
+ It takes very much time 
+ It duplicates the size of the tabel because of MVCC 
+ It is done in one transaction: It either fails or goes through. 
+ 
+ I actually don't need transaction-features for this case: If the system goes down, it shall process only parts of it. 
+ Several other problems:
+Doing an  
+ 
+ is also bad: It does a sequential scan all over the whole table which is too slow.
+If it weren't doing that, it would still be slow because it would be too many seeks. 
+ What I really need is a way of going through all rows, changing them and not being bound to a giant transaction. 
+ Strangely, an 
+ 
+ is also slow, although it should be a good thing: Go through the table in DISK-order... 
+ (Note that in that case there was also an index that covered this) 
+ (An update LIMIT like Mysql is unavailable for PostgresQL) 
+ BTW: The real problem is more complicated and we're talking about an embedded system here that is already deployed, so remote schema changes are difficult, but possible
+It's PostgresQL 7.4 unfortunately. 
+ The amount of rows I'm talking about is e.g. 90000000. The size of the databse can be several dozend gigabytes. 
+ The database itself only contains 5 tables, one is a very large one.
+But that is not bad design, because these embedded boxes only operate with one kind of entity, it's not an ERP-system or something like that! 
+ Any ideas? 
+ 
+ How about adding a new table to store this replicated value (and a primary key to link each record to the main table). Then you simply add a record for every replicated item, and delete records to remove the replicated flag. (Or maybe the other way around - a record for every non-replicated record, depending on which is the common case). 
+ That would also simplify the case when you want to set them all back to 0, as you can just truncate the table (which zeroes the table size on disk, you don't even have to vacuum to free up the space) 
+ 
+ If you are trying to reset the whole table, not just a few rows, it is usually faster (on extremely large datasets -- not on regular tables) to simply  , and then swap the tables and drop the old one.  Obviously you would need to ensure nothing gets inserted into the original table while you are doing that.  You'll need to recreate that index, too. 
+ **Edit**
+: A simple improvement in order to avoid locking the table while you copy 14 Gigabytes: 
+ 
+ (let writes happen while you are doing the copy, and insert them post-factum). 
+ 
+ While you cannot likely fix the problem of space usage (it is temporary, just until a vacuum) you can probably really speed up the process in terms of clock time.   The fact that PostgreSQL uses MVCC means that you should be able to do this without any issues related to newly inserted rows.  The create table as select will get around some of the performance issues, but will not allow for continued use of the table, and takes just as much space.  Just ditch the index, and rebuild it, then do a vacuum. 
+ 
+ 
+ This is pseudocode. You'll need 400MB (for ints) or 800MB (for bigints) temporary file (you can compress it with zlib if it is a problem). It will need about 100 scans of a table for vacuums. But it will not bloat a table more than 1% (at most 1000000 dead rows at any time). You can also trade less scans for more table bloat. 
+ 
+ 
+ I think it's better to change your postgres to version 8.X. probably the cause is the low version of Postgres. Also try this query below. I hope this can help.  
+ 
+ 
+ I guess what you need to do is
+a. copy the 2000 records PK value into a temporary table with the same standard limit, etc.
+b. select the same 2000 records and perform the necessary operations in the cursor as it is.
+c. If successful, run a single update query against the records in the temp table. Clear the temp table and run step a again.
+d. If unsuccessful, clear the temp table without running the update query.
+Simple, efficient and reliable.
+Regards,
+KT 
+ 

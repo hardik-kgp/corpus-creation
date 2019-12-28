@@ -1,0 +1,37 @@
+*** how-can-i-send-email-from-postgresql-trigger ***
+
+ I using pgsql to set a trigger, when update the table dataset(change the status to Finished)
+it will automatic send a email to the email account using dataset email value and save this email in server 
+ but i don't know how to write in trigger function to send email, and send email in server.
+Thank you in advance 
+ Pg version is 9.1, and CentOS 5.8 
+ 
+ 
+ See  the excellent-as-usual depesz article , and  pg-message-queue . 
+ Sending email directly from the database may not be a great idea. What if DNS resolution is slow and everything hangs for 30 seconds then times out? What if your mail server is having a wobbly and takes 5  minutes  to accept messages? You'll get database sessions hung up in your trigger until you're at   and suddenly you can't do anything but wait or start manually cancelling transactions. 
+ What I'd recommend is having your trigger   a  ing  helper script that remains permanently running and connected to the DB (but not in a transaction).  
+ All your trigger has to do is   a row into a queue table and send a  . Your script gets the   message because it has registered to   for it, examines the queue table, and does the rest. 
+ You can write the helper program in whatever language is convenient; I usually use Python with  . 
+ That script can send the email based on information it finds in the database. You don't have to do all the ugly text formatting in PL/PgSQL, you can substitute things into a template in a more powerful scripting language instead, and just fetch the variable data from the database when a   comes in. 
+ With this approach your helper can send each message and only then remove the info from the queue table. That way if there are transient problems with your mail system that causes sending to fail, you haven't lost the info and can continue to attempt to send it until you succeed. 
+ If you really must do this in the database, see  PgMail . 
+ 
+ 
+ Use a local MTA (this gives you centralized SMTP config for multiple apps) 
+ Have the local MTA relay to your real MTA (this gives you async support, essentially) 
+ If windows, use blat SMTP command line client. Make sure the path to blat is in the PATH 
+ You should probably do this using Apache Camel or pgAgent, and not directly in a trigger 
+ 
+ This will work on Windows if postgres superuser. Trigger function should be SECURITY DEFINER. Similar for sendmail on Linux: 
+ 
+ ~ 60 ms  
+ 
+ You can use plperlu to send mail. 
+ This  link shows an example of how to use it on a trigger. 
+ 
+ You have the possibility to use pgMail (if you are allowed to install it): 
+ If you follow the instructions on  brandolabs.com  it comes down to 
+ 
+ 
+ I agree with @Craig Ringer. You could code something in Python under 100 lines of code. I would recommend using the following Python libraries: psycopg2, smtplib. Depending on how often you would like to get notified of the changes, you could run a cronjob (depending on your working environment). That way you can aggregate multiple changes to the database into a single email rather than sending a notification every time a change takes place. 
+ 

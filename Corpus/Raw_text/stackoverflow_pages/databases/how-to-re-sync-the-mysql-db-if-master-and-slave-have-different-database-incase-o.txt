@@ -1,0 +1,227 @@
+*** how-to-re-sync-the-mysql-db-if-master-and-slave-have-different-database-incase-o ***
+
+ Mysql   is running as  **MASTER**
+. 
+Mysql   is running as  **SLAVE**
+. 
+ Now DB replication is happening from  **MASTER**
+ to  **SLAVE**
+. 
+  is removed from network and re-connect it back after 1 day. After this there is mismatch in database in master and slave. 
+ How to re-sync the DB again as after restoring DB taken from Master to Slave also doesn't solve the problem ? 
+ 
+ This is the full step-by-step procedure to resync a master-slave replication from scratch: 
+ **At the master:**
+
+ 
+ And  **copy the values of the result**
+ of the last command somewhere. 
+ Without closing the connection to the client (because it would release the read lock) issue the command to get a dump of the master: 
+ 
+ Now you can release the lock, even if the dump hasn't ended yet. To do it, perform the following command in the MySQL client: 
+ 
+ Now copy the dump file to the slave using scp or your preferred tool. 
+ **At the slave:**
+
+ Open a connection to mysql and type: 
+ 
+ Load master's data dump with this console command: 
+ 
+ Sync slave and master logs: 
+ 
+ Where the values of the above fields are the ones you copied before. 
+ Finally, type: 
+ 
+ To check that everything is working again, after typing: 
+ 
+ you should see: 
+ 
+ That's it!                                                  
+ 
+ The documentation for this at the MySQL site is woefully out of date and riddled with foot-guns (such as interactive_timeout). Issuing FLUSH TABLES WITH READ LOCK as part of your export of the master generally only makes sense when coordinated with a storage/filesystem snapshot such as LVM or zfs. 
+ If you are going to use mysqldump, you should rely instead on the --master-data option to guard against human error and release the locks on the master as quickly as possible. 
+ Assume the master is 192.168.100.50 and the slave is 192.168.100.51, each server has a distinct server-id configured, the master has binary logging on and the slave has read-only=1 in my.cnf 
+ To stage the slave to be able to start replication just after importing the dump, issue a CHANGE MASTER command but omit the log file name and position: 
+ 
+ Issue the GRANT on the master for the slave to use: 
+ 
+ Export the master (in screen) using compression and automatically capturing the correct binary log coordinates: 
+ 
+ Copy the replication.sql.gz file to the slave and then import it with zcat to the instance of MySQL running on the slave: 
+ 
+ Start replication by issuing the command to the slave: 
+ 
+ Optionally update the /root/.my.cnf on the slave to store the same root password as the master. 
+ If you are on 5.1+, it is best to first set the master's binlog_format to MIXED or ROW. Beware that row logged events are slow for tables which lack a primary key. This is usually better than the alternative (and default) configuration of binlog_format=statement (on master), since it is less likely to produce the wrong data on the slave. 
+ If you must (but probably shouldn't) filter replication, do so with slave options replicate-wild-do-table=dbname.% or replicate-wild-ignore-table=badDB.% and use only binlog_format=row 
+ This process will hold a global lock on the master for the duration of the mysqldump command but will not otherwise impact the master. 
+ If you are tempted to use mysqldump --master-data --all-databases --single-transaction (because you only using InnoDB tables), you are perhaps better served using MySQL Enterprise Backup or the open source implementation called xtrabackup (courtesy of Percona) 
+ 
+ Unless you are writing directly to the slave (Server2) the only problem should be that Server2 is missing any updates that have happened since it was disconnected.  Simply restarting the slave with "START SLAVE;" should get everything back up to speed. 
+ 
+ I think, Maatkit utilits helps for you! You can use mk-table-sync. Please see this link:  http://www.maatkit.org/doc/mk-table-sync.html 
+ 
+ I am very late to this question, however I did encounter this problem and, after much searching, I found this information from Bryan Kennedy:   http://plusbryan.com/mysql-replication-without-downtime 
+ On Master take a backup like this: 
+ **mysqldump --skip-lock-tables --single-transaction --flush-logs --hex-blob --master-data=2 -A  > ~/dump.sql**
+
+ Now, examine the head of the file and jot down the values for MASTER_LOG_FILE and MASTER_LOG_POS. You will need them later:
+ **head dump.sql -n80 | grep "MASTER_LOG"**
+
+ Copy the "dump.sql" file over to Slave and restore it:
+ **mysql -u mysql-user -p < ~/dump.sql**
+
+ Connect to Slave mysql and run a command like this:
+ **CHANGE MASTER TO MASTER_HOST='master-server-ip', MASTER_USER='replication-user', MASTER_PASSWORD='slave-server-password', MASTER_LOG_FILE='value from above', MASTER_LOG_POS=value from above; START SLAVE;**
+
+ To check the progress of Slave:
+ **SHOW SLAVE STATUS;**
+
+ If all is well, Last_Error will be blank, and Slave_IO_State will report “Waiting for master to send event”. 
+Look for Seconds_Behind_Master which indicates how far behind it is. 
+YMMV.  :) 
+ 
+ Here is what I typically do when a mysql slave gets out of sync.  I have looked at mk-table-sync but thought the Risks section was scary looking. 
+ On Master: 
+ 
+ The outputted columns (File, Position) will be of use to us in a bit. 
+ On Slave: 
+ 
+ Then dump the master db and import it to the slave db. 
+ Then run the following: 
+ 
+ Where [File] and [Position] are the values outputted from the "SHOW MASTER STATUS" ran above. 
+ Hope this helps! 
+ 
+ Following up on David's answer... 
+ Using   will give human-readable output. 
+ 
+ Here is a complete answer that will hopefully help others... 
+ 
+ I want to setup mysql replication using master and slave, and since the only thing I knew was that it uses log file(s) to synchronize, if the slave goes offline and gets out of sync, in theory it should only need to connect back to its master and keep reading the log file from where it left off, as user malonso mentioned. 
+ So here are the test result after configuring the master and slave as mentioned by:  http://dev.mysql.com/doc/refman/5.0/en/replication-howto.html  ... 
+ Provided you use the recommended master/slave configuration and don't write to the slave, he and I where right (as far as mysql-server 5.x is concerned). I didn't even need to use "START SLAVE;", it just caught up to its master. But there is a default 88000 something retries every 60 second so I guess if you exhaust that you might have to start or restart the slave. Anyways, for those like me who wanted to know if having a slave going offline and back up again requires manual intervention.. no, it doesn't. 
+ Maybe the original poster had corruption in the log-file(s)? But most probably not just a server going off-line for a day. 
+ 
+ pulled from /usr/share/doc/mysql-server-5.1/README.Debian.gz which probably makes sense to non debian servers as well: 
+ * FURTHER NOTES ON REPLICATION
+===============================
+If the MySQL server is acting as a replication slave, you should not
+set --tmpdir to point to a directory on a memory-based filesystem or to
+a directory that is cleared when the server host restarts. A replication
+slave needs some of its temporary files to survive a machine restart so
+that it can replicate temporary tables or LOAD DATA INFILE operations. If
+files in the temporary file directory are lost when the server restarts,
+replication fails.
+ 
+ you can use something sql like:  **show variables like 'tmpdir';**
+ to find out. 
+ 
+ Adding to the popular answer to include this error:  
+ 
+ Replication from slave in one shot: 
+ In one terminal window:  
+ 
+ After connecting, 
+ 
+ The status appears as below: Note that position number varies! 
+ 
+ Export the dump similar to how he described " **using another terminal**
+"! 
+ Exit and connect to your own DB(which is the slave): 
+ 
+ The type the below commands: 
+ 
+ Import the Dump as mentioned (in another terminal, of course!) and type the below commands: 
+ 
+ Once logged, set the server_id parameter (usually, for new / non-replicated DBs, this is not set by default),  
+ 
+ Now, start the slave. 
+ 
+ The output should be the same as he described. 
+ 
+ Note: Once replicated, the master and slave share the same password! 
+ 
+ sometimes you just need to give the slave a kick too 
+ try 
+ 
+ quite often, slaves, they just get stuck guys :) 
+ 
+ **Rebuilding the slave using LVM**
+
+ Here is the method we use to rebuild MySQL slaves using Linux LVM. This guarantees a consistent snapshot while requiring very minimal downtime on your master. 
+ Set innodb max dirty pages percent to zero on the master MySQL server. This will force MySQL to write all the pages to the disk which will significantly speed up the restart. 
+ 
+ To monitor the number of dirty pages run the command 
+ 
+ Once the number stop decreasing you have reach the point to continue. Next reset the master to clear the old bin logs / relay logs: 
+ 
+ Execute lvdisplay to get LV Path 
+ 
+ Output will look like this 
+ 
+ Shutdown the master database with command 
+ 
+ Next take a snaphot, mysql_snapshot will be the new logical volume name. If binlogs are place on the OS drive those need to be snapshot as well. 
+ 
+ Start master again with command 
+ 
+ Restore dirty pages setting to the default 
+ 
+ Run lvdisplay again to make sure the snapshot is there and visible 
+ 
+ Output: 
+ 
+ Mount the snapshot 
+ 
+ If you have an existing MySQL slave running you need to stop it 
+ 
+ Next you need to clear MySQL data folder 
+ 
+ Back to master. Now rsync the snapshot to the MySQL slave 
+ 
+ Once rsync has completed you may unmount and remove the snapshot 
+ 
+ Create replication user on the master if the old replication user doesn't exist or password is unknown 
+ 
+ Verify that /var/lib/mysql data files are owned by the mysql user, if so you can omit the following command: 
+ 
+ Next record the binlog position 
+ 
+ You will see something like 
+ 
+ Here the master log file is the highest file number in sequence and bin log position is the file size. Record these values: 
+ 
+ Next start the slave MySQL 
+ 
+ Execute change master command on the slave by executing the following: 
+ 
+ Finally start the slave 
+ 
+ Check slave status: 
+ 
+ Make sure Slave IO is running and there are no connection errors. Good luck! 
+ BR, Juha Vehnia 
+ I recently wrote this on my blog which is found here... There are few more details there but the story is the same. 
+ http://www.juhavehnia.com/2015/05/rebuilding-mysql-slave-using-linux-lvm.html 
+ 
+ I created a GitHub repo with an script to solve this problem quickly. Just change a couple variables and run it (First, the script creates a backup of your database). 
+ I hope this help you (and others people too). 
+ How to Reset (Re-Sync) MySQL Master-Slave Replication 
+ 
+ We are using master-master replication technique of MySQL and if one MySQL server say 1 is removed from the network it reconnects itself after the connection are restored and all the records that were committed in the in the server 2 which was in the network are transferred to the server 1 which has lost the connection after restoration.
+Slave thread in the MySQL retries to connect to its master after every 60 sec by default. This property can be changed as MySQL ha a flag "master_connect_retry=5" where 5 is in sec. This means that we want a retry after every 5 sec. 
+ But you need to make sure that the server which lost the connection show not make any commit in the database as you get duplicate Key error Error code: 1062  
+ 
+ **Master**
+:   
+ 
+  Move dump file to slave server 
+ **Slave:**
+  
+ 
+ 
+ 
+ NOTE : 
+On master you can run   to keep binlogs for 3 days in case of slave issues.  
+ 

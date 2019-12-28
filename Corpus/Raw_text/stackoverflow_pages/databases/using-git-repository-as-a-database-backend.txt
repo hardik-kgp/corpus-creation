@@ -1,0 +1,101 @@
+*** using-git-repository-as-a-database-backend ***
+
+ I'm doing a project that deals with structured document database. I have a tree of categories (~1000 categories, up to ~50 categories on each level), each category contains several thousands (up to, say, ~10000) of structured documents. Each document is several kilobytes of data in some structured form (I'd prefer YAML, but it may just as well be JSON or XML). 
+ Users of this systems do several types of operations: 
+ 
+ retrieving of these documents by ID 
+ searching for documents by some of the structured attributes inside them 
+ editing documents (i.e. adding/removing/renaming/merging); each edit operation should be recorded as a transaction with some comment 
+ viewing a history of recorded changes for particular document (including viewing who, when and why changed the document, getting earlier version - and probably reverting to this one if requested) 
+ 
+ Of course, the traditional solution would be using some sort of document database (such as CouchDB or Mongo) for this problem - however, this version control (history) thing tempted me to a wild idea - why shouldn't I use   repository as a database backend for this application? 
+ On the first glance, it could be solved like this: 
+ 
+ category = directory, document = file 
+ getting document by ID => changing directories + reading a file in a working copy 
+ editing documents with edit comments => making commits by various users + storing commit messages 
+ history => normal git log and retrieval of older transactions 
+ search => that's a slightly trickier part, I guess it would require periodic export of a category into relational database with indexing of columns that we'll allow to search by 
+ 
+ Are there any other common pitfalls in this solution? Have anyone tried to implement such backend already (i.e. for any popular frameworks - RoR, node.js, Django, CakePHP)? Does this solution have any possible implications on performance or reliability - i.e. is it proven that git would be much slower than traditional database solutions or there would be any scalability/reliability pitfalls? I presume that a cluster of such servers that push/pull each other's repository should be fairly robust & reliable. 
+ Basically, tell me  if  this solution will work and  why  it will or won't do? 
+ 
+ Answering my own question is not the best thing to do, but, as I ultimately dropped the idea, I'd like to share on the rationale that worked in my case. I'd like to emphasize that this rationale might not apply to all cases, so it's up to architect to decide. 
+ Generally, the first main point my question misses is that I'm dealing with  multi-user system  that work in parallel, concurrently, using my server with a thin client (i.e. just a web browser). This way, I have to maintain  state  for all of them. There are several approaches to this one, but all of them are either too hard on resources or too complex to implement (and thus kind of kill the original purpose of offloading all the hard implementation stuff to git in the first place): 
+ 
+ "Blunt" approach: 1 user = 1 state = 1 full working copy of a repository that server maintains for user. Even if we're talking about fairly small document database (for example, 100s MiBs) with ~100K of users, maintaining full repository clone for all of them makes disc usage run through the roof (i.e. 100K of users times 100MiB ~ 10 TiB). What's even worse, cloning 100 MiB repository each time takes several seconds of time, even if done in fairly effective maneer (i.e. not using by git and unpacking-repacking stuff), which is non acceptable, IMO. And even worse — every edit that we apply to a main tree should be pulled to every user's repository, which is (1) resource hog, (2) might lead to unresolved edit conflicts in general case. 
+ Basically, it might be as bad as O(number of edits × data × number of users) in terms of disc usage, and such disc usage automatically means pretty high CPU usage. 
+ "Only active users" approach: maintain working copy only for active users. This way, you generally store not a full-repo-clone-per-user, but: 
+ 
+ As user logs in, you clone the repository. It takes several seconds and ~100 MiB of disc space per active user. 
+ As user continues to work on the site, he works with the given working copy. 
+ As user logs out, his repository clone is copied back to main repository as a branch, thus storing only his "unapplied changes", if there are any, which is fairly space-efficient. 
+ 
+ Thus, disc usage in this case peaks at O(number of edits × data × number of active users), which is usually ~100..1000 times less than number of total users, but it makes logging in/out more complicated and slower, as it involves cloning of a per-user branch on every login and pulling these changes back on logout or session expiration (which should be done transactionally => adds another layer of complexity). In absolute numbers, it drops 10 TiBs of disc usage down to 10..100 GiBs in my case, that might be acceptable, but, yet again, we're now talking about fairly  small  database of 100 MiBs. 
+ "Sparse checkout" approach: making "sparse checkout" instead of full-blown repo clone per active user doesn't help a lot. It might save ~10x of disc space usage, but at expense of much higher CPU/disc load on history-involving operations, which kind of kills the purpose. 
+ "Workers pool" approach: instead of doing full-blown clones every time for active person, we might keep a pool of "worker" clones, ready to be used. This way, every time a users logs in, he occupies one "worker", pulling there his branch from main repo, and, as he logs out, he frees the "worker", which does clever git hard reset to become yet again just a main repo clone, ready to be used by another user logging in. Does not help much with disc usage (it's still pretty high — only full clone per active user), but at least it makes logging in/out faster, as expense of even more complexity. 
+ 
+ That said, note that I intentionally calculated numbers of fairly small database and user base: 100K users, 1K active users, 100 MiBs total database + history of edits, 10 MiBs of working copy. If you'd look at more prominent crowd-sourcing projects, there are much higher numbers there: 
+ 
+ Obviously, for that amounts of data/activity, this approach would be utterly unacceptable. 
+ Generally, it would have worked, if one could use web browser as a "thick" client, i.e. issuing git operations and storing pretty much the full checkout on client's side, not on the server's side. 
+ There are also other points that I've missed, but they're not that bad compared to the first one: 
+ 
+ The very pattern of having "thick" user's edit state is controversial in terms of normal ORMs, such as ActiveRecord, Hibernate, DataMapper, Tower, etc. 
+ As much as I've searched for, there's zero existing free codebase for doing that approach to git from popular frameworks. 
+ There is at least one service that somehow manages to do that efficiently — that is obviously  github  — but, alas, their codebase is closed source and I strongly suspect that they do not use normal git servers / repo storage techniques inside, i.e. they basically implemented alternative "big data" git. 
+ 
+ So,  **bottom line**
+: it  is  possible, but for most current usecases it won't be anywhere near the optimal solution. Rolling up your own document-edit-history-to-SQL implementation or trying to use any existing document database would be probably a better alternative. 
+ 
+ An interesting approach indeed. I would say that if you need to store data, use a database, not a source code repository, which is designed for a very specific task. If you could use Git out-of-the-box, then it's fine, but you probably need to build a document repository layer over it. So you could build it over a traditional database as well, right? And if it's built-in version control that you're interested in, why not just use one of  open source document repository tools ? There are plenty to choose from. 
+ Well, if you decide to go for Git backend anyway, then basically it would work for your requirements if you implemented it as described. But: 
+ 1) You mentioned "cluster of servers that push/pull each other" - I've thought about it for a while and still I'm not sure. You can't push/pull several repos as an atomic operation. I wonder if there could be a possibility of some merge mess during concurrent work. 
+ 2) Maybe you don't need it, but an obvious functionality of a document repository you did not list is access control. You could possibly restrict access to some paths(=categories) via submodules, but probably you won't be able to grant access on document level easily. 
+ 
+ my 2 pence worth. A bit longing  but ......  I had a  similar requirement in one of my incubation projects. Similar to yours ,  my  key  requirements  where a   document database  ( xml  in my  case),with document  versioning. It was for a multi-user  system  with  a  lot of  collaboration  use cases. My preference  was  to use  available opensource solutions that  support most of the key requirements.  
+ To cut to the chase, I could not  find any one product that  provided both, in a  way that was scalable enough ( number of users,  usage volumes,  storage and  compute resources).I was  biased towards  git for all the promising capability, and (probable) solutions one could craft out of  it. As  I toyed with git option  more, moving from a  single  user perspective  to a  multi ( milli) user perspective  became an   obvious  challenge. Unfortunately,  I did not  get to  do substantial performance  analysis like you did. ( .. lazy/ quit early ....for  version 2,  mantra)  Power to  you!.  Anyway, my biased idea  has  since morphed to  the next (still biased )  alternative:  a  mesh-up of  tools that  are  the  best in their separate spheres,  databases and  version control.  
+ While  still work in progress ( ...and slightly  neglected ) the morphed version is simply this .  
+ 
+ on the frontend: (userfacing ) use a  database  for the  1st  level 
+storage  (  interfacing with user  applications )   
+ on the  backend, 
+use a  version control system (VCS)(like git  ) to  perform
+versioning  of  the  data objects  in database 
+ 
+ In essence it would amount to  adding  a  version control  plugin to the  database, with some integration  glue, which  you may have to develop, but may be a  lot  much  easier.   
+ How it would (supposed to )  work is  that the primary  multi-user interface data exchanges  are through the database.  The DBMS will handle all the fun and complex issues such as  multi-user , concurrency e,  atomic operations etc. On the backend the  VCS would perform  version control on a single set of  data  objects ( no concurrency, or  multi-user  issues). For  each effective transactions  on the  database, version control  is only  performed on the  data records that would have effectively  changed.  
+ As for the  interfacing  glue,  it  will be in the form  of a  simple  interworking  function between  the  database and the  VCS. In terms of  design,  as simple  approach would be an  event driven interface,  with  data updates  from the  database  triggering  the  version control procedures  ( hint : assuming   Mysql, use of triggers  and  sys_exec()   blah blah ...) .In terms of  implementation  complexity,  it  will range from the  simple and effective ( eg scripting )  to the complex and wonderful ( some programmed connector interface) . All depends on how crazy  you want to go with it , and how much  sweat capital you are willing to  spend. I  reckon simple scripting should do the  magic. And to access the  end result, the various  data  versions,  a simple  alternative is  to  populate a  clone of the database (  more a  clone of the  database structure) with the  data  referenced by the version tag/id/hash  in the  VCS. again  this bit  will be a  simple query/translate/map  job  of an interface.  
+ There are  still some challenges  and  unknowns  to be  dealt with,  but I suppose the impact, and relevance of most of these will largely depend  on your application requirements and  use cases.  Some may just end up being  non issues.  Some of the issues include performance  matching between the 2  key modules, the database and the VCS, for an application with  high frequency  data update activity, Scaling  of  resources (storage and  processing  power ) over time on the  git side as the data , and  users  grow:  steady, exponential or eventually  plateau's      
+ Of  the  cocktail  above, here is  what I'm currently  brewing  
+ 
+ using  Git   for  the VCS (  initially considered good old CVS for the due to the  use of only  changesets  or  deltas between 2 version  )  
+ using mysql   ( due to the  highly  structured nature of  my data,  xml with  strict xml schemas )  
+ toying around with MongoDB (to try a  NoSQl  database, which closely  matches  the  native  database  structure used in git  ) 
+ 
+ Some fun facts 
+- git  actually does clear things to optimize storage,  such as  compression, and storage of only  deltas between revision of objects 
+- YES, git  does store  only  changesets or  deltas between  revisions  of data objects,  where is  it is applicable ( it knows  when and  how)  . Reference :  packfiles, deep in  the  guts of  Git internals  
+- Review of the  git's object storage  ( content-addressable filesystem), shows stricking similarities ( from the concept perspective) with  noSQL databases  such  mongoDB. Again, at the expense of  sweat capital,  it may provide more  interesting  possibilities for integrating the 2, and performance tweaking  
+ If you got this  far,  let me  if the above may be  applicable to your  case, and assuming it would be ,  how it would  square up  to some  of the aspect in your last comprehensive  performance analysis  
+ 
+ I implemented a  Ruby library  on top of   which makes this pretty easy to implement and explore. There are some obvious limitations, but it's also a pretty liberating system since you get the full git toolchain. 
+ The documentation includes some ideas about performance, tradeoffs, etc. 
+ 
+ As you mentioned, the multi-user case is a bit trickier to handle. One possible solution would be to use user-specific Git index files resulting in 
+ 
+ no need for separate working copies (disk usage is restricted to changed files) 
+ no need for time-consuming preparatory work (per user session) 
+ 
+ The trick is to combine Git's   environmental variable with the tools to create Git commits manually: 
+ 
+ git hash-object 
+ git update-index 
+ git write-tree 
+ git commit-tree 
+ 
+ A solution outline follows (actual SHA1 hashes omitted from the commands): 
+ 
+ Depending on your data you could use a cron job to merge the new refs to   but the conflict resolution is arguably the hardest part here. 
+ Ideas to make it easier are welcome. 
+ 

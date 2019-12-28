@@ -1,0 +1,86 @@
+*** how-to-optimize-count-and-order-by-query-in-millions-of-row ***
+
+ Needed help in optimizing order by and count query, I have tables having millions (approx 3 millions) rows. 
+ I have to join 4 tables and fetch the records, When i run the simple query it takes only millisecond to complete but as I try to count or order by having left join table it get stuck for unlimited of time. 
+ Please see the cases below. 
+ DB Server Configuration: 
+ 
+ Rows in each table: 
+ 
+ Tables Schema: 
+ 
+ Query Cases Running and Not Running: 
+ 
+ EXPLAIN QUERY #1:
+ 
+ EXPLAIN QUERY #2:
+ 
+ EXPLAIN QUERY #3:
+ 
+ Any suggestion to optimize the query, table structure are welcome. 
+ WHAT I'M TRYING TO DO: 
+  table contains the customer info,   table contains the addresses of the customers(one customer may have multiple address), And   table contains visiting records of the customer   is the visiting date. 
+ Now, simply I want to fetch and count the customers, with their one of the address, and visiting info. Also, I may order by any of the column from these 3 tables, In my example i am ordering by last_seen_date (the default order). Hope this explanation helps to understand what i am trying to do.  
+ 
+ In query #1, but not the other two, the optimizer can use 
+ 
+ to cut the query short for  
+ 
+ This is because it can stop after 20 items of the index.  The query is not ultra-fast because of the derived table (subquery  ) that hits about 51K rows. 
+ Query #2 may be slow simply because the Optimizer failed to notice and remove the redundant  .  Instead, it may be thinking it can't stop after 20. 
+ Query #3  must  go entirely through table   to get  every    group.  This is because the   prevents a short curcuit to get to the  . 
+ The columns in a   must include all the non-aggregate columns in the   except any that are uniquely defined by the group by columns.  Since you have said that there can be multiple addresses for a single  , then fetching   is not proper in connection with  .  Similarly, the subquery seems to be improper with respect to  . 
+ In  , this change (to a "covering" index) may help a little:  
+ 
+ to 
+ 
+ **Dissecting the goal**
+
+ 
+ Now, simply I want to ... count the customers 
+ 
+ To count the customers, do this, but don't try to combine it with "fetching": 
+ 
+ 
+ Now, simply I want to fetch ... the customers... 
+ tbl_customers -  #Rows: 20 million. 
+ 
+ Surely you don't want to fetch 20 million rows!  I don't want to think about how to try to do that.  Please clarify.  And I won't accept paginating through that many rows.  Perhaps there is a   clause??  The   clause is (usually) the most important part of Optimization! 
+ 
+ Now, simply I want to fetch ... the customers, with their one of the address, and visiting info. 
+ 
+ Assuming that the   filters down to a "few" customers, then   to another table to get "any" address and "any" visiting info, may be problematical and/or inefficient.  To require the "first" or "last" instead of "any" won't be any easier, but might be more meaningful. 
+ May I suggest that your UI first find a few customers, then  if the user wants , go to another page with  all  the addresses and all the visits.  Or can the visits be in the hundreds or more? 
+ 
+ Also, I may order by any of the column from these 3 tables, In my example i am ordering by last_seen_date (the default order). 
+ 
+ Let's focus on optimizing the  , then tack   on the end of any index. 
+ 
+  is unique in   table, then in 2nd query why you use distinct and group by in   column? 
+ Please get rid of that. 
+ 
+ Query 2 contains a logical mistake as pointed out by others: the   will return a single value, therefore your group by is only complicating the query (this might indeed make MySQL grouping by shopify_customer_id first and then executing the   which could be the reason for the somehow long execution time 
+ The order by of Query 3 can not be optimized as you are joining on a subselect which cannot be indexed. The time it takes is simply the time the system needs to order the result set. 
+ The solution to your problem would be to: 
+ 
+ change the index   ( ) of table tbl_customers_address to   ( , ) to optimize the following query  
+ create a table with the result from Query 1 (result) but without   
+ . 
+ alter the result table and add a column for last_seen_date and indexes 
+for last_seen_date and shopify_customer_id 
+ create a table for the result of this query (last_Date) : 
+ 
+ 
+ 
+ Update the result table with the values from table last_Date 
+ 
+ Now you can run a query against the result table ordered by last_Date using the index you created.  
+ The whole process should take way less time than executing query 2 or query 3 
+ 
+ You have  **too many indexes**
+ and that can be a real performance killer when it comes to inserts, updates, and deletes, as well as occasionally for selects depending on optimization settings. 
+ Also,  **remove the **
+ statement. 
+ There's more I could say about correct use of clustered vs. nonclustered indexes,  ,  ,  , and views, for query optimization. However, I think if you remove some indexes, your queries will speed up a lot. (Maybe also rework your queries to follow stricter SQL standards and be a bit more logical, but that's outside the scope of this question.) 
+ One more thing - what are you doing with the query results? Is this being stored somewhere and accessed for lookups, used for calculations, used for automated reports, displaying through web database connection, etc? This makes a difference because if you just need a report/backup or export to a flat file, then there are way more efficient ways to get this data out. Lots of different options depending on what you're doing. 
+ 

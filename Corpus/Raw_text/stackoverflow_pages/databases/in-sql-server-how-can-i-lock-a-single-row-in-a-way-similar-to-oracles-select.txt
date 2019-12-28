@@ -1,0 +1,44 @@
+*** in-sql-server-how-can-i-lock-a-single-row-in-a-way-similar-to-oracles-select ***
+
+ I have a program that connects to an Oracle database and performs operations on it. I now want to adapt that program to also support an SQL Server database. 
+ In the Oracle version, I use "SELECT FOR UPDATE WAIT" to lock specific rows I need.  I use it in situations where the update is based on the result of the SELECT and other sessions can absolutely not modify it simultaneously, so they must manually lock it first.  The system is highly subject to sessions trying to access the same data at the same time. 
+ For example: 
+Two users try to fetch the row in the database with the highest priority, mark it as busy, performs operations on it, and mark it as available again for later use.
+In Oracle, the logic would go basically like this: 
+ 
+ Note that the queries are built dynamically in my code.  Also note that when the previously most favorable row is marked as unavailable, the second user will automatically go for the next one and so on.  Furthermore, different users working on different categories will not have to wait for each other's locks to be released.  Worst comes to worst, after 5 seconds, an error would be returned and the operation would be cancelled. 
+ So finally, the question is: how do I achieve the same results in SQL Server?  I have been looking at locking hints which, in theory, seem like they should work.  However, the only locks that prevents other locks are "UPDLOCK" AND "XLOCK" which both only work at a table level. 
+Those locking hints that do work at a row level are all shared locks, which also do not satisfy my needs (both users could lock the same row at the same time, both mark it as unavailable and perform redundant operations on the corresponding item). 
+ Some people seem to add a "time modified" column so sessions can verify that they are the ones who modified it, but this sounds like there would be a lot of redundant and unnecessary accesses. 
+ 
+ In SQL Server there are locking hints but they do not span their statements like the Oracle example you provided. The way to do it in SQL Server is to set an isolation level on the transaction that contains the statements that you want to execute. See  this MSDN page  but the general structure would look something like: 
+ 
+ SERIALIZABLE is the highest isolation level. See the link for other options. From MSDN: 
+ 
+ SERIALIZABLE Specifies the following: 
+ Statements cannot read data that has been modified but not yet
+  committed by other transactions. 
+ No other transactions can modify data that has been read by the
+  current transaction until the current transaction completes. 
+ Other transactions cannot insert new rows with key values that would
+  fall in the range of keys read by any statements in the current
+  transaction until the current transaction completes. 
+ 
+ 
+ You're probably looking for . This will make a   grab an   lock, which is required for updates, instead of a   lock.  The   hint tells SQL Server to keep the lock until the transaction ends. 
+ 
+ 
+ As  documentation  sayed: 
+ 
+ XLOCK 
+ Specifies that exclusive locks are to be taken and held until the
+  transaction completes. If specified with ROWLOCK, PAGLOCK, or TABLOCK,
+  the exclusive locks apply to the appropriate level of granularity. 
+ 
+ So solution is using  : 
+ 
+ 
+ Have you tried  **WITH (ROWLOCK)**
+? 
+ 
+ 

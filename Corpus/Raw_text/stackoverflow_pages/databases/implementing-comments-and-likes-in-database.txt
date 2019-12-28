@@ -1,0 +1,100 @@
+*** implementing-comments-and-likes-in-database ***
+
+ I'm a software developer. I love to code, but I hate databases... Currently, I'm creating a website on which a user will be allowed to mark an entity as  liked  (like in FB),  tag  it and  comment . 
+ I get stuck on database tables design for handling this functionality. Solution is trivial, if we can do this only for one type of thing (eg. photos). But I need to enable this for 5 different things (for now, but I also assume that this number can grow, as the whole service grows). 
+ I found some similar questions here, but none of them have a satisfying answer, so I'm asking this question again. 
+ The question is, how to properly,  efficiently  and  elastically  design the database, so that it can store comments for different  tables ,  likes  for different  tables  and  tags  for them. Some design pattern as answer will be best ;) 
+ **Detailed description**
+:
+I have a  table    with some user data, and 3 more  tables :   with  photographs ,   with  articles ,   with  places . I want to enable any logged user to: 
+ 
+ comment on any of those 3 tables 
+ mark any of them as liked 
+ tag any of them with some tag 
+ I also want to count the number of likes for every element and the number of times that particular tag was used.
+ 
+ 
+ **1**
+**st**
+** approach**
+: 
+ a) For  tags , I will create a  table   , then I will create  many-to-many  relationships  tables  for:  ,  ,  . 
+ b) The same counts for comments. 
+ c) I will create a  table   ,  ,  . Number of  likes  will be calculated by  queries  (which, I assume is bad). And...  
+ I really don't like this design for the last part, it smells badly for me ;) 
+ 
+ **2**
+**nd**
+** approach**
+: 
+ I will create a table   which will be populated by the administrator (me) with the names of  tables  that can be  liked ,  commented  or  tagged . Then I will create  tables : 
+ a)   and the same for Comments and Tags with the proper columns for each. Now, when I want to make a photo liked I will insert: 
+ 
+ and for places: 
+ 
+ and so on... I think that the second approach is better, but I also feel like something is missing in this design as well... 
+ At last, I also wonder which the best place to store counter for how many times the element was liked is. I can think of only two ways: 
+ 
+ in element ( ) table 
+ by select count(). 
+ 
+ I hope that my explanation of the issue is more thorough now. 
+ 
+ The most extensible solution is to have just one "base" table (connected to "likes", tags and comments), and "inherit" all other tables from it. Adding a new kind of entity involves just adding a new "inherited" table - it then automatically plugs into the whole like/tag/comment machinery. 
+ Entity-relationship term for this is "category" (see the   ERwin Methods Guide , section: "Subtype Relationships"). The category symbol is: 
+ 
+ Assuming a user can like multiple entities, a same tag can be used for more than one entity but a comment is entity-specific, your model could look like this: 
+ 
+ 
+ BTW, there are roughly 3 ways to implement the "ER category": 
+ 
+ All types in one table. 
+ All concrete types in separate tables. 
+ All concrete and abstract types in separate tables. 
+ 
+ Unless you have very stringent performance requirements, the third approach is probably the best (meaning the physical tables match 1:1 the entities in the diagram above). 
+ 
+ Since you "hate" databases, why are you trying to implement one?  Instead, solicit help from someone who loves and breathes this stuff. 
+ Otherwise, learn to love your database.  A well designed database simplifies programming, engineering the site, and smooths its continuing operation.  Even an experienced d/b designer will not have complete and perfect foresight: some schema changes down the road will be needed as usage patterns emerge or requirements change. 
+ If this is a one man project, program the database interface into simple operations using stored procedures:  add_user, update_user, add_comment, add_like, upload_photo, list_comments, etc.  Do not embed the schema into even one line of code.  In this manner, the database schema can be changed without affecting any code:  only the stored procedures should know about the schema. 
+ You may have to refactor the schema several times.  This is normal.  Don't worry about getting it perfect the first time.  Just make it functional enough to prototype an initial design.  If you have the luxury of time, use it some, and then delete the schema and do it again.  It is  always  better the second time. 
+ 
+ This is a general idea
+please don´t pay much attention to the field names styling, but more to the relation and structure 
+ 
+ **This pseudocode will get all the comments of photo with ID 5**
+
+    SELECT * FROM actions 
+    WHERE actions.id_Stuff = 5 
+    AND actions.typeStuff="photo" 
+    AND actions.typeAction = "comment" 
+ **This pseudocode will get all the likes or users who liked photo with ID 5**
+
+(you may use count() to just get the amount of likes)   
+ 
+ 
+ as far as i understand. several tables are  required. There is a many to many relation between them. 
+ 
+ Table which stores the user data such as name, surname, birth date with a identity field. 
+ Table which stores data types. these types may be photos, shares, links. each type must has a unique table. therefore, there is a relation between their individual tables and this table. 
+ each different data type has its table. for example, status updates, photos, links. 
+ the last table is for many to many relation storing an id, user id, data type and data id. 
+ 
+ 
+ Look at the access patterns you are going to need. Do any of them seem to made particularly difficult or inefficient my one design choice or the other? 
+ If not favour the one that requires the fewer tables 
+ In this case: 
+ 
+ Add Comment: you either pick a particular many/many table or insert into a common table with a known specific identifier for what is being liked, I think client code will be slightly simpler in your second case. 
+ Find comments for item: here it seems using a common table is slightly easier - we just have a single query parameterised by type of entity 
+ Find comments by a person about one kind of thing: simple query in either case 
+ Find all comments by a person about all things: this seems  little gnarly either way. 
+ 
+ I think your "discriminated" approach, option 2, yields simpler queries in some cases and doesn't seem much worse in the others so I'd go with it.  
+ 
+ Definitely go with the second approach where you have one table and store the element type for each row, it will give you a lot more flexibility. Basically when something can logically be done with fewer tables it is almost always better to go with fewer tables. One advantage that comes to my mind right now about your particular case, consider you want to delete all liked elements of a certain user, with your first approach you need to issue one query for each element type but with the second approach it can be done with only one query or consider when you want to add a new element type, with the first approach it involves creating a new table for each new type but with the second approach you shouldn't do anything... 
+ 
+ Consider using table per entity for comments and etc. More tables - better sharding and scaling. It's not a problem to control many similar tables for all frameworks I know. 
+ One day you'll need to optimize reads from such structure. You can easily create agragating tables over base ones and lose a bit on writes. 
+ One big table with dictionary may become uncontrollable one day. 
+ 

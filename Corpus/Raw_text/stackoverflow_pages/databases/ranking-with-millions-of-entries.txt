@@ -1,0 +1,98 @@
+*** ranking-with-millions-of-entries ***
+
+ I'm working on a server for an online game which should be able to handle millions of players. Now the game needs leaderboards and wants to be able to show a players current position and possibly other players near the current players position as well as the positions of the players friends. 
+ Now I've done this stuff before in MySQL and I know how it's technically possible, however I figured since this is a common practice for a lot of online games there must be existing libraries or databases particularly for this purpose? 
+ Can anyone advice me what database is the best for these types of queries and possibly any pre-existing libraries that already do a lot of this work? A third party service with API access would be fine too. 
+ Hope to get some good advice, thanks! 
+ Edit: 
+ To clarify, I need a database which can hold millions of entries (so far MySQL is good for that) with which I can easily get ranked results. For example if I get a specific row from the "leaderboard" table I need to know which rank that row has. This query has to be under 500ms regardless of the size of the db. 
+ Alternatively a way to update the table with the current ranking information would be fine too long as this update query does not lock the whole table and the update query runs in under 30 seconds. 
+ Any ideas as to what database / mechanism or third party service to use would be much appreciated! 
+ 
+ A single disk seek is about 15ms, maybe a little less with server grade disks. A response time of less than 500ms limits you to about 30 random disk accesses. That is not a lot. 
+ On my tiny laptop, I have a development database with 
+ 
+ and a slow laptop disk. I created a score table with 
+ 
+ with random integer scores and sequential player_id values. We have 
+ 
+ The database maintains the pair   in   order in the index  , as data in an InnoDB index is stored in a BTREE, and the row pointer (data pointer) is the primary key value, so that the definition   ends up being   internally. We can prove that by looking at the query plan for a score retrieval: 
+ 
+ As you can see, the   is being used with  , meaning that no data access is necessary. 
+ The ranking query for a given constant   takes precisely 500ms on my laptop: 
+ 
+ With more memory and on a faster box it can be quicker, but it is still a comparatively expensive operation, because the plan sucks: 
+ 
+ As you can see, the second table in the plan is an index scan, so the query slows down linearly with the number of players. 
+ If you want a full leaderboard, you need to leave off the where clause, and then you get two scans and quadratic execution times. So this plan implodes completely. 
+ Time to go procedural here: 
+ 
+ Because this is a procedural plan, it is unstable:  
+ 
+ You cannot use LIMIT, because that will offset the counter. Instead you have to download all this data. 
+ You cannot really sort. This   clause works, because it does not sort, but uses an index. As soon as you see  , the counter values will be wildly off. 
+ 
+ It is the solution that comes closest to what a NoSQL (read: procedural) database will do as an execution plan, though. 
+ We can stabilize the NoSQL inside a subquery and then slice out the part that is of interest to us, though: 
+ 
+ The subquery will materialize the former result set as an ad-hoc table named t, which we then can access in the outer query. Because it is an ad-hoc table, in MySQL it will have no index. This limits what is possible efficiently in the outer query. 
+ Note how both queries satisfy your timing constraint, though. Here is the plan: 
+ 
+ Both query components (the inner,   query and the outer   constraint) will get slower for badly ranked players, though, and then grossly violate your timing constraints. 
+ 
+ The execution time for the descriptive approach is stable (dependent only on table size): 
+ 
+ Your call. 
+ 
+ I know this is an old question, but I do enjoy staring at such problems. Given the ratio of data -> query speed required, some non-traditional tricks can be used that take more coding work but can really give a boost to query performance. 
+ **Scoring buckets**
+
+ To begin with, we should track scores with buckets. We want the bucket list (what a great name!) to be small enough to easily hold in memory, and large enough that buckets aren't frequently (relatively speaking) being affected. That provides us with greater concurrency to avoid locking issues. 
+ You'll have to judge how to split up those buckets based upon your load, but I think you want to focus on having as many buckets as you can that will easily fit into memory and add quickly. 
+ To accommodate this, my   table will have the following structure: 
+ 
+ **User table**
+
+ We must track our users, and probably going to be done with: 
+ 
+ In order to efficiently iterate over this to get a count by score, we need an index on the score. Timestamp is just something I threw in for tie-breaking in my example so that I'd have a definitive ordering. If you don't need it, ditch it -- it is using space and that will affect query time. At the moment: index(score, timestamp). 
+ **Inserting / Updating / Deleting users and their scores**
+
+ Add triggers to the user table. On insertion: 
+ 
+ On update 
+ 
+ On deletion 
+ 
+ **Determining Rank**
+
+ 
+ **Closing notes**
+
+ Benchmark with various numbers of buckets, doubling or halving them each time. You can quickly write up a bucket doubling / halving script to allow you to load test this. More buckets makes for less scanning of the user score index and less lock / transaction contention when updating scores. More buckets consumes more memory. To pick a number to start with, use 10,000 buckets. Ideally, your buckets will cover the entire range of scores and each bucket will have roughly the same number of users counted in it. If you score distribution graph follows a curve of some kind, make your bucket distribution follow that curve. 
+ The theory of this is kind related to a two-tiered  skip list . 
+ 
+ I've read an article recently on solving this kind of problem with Redis.  You could still use MySQL as your basic store, but you would cache the unsorted results in Redis and update the rankings in real time.  The link can be  found here .  The last third of the article is about keyed sorts, like you'd have with a rankings list. 
+ 
+ Sorting millions of entries might sound like a lot of work, but it clearly isn't. Sorting 10^6 completely random entries takes about 3 seconds on my computer (just an older EeePC with an Atom CPU (first generation i think), 1.6GHz). 
+ And with a good sorting algorithm, sorting has O(n*log(n)) in the worst case, so it wont really matter if you have 10^9 or more entries. And most of the time the rank list will be already nearly sorted (from a previous ranking) resulting in a runtime which is more likely to be O(n). 
+ So, stop worrying about it! The only real problem is, that most DBMSs can not directly access the 1000th entry. So, a query like   will have to query at least 1005 entries and skip the first 1000. But the solution here is simply too. Just store the   as an redundant column of each row, add an index to it and compute it every 15min (or every 5min, 30min, 1h, or whatever makes sense for your application). With that, all queries by rank are just simply secondary index lookups (about O(log(N))) which is extremely fast and will only take some milliseconds per query (the network is here the bottleneck, not the database). 
+ PS: You commented on another answer that you can not cache the sorted entries because they are too large for your memory. Assuming that you just cache (user_id, rank) tuples with two 64 bit integers (32 bits would be more than enough too!), you would need less than 8 MB of memory to store 10^6 entries. Are you sure you do not have enough RAM for that? 
+ So, please do not try to optimize something which is clearly not a bottleneck (yet)... 
+ 
+ You can redundantly store the rank of each player in the player table so that you don't have to do any join operations. Every time, when the leaderboards are recalculated, the player tables should be updated, too. 
+ 
+ I can think of two ways to approach this problem: 
+ First approach: Update in batches: 
+ 
+ Sort the scores, obtain the ranking 
+ Divide the players by rank into batches like player0-player999, player1000-player1999, etc 
+ For each batch, delete entries in the existing table that conflict with the new data. This means deleting existing entries belonging to players in the current batch or who currently rank in the range of ranks being updated in the current batch.  Then you load the ranking data for the batch into the database, and jump to the next batch after say 0.1s. 
+ 
+ Second approach: New table 
+ 
+ Create (or truncate) a new table just like your existing ranking table. 
+ compute the new ranking and insert your data 
+ Swap the tables (after preferably locking them). This should take less than a second. 
+ 
+ 

@@ -1,0 +1,35 @@
+*** why-even-use-db-exec-or-prepared-statements-in-golang ***
+
+ I'm using golang with Postgresql. 
+ It says  here  that for operations that do not return rows (insert, delete, update) we should use  
+ 
+ If a function name includes Query, it is designed to ask a question of the database, and will return a set of rows, even if it’s empty. Statements that don’t return rows should not use Query functions; they should use Exec(). 
+ 
+ Then it says  here : 
+ 
+ Go creates prepared statements for you under the covers. A simple db.Query(sql, param1, param2), for example, works by preparing the sql, then executing it with the parameters and finally closing the statement. 
+ 
+ If  ** uses under the covers prepared statements**
+ why should I even bother using prepared statements? 
+ 
+ **"Why even use db.Exec()":**
+
+ It's true that you can use   and   interchangeably to execute the same sql statements however the two methods return different types of results. If implemented by the driver the result returned from   can tell you how many rows were affected by the query, while   will return the rows object instead. 
+ For example let's say you want to execute a   statement and you want to know how many rows were deleted by it. You can do it either the proper way: 
+ 
+ or the more verbose and objectively costlier way: 
+ 
+ There's a 3rd way you could do this with a combination of postgres CTEs,  ,   and   but I don't think an example is necessary to show how unreasonable an approach that would be when compared to  . 
+ Another reason to use   over   is when you don't care about the returned result, when all you need is to execute the query and check if there was an error or not. In such a case you can do this: 
+ 
+ On the other hand, you cannot (you can but you shouldn't) do this: 
+ 
+ Doing this, after a short while, your program will panic with an error that says something akin to  . This is because you're discarding the returned   value without first making the mandatory   call on it, and so you end up with the number of open connections going up and eventually hitting the server's limit. 
+ 
+ **"or prepared statements in Golang?":**
+
+ I don't think the book you've cited is correct. At least to me it looks like whether or not a   call creates a new prepared statement every time is dependent upon the driver you are using. 
+ See for example these two sections of   (an unexported method called by  ):  without prepared statement  and  with prepared statement . 
+ Regardless of whether the book is correct or not a   created by   would be, unless there is some internal caching going on, thrown away after you close the returned   object. If you instead manually call   and then cache and reuse the returned   you can potentially improve the performance of the queries that need to be executed often. 
+ To understand how a prepared statement can be used to optimize performance you can take a look at the official documentation:  https://www.postgresql.org/docs/current/static/sql-prepare.html 
+ 

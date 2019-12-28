@@ -1,0 +1,46 @@
+*** how-can-i-increase-read-queries-second-on-my-database ***
+
+ I'm a rookie at databases but am having a problem that I can't seem to figure out. Sorry in advance if this is too long, I am trying to summarize all my efforts so you know exactly what I have done so far.  I have an app has some logic in it and then does 3 queries to a database.  First query checks if a value exists, second checks if another(related) value exists and third one, if does not exist, adds related value.  Think of me doing a query on the number 2, and if it exists I check for 3 and add it if needed.  I do this loop a large number of times(I am looking at overall queries but I suspect this program is more read heavy than write).  I used to use just a hashtable in my program but as I added multiple proceses I had sync'ing issues, so I decided to use a database so multiple cores can work on this at the same time.  
+ At first I tried, mysql and used a memory storage engine(it could all fit in memory), made a  composite primary key to replicate the dictionary I had in my program, indexed it, disabled locking but I could only get about 11,000 queries/second from it. 
+ I then tried redis(heard it was like memcache) and created the same key/value dict I have before(here's the actual mode  Can I make two columns unique to each other? or use composite primary key's in redis?  ) and removed all the fsync stuff so it hopefully never hits harddrive i/o but I still only get around 30,000  queries/second.  I looked at system improvements(I'm using linux) by having the program run in a ramdrive, etc. but still similar result. 
+ I have a setup script and tried to do this on ec2 using the high cpu instance but the result is similar(queries don't go up by much for both solutions).  I'm sort of at my wits end but don't want to give up because I read of people on stackoverflow talking about how they have gotten 100,000k+ queries on a standalone.   I feel my datamodel is very simple(two columns of INT or I can make it one string with both INT's combined, but that didn't seem to slow either down) and once the data is created(and queried by another process) I have no need for persistence(which is also why I am trying to not write to a harddrive).   What setup am I missing that allows developers here to get that kind of performance? Is there special configuration required outside of table creation? or is the only way to get that kind of performance through distributed databases?  I know the problem is with the database because when I shut down the database mid-process my python app hits 100% on each core its running(although its writing nothing), it makes me think that the process of waiting(for the reads, I suspect) is what's slowing it down(I have plenty of cpu/memory free so I'm wondering why its not max'ing out, I have 50% cpu and 80% of my memory free during these jobs so I have no idea whats going on). 
+ I have mysql, redis and hbase. hopefully there's something I can do to get one of these solutions working as fast as I'd like but if there isn't I'm fine with any solution(its really just a temp hashtable that distributed proceses can query). 
+ What can I do? 
+ Thanks! 
+ Update: as requested in comments, here's some code(after the specific application logic which seems to be going fine): 
+ 
+ above is the code with 3 lookups on mysql.  I also tried to do one big lookup(but it was in fact slower): 
+ 
+ Here's the table design on mysql: 
+ 
+ on Redis, its simlair to the 3 query structure(since it was the fastest I could get on mysql, except I do not need to do a lookup if the value exists, I just overwrite it to save a query): 
+ 
+ My data structure for redis is in the linked question(basically its a list, 3 => 1 2 3 instead of mysql having 3 rows to repersent 3=1, 3=2, 3=3.   
+ Hope that helps, any other questions please let me know. 
+ 
+ Looking at the provided code snippets, I would say the main bottleneck here are the network or TCP loopback rountrips. Both MySQL and Redis are synchronous client/server stores. Each time you send a query and wait for the reply, you pay for the kernel scheduling, the network latency, CPU cache bad hit ratio, etc ... 
+ The people who run hundreds of thousands of queries per second on TCP servers do not use a single socket to target the server, but multiple connections for client-side parallelism and/or  pipeline their queries  in order to limit the impact of this latency. 
+ Actually, if you have a unique socket and send your query in sequence without any pipelining, you are not measuring the maximum throughput you can achieve with a server, but rather the latency of the network or IPCs. 
+ Hopefully, the protocols used by most NoSQL servers usually support pipelining. So here are some advices for a Redis implementation. 
+ You may want to read  the Redis benchmark page  first. All the typical performance bottlenecks you may experience when benchmarking Redis are described. 
+ Here are a few advices to achieve maximum throughput for your benchmark: 
+ 
+ use an efficient language (Python, Ruby, Javascript are way slower than C) 
+ pipeline your queries as far as you can 
+ if client and server are on the same box, use unix domain sockets rather than TCP loopback. 
+ optimize at system and network level only after the software has been optimized (NUMA, NIC configuration, etc ...) 
+ 
+ I have run a simple test using hiredis (C Redis client) to simulate your use case on a Xeon X5670@2.93GHz. Code can be found  here . 
+ 
+ The program implements a similar code, pipelining the queries. It batches items and sends a bunch of sismember commands to know if the items exist or not, and then a bunch of sadd commands for the items it has to add. 
+ **Results:**
+
+ 
+ Without pipelining, with TCP loopback => 66268 q/s 
+ Without pipelining, with unix domain sockets => 89485 q/s 
+ With pipelining and TCP loopback => 273757 q/s 
+ With pipelining and unix domain sockets => 278254 q/s 
+ 
+ So the impact of using unix domain sockets is high when the roundtrips are not optimized, and becomes very low once pipelining is used. Most of the gain is due to pipelining. That's why you should focus on software/protocol optimizations first. 
+ The results can be further improved by tweaking the system/network configuration, but the next step to gain more throughput is normally to run several Redis instances and shard the data using a hashing mechanism (trying to parallelize on server-side). 
+ 

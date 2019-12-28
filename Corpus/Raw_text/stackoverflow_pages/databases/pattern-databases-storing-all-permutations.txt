@@ -1,0 +1,42 @@
+*** pattern-databases-storing-all-permutations ***
+
+ I am looking for some advice on storing all possible permutations for the fringe pattern database. 
+ So the fifteen tile problem has 16! possible permutations, however storing the values for   so the 0 (blank tile),3,7,11,12,13,14,15 is 16!/(16-8)! = 518,918,400 permutations.  
+ I am looking to store all of these permutations in a datastructure along with the value of the heuristic function (which is just incremented each time a iteration of the breadth first search), so far I am doing so but very slowly and took me 5 minutes to store 60,000 which is time I don't have!   
+ 
+ At the moment I have a structure which looks like this. 
+ 
+ Where I store the position of the given numbers. I have to use these positions as the ID for when I am calculating the heuristic value I can quickly trawl through to the given composition and retrieve the value.  
+ I am pretty unsure about this. The state of the puzzle is represented by an array example: 
+ 
+ My question is what would be the best data structure to store these values? and the best way to retrieve them. 
+ (This question was originally based on storing in a database, but now I want to store them in some form of local data structure - as retrieving from a database slow ) 
+ 
+ Each number   is a 4-bit number. You must represent 7 such numbers, making a minimum requirement of 28 bits, which is well within the 31 signed bit space of an  . Thus all permutations may be assigned, and derived from, an  . 
+ To calculate this number, given variables   through  : 
+ 
+ To decode (if you need to): 
+ 
+ Storing   in a database is very efficient and will use minimal disk space: 
+ 
+ After  inserting all the rows, create a  covering index  for super fast lookup: 
+ 
+ If you create this index  before  insertion, insertions will be very, very slow. 
+ Creating the data and inserting it is relatively straightforward coding. 
+ 
+ I can't really grasp, what special meaning do 0,3,7,11,12,13,14,15 have in your case. Is their position unchangeable? Is their position enough to identify the whole puzzle state? 
+ Anyway, here is a general approach, you can narrow it down anytime: 
+ As you have 16 possible states at max, I would try to use hexadecimal numbers to represent your permutations. So the state   would look like  . The biggest number possible would be  , which still can be stored in an unsigned long (only since Java 8) or alternatively in BigInteger (there are many examples, I would prefer this). Such number would be unique for each permutation and could be used as primary key and if you have the whole state, retrieving it from the database would be pretty fast. 
+ 
+ There might be a more elegant/performant solution to get the tile position (maybe some bit operation magic). 
+ 
+ So is my understanding correct that you're calculating a heuristic value for each possible puzzle state, and you want to be able to look it up later based on a given puzzle state? So that you don't have to calculate it on the fly? Presumably because of the time it takes to calculate the heuristic value.  
+ So you're iterating over all the possible puzzle states, calculating the heuristic, and then storing that result. And it's taking a long time to do that. It seems like your assumption is that it's taking a long time to store the value - but what if the time lag you're seeing isn't the time it's taking to store the values in the data store, but rather the time it's taking the generate the heuristic values? That seems far more likely to me.  
+ In that case, if you want to speed up the process of generating and storing the values, I might suggest splitting up the task into sections, and using several threads at once.  
+ The fasted data structure I believe is going to be an in-memory hash table, with the hash key being your puzzle state, and the value being your heuristic value. Others have already suggested reasonable ways of generating puzzle-state hash keys. The same hash table structure could be accessed by each of the threads which are generating and storing heuristic values for sections of the puzzle state domain. 
+ Once you've populated the hash table, you can simply serialize it and store it in a binary file in the filesystem. Then have your heuristic value server load that into memory (and deserialize it into the in-memory hash table) when it starts up. 
+ If my premise is incorrect that it's taking a long time to generate the heuristic values, then it seems like you're doing something grossly sub-optimal when you go to store them. For example reconnecting to a remote database each time you store a value. That could potentially explain the 5 minutes. And if you're reconnecting every time you go to look up a value, that could explain why that is taking too long, too. 
+ Depending on how big your heuristic values are, an in memory hash table might not be practical. A random-access binary file of records (with each record simply containing the heuristic value) could accomplish the same thing, potentially, but you'd need some way of mathematically mapping the hash key domain to the record index domain (which consists of sequential integers). If you're iterating over all the possible puzzle states, it seems like you already have a way of mapping puzzle states to sequential integers; you just have to figure out the math. 
+ Using a local database table with each row simply having a key and a value is not unreasonable. You should definitely be able to insert 518 million rows in the space of a few minutes - you just need to maintain a connection during the data loading process, and build your index after your data load is finished. Once you've built the index on your key, a look up using the (clustered primary key integer) index should be pretty quick as long as you don't have to reconnect for every look up. 
+ Also if you're committing rows into a database, you don't want to commit after each row, you'll want to commit every 1,000 or 10,000 rows. If you're committing after each row is inserted, that will substantially degrade your data loading performance. 
+ 

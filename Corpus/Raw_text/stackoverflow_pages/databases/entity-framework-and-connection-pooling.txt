@@ -1,0 +1,48 @@
+*** entity-framework-and-connection-pooling ***
+
+ I've recently started to use the Entity Framework 4.0 in my .NET 4.0 application and am curious about a few things relating to pooling. 
+ 
+ Connection pooling as I know is managed by the ADO.NET data provider, in my case that of MS SQL server. Does this apply when you instantiate a new entities context ( ), i.e. the parameterless  ? 
+ What are the advantages and disadvantages of a) creating a global entities context for the application (i.e. one static instance) or b) creating and exposing an entities context for each given operation/method, with a   block. 
+ Any other recommendations, best practices, or common approaches for certain scenarios that I should know about? 
+ 
+ 
+ 
+ Connection pooling is handled as in any other ADO.NET application. Entity connection still uses traditional database connection with traditional connection string. I believe you can turn off connnection pooling in connection string if you don't want to use it. (read more about  SQL Server Connection Pooling (ADO.NET) ) 
+ Never ever use global context. ObjectContext internally implements several patterns including Identity Map and Unit of Work. Impact of using global context is different per application type.  
+ For web applications use single context per request. For web services use single context per call. In WinForms or WPF application use single context per form or per presenter. There can be some special requirements which will not allow to use this approach but in most situation this is enough. 
+ 
+ If you want to know what impact has single object context for WPF / WinForm application check this  article . It is about NHibernate Session but the idea is same. 
+ **Edit:**
+
+ When you use EF it by default loads each entity only once per context. The first query creates entity instace and stores it internally. Any subsequent query which requires entity with the same key returns this stored instance. If values in the data store changed you still receive the entity with values from the initial query. This is called  **Identity map pattern**
+. You can force the object context to reload the entity but it will reload a single shared instance. 
+ Any changes made to the entity are not persisted until you call   on the context. You can do changes in multiple entities and store them at once. This is called  **Unit of Work pattern**
+. You can't selectively say which modified attached entity you want to save. 
+ Combine these two patterns and you will see some interesting effects. You have only one instance of entity for the whole application. Any changes to the entity affect the whole application even if changes are not yet persisted (commited). In the most times this is not what you want. Suppose that you have an edit form in WPF application. You are working with the entity and you decice to cancel complex editation (changing values, adding related entities, removing other related entities, etc.). But the entity is already modified in shared context. What will you do? Hint: I don't know about any CancelChanges or UndoChanges on  .  
+ I think we don't have to discuss server scenario. Simply sharing single entity among multiple HTTP requests or Web service calls makes your application useless. Any request can just trigger   and save partial data from another request because you are sharing single unit of work among all of them. This will also have another problem - context and any manipulation with entities in the context or a database connection used by the context is not thread safe. 
+ Even for a readonly application a global context is not a good choice because you probably want fresh data each time you query the application. 
+ 
+ According to Daniel Simmons: 
+ 
+ Create a new ObjectContext instance in
+  a Using statement for each service
+  method so that it is disposed of
+  before the method returns.
+  This step is critical for scalability of your service. It makes sure that database connections are not kept open across service calls and that temporary state used by a particular operation is garbage collected when that operation is over. The Entity Framework automatically caches metadata and other information it needs in the app domain, and ADO.NET pools database connections, so re-creating the context each time is a quick operation. 
+ 
+ This is from his comprehensive article here:  
+ http://msdn.microsoft.com/en-us/magazine/ee335715.aspx 
+ I believe this advice extends to HTTP requests, so would be valid for ASP.NET.  A stateful, fat-client application such as a WPF application might be the only case for a "shared" context. 
+ 
+ Accoriding to EF6 (4,5 also) documentation:
+ https://msdn.microsoft.com/en-us/data/hh949853#9 
+ **9.3      Context per request**
+
+ **Entity Framework’s contexts are meant to be used as short-lived instances in order to provide the most optimal performance experience**
+. Contexts are expected to be short lived and discarded, and as such have been implemented to be very lightweight and reutilize metadata whenever possible. In web scenarios it’s important to keep this in mind and not have a context for more than the duration of a single request. Similarly, in non-web scenarios, context should be discarded based on your understanding of the different levels of caching in the Entity Framework.  **Generally speaking, one should avoid having a context instance throughout the life of the application, as well as contexts per thread and static contexts.**
+
+ 
+ Below code helped my object to be refreshed with fresh database values. The Entry(object).Reload() command forces the object to recall database values 
+ 
+ 

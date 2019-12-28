@@ -1,0 +1,105 @@
+*** inventory-database-design ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ This is a question not really about "programming" (is not specific to any language or database), but more of design and architecture. It's also a question of the type "What the best way to do X". I hope does no cause to much "religious" controversy. 
+ In the past I have developed systems that in one way or another, keep some form of inventory of items (not relevant what items). Some using languages/DB's that do not support transactions. In those cases I opted not to save item  quantity on hand  in a field in the item record. Instead the  quantity on hand  is calculated totaling inventory received - total of inventory sold. This has resulted in almost no discrepancies in inventory because of software. The tables are properly indexed and the performance is good. There is a archiving process in case the amount of record start to affect performance. 
+ Now, few years ago I started working in this company, and I inherited a system that tracks inventory. But the quantity is saved in a field. When an entry is registered, the quantity received is added to the quantity field for the item. When an item is sold, the quantity is subtracted. This has resulted in discrepancies. In my opinion this is not the right approach, but the previous programmers here swear by it. 
+ I would like to know if there is a consensus on what's the right way is to design such system. Also what resources are available, printed or online, to seek guidance on this. 
+ Thanks 
+ 
+ I have seen both approaches at my current company and would definitely lean towards the first (calculating totals based on stock transactions). 
+ If you are only storing a total quantity in a field somewhere, you have no idea how you arrived at that number. There is no transactional history and you can end up with problems. 
+ The last system I wrote tracks stock by storing each transaction as a record with a positive or negative quantity. I have found it works very well. 
+ 
+ 
+ The Data Model Resource Book, Vol. 1: A Library of Universal Data Models for All Enterprises 
+ The Data Model Resource Book, Vol. 2: A Library of Data Models for Specific Industries   
+ The Data Model Resource Book: Universal Patterns for Data Modeling   
+ 
+ I have Vol 1 and Vol 2 and these have been pretty helpful in the past. 
+ 
+ It depends, inventory systems are about far more than just counting items. For example, for accounting purposes, you might need to know accounting value of inventory based on FIFO (First-in-First-out) model. That can't be calculated by simple "totaling inventory received - total of inventory sold" formula. But their model might calculate this easily, because they modify accounting value as they go. I don't want to go into details because this is not programming issue but if they swear by it, maybe you didn't understand fully all their requirements they have to accommodate. 
+ 
+ both are valid, depending on the circumstances. The former is best when the following conditions hold: 
+ 
+ the number of items to sum is relatively small 
+ there are few or no exceptional cases to consider (returns, adjustments, et al) 
+ the inventory item quantity is not needed very often 
+ 
+ on the other hand, if you have a large number of items, several exceptional cases, and frequent access, it will be more efficient to maintain the item quantity 
+ also note that if your system has discrepancies then  it has bugs  which should be tracked down and eliminated 
+ i have done systems both ways, and both ways can work just fine - as long as you don't ignore the bugs! 
+ 
+ Take a look at the ARTS (Association for Retail Technology Standards) data model ( http://nrf-arts.org ).  It uses a StockLedger table with a record each item and changes to the inventory are all tracked in InventoryJournalEntries. 
+ 
+ It's important to consider the existing system and the cost and risk of changing it.  I work with a database that stores inventory kind of like yours does, but it includes audit cycles and stores adjustments just like receipts.  It seems to work well, but everyone involved is well trained, and the warehouse staff aren't exactly quick to learn new procedures. 
+ In your case, if you're looking for a little more tracking without changing the whole db structure then I'd suggest adding a tracking table (kind of like from your 'transaction' solution) and then log changes to the inventory level.  It shouldn't be too hard to update most changes to the inventory level so that they also leave a transaction record.  You could also add a periodic task to backup the inventory level to the transaction table every couple hours or so so that even if you miss a transaction you can discover when the change happened or roll back to a previous state. 
+ If you want to see how a large application does it take a look at  SugarCRM , they have and inventory management module though I'm not sure how it stores the data. 
+ 
+ I think this is actually a general best-practices question about doing a (relatively) expensive count every time you need a total vs. doing that count every time something changes, then storing the count in a field and reading that field whenever you need a total. 
+ If I couldn't use transactions, I would go with the live count every time I needed a total.  If transactions are available, it would be safe to perform the inventory update operations and the saving of the re-counted total within the same transaction, which would ensure the accuracy of the count (although I'm not sure this would work with multiple users hitting the database). 
+ But if performance is not really a huge problem (and modern databases are good enough at counting rows that I would rarely even worry about this) I'd just stick with the live count each time. 
+ 
+ I would opt for the first way, where 
+ 
+ the quantity on hand is calculated
+  totaling inventory received - total of
+  inventory sold 
+ 
+ The Right Way, IMO. 
+ **EDIT:**
+ I would also want to factor in any stock losses/damages into the system, but I'm sure you have that covered. 
+ 
+ I've worked on systems that solve this problem before.  I think the ideal solution is a precomputed column, which gets you the best of both worlds.  Your total would be a field somewhere, thus no expensive lookups, but it can't get out of sync with the rest of your data (the database maintains the integrity).  I don't remember which RDMSs support precomputed columns, but if you don't have transactions, that might not be available either. 
+ You could potentially fake precomputed columns (very effectively... I see no downside) using triggers.  You'd probably need transactions though.  IMHO, keeping data integrity when you're doing this sort of controlled denormalization is the only legitimate use for a trigger. 
+ 
+ Django-inventory  geared more to fixed assets, but might give you some ideas. 
+ IE:  ItemTemplate (class) -> ItemsOnHand (instance) 
+ ItemsOnHand can be linked to more ItemTemplates; Example Printer & the ink cartridges is requires.  This also allows to set Reorder points for each ItemOnHand. 
+ Each ItemsOnHand is linked to InventoryTransactions, this allows for easy auditing.
+To avoid calculating actual on hand items from thousand of invetory transactions, checkpoints are used which are just a balance + a date.  To calculate items on hand query to find the most recent checkpoint and start adding or substracting items to find the current balance of items.  Define new checkpoints periodically. 
+ 
+ I can see some benefit to having the two columns, but I'm not following the part about discrepancies - you seem to be implying that having the two columns (in and out) is less prone to discrepancy than a single column (current). Why is that? 
+ 
+ Is not having one or two columns, what I meant with "totaling inventory received - total of inventory sold" is something like this: 
+ 
+ then  
+ 
+ Please keep in mind that I oversimplified this and my initial explanation. I know there is much more to inventory that just keeping track of quantities, but in this case that's were the problem lies and what we want to fix. At this point the reason to change it is preciselly the cost of supporting the problems caused by the current design. 
+ Also I wanted to mention that although this is not a "coding" question is related to algoritms and design which IMHO are very important topics. 
+ Thanks everybody for your answers so far. 
+ Nelson Marmol 
+ 
+ We solve different problems, but our approach to some of them might be interesting to you.   
+ We allow the system to make a "best guess", and give the users regular feedback about any of those guesses that look wrong.   
+ To apply this to inventory, you could have 3 fields:  
+ 
+ Then, you could run a process (daily?) along the lines of:    
+ 
+ Of course, this relies on users looking at this alert, and doing something about it.   
+ Also, you could have a function to reset inventory some how, either by updating inventory_sold/received, or perhaps adding another field "inventory_adjustment", which could be positive or negative.   
+ ... just some thoughts.  Hope it's helpful.   
+ 

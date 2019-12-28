@@ -1,0 +1,68 @@
+*** how-to-support-multi-languages-approach-in-database-schema ***
+
+ **I want my database to support multi Languages for all text values in its tables.**
+
+ So what is the best approach to do that?. 
+ **Edit1::**
+
+ 
+ E.G. 
+ I've this "Person" table: 
+ 
+ 
+ So if i want my program to support new language "let say French". 
+ should i add new column every time i add new language ?
+So my "Person" table will look like this 
+ 
+ **Or should i add 2 new tables one for languages and other for "Person_Languages" values ?**
+
+ So this will look like :
+"  **Languages**
+ " table: 
+ 
+ "  **Person**
+ " Table: 
+ 
+ and finally "  **Person_Translation**
+ " table: 
+ 
+ **Or there is something better ??**
+
+ . 
+ 
+ I have had to deal with this in a questionaire database. Multiple questionaires needed to be translated in multiple languages (English, Japanese, Chinese). 
+ We first identified all text columns that would be printed out on the questionaires. For all these we would need to be able to store a translation. For each table having text columns that would require translations, we then created a _translations table, having a foreign key to point to the primary key of the original  table, a foreign key to our language table, and then a unicode column for each text field that would require translation. In these text columns we would store the translations for each language we needed. 
+ So a typical query would look like: 
+ 
+ So, always just one join extra (for each table) to obtain the translations. 
+ I should point out that we only had tto deal with a limited amount of tables, so it was not a big issue to maintain a few extra %_translations tables. 
+ We did consider adding columns for the new language, but decided against it for a coouple of reasons. First of all the number of languages to be supported was not known, but could be substantial (10, 20 languages or maybe more). Combined with the fact that most tables had at least 3 distinct human readable columns, we would have to add many, many text columns which would result in very wide rows. So we decided not to do that. 
+ Another approach we considered as to make one big "label" table, having the columns: 
+ ( table_name
+, id_of_table
+, column_name
+, language_id
+, translated_text) 
+ effectively having one table to store all translations anywhere in the database. We decided against that too, because it would complicate writing queries (as each 'normal' column would result in one row in the translation table, which would result in effectively joining the already large translation table multiuple times to the normal table (once for each translated column). For your example table you would get queries like this: 
+ 
+ as you can see, essentially this kind of like an entity-attribute-value design, which makes it cumbersome to query. 
+ Another problem of that last approach is that it would make it hard if not impossible to enforce constraints on translated text (in our case mainly unicity constraints). With a separatee table for the translations, you can easily and cleanly overcome those problems. 
+ 
+ I've just implemented something which is working very well. 
+ Like many others, I've not had a clean slate to start with, and all tables were geared up to store English text. 
+ I was not particularly happy to double the number of tables, or columns to achieve a multilingual database. 
+ I decided to utilise XML as a way to store all translations, into a single field: 
+ 
+ So for example, I started with a table which only holds English: 
+ 
+ I then created the multilingual fields: 
+ 
+ If you want to be able to get a read-only value for the original fields, you can simply add a persisted computed columns: 
+ 
+ In the business/data layer, the XML field is converted in to a dictionary type business class, with key being a language enumeration: 
+ 
+ This approach allowed me to avoid having to completely re-carve up the database. It also means less interaction with the database, one row to be saved instead of one main row, and 3 translation rows. 
+ Also it avoids the issue of having to handle cases where the main row has no translation rows 
+ Should be noted that the XML had a schema and XML indexes to boost performance. 
+ This approach is very useful where you want to do the language conversion incrementally i.e. one field at a time. 
+ 

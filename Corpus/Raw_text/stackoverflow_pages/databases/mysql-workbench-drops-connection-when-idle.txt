@@ -1,0 +1,87 @@
+*** mysql-workbench-drops-connection-when-idle ***
+
+ I'm using MySQL Workbench 6.3 on my OS X 10.9.5 to manage several cloud databases (hosted on Rackspace), and I get the following issue: 
+ When inactive for 5 minutes, the following problems happen: 
+ 
+ I cannot run any query (error 2013: Lost connection to MySQL server during query) 
+ when trying to browse tables on my db, I'm getting messages like "Tables could not be fetched", "Views could not be fetched", and so on 
+ when refreshing the left panel, I get a "Error Code: 2006 MySQL server has gone away" 
+ 
+ So basically the connection is gone. 
+ This is really annoying since it happens after only 5 minutes of inactivity. Therefore I need to close the connection and reopen it each time. 
+ I also tried this:  MySQL Workbench: How to keep the connection alive , which didn't change anything.
+In my Workbench Preferences tab, I have the following setup: 
+ 
+ DBMS connection keep-alive interval (in seconds): 600 
+ DBMS connection read time out (in seconds): 600 
+ DBMS connection time out (in seconds): 60 
+ 
+ Notice that this issue happens  **precisely after 5 minutes of inactivity!**
+ If I run two queries in a 4'59 minutes interval it works perfectly fine.
+Also my colleagues who connect to the same database on their Workbench don't have this issue. 
+ Does anybody have a solution for this? 
+ 
+ Go to Edit -> Preferences -> SQL Editor and there you'll see: 
+ 
+ The DBMS connection keep-alive interval means how often Workbench sends keep-alive request to the server to keep the connection alive. 
+ Since 5 minutes == 300 seconds,
+set DBMS connection keep-alive interval < 300 (e. g. 250) 
+ It will mean "send keep-alive request every 250 seconds". Click OK. 
+ Then quit MySQL Workbench and relaunch it to make the changes take effect. 
+ If you use Standard TCP/IP over SSH connection method, it's also can be helpful to configure ssh ServerAliveInterval as well. 
+ 
+ This bug exists in all versions of MySQL Workbench beyond 6.0 (at this time : 6.1, 6.2 and 6.3 have the bug). 
+ Downgrade to MySQL Workbench 6.0.x seems the only way to fix this problem. 
+ Download MySQL Workbench 6.0.x :  http://dev.mysql.com/downloads/workbench/6.0.html 
+ 
+ FWIW: Following Kosh's recommendation, I changed the settings as follows and it seems to have eliminated the issue on WB 6.3 running on Ubuntu 16: 
+ 
+ It may be overkill, but it works. 
+ 
+ It solved me by setting tcp_keepalive_time to 120 seconds on Ubuntu 14.04 hosted on Windows Azure 
+ The TCP keepalive on the Azure load balancer is 240 seconds by default, which can cause it to silently drop connections if the TCP keepalive on your Azure systems is greater than this value. You should set tcp_keepalive_time to 120 to ameliorate this problem. 
+ 
+ To check the tcp_keepalive_time
+
+ cat /proc/sys/net/ipv4/tcp_keepalive_time 
+ 
+ 7200 (by default 2 hours) 
+ 2.set value from 2 hours to 120 seconds. 
+ sudo sysctl -w net.ipv4.tcp_keepalive_time=120 
+ net.ipv4.tcp_keepalive_time = 120 
+ 
+ recheck the value after changing.
+
+ cat /proc/sys/net/ipv4/tcp_keepalive_time 
+ 
+ 120 
+ 4.Set the value in the sysctl file to remain the value even after reboot. 
+ vi /etc/sysctl.conf 
+ Press i (To insert into file)
+net.ipv4.tcp_keepalive_time = 120(Add this line at the bottom of the file)
+:wq(Save and exit) 
+ 
+ Kosh Very's Answer didn't work for me so I found a different solution for this: 
+ 
+ change max_allowed_packet in the   file. (C:\ProgramData\MySQL\MySQL Server 5.6) 
+ max_allowed_packet=16M 
+ now restart the MySQL service once you are done. 
+ 
+ 
+ **Kosh Very**
+'s is the right answer. For anyone who couldn't get it to work, here's another solution: 
+ Where I need to alter a huge table (drop or add column or such), is to run the query(s) by terminal: 
+ 
+ **Connect**
+:    
+ You will be asked for password 
+ **Run**
+ the long-taking query(s) you need. Note: writing a query in terminal requires an ending semi-colon (;) for each. Example:  
+ 
+ 
+ This had driven me mental for months. My connections were to a Hostgator server. I'd connect and could edit a table for only 10 seconds or so after connecting, then I'd do, say, a table commit and the table would change to "Read Only" with a mouse-over message of, "Could not determine a unique row identifier (MySQL server has gone away) or "(Lost connection to MySQL server during query). 
+ The solution was, as per other suggestions here, to REDUCE the keep-alive setting. In my case, it had to come down to 10s (obviously, Hostgator if fairly miserly with their bandwidth!) 
+ First I tried reducing   (under  Preferences/Others/Timeouts ) but this didn't work. 
+ What did the trick was reducing the   (under  Preferences/SQL Editor/MySQL Session ). I had to take it all the way down to 10s until the connection would remain stable. Your host might be different. 
+ Finally, no more "Refresh All", wait, do something, rinse and repeat. 
+ 

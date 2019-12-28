@@ -1,0 +1,52 @@
+*** which-provides-better-performance-one-big-join-or-multiple-queries ***
+
+ i have a table called orders.  one column on order is customer_id 
+i have a table called customers with 10 fields 
+ Given the two options if i want to build up an array of order objects and embedded in an order object is a customer object i have two choices. 
+ **Option 1:**
+
+ a. first query orders table. 
+b. loop through records and query the persons table to get the records for the person 
+ this would be something like: 
+ 
+ **Option 2:**
+
+ a. do a join on all fields  
+ its an obvious #2 because you are only doing one query versus 1 + [numberOforders] queries (could be hundreds or more) 
+ This would be something like: 
+ 
+ my main question is, what if i had 10 other tables that were off of the orders table (similar to customer) where you had the id in the order table.  should you do a single query that joins these 10 tables or at some point is it inefficient do to this: 
+ any suggestions would help.. is there any optimization to ensure fast performance 
+ 
+ I agree with everyone who's said a single join will probably be more efficient, even with a lot of tables. It's also less development effort than doing the work in your application code. This assumes the tables are appropriately indexed, with an index on each foreign key column, and (of course) an index on each primary key column. 
+ Your best bet is to try the easiest approach (the big join) first, and see how well it performs. If it performs well, then great - you're done. If it performs poorly, profile the query and look for missing indexes on your tables.  
+ Your option #1 is not likely to perform well, due to the number of network round-trips (as anijhaw mentioned). This is sometimes called the "select N+1" problem - you do one SELECT to get the list of N applications, and then do N SELECTs in a loop to get the customers. This record-at-a-time looping is natural to application programmers; but SQL works much better when you operate on whole sets of data at once. 
+ If option #2 is slow even with good indexing, you may want to look into caching. You can cache in the database (using a summary table or materialized/indexed view), in the application (if there is enough RAM), or in a dedicated caching server such as memcached. Of course, this depends on how up-to-date your query results need to be. If everything has to be fully up-to-date, then any cache would have to be updated whenever the underlying tables are updated - it gets complicated and becomes less useful. 
+ This sounds like a reporting query though, and reporting often doesn't need to be real-time. So caching might be able to help you. 
+ Depending on your DBMS, another thing to think about is the impact of this query on other queries hitting the same database. If your DBMS allows readers to block writers, then this query could prevent updates to the tables if it takes a long time to run. That would be bad. Oracle doesn't have this problem, and neither does SQL Server when run in "read committed snapshot" mode. I don't know about MySQL though. 
+ 
+ If this customer_id is unique in your customer-table (and the other IDs are unique in the other tables), so your query only returns 1 row per Application, then doing a single SELECT is certainly more efficient. 
+ Joining all the required customers in one query will be optimized, while using lots of single SELECTs can't. 
+ **EDIT**
+
+I tried this with Oracle PL/SQL with 50.000 applications and 50.000 matching customers. 
+ Solution with selecting everything in one query took 
+ 
+ Solution with selecting every customer in a single SELECT took 
+ 
+ And this is most likely getting worse with other clients or when accessing over network. 
+ 
+ Single join should be faster for two main reasons. 
+ If you are querying over a network, then there is overhead in using number of queries instead of a single query. 
+ A join would be optimized inside the DBMS using the query optimizer so will be  faster than executing several queries. 
+ 
+ The single join would still be faster, in my opinion, because a DBMS will always execute the where clauses before joins are performed. This means that before and joining happens, all the tables involved have already been cut down to the minimum possible size.  
+ The fact remains that in order get what you want you will have to read from all these tables at some point of time... so doing it once will still me much more efficient.  
+ The key here is that the tables are all cut down to the minimum size before joining, and that we're using inner joins. If both these conditions change (some outer joins are okay) then you might have problems.  
+ 
+ 
+ should you do a single query that joins these 10 tables or at some point is it inefficient 
+ 
+ All these tables join to the order - all the records returned are related.  There's nothing inefficient about grabbing everything related in as few queries or operations as possible. 
+ With separate queries, there's increased risk that the data may have changed between queries. 
+ 

@@ -1,0 +1,37 @@
+*** persistent-purely-functional-red-black-trees-on-disk-performance ***
+
+ I'm studying the best data structures to implement a simple open-source object temporal database, and currently I'm very fond of using Persistent Red-Black trees to do it. 
+ My main reasons for using persistent data structures is first of all to minimize the use of locks, so the database can be as parallel as possible. Also it will be easier to implement ACID transactions and even being able to abstract the database to work in parallel on a cluster of some kind.
+The great thing of this approach is that it makes possible implementing temporal databases almost for free. And this is something quite nice to have, specially for web and for data analysis (e.g. trends). 
+ All of this is very cool, but I'm a little suspicious about the overall performance of using a persistent data structure on disk. Even though there are some very fast disks available today, and all writes can be done asynchronously, so a response is always immediate, I don't want to build all application under a false premise, only to realize it isn't really a good way to do it. 
+ Here's my line of thought:
+- Since all writes are done asynchronously, and using a persistent data structure will enable not to invalidate the previous - and currently valid - structure, the write time isn't really a bottleneck.
+- There are some literature on structures like  this  that are exactly for disk usage. But it seems to me that these techniques will add more read overhead to achieve faster writes. But I think that exactly the opposite is preferable. Also many of these techniques really do end up with a multi-versioned trees, but they aren't strictly immutable, which is something very crucial to justify the persistent overhead.
+- I know there still will have to be some kind of locking when appending values to the database, and I also know there should be a good garbage collecting logic if not all versions are to be maintained (otherwise the file size will surely rise dramatically). Also a delta compression system could be thought about.
+- Of all search trees structures, I really think Red-Blacks are the most close to what I need, since they offer the least number of rotations. 
+ But there are some possible pitfalls along the way:
+- Asynchronous writes -could- affect applications that need the data in real time. But I don't think that is the case with web applications, most of the time. Also when real-time data is needed, another solutions could be devised, like a check-in/check-out system of specific data that will need to be worked on a more real-time manner.
+- Also they could lead to some commit conflicts, though I fail to think of a good example of when it could happen. Also commit conflicts can occur in normal RDBMS, if two threads are working with the same data, right?
+- The overhead of having an immutable interface like this will grow exponentially and everything is doomed to fail soon, so this all is a bad idea. 
+ Any thoughts? 
+ Thanks! 
+ edit:
+There seems to be a misunderstanding of what a persistent data structure is:
+ http://en.wikipedia.org/wiki/Persistent_data_structure 
+ 
+ If you find you are getting bottlenecked on write time, or that your durability guarantee is meaningless without synchronous writes (hmm...), you should do what most other databases do: implement a  Write-Ahead Log  (WAL), or a redo-log. 
+ Disks are actually pretty darn good at writing sequentially, or at least that's what they're best at. It's random writes (such as those in a tree) that are terribly slow. Even flash drives, which beat the hell out of disks for random writes, are still significantly better at sequential writes. Actually, even most RAM is better at sequential writes because there are fewer control signals involved. 
+ By using a write-ahead log, you don't have to worry about: 
+ 
+ Torn writes (you wrote half a tree image before the cat ate your power supply) 
+ Loss of information (you didn't actually get to persisting the tree, but Joe thinks you did) 
+ Huge performance hits from random, synchronous disk I/O. 
+ 
+ 
+ My thought is that you have a great idea. Now go build the darn thing. From everything you've written, it sounds like you're suffering from an acute case of  analysis paralysis .  
+ 
+ I know this question is a little old, but I've been implementing the almost the same thing and what I've found is that, being a binary tree means that the performance is terrible (due to the number of seeks). It is probably a much better idea to try to make a much broader persistent tree despite the extra space overhead. 
+ 
+ Interesting with someone likeminded :-) I have actually implemented a database that uses a persistant data structure as its data model. A type of persistent B2-tree, I suppose one could call it. Append-only storage to disk and garbage collection - not all history need to be kept forever. One can set a finite retain period to allow the database to forget about early history. 
+ See  http://bergdb.com/ 
+ 

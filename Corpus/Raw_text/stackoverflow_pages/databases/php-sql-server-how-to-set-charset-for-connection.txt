@@ -1,0 +1,84 @@
+*** php-sql-server-how-to-set-charset-for-connection ***
+
+ I'm trying to store some data in a SQL Server database through php. 
+ Problem is that special chars aren't converted properly. My app's charset is iso-8859-1
+and the one used by the server is windows-1252. 
+ Converting the data manually before inserting doesn't help, there seems to be some 
+conversion going on. 
+ Running the SQL query 'set char_convert off' doesn't help either. 
+ Anyone have any idea how I can get this to work? 
+ **EDIT:**
+ I have tried ini_set('mssql.charset', 'windows-1252'); as well, but no result with that one either. 
+ 
+ Client charset is necessary but not sufficient: 
+ 
+ I searched for two days how to insert UTF-8 data (from web forms) into MSSQL 2008 through PHP. I read everywhere that you can't, you need to convert to UCS2 first (like cypher's solution recommends).
+On Windows SQLSRV said to be a good solution, which I couldn't try, since I am developing on Mac OSX. 
+ However, FreeTDS manual (what PHP mssql uses on OSX) says to add a letter "N" before the opening quote: 
+ 
+ According to this discussion, N character tells the server to convert to Unicode.
+ https://softwareengineering.stackexchange.com/questions/155859/why-do-we-need-to-put-n-before-strings-in-microsoft-sql-server 
+ 
+ I suggest looking at the following points: 
+ 
+ Ensure that the columns that you're storing the information in are  **nchar**
+ or  **nvarchar**
+ as char and nvarchar don't support  **UCS-2**
+ (SQLServer doesn't store in UTF-8 format btw) 
+ If you're connecting with the  mssql library/extension  for PHP, run:   as there's no function with a charset argument ( connect, query  etc) 
+ Ensure that your browsers charset is also set to  **UTF-8**
+
+ 
+ 
+ I had the same problem and   did not work for me.
+However, it worked in uppercase: 
+ 
+ 
+ If you are using TDS protocol version 7 or above, ALL communications over the wire are converted to UCS2.  The server will convert from UCS2 into whatever the table or column collation is set to, unless the column is nvarchar or ntext.  You  can  store UTF-8 into regular varchar or text, you just have to use a TDS protocol version lower than 7, like 6.0 or 4.2.  The only drawback with this method is that you cannot query any nvarchar, ntext, or sys.* tables (I think you also can't do any CAST()ing) - as the server refuses to send anything that might possibly be converted to UTF-8 to any client using protocol version lower than 7. 
+ It is not possible to avoid converting character sets when using TDS protocol version 7 or higher (roughly equivalent to MSSQL 2005 or newer). 
+ 
+ If   doesn't help AND you don't have root access to modify the system wide   file, here's what you can do: 
+ **1.**
+ Set up    file: 
+ 
+ **2.**
+ Make sure your connection DSN is using the servername, not the IP: 
+ 
+ **3.**
+ Make FreeTDS to use your local freetds.conf file as an unprivileged user from php script via env variables: 
+ 
+ 
+ I've had luck in a similar situation (using a PDO ODBD connection) using the following code to convert the encoding before printing output: 
+ 
+ I had to manually set the source encoding, because it was erroneously being reported as 'ISO-8859-1' by  . 
+ My data was also being stored in the database by another application, so I might be in a unique situation, although I hope it helps! 
+ 
+ For me editing this file: 
+/etc/freetds/freetds.conf 
+...and changing/setting 'tds version' parameter to '7.0' helped. Edit your freetds.conf and try to change this parameter for your server configuration (or global). 
+ 
+It will work even without apache restart. 
+ 
+ In my case, It worked after I added the "CharacterSet" parameters into   connection's option. 
+ 
+ See documentation here :
+ https://docs.microsoft.com/en-us/sql/connect/php/connection-options?view=sql-server-2017 
+ 
+ I did not notice someone to mention another way of converting results from MSSQL database. The good old   function: 
+ 
+ In my case everything else failed to provide meaningful conversion, except this one when getting the results. Of course, this is done inside the loop of parsing the results of the query - from CP1251 to UTF-8: 
+ 
+ Ugly, but it works. 
+ 
+ Can't you just convert your tables to your application encoding? Or use utf-8 in both? 
+ I don't know whether MSSQL supports table-level encodings, though. 
+ Also, try the MB (multibyte) string functions, if the above fails. 
+ 
+ You should set the charset with  ini_set('mssql.charset', 'windows-1252')  before the connection. If you use it after the  mssql_connect  it has no effect. 
+ 
+ Just adding   didn't help me in my case. I had to specify the UTF-8 character set on the column: 
+ 
+ 
+ You can use the mysql_set_charset function:
+ http://it2.php.net/manual/en/function.mysql-set-charset.php 
+ 

@@ -1,0 +1,57 @@
+*** sql-server-partitioned-tables-vs-clustered-index ***
+
+ Let's assume you have one massive table with three columns as shown below: 
+ 
+ Also assume you are limited to one physical disk and one filegroup (PRIMARY).  You expect this table to hold sales for 10,000,000+ ids, across 100's of dates (easily 1B+ records). 
+ As with many data warehousing scenarios, the data will typically grow sequentially by date (i.e., each time you perform a data load, you will be inserting new dates, and maybe updating some of the more recent dates of data).  For analytic purposes, the data will often be queried and aggregated for a random set of ~10,000 ids which will be specified via a join with another table.  Often, these queries don't specify date ranges, or specify very wide date ranges, which leads me to my question:  What is the best way to index / partition this table? 
+ I have thought about this for a while, but am stuck with conflicting solutions: 
+ **Option #1:**
+  As data will be loaded sequentially by date, define the clustered index (and primary key) as [date], [id].  Also create a "sliding window" partitioning function / scheme on date allowing rapid movement of new data in / out of the table.  Potentially create a non-clustered index on id to help with querying. 
+ **Expected Outcome #1:**
+  This setup will be very fast for data loading purposes, but sub-optimal when it comes to analytic reads as, in a worst case scenario (no limiting by dates, unlucky with set of id's queried), 100% of the data pages may be read. 
+ **Option #2:**
+  As the data will be queried for only a small subset of ids at a time, define the clustered index (and primary key) as [id], [date].  Do not bother to create a partitioned table. 
+ **Expected Outcome #2:**
+  Expected huge performance hit when it comes to loading data as we can no longer quickly limit by date.  Expected huge performance benefit when it comes to my analytic queries as it will minimize the number of data pages read. 
+ **Option #3:**
+ Clustered (and primary key) as follows: [id], [date]; "sliding window" partition function / scheme on date. 
+ **Expected Outcome #3:**
+ Not sure what to expect.  Given that the first column in the clustered index is [id] and thus (it is my understanding) the data is arranged by ID, I would expect good performance from my analytic queries.  However, the data is partitioned by date, which is contrary to the definition of the clustered index (but still aligned as date is part of the index).  I haven't found much documentation that speaks to this scenario and what, if any, performance benefits I may get from this, which brings me to my final, bonus question: 
+ If I am creating a table on one filegroup on one disk, with a clustered index on one column, is there any benefit (besides partition switching when loading the data) that comes from defining a partition on the same column? 
+ 
+ This table is awesomely narrow.  If the real table will be this narrow, you should be happy to have table scans instead of index->lookups. 
+ I would do this: 
+ 
+ This handles point queries with seeks and wide-range queries with limited scans against date criteria and id criteria.  There is no per-record lookup from index.  Yes, I've doubled the write time (and space used) but that's fine, imo. 
+ 
+ If there's some need for a specific piece of data (and that need is  **demonstrated by profiling**
+!!), I'd create a clustered view targetting that section of the table. 
+ 
+ Clustered views can be used in queries by name, or the optimizer will choose to use the clustered views when the FROM and WHERE clause are appropriate.  For example, this query will use the clustered view.  Note that the base table is referred to in the query. 
+ 
+ As  index  lets you make specific columns conveniently accessible...  Clustered view  lets you make specific rows conveniently accessible. 
+ 
+ A clustered index will give you performance benefits for queries when localising the I/O.  Date is a traditional partitioning strategy as many D/W queries look at movements by date. 
+ A rule of thumb for a partitioned table suggests that partitions should be around 10m rows in size. 
+ It would be somewhat unusual to see much performance gain from a clustered index on a diverse analytic workload.  The query optimiser will use a technique called  'Index Intersection'  to select rows without even hitting the fact table.  See  Here  for a post I did on another question that explains this in more depth with some links.
+A clustered index may or may not participate in the index intersection, so you may find that it gains you relatively little on a general query workload.   
+ You may find circumstances in loading where clustered indexes give you some gain, particularly if you have derived calculations (such as  Earned Premium ) that are computed within the ETL process.  In this case you may get some benefits.  If you have a specific query that you know will be executed all the time it might make sense to use clustered indexes for this.  Options #2 and #3 are only going to significantly benefit you if you expect this type of query to be the overwhelming majority of the work done by the application. 
+ For a flexible system, a simple date range partition with an index on the ID (and date if the partitions hold a range would probably get you as good a performance as any.  You might get some benefit from clustering the index limited circumstances.  You might also get some mileage from building a cube over the data and ensuring that the aggregations are set up correctly for this query.   
+ 
+ If you are using the partitions in the select statements, then you cn gain some speed. 
+ If you are not using it, only using "standard" selects, then you have no benefit. 
+ On your original problem: I would recommend you option #1 with the non-clustered index on id included. 
+ 
+ I would do the following: 
+ 
+ Non-Clustered Index on [Id] 
+ Clustered Index on [Date] 
+ Convert the [sales] datatype to numeric instead of float 
+ 
+ 
+ Partition the table by date. Several horizontal partitions will be more performant than one large table with that many rows.  
+ 
+ Clustered index on the date column isn't good if you'll have inserts that will be inserted faster that the datetime resolution of 3.33 ms is.
+if you do you'll get 2 keys with the same value and your index will have to get another internal uniquifier which will increase its size. 
+ i'd go with #2 of your options. 
+ 

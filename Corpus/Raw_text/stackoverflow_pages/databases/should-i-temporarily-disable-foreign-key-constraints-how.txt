@@ -1,0 +1,36 @@
+*** should-i-temporarily-disable-foreign-key-constraints-how ***
+
+ I have two tables: 
+ 
+ (They have a lot more columns than that, but the rest aren't relevant to the question.) 
+ The problem is, I want to cascade-delete a   when its tenant   is deleted. But when the tenant and the customer are the same person, the   foreign key constraint will restrict deletion. 
+ My question has two parts: 
+ 
+ Is temporarily disabling the second foreign key my only option? 
+ If so, then how do I do that in PostgreSQL? 
+ 
+ 
+ Effectively you create a  race condition  with contradicting rules. 
+ My first impulse was to check whether a   constraint would help. But it makes sense that it  doesn't make any difference. 
+ I found that the FK constraint that comes  **first in the **
+ script is the winner of this race. If the   comes first, the delete is cascaded, if   comes first, the operation is aborted. 
+ Consider the demo on  **SQL Fiddle**
+. 
+ This seems to correlate with a smaller   in the catalog table  : 
+ 
+ But your feedback indicates, this is not the cause. Maybe   decides the race. Either way, as long as it is not documented behavior you cannot rely on it to stay that way in the next major version. Might be worth to post a question on pgsql-general@postgresql.org. 
+ Independent from all that, you need to consider other rows: even if   would go through for a row in   that has both   and   pointing to a  , it will still be restricted if any row has only   referencing  . 
+Another  SQL Fiddle  demonstrating the case. 
+ **How to disable the constraint?**
+
+ Your best bet is to drop and recreate it. Do it all inside a transaction to make sure you don't corrupt referential integrity. 
+ 
+ This locks the table exclusively and is not fit for routine use in a multi-user environment. 
+ How did I know the  name  of the constraint? I took it from   as demonstrated above. Might be easier to use an explicit constraint name to begin with: 
+ 
+ 
+ There is also  
+ 
+ More in the manual here . But that would disable  all  triggers. I had no luck trying to disable only the trigger created by the system to implement a single FK constraint. 
+ Other alternatives would be to implement your regime with  triggers  or  rules . That would work just fine, but those are not enforced as strictly as foreign keys. 
+ 

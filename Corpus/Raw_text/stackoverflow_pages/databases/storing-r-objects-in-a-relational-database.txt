@@ -1,0 +1,61 @@
+*** storing-r-objects-in-a-relational-database ***
+
+ I frequently create nonparametric statistics (loess, kernel densities, etc) on data I pull out of a relational database. To make data management easier I would like to store R output back inside my DB. This is easy with simple data frames of numbers or text, but I have not figured out how to store R objects back in my relational database. So is there a way to store a vector of kernel densities, for example, back into a relational database?  
+ Right now I work around this by saving the R objects to a network drive space so others can load the objects as needed.  
+ 
+ Use the serialization feature to turn any R object into a (raw or character) string, then store that string. See  . 
+ Reverse this for retrieval:  get the string, then   into a R object. 
+ 
+ An example R variable, that's fairly complex: 
+ 
+ The best storage database method for R variables depends upon how you want to use it. 
+ **I need to do in-database analytics on the values**
+
+ In this case, you need to break the object down into values that the database can handle natively.  This usually means converting it into one or more data frames.  The easiest way to do this is to use the   package. 
+ 
+ 
+ **I just want storage**
+
+ In this case you want to serialize your R variables.  That is, converting them to be a string or a binary blob.  There are several methods for this. 
+ 
+ **My data has to be accessible by programs other than R, and needs to be human-readable**
+
+ You should store your data in a cross-platform text format; probably JSON or YAML. JSON doesn't support some important concepts like  ; YAML is more general but the support in R isn't as mature.  XML is also possible, but is too verbose to be useful for storing large arrays. 
+ 
+ 
+ **My data has to be accessible by programs other than R, and doesn't need to be human-readable**
+
+ You could write your data to an open, cross-platform binary format like HFD5.  Currently support for HFD5 files (via  ) is limited, so complex objects are not supported.  (You'll probably need to   everything.) 
+ 
+ The   package let's you save data frames in a format readable by both R and Python.  To use this, you would first have to convert the model object into data frames, as described in the broom section earlier in the answer. 
+ 
+ Another alternative is to save a text version of the variable (see previous section) to a zipped file and store its bytes in the database. 
+ 
+ 
+ **My data only needs to be accessible by R, and needs to be human-readable**
+
+ There are two options for turning a variable into a string:   and  . 
+ 
+  needs to be sent to a text connection, and rather than writing to file, you can write to the console and capture it. 
+ 
+ Use   with   to maximise the reversibility when re-parsing later. 
+ 
+ 
+ **My data only needs to be accessible by R, and doesn't need to be human-readable**
+
+ The same sorts of techniques shown in the previous sections can be applied here.  You can zip a serialized or deparsed variable and re-read it as a raw vector. 
+  can also write variables in a binary format. In this case, it is most easily used with its wrapper  . 
+ 
+ 
+ For   (and possibly others): 
+ 
+ Now in  : 
+ 
+ Note the   wrapper around  . The output of   is a raw vector. Without  , the INSERT statement would be executed for each vector element. Wrapping it in a list allows   to see it as one element.   
+ To get the object back from the database: 
+ 
+ What happens here is you take the field   (which is a list since RSQLite doesn't know how many rows will be returned by the query). Since   assures only 1 row is returned, we take it with  , which is the original raw vector. Then you need to   the raw vector to get your object.   
+ 
+ Using textConnection / saveRDS / loadRDS is perhaps the most versatile and high level:  
+ 
+ 

@@ -1,0 +1,45 @@
+*** when-to-create-a-new-sql-server-index ***
+
+ Obviously (methinks), creating an index on a   column is unnecessary. However, if you had a column that you need to search in which every value is likely unique, like   or   or something, then an index seems appropriate (again, methinks). 
+ But what's the cutoff? What if you expect 10,000 rows and you'll have about 20 unique values among them. Should an index be created? 
+ Thanks in advance. 
+ 
+ The best answer to this is to profile your queries and see if the index improves your queries. The difficulty in answering this is that it is nearly impossible to generalize the behavior of the query optimizer. 
+ That said, a rule-of-thumb is if your selectivity is 10% or less on a given query on a table, then you will most likely benefit from an index. So in your example, you  might  benefit from an index if your values are evenly distributed. However, considering that your table is small, so your performance boost might be negligible. 
+ This is not a hard and fast rule as there are a lot of factors that can change the 10% number, including the use of a clustered or other index types, size of the rows, if some columns not inline, query structure, etc. 
+ Also keep in mind there is a significant performance penalty for inserting into a table with an index. If this table is frequently updated or appended, the speed boost from the index may be negated by the slower inserts and updates. 
+ See the MSDN article on  Tablescan vs Index access . 
+ Edit: As others have pointed out, your query may benefit from an index if you are performing aggregation queries, such as counting the number of times a particular value appears. You may also benefit if you frequently sort on a particular column. 
+ 
+ James hit the nail on the head. I'll just add that even a bit column might benefit from an index depending on how you are using the table. For example, if you need to count the number of rows that have a 1 many times throughout the day, an index there could be useful. Indexes aren't always about finding a single record - they can also be used for aggregations. 
+ 
+ Indexes with low cardinality are very problematic. If there are only several possible values, SQL Server almost always index-scans, no matter what the proportions. 
+ Example: I've had a table with a State field that only accepted the values "A", "N", and "R" (for Active, New, and Retired.) Typically you'd approach a condition where 95% were "R", 4+% were "A", and a few were "N". SELECT WHERE state = 'N' would table-scan, no matter what. 
+ BUT - there's a newish index type called a  Filtered Index,  which finally handles this condition. It's also handy when you want to exclude records with NULL values. 
+ 
+ In the column you suggest, there would be rationale to create a reference or lookup table for the data to avoid data redundancy. This would make your column a foreign key, pointing towards the PK of the new lookup table. 
+ All foreign key columns should be indexed. 
+ Otherwise, I would avoid placing an index under normal conditions on such a column. 
+ 
+ 
+ creating an index on a   column is unnecessary. 
+ 
+ You'd be suprised. 
+ I've had to create an index involving a bit column for a query like: 
+ 
+ There were about 300,000 rows in the table though. 
+ 
+ I would say it all depends on how the table is being used and the overall system requirements.  For example, if it's part of a large JOIN and the parent is a huge report type table then you'd want the index for sure.  If it's relatively small in comparison to your other tables in the database, and it's heavily inserted and rarely read, then an index is likely not desired.  
+ But, scope of operation amongst the entire database versus available resources to be allocated is the key decision factor.  It's how this table + possible index behaves in the entire system versus all of your other tables and their requirements.  If you don't keep the big picture in mind you could kill the whole system by trying to apply some arbitrary rule simply for the sake of applying an arbitrary rule.  
+ 
+ You should also carefully examine your indexes if you start experiencing deadlocks among queries, usually between a SELECT and an INSERT/UPDATE. A poorly chosen index can contribute to deadlocks, as can not having an index at all. See  this knowledge base  article for additional information. Usually, adding an index or modifying its included columns will help resolve such deadlocks. Be sure to examine the query plan of the affected queries. 
+ 
+ one of the best way is use that mvp views in SQL Server
+i sugest dont restart your server for one week and then run this query : 
+ 
+ then verify your tables and create requerd index. 
+ 
+ There are good answers already posted here... Just adding my two cents.... Execute the Missing Index   and see whether the table that you mentioned is listed as a candidate for creating new index and see the definition of the index. 
+ From  Are you using SQL's Missing Index DMVs? 
+ 
+ 

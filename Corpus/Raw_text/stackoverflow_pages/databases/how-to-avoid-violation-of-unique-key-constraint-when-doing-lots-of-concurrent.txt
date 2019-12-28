@@ -1,0 +1,54 @@
+*** how-to-avoid-violation-of-unique-key-constraint-when-doing-lots-of-concurrent ***
+
+ I am performing MANY concurrent SQL   statements which are colliding on a UNIQUE KEY constraint, even though I am also checking for existing records for the given key inside of a single transaction. I am looking for a way to eliminate, or minimize, the amount of collisions I am getting without hurting the performance (too much). 
+ **Background:**
+
+ I am working on an ASP.NET MVC4 WebApi project which receives A LOT of HTTP   requests to   records. It gets about 5K - 10K requests a second. The project's sole responsibility is de-duplicating and aggregating records. It is very write heavy; it has a relatively small amount of read requests; all of which use a Transaction with  . 
+ **Database schema**
+
+ Here is the DB table: 
+ 
+ **Repository Code**
+
+ Here is the code for the   method which is causing the Exception: 
+ 
+ **The Problem**
+
+ When the server is under heavy enough load, I am seeing many of these Exceptions occurring: 
+ 
+ Violation of UNIQUE KEY constraint 'UQ_MySchemaRecords_UserIdRecordTypeOtherId'. Cannot insert duplicate key in object 'MySchema.Records'. The duplicate key value is (1234567890, 1, 123). The statement has been terminated.  
+ 
+ This Exception occurs often, as many as 10 times in a minute. 
+ **What I have tried**
+
+ 
+ I tried changing the   to  . The Exception occured much less often but still occured. Also, the performance of the code suffered greatly; the system could only handle 2K requests a second. I suspect that this decrease in throughput was actually the cause of the reduced Exceptions so I concluded that this didn't solve my problem. 
+ I have considered using the    Table Hint  but I don't fully understand how it cooperates with isolation levels or how to apply it to my code. It does seem like it might be the best solution though, from my current understanding. 
+ I also tried adding the initial   statement (for existing records) to be part of the   statement, like shown  here  but this attempt still had the same problem. 
+ I tried implementing my   method by using the SQL   statement but this also suffered from the same problem. 
+ 
+ **My Question(s)**
+
+ 
+ Is there anything I can do to prevent this type of   key constraint collisions? 
+ If I should be using the   table hint (or any other table hint for that matter), how would I add that to my code? Would I add it to the  ? The  ? Both? 
+ 
+ 
+ Make the validating read take a lock: 
+ 
+ This serializes accesses on a single key, allowing for concurrency on all others. 
+ 
+  ( =  ) protects a range of values. This ensures a row that doesn't exist continues to not exist so the   succeeds. 
+  ensures any existing row is not changed or deleted by another concurrent transaction so the   succeeds. 
+   encourages  the engine to take a row-level lock. 
+ These changes  may  increase the chances of a deadlock. 
+ 
+ It may be faster to permit and suppress the errors in your scenario than to attempt to eliminate them. If you're consolidating multiple sources synchronously with overlapping data you will need to create a bottleneck somewhere to manage the race condition.  
+ You could create a singleton manager class that held the unique constraints of the records in a hashset so you would automatically drop duplicates when they're added to the set. Records get added prior to submitting to the DB and removed upon statement completion. That way either the hashset eats the duplicate or the existing record check you do at the top of your try detects the committed duplicate record. 
+ 
+ AFAIK, the only solution is to check for duplication before  . It demands at least one round-trip to DB results in poor performance. 
+ You can do   on a table and hold the lock to prevent other parallel threads to   and getting the same value. Here is the detailed solution:  Pessimistic locking in EF code first 
+ **PS**
+:
+Based on Aron's comment and it's nice work-around, I should say my proposed solution is based on this assumption that you don't want to use buffer or queue. 
+ 

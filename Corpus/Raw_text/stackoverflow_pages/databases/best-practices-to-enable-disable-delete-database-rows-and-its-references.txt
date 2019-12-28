@@ -1,0 +1,59 @@
+*** best-practices-to-enable-disable-delete-database-rows-and-its-references ***
+
+ What are the best practices for handling deletion or enabling/deletion of rows and its referenced tables? 
+ For instance, assume I have a very simple kind of 'forum' app.  
+ I have a table   that contains my webapp accounts and   that contains threads users create, and a table   that contains comments users comment on threads. 
+ Now, say that at the moment of the registration I want to verify a user's email before activating its account. What it the best way to do this? What are best practices? Maybe through a view that gives back only the rows with a field  ? Using 2 separated tables like   (that contains users still to be verified) and   (the verified ones)? 
+ Similarly, how would you handle a user that wants to suspend its account? And its threads and comments? Would you add another flag  , and update the view to take that flag into consideration? And if it is not a view, but 2 separate tables, how could I handle the references? 
+ Also, deleting a thread. Assume that on thread deletion I don't want the thread to be actually deleted, because I don't want users that posted comments to suddenly not see their comments. How would deal with this? 
+ What are the best practices for these kind of problems? 
+ 
+ For tables in which the active status doesn't influence uniqueness (for example, users are identified by a username or email address, there's no possibility of having active and inactive versions of the same thing) I use a nullable datetime field to represent a status. For example, for your users table, I'd have a verified_at column which is set to null initially and to the current date/time when the user verifies their account. The same can be done for user account suspension. If a user reactivates their account, we just set the suspended_at field to null. 
+ If you need more status values than a simple yes/no, I would use separate fields for the status value and date/time changed. 
+ If you want to track the history of updates (e.g. activations/suspensions), it's better to do that in a separate table. In this case, you can reference the current activation record from the users table, which will work more effectively with the table's indexes than querying on the status columns. 
+ In some cases, the status affects uniqueness. For example, in a forum a user might be able to store any number of signatures or avatars, but only one may be active at a time. In these cases it's better to separate the current data from the historical data. For example, a table for signatures, and in the users table a foreign key to reference the active signature.  **You should be able to update the status for any row without concern for the values in other rows.**
+
+ Avoid cascading statuses, they destroy the previous states of child items and make the use of status fields almost pointless in many cases. Rather, join with parent tables when querying to filter against the top-level status. 
+ Finally, statuses in data are a step in the direction of temporal data modeling. I recommend reading up on the subject. 
+ 
+ You probably need to work through your business requirements in more detail before we can answer all the variations on this. 
+ In general, as you debated with @reaanb in the comments, I wouldn't worry about performance of joins - modern hardware and modern databases can handle huge numbers of records. 
+ I would also focus on modelling the problem in the relational model, and not worry about "but isn't it more complex to include this check". Focus on intelligibility (how close is the design to the requirement?). I really don't like using views to capture these things, because they make change harder when the underlying business requirements change. 
+ In my experience, the biggest question you need to answer is "do the business requirements care about change over time"?  
+ If the answer is "no", then you can use whatever status flags make sense. For instance, on the user table, you might have a status column with "registered/validated/de-activated/deleted". This is relatively simple to code - but you can't easily answer questions like "on which date was this de-activated user validated?", or "what was the status of the user who posted this comment when they posted it". 
+ If the requirements do care about time, the model I like is to add "valid_from" and "valid_until" to the rows that need to understand time. The "current" row has a   valid_until column. This allows you to understand the state of your data at any point in time - but it does make your queries more complex, especially if you join across multiple tables.   
+ However, it means - for instance - that you can allow a user who is not yet validated to post comments, but to hide those comments until they validate their account.  
+ It also means you can create reports showing how many users in each status you had for each date in the past, how many inactive users re-activate etc. 
+ By adding "valid_from" and "valid_until" to your "posts" table, you can include versioning - perhaps you want to show that a comment was posted on an old version of the post? 
+ Finally, in some complex applications, I've used a  finite state machine  to manage the valid transitions between statuses. This may be overkill for your system. 
+ 
+ **Status Pattern in Data Modeling**
+  
+In this type of conditions we can use a pattern that I named it  **Status Pattern in Data Modeling**
+. 
+ Assume that we have an entity with many  **Status**
+. For example a   entity, that has  ,  ,  ,   and etc.  
+ For another example, a user   (like Stackoverflow posts) have many  **Status**
+ like  ,  ,  ,  ,   and etc.  
+ Assume that we want to model  **statuses**
+ for   entity. In this case, we can use an entity to hold all status types (like  ,  ,  ,  ). We can named it   and put all user status types in it.  
+ So, the another entity needs to hold any user statuses. Let me named it  . It has F.Ks of   and  .  
+ With this pattern we can save all statuses of users.  
+ **To improve the pattern**
+, we can have F.K of   in   that shows user final status. (note that this is not Cycling Dependency Trap) 
+ **Question 1**
+: If the entity has two different types of statuses?  
+In this case should use to times of this pattern. 
+ **Question 2**
+: If status of child entity (any entity that has F.K from this entity) is depend on entity's status?  
+For example, if we want to  **NOT**
+ display comments of deleted user. In this case we have two options: 
+ **Option 1**
+: We can write a triggers on user status change. If user status changed to deleted, then our trigger changes all user comments status to deleted too. 
+ **Option 2**
+: In this option, a comment status will not change.  **But**
+, we can use extra condition in our select commands on comments and show the comments that their parent status is normal.  
+ **Question 3**
+: If the sequence of status changes is important and we want to model them in our data model.  
+In this case, we can add a new entity named   that have 2 F.Ks from   as source and target. Meaning that source status can be changed to target status. So, we can select sequence validity from database and then perform it into our database.   
+ 

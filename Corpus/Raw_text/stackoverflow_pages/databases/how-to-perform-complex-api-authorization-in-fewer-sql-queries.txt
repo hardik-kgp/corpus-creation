@@ -1,0 +1,94 @@
+*** how-to-perform-complex-api-authorization-in-fewer-sql-queries ***
+
+ I'm trying to add an authorization layer to an API, and the current design I have results in more SQL queries than it feels like should be required, so I'm wondering how I can simplify this. 
+ **Context**
+
+ Here's the database schema for this piece of the problem: 
+ 
+ And the API endpoint in question is  , which returns all of the teams a user is a member of. Here's what the controller for that route looks like: 
+ (Note: all of this is Javascript, but it's been sort of pseudocode'd for clarity.) 
+ 
+ Those four asynchronous functions are the core logical steps that need to happen for the authorization to be "complete". Here's what each of those functions roughly looks like: 
+ 
+  simply checks whether a user by that   even exists in the database, and throws the proper error code if not. 
+  is just pseudocode for running a SQL query with escaped variables. 
+ 
+  ensures that either the current user is the one making the request, or that the current user is a teammate of the user in question. Anyone else should not be authorized to find the user in question. In my real implementation, it's actually done with   that have associated  , so that a teammate can   but can't   unless they are an own. But I simplified that for this example. 
+ 
+  will actually query the database for the teams objects. 
+ 
+  will return only the teams that a given user should see. This is needed because a user should be able to see all of their teams, but teammates should only be able to see their teams in common, so as to not leak information. 
+ **Problems**
+
+ One of the requirements that led me to break it up like this is that I need a way to throw those specific error codes, so that the errors returned to API clients are helpful. For example, the   function runs before the   function so that not everything errors with a  . 
+ Another, that's not well communicated here in pseudocode, is that the   can actually be an   (a third-party client), a   (an access token that pertains to the team itself) or a   (the common case). This requirement makes it difficult to implement the   or the   function as single SQL statements, since the logic has to be forked three ways... In my implementation, both functions are actually switch statements around the logic for handling all three cases—that the requester is an  , a   and a  . 
+ But even given those constraints, this feels like a lot of extra code to write to ensure all of these authentication requirements. I'm worried about performance, code maintainability, and also about the fact that these queries aren't all in single transactions. 
+ **Questions**
+
+ 
+ Do the extra queries meaningfully affect performance? 
+ Can they be combined into fewer queries easily? 
+ Is there a better design for the authorization that simplifies this? 
+ Does not using transactions pose problems? 
+ Anything else you'd change? 
+ 
+ Thanks! 
+ 
+ I made it a function and simplified the tables just to be easier to test.  SQL Fiddle . I'm making assumptions since some of the rules are embedded in the javascript pseudo code which I do not quite understand. 
+ 
+ Returns all current user's teams plus the the user common teams: 
+ 
+ When the user does not exist it returns the  **first**
+ line containing nulls plus all current user's teams: 
+ 
+ When the current user does not exist then an empty set: 
+ 
+ 
+ Your intent/requirement to reflect details about the failure to the user showing different errors is a major reason for not joining the queries into fewer ones.  
+ For answering your explicit questions: 
+ 
+ This really depends on the number of rows with the tables. For performance you should go and measure the timings of the queries. This really can't be judged from the queries (alone). Usually queries with "column=VALUE" have a good chance to be performing OK, given the table is small or there is a proper index in place. 
+ 
+ Given the queries you showed, combining would be possible. This will likely loose the distinction of the actual cause of the auth failure (or add extra complexity to the query). However, you already stated the real queries are likely a bit more complex.
+Combining several tables and (supposedley) lots of alternatives (ORs, UNIONs needed to cover the variants) might cause the query optimizer to no longer find a good plan.
+So, as you are concerned with performance, combining the queries might 
+have a negative effect on overall performance (subject to measurement as usual). The overall performance also couls sufffer as you then have less queries running in parallel. (Which only is a benefit as long as the number of parallel requests really is low). 
+ 
+ This can't be answered based on the few criteria presented that led to this design. We would need input about what needs to be achieved and what the musts and shouds of the security strategy are. In some case e.g. you might get by with using row level security available from PG asof version 9.5. 
+ 
+ Yes, not having transactions could lead to inconsistent decision results as soon as there are changes to your authorisation tables while queries are being executed. E.g. consider a user is being removed and the canFindTeam is completed before the exists query, or similar race conditions. 
+ Those effects need not necesarily be harmful, but they definitely exist.
+PFor getting a clearer picture on this, please consider the possible modifications (Insert, delete, update) on the auth tables and the effect on your auth queries (and do not assume the queries are executed in order - you are running the async!) and the final decision and return to the user. If all of these results are not exhiiting a risk then you may stick with not using transactions.
+Otherwise using transactions is strongly recommended. 
+ 
+ From a security perspective giving details about a failure is a bad thing to do.
+So you should really always return a "not authorized" on failure or just return an empty result (and only log the detailed reasult of the checks for analysis or debug). 
+ 
+ I might (and probably am) over simplifying this, but lets start with simplified clarification. You want information for a specific user, and whatever teams they MAY be affiliated with.  By starting with a given user, you will ALWAYS get at least the user components if it is a valid user in question.  Only IF there is a membership record and a corresponding team will you get all the team information that this one person is directly associated with.  If this query returns NO records, then the user ID is invalid to begin with, and you can respond accordingly with 0 records. 
+ 
+ So this is going from the user to the membership to the teams that one person IS directly associated with and has no bearing on another person.  I was not seeing where this "other person" reference was coming from which restricts showing details only for the common teams.  So, until further clarification, I will expand this answer and take it another level down to get all memberships of another user and they share the same team... Basically by reversing the nesting of tables on common membership / team back to the user table.       
+ 
+ I hope this makes sense, and let me clarify the re-join to memberships as m2.  If person "A" has a membership to teams "X", "Y" and "Z", then I want to join the memberships table by the SAME TEAM -- AND Some Other Person ID.  IF one such entry DOES exist, go to the user's table again (alias u2) and grab the teammate's name and email. 
+ If there are 50 teams available, but person "A" is only applicable to 3 teams, then it is only looking for other POSSIBLE members of those 3 teams AND the user on the secondary (m2 alias) membership table is that "other" person's ID. 
+ 
+ I wanted to summarize a few things after having thought about the problem some more and implemented a solution... @rpy's answer helped a lot, read that first! 
+ There are a few things that are inherent to the authorization code and the database querying code that allow for a better, more future-proof design that lets you get rid of two of those queries. 
+ **404's not 403's**
+
+ The first problem, which @rpy alluded to, is that for security purposes, you don't want to show users who aren't authorized to find an object a 403 response, since it leaks information. Instead, all errors like   that are thrown from the code should be remapped (however you want to make that happen) to  . 
+ With that in place, it's also pretty easy to change the authorization code to not fail when a   object doesn't exist in the first place. (Actually, in my case my authorization code was already structured this way). 
+ That lets you get rid of the   check—one query down. 
+ **Think About Pagination**
+
+ The second problem is a future problem: what will happen when you decide to add pagination to your API later? With my example code, pagination would be very hard to implement since "querying" and "masking" were separate, such that doing things like   becomes near impossible to do correctly. 
+ For this reason, although the masking code might get complex, you have to include it in your original   query, to allow for pagination   and   clauses. 
+ One more query down. 
+ **2 is Better than 1**
+
+ After all of that, I don't think I'd want to combine the last two queries into a single query, because the separation of concerns between them is very useful. Not only that, but if someone isn't authorized to access an object, the current setup will fail fast without the chance that it negatively impacts database load by having to do unnecessary work. 
+ With all of that you'd end up with something along the lines of: 
+ 
+  will perform the authorization, and by providing   in addition to   it will ensure that unauthorized looks return  s.  
+  will perform the lookups, and by passing it   it can also incorporate the necessary masking logic. 
+ Hope that all helps anyone else who's wondering about this! 
+ 

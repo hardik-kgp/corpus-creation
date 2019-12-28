@@ -1,0 +1,39 @@
+*** liquibase-lock-reasons ***
+
+ I get this when running a lot of liquibase-scripts against a Oracle-server. SomeComputer is me. 
+ 
+ Could it be that the number of simultaneous sessions/transactions are reached? Anyone has any ideas? 
+ 
+ Sometimes if the update application is abruptly stopped, then the lock remains stuck. 
+ Then running 
+ 
+ against the database helps. 
+ Or you can simply drop the   table, it will be recreated. 
+ 
+ It's possibly due to a killed liquibase process not releasing its lock on the DATABASECHANGELOGLOCK table. Then, 
+ 
+ might help you. 
+ **Edit:**
+ @Adrian Ber's answer provides a better solution than this. Only do this if you have any problems doing his solution. 
+ 
+ The problem was the buggy implementation of SequenceExists in Liquibase. Since the changesets with these statements took a very long time and was accidently aborted. Then the next try executing the liquibase-scripts the lock was held. 
+ 
+ A work around is using plain SQL to check this instead: 
+ 
+ Lockdata is stored in the table DATABASECHANGELOCK. To get rid of the lock you just change 1 to 0 or drop that table and recreate. 
+ 
+ It is not mentioned which environment is used for executing Liquibase. In case it is Spring Boot 2 it is possible to extend   without the need to run direct SQL statements which is much cleaner. E.g.: 
+ 
+ The code is enforcing the release of the lock. This can be useful in test set-ups where the release call might not get called in case of errors or when the debugging is aborted. 
+ The class must be placed in the   package and will be picked up by the Spring Boot 2 auto configuration. 
+ 
+ Sometimes truncating or dropping the table DATABASECHANGELOGLOCK doesn't work. I use PostgreSQL database and came across this issue a lot of times. What I do for solving is to rollback the prepared statements running in background for that database. Try to rollback all the prepared statements and try the liquibase changes again. 
+ SQL: 
+ 
+ If above statement returns any record, then rollback that prepared statement with following SQL statement. 
+ 
+ 
+ I appreciate this wasn't the OP's issue, but I ran into this issue recently with a different cause. For reference, I was using the Liquibase Maven plugin (liquibase-maven-plugin:3.1.1) with SQL Server. 
+ Anyway, I'd erroneously copied and pasted a SQL Server "use" statement into one of my scripts that switches databases, so liquibase was running and updating the  , acquiring the lock in the correct database, but then switching databases to apply the changes. Not only could I NOT see my changes or liquibase audit in the correct database, but of course, when I ran liquibase again, it couldn't acquire the lock, as the lock had been released in the "wrong" database, and so was still locked in the "correct" database. I'd have expected liquibase to check the lock was still applied before releasing it, and maybe that is a bug in liquibase (I haven't checked yet), but it may well be addressed in later versions! That said, I suppose it could be considered a feature! 
+ Quite a bit of a schoolboy error, I know, but I raise it here in case anyone runs into the same problem! 
+ 

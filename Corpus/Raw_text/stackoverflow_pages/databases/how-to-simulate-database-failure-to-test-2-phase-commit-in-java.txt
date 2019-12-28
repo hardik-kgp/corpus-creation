@@ -1,0 +1,43 @@
+*** how-to-simulate-database-failure-to-test-2-phase-commit-in-java ***
+
+ I am implementing a 2-phase commit involving distributed resources. How do I simulate the failure of a participating database ? Pulling out the network cable doesn't work as it causes table deadlock. I am currently using hooks in my application code which throw   at different points like before query execution, after query execution. My concern with this approach is: 
+ 
+ Is there a better way to simulate the DB failure? 
+ What happens to the connection object when DB connection goes bad? Does it retain its value or does it become null? 
+ What actually happens when application tries to reconnect to DB?What value does connection object get?Does it use an existing value from the connection pool?  
+ 
+ I would also like to test at intermediate points like during query execution, during commit (after  prepare  is sent, etc). Right now I put application into debug mode and step into the function call and pull the plug in between. But this approach is manual and won't work for a scale testing. 
+ Is there a simulator/emulator or tool which can help me do this? 
+ 
+ That's a lot of questions :) I will try to complete the previous answers.  
+ 
+ 
+ 
+ Testing all cases is complicated. One way to test the main cases would be to create a JCA connector (a DB driver  is  is a JCA connector). You can obtain connections from the connector that will be enlisted in the transaction (a third participant). The connection can then raise certain errors.  
+ There are three parts that work together: (1) the application, (2) the app. server's transaction manager, and (3) the jca connector (so-called resource adapter).  
+ 
+ The connection hooks itself into the transaction via  . With a custom jca connector you can then raise exception to the application (  in the picutre) or the application server's transaction manager (  obtained via the   in picture). You can notably throw exception during   and  , that corresponds to errors  during  the 2 phase commit.   
+ Note that it is hard to control the order of enlisment of the participants (see  this question ). So it easy to test that one of the   fails (namely yours), but it's hard to control the order in which they are called. Reproducing all possible invalid states of 2 phase commit is complicated, especially when taking optimization into play.  
+ (I wrote once a JCA connector ( http://code.google.com/p/txfs ) and there are others around, if you want sample code.)  
+ 
+ 
+ 
+ The   can notify to the transaction manager. One of the notification is   that informs it that an error occurred when using this particular connection. 
+ As noted in other answer, there is normally one managed connection associated per transaction. The managed connection abstracts the physical connection, and you don't want to use too many. The application obtains only "handles" (  in the picture). The handles obtain within one given transaction all point to the same managed connection. This is an optimization that most app servers support.  
+ If the managed connection become invalid, the handles that use it become invalid as well. But the handles can AFAIK not be "refreshed". The transaction must rollback, the managed connection is destroyed. When another transaction starts it will be associated to another valid managed connection from the pool.  
+ 
+ 
+ 
+ The app server manages a pool of managed connection. As said in previous paragraph, one might go bad while it is used. But one can also go bad without being used. For instance, an used managed connection in the pool might become invalid because the underlying physical connection timed out. App servers have usually a feature to test whether a managed connection is valid, before it starts using it. If not, it will try another managed connection from the pool, or create a new one.  
+ 
+ Probably you can add your own resource that will participate in the commit and will pause the transaction after the first phase. In the meantime you can "pull the plug". 
+ 
+ Andrej answered one part of the question, so let me answer the second part. 
+ The Connection object you get in your application is only a wrapper around the physical connection. That wrapper plays a role in connection pooling and transaction management. If anything goes wrong with the DB, the connection wrapper becomes unusable and you can only rollback. That makes sense because you access the connection only before the 2PC starts, and anything done before the start of the 2PC cannot be recovered. 
+ Note that attempting to release the connection and acquire a new one doesn't change anything because once a connection from a given data source has been used in a transaction, you will always get the same connection from that data source as long as you are in the same transaction. This means that your application can't "reconnect" without restarting the entire transaction. 
+ On the other hand, if something goes wrong after all resources have been prepared but before all resources have been committed, then it is the responsibility of the transaction manager to recover the transaction. But this happens behind the scene and your application has no control. Also at this point, your application is expected to have released all connections used in that transaction. 
+ 
+ Your best bet is probably to use in memory databases. Invoke the failure and check the state of the data sources before and after to ensure the rollback/commit executed properly. 
+ As for your other concerns these seem like extremely high cost/ low reward tests. Read your vendors documentation and ensure that your transaction environment is configured appropriately. One this is done you probably should automate it so its hands off.  
+ Unless you wrote your own 2PC protocol specific transaction manager + DB implementation I would leave the testing of those features your vendor.  
+ 

@@ -1,0 +1,54 @@
+*** users-asking-for-denormalized-database ***
+
+ I am in the early stages of developing a database-driven system and the largest part of the system revolves around an inheritance type of relationship. There is a parent entity with about 10 columns and there will be about 10 child entities inheriting from the parent. Each child entity will have about 10 columns. I thought it made sense to give the parent entity its own table and give each of the children their own tables - a table-per-subclass structure. 
+ Today, my users requested to see the structure of the system I created. They balked at the idea of the table-per-subclass structure. They would prefer one big ~100 column table because it would be easier for them to perform their own custom queries. 
+ Should I consider denormalizing the database for the sake of the users? 
+ 
+ Absolutely not.  You can always create a view later to show them what they want to see.   
+ 
+ They are effectively asking for a report. 
+ You could  **give them access to a view**
+ containing all the fields they require... that way you don't mess up your data model. 
+ 
+ No.  Structure the data properly and if the users need the a denormalized view of the data create it as a VIEW in the database. 
+ Alternatively, consider that perhaps an RDBMS is not the appropriate storage tool for this project. 
+ 
+ They are the users and not the programmers of the system for a reason. Provide a separate interface for their queries. Power users like this can both be helpful and a pain to deal with. Just explain you need the database designed a certain way so you can do your job, period. Once that is accomplished you and provide other means to make querying easier.  
+ 
+ What do they know!? You could argue that  users  shouldn't even be having direct access to a database in the first place. 
+ Doing that leaves you open to massive performance issues, just because a couple of users are running ridiculous queries. 
+ 
+ How about if you created a VIEW in the format your users wanted while still maintaining a properly normalized table? 
+ 
+ Aside from a lot of the technical reasons for or against your users' proposition, you need to be on same page in communicating the consequences of various scenarious and (more importantly) the  costs  of those consequences.  If the users are your clients and they are paying you to do a job, explain that their  awful  "proposed" ideas may cost them more money in development time, additional hardware resources, etc.   
+ Hopefully you can explain it in such a way that shows your expertise and why your idea is a much better value to your users in the long run. 
+ 
+ As everyone more or less mentioned, that way lies madness, and you can always build a view. 
+ If you just can't get them to come around on this point, consider showing them this thread and the number of pros who weighed in saying that the users are meddling with things that they don't fully understand, and the impact will be an undermined foundation.  
+ A big part of the developer's craft is the feel for what won't work out long term, and the rules of normalization are almost canonical in that respect. There are situations where you need to denormalize (data warehouses, etc) but this doesn't sound like one of them! 
+ It also sounds as though you may have a particularly troubling brand of user on your hand -- the amatuer developer who thinks they could do your job better themselves if only they had the time. This may or may not help, but I've found that those types respond well to presentation -- a few times now I've found that if I dress sharp and show a little bit of force in my personality, it helps them feel like I'm an expert and prevents a bunch of problems before they start. 
+ 
+ I would strongly recommend coming up with an answer that doesn't involve someone running direct reports against your database.  The moment that happens, your DB structure is set in stone and you can basically consider it legacy. 
+ A view is a good start, but later on you'll probably want to structure this as an export, to decouple further.  Of course, then you'll encounter someone who wants "real time" data.  Proper business analysis usually reveals this to be unnecessary.  Actual real time requirements are not best handled through reporting systems. 
+ Just to be clear: I'd personally favour the table per subclass approach, but I don't think it's actually as big an issue as the direct reporting off transaction tables is going to be. 
+ 
+ I would opt for a view (as others have suggested) or an inline table-valued function (the benefits of this is you require parameters - like an date range or a customer account - which can help to stop users from querying without any limits on the problem space) first.  An inline TVF is really a parametrized view and is far closer to a view in terms of how the engine treats them than it is to a multi-statement table valued function or a scalar function, which can perform incredibly poorly. 
+ However, in some cases, this can impact production performance if the view is complex or intensive.  With poorly written ad hoc user queries, it can also cause locks to persist longer or be escalated further than they would on a better built query.  It is also possible for users to misinterpret an E-R data model and produce multiplied numbers in cases where there are many-to-one or many-to-many relationships.  The next option might be to materialize these views with indexes or make tables and keep them updated, which gets us closer to my next option... 
+ So, given those drawbacks of the view option and already thinking of mitigating it by starting to make copies of data, the next option I would consider is to have a separate read-only (for these users) version of the data which is structured differently.  Typically, I would first look at a Kimball-style star schema.  You do not need to have a full-fledged time-consistent data warehouse.  Of course, that's an option, but you could simply keep a reporting model up to date with data.  Star-schemas are a special form of denormalization and are particularly good for numerical reporting, and a given star should not be able to be abused by users accidentally.  You can keep the star up to date in a number of ways, including triggers, scheduled jobs, etc.  They can be very fast for reporting needs and run on the same production installation - perhaps on a separate instance if not just a separate database. 
+ Although such a solution may require you to effectively more than double your storage requirements, when compared with other practices it might be a really good option if you understand your data well and don't mind having two models - one for transactions and one for analysis (note that you will already start to have this logical separation anyway with the use of a the simplest first option of view). 
+ Some architects will often double their servers and use the SAME model with some kind of replication in order to provide a reporting server which is indexed more heavily or differently.  Such a second server doesn't impact production transactions with reporting requirements and can be kept up to date fairly easily.  There will only be one model, but of course, this has the same usability problems with allowing users ad hoc access to the underlying model only, without the performance affects, since they get their own playground. 
+ There are a lot of ways to skin these cats.  Good luck. 
+ 
+ The customer is always right.  However, the customer is likely to back down when you convert their requirement into  **dollars and cents**
+.  A 100 column table will require  **extra dev time**
+ to write the code that does what the database would do automatically with the proper implementation.  Further, their  **support costs will be higher**
+ since more code means more problems and lower ease of debugging. 
+ 
+ I'm going to play devil's advocate here and say that both solutions sound like poor approximations of the actual data.  There's a reason that object-oriented programming languages don't tend to be implemented with either of these data models, and it's not because Codd's 1970 ideas about relations were the ideal system for storing and querying object-oriented data structures.  :-) 
+ Remember that SQL was originally designed as a user interface language (that's why it looks vaguely like English and not at all like other languages of that era: Algol, C, APL, Prolog).  The only reasons I've heard for not exposing a SQL database to users today are security (they could take down the server!) and usability (who wants to write SQL when you can clicky clicky?), but if it's their server and they want to, then why not let them? 
+ Given that "the largest part of the system revolves around an inheritance type of relationship", then I'd seriously consider a database that lets me represent that natively, either  Postgres  (if SQL is important) or a native object database (which are awesome to work with, if you don't need SQL compatibility). 
+ Finally, remember that every engineering decision is a tradeoff.  By "sticking to your guns" (as somebody else proposed), you're implicitly saying the value of your users' desires are zero.  Don't ask SO for a correct answer to this, because we don't know what your users want to do with your data (or even what your data is, or who your users are).  Go tell them why you want a many-tables solution, and then work out a solution with them that's acceptable to both of you. 
+ 
+ You've implemented  Class Table Inheritance  and they're asking for  Single Table Inheritance .  Both designs are valid in certain situations.   
+ You might want to get a copy of Martin Fowler's  Patterns of Enterprise Application Architecture  to read more about the advantages and disadvantages of each design.  That book is a classic reference to have on your bookshelf, in any case. 
+ 

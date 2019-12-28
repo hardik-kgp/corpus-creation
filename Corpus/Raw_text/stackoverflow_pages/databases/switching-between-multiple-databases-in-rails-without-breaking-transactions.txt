@@ -1,0 +1,30 @@
+*** switching-between-multiple-databases-in-rails-without-breaking-transactions ***
+
+ I am setting up a Rails app with multiple databases. It uses   to switch between the databases (all of which are configured in database.yml). 
+  apparently breaks pending transactions on each call. One negative consequence is testing, where    must be disabled (leading to undesirably slow tests). 
+ So ... how can a Rails app maintain multiple transactions on different databases at the same time? (To clarify, I'm not looking for a fancy cross-database transaction. Just a way for the database client, ie the Rails app, to maintain multiple transactions simultaneously, one per database.) 
+ The only solution I've seen is  putting   directly in the class definition , but that assumes you have a database dedicated to specific classes. I am applying a user-based sharding strategy, where a single record type is distributed across multiple databases, so the database needs to be switched dynamically in code. 
+ 
+ This is a tricky problem, because of tight coupling inside  , but I've managed to create some proof of concept that works. Or at least it looks like it works. 
+ **Some background**
+
+  uses a   class that is responsible for storing connection pools per model. By default there is only one connection pool for all models, because usual Rails app is connected to one database. 
+ After executing   for different database in particular model, new connection pool is created for that model. And also for all models that may inherit from it. 
+ Before executing any query,   first retrieves connection pool for relevant model and then retrieves the connection from the pool. 
+ Note that above explanation may not be 100% accurate, but it should be close. 
+ **Solution**
+
+ So the idea is to replace the default connection handler with custom one that will return connection pool based on provided shard description. 
+ This can be implemented in many different ways. I did it by creating the proxy object that is passing shard names as disguised   classes. Connection handler is expecting to get AR model and looks at   property and also at   to walk the hierarchy chain of model. I've implemented   class that is basically shard name, but it is behaving like AR model. 
+ **Implementation**
+
+ Here is example implementation. I've used sqlite database for simplicity, you can just run this file without any setup. You can also take a look at  this gist 
+ 
+ I think this should give an idea how to implement production ready solution. I hope I didn't miss anything obvious here. I can suggest couple of different approaches: 
+ 
+ Subclass   and overwrite those methods responsible for retrieving connection pools 
+ Create completely new class implementing the same api as  
+ I guess it is also possible to just overwrite   method. I don't remember where it is defined, but I think it is in  . 
+ 
+ I think approaches 1 and 2 are the way to go and should cover all cases when working with databases. 
+ 

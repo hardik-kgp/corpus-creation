@@ -1,0 +1,34 @@
+*** whats-the-difference-between-cacheprepstmts-and-useserverprepstmts-in-mysql-jdb ***
+
+ The MySQL JDBC Driver defines these two properties as: 
+ 
+ 
+ useServerPrepStmts - Use server-side prepared statements if the server supports them?  
+ cachePrepStmts - Should the driver cache the parsing stage of  PreparedStatements of client-side prepared statements, the "check" for
+  suitability of server-side prepared and server-side prepared
+  statements themselves? 
+ 
+ 
+ Is the client-side prepared statement a way to reuse the   objects? 
+ If the   is enabled, what is exactly being cached, since MySQL doesn't have an  execution plan cache anyway ? 
+ 
+ First, it's important to distinguish between client and server prepared statements. 
+ Client Prepared Statements 
+ Client prepared statements are "emulated" prepared statements. This means that the SQL statement string is tokenized on the client side and any placeholders are replaced with literal values before sending the statement to the server for execution. A complete SQL statement is sent to the server on every execution. You can use the general log to investigate how this works. e.g. 
+ the following code: 
+ 
+ would show in the log: 
+ 
+ The "query" indicates that, on the protocol level, a   command is sent with the statement string following. 
+ Server Prepared Statements 
+ Server prepared statements are "true" prepared statements meaning that the query text is sent to the server, parsed, and placeholder and result information is returned to the client. This is what you get when setting  . The statement string is only ever sent to the server one time with a   call (documented  here ). Each execution is performed by sending a   with the prepared statement handle and the literal values to substitute for the placeholders. 
+ To contrast with the client prepared example, we can use a similar block of code (but this time with server prepared statements enabled): 
+ 
+ And the log would show: 
+ 
+ You can see that the statement is prepared before being executed. The log is doing us a favor and showing the complete statement for the execution but, in fact, only the placeholder values are sent from client to server for each execution. 
+ Caching Prepared Statements 
+ Many connection pools will cache prepared statements across uses of a connection meaning that if you call  , it will return the same   instance on successive calls with the same statement string. This is useful to avoid preparing the same string on the server repeatedly when connections are returned to the pool between transactions. 
+ The MySQL JDBC option   will cache prepared statements in this way (both client and server prepared statements) as well as cache the "preparability" of a statement. There are some statements in MySQL that are not preparable on the server side. The driver will try to prepare a statement on the server if it believes it to be possible and, if the prepare fails, fall back to a client prepared statement. This check is expensive due to requiring a round-trip to the server. The option will also cache the result of this check. 
+ Hope this helps. 
+ 

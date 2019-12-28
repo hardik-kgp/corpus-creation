@@ -1,0 +1,77 @@
+*** migrating-from-hand-written-persistence-layer-to-orm ***
+
+ We are currently evaluating options for migrating from hand-written persistence layer to ORM. 
+ We have a bunch of legacy persistent objects (~200), that implement simple interface like this: 
+ 
+ When   is called, object populates itself by issuing handwritten SQL queries to the connection provided using the ID it received in the setter (this usually is the only parameter to the query). It manages its statements, result sets, etc itself. Some of the objects have special flavors of   method, like  , in this case a different SQL is issued. 
+ Queries could be quite complex, we often join several tables to populate the sets representing relations to other objects, sometimes join queries are issued on-demand in the specific getter (lazy loading). So basically, we have implemented most of the ORM's functionality manually. 
+ The reason for that was performance. We have very strong requirements for speed, and back in 2005 (when this code was written) performance tests has shown that none of mainstream ORMs were that fast as hand-written SQL. 
+ The problems we are facing now that make us think of ORM are: 
+ 
+ Most of the paths in this code are well-tested and are stable. However, some rarely-used code is prone to result set and connection leaks that are very hard to detect 
+ We are currently squeezing some additional performance by adding caching to our persistence layer and it's a  huge  pain to maintain the cached objects manually in this setup 
+ Support of this code when DB schema changes is a big problem. 
+ 
+ I am looking for an advice on what could be the best alternative for us. As far as I know, ORMs has advanced in last 5 years, so it might be that now there's one that offers an acceptable performance. As I see this issue, we need to address those points: 
+ 
+ Find some way to reuse at least some of the written SQL to express mappings 
+ Have the possibility to issue native SQL queries without the necessity to manually decompose their results (i.e. avoid manual   as they are very sensitive to schema changes) 
+ Add a non-intrusive caching layer 
+ Keep the performance figures. 
+ 
+ Is there any ORM framework you could recommend with regards to that? 
+ **UPDATE**
+ To give a feeling of what kind of performance figures we are talking about: 
+ 
+ The backend database is TimesTen, in-memory database that runs on the same machine as the JVM 
+ We found out that changing   to   brings the performance increase we consider significant. 
+ 
+ 
+ Do you really need to migrate? What's forcing you to move? Is there some REAL need here or someone just inventing work (an 'Astronaut architect')? 
+ I agree with the above answers though - if you HAVE to move - Hibernate or iBatis are good choices. iBatis especially if you want to stay 'closer' to the SQL. 
+ 
+ If you want a standard persistence layer that lets you issue native SQL queries, consider using iBATIS. It's a fairly thin mapping between your objects and SQL.  http://ibatis.apache.org/ 
+ For caching and lazy joins, Hibernate might be a better choice. I haven't used iBATIS for these purposes. 
+ Hibernate provides a lot of flexibility in allowing you to specify certain defaults for lazy loading as you traverse your object graph, yet also pre-fetch data with SQL or HQL queries to your heart's content when you need better-known load times. However, the conversion effort will be complicated for you as it has a fairly high bar to entry in terms of learning and configuration. Annotations made this easier for me. 
+ Two benefits you didn't mention about switching to a standard framework:
+(1) running down bugs becomes easier when you have a wealth of sites and forums out there to support you. 
+(2) new hires are cheaper, easier and faster. 
+ Good luck in addressing your performance and usability issues. The tradeoffs you point out are very common. Sorry if I evangelized. 
+ 
+ For the bulk of your queries, I'd go with hibernate. It's widely used,well documented, and generally performant. You can drop down to hand-written SQL if hibernate isn't producing efficient enough queries. Hibernate gives you a lot of control in specifying the table names and columns that the domain objects map to, and in most cases you can retro fit it to an exisitng schema. 
+ 
+ 
+ Find some way to reuse at least some of the written SQL to express mappings
+  The mappings are expressed in JPA using annotations. You can use the existing SQL as a guide when creating  JPQL  queries. 
+ Add a non-intrusive caching layer 
+ 
+ 
+ Caching in hibernate is automatic and transparent, unless you specifically choose to get involved. You can mark entities as read only, or evict from the cache, control when changes are flushed to the database (inside a transaction of course - automatic use of batching improves performance when network latency is a concern.) 
+ 
+ 
+ Have the possibility to issue native
+  SQL queries without the necessity to
+  manually decompose their results (i.e.
+  avoid manual rs.getInt(42)  as they
+  are very sensitive to schema changes) 
+ 
+ 
+ Hibernate allows you to write SQL, and have this mapped to your entities. You don't deal with the ResultSet directly - hibernate takes care of the deconstruction into your entity. See  Chpt 16, Native SQL  in the hibernate manual. 
+ 
+ 
+ Support of this code when DB schema changes is a big problem. 
+ 
+ 
+ Managing schema changes can still be a pain, since you now effectively have two schemata - the database schema and the JPA mapping (an object schema). if you choose to let hibernate generate the db schema and move your data to that, you are no longer directly responsible for what goes into the database, and so you are then faced with manging automatic changes to a machine generated schema. There are tools that can assist, such as dbmigrate, and  liquibase , but it's no walk in the park. Conversely, if you are managing the db schema by hand, then you will have to carefully recraft your entities, JPA annotations and queries to accomodate the schema changes. Adding columns and new entities is relatively trivial, but more complex changes such as changing a single property to a collection of properties, or restructing an object hierarchy will involve considerably more extensive changes. There is no easy way out of this  - either the db or hibernate is the "master" that decides the schema, and when one changes, the other must follow. The code changes aren't so bad - in my experience, it's migrating the data that's difficult. But this is a basic issue with databases, and will be present in any solution you choose. 
+ So, to sum up, I'd go with hibernate, and use the JPA interface. 
+ 
+ I've recently drilled through a bunch of Java ORMs and didn't come up with anything much better than Hibernate.  Hibernate's performance may get you there and satisfy your performance goals.  
+ Lots of people think that moving to Hibernate will make everything so awesome, but it's really just moving a set of problems from JDBC queries into Hibernate tuning.  Read a bunch of books or (better) hire a "Hibernate guy" to come in and help. 
+ During your refactor, I'd recommend using JPA so you can un-plug and re-plug a new persistence provider when the Next Big Thing comes along (or you move to Oracle) 
+ 
+ If you need more performance: drop the database (for on-line work) and handle the persistence direct. Adding caching is not going to help you with a TimesTen DB, it just adds an extra copy (slowing you down).  
+ You might want to take a look at GemFire. 
+ 
+ There is a lot of good advice already in here that I won't repeat.  The only thing I didn't see suggested that might work for you is caching reference data in memory.   
+ I have done quite a bit of this in the past and it does save a lot of time.  If you have a large number of fairly static reference tables, load them all into memory at startup time and refresh them every couple minutes.  That way you're not hitting the DB over and over again for data that never changes. 
+ 

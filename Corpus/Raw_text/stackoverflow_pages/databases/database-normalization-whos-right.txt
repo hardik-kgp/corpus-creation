@@ -1,0 +1,81 @@
+*** database-normalization-whos-right ***
+
+ My professor(who claimed to have a firm understanding about systems development for many years) and I are arguing about the design of our database. 
+ As an example:
+My professor insists this design is right:
+(list of columns) 
+ 
+ etc... 
+ Notice the total units column. He said that this column must be included.
+I tried to explain that it is unnecessary, because if you want it, then just make a query by simply adding the two. 
+ I showed him an example I found in a book, but he insists that I dont have to rely on books too much in making our system.
+The same thing applies to similar cases as in this one: 
+ 
+ ect... 
+ He wanted me to include the average! Anywhere I go, I can find myself reading articles that convince me that this is a violation of normalization. If I needed the average, I can easily compute the three grades. He enumerated some scenarios including ('Hey! What if the query has been accidentally deleted? What will you do? That is why you need to include it in your table!') 
+ Do I need to reconstruct my database(which consists of about more than 40 tables) to comply with what he want? Am I wrong and just have overlooked these things? 
+ **EDIT:**
+
+ Another thing is that he wanted to include the total amount in the payments table, which I believe is unnecessary(Just compute the unit price of the product and the quantity.). He pointed out that we need that column for computing debits and/or credits that are critical for the overall system management, that it is needed for balancing transaction. Please tell me what you think. 
+ 
+ You are absolutely correct! One of the rules of normalization is to reduce those attributes which can be easily deduced by using other attributes' values. ie, by performing some mathematical calculation. In your case, the total units column can be obtained by simply adding. 
+ Tell your professor that having that particular column will show clear signs of transitive dependency and according to the 3rd normalization rule, its recommended to reduce those. 
+ 
+ You are right when you say your solution is more normalized. 
+ However, there is a thing called  **denormalization**
+ (google for it) which is about deliberately violating normalization rules to increase queries performance. 
+ For instance you want to retrieve first five subjects (whatever the thing would be) ordered by decreasing number or total units. 
+ You solution would require a full scan on two tables (  and  ), joining the resultsets and sorting the output. 
+ Your professor's solution would require just taking first five records from an index on  . 
+ This of course comes at the price of increased maintenance cost (both in terms of computational resources and development). 
+ I can't tell you who is "right" here: we know nothing about the project itself, data volumes, queries to be made etc. This is a decision which needs to be made for every project (and for some projects it may be a core decision). 
+ The thing is that the professor does have a rationale for this requirement which may or may not be just. 
+ Why he hasn't explained everything above to you himself, is another question. 
+ 
+ In addition to redskins80's great answer I want to point out  **why**
+ this is a bad idea: Every time you need to update one of the source columns you need to update the calculated column as well. This is more work that can contain bugs easily (maybe 1 year later when a different programmer is altering the system). 
+ Maybe you can use a computed column instead? That would be a workable middle-ground. 
+ Edit: Denormalization has its place,  **but it is the last measure to take**
+. It is like chemotherapy: The doctor injects you poison only to cure an even greater threat to your health. It is the last possible step. 
+ 
+ Think it is important to add this because when you see the question the answer is not complete in my opinion. The original question has been answered well but there is a glitch here. So I take in account only the added question quoted below: 
+ 
+ Another thing is that he wanted to include the total amount in the
+  payments table, which I believe is unnecessary(Just compute the unit
+  price of the product and the quantity.). He pointed out that we need
+  that column for computing debits and/or credits that are critical for
+  the overall system management, that it is needed for balancing
+  transaction. Please tell me what you think. 
+ 
+ This edit is interesting. Based on the facts that this is a transactional system handling about money it has to be accountable. I take some basic terms: Transaction, product, price, amount. 
+ In that sense it is very common or even required to denormalize. Why? Because you need it to be accountable. So when the transaction is registered that's it, it may never ever be modified. If you need to correct it then you make another transaction. 
+ Now yes you can calculate for example product price * amount * taxes etc. That makes sense in normalization sense. But then you will need a complete lockdown of all related records. So take for example the products table: If you change the price before the transaction it should be taken into account when the transaction happens. But if the price changes afterwards it does not affect the transaction. 
+ So it is not acceptable to just join transaction.product_id=products.id since that product might change. Example: 
+ 
+ Now we lookup the transaction at 2012-01-10, so we do: 
+ 
+ That would give 10 * 22 = 220 so it is not correct. 
+ So you have 2 options: 
+ 
+ Do not allow updates on the products table. So you make that table versioned, so for every record you add a new INSERT instead of update. So the transaction keeps pointing at the right version of the product. 
+ Or you just add the fields to the transactions table. So add totalAmount to the transactions table and calculate it (in a database transaction) when the transaction is inserted and save it. 
+ 
+ Yes, it is denormalized but it has a good reason, it makes it accountable. You just know and it's verified with transactions, locks etc. that the moment that transaction happened it related to the described product with the price = 20 etc. 
+ Next to that, and that is just a nice thing of denormalization when you have to do that anyway, it is very easy to run reports. Total transaction amount of the month, year etc. It is all very easy to calculate. 
+ Normalization has good things, for example no double storage, single point of edit etc. But in this case you just don't want that concept since that is not allowed and not preferred for a transactions log database. 
+ See a transaction as a registration of something happened in real world. It happened, you wrote it down. Now you cannot change history, it was written as it was. Future won't change it, it happened. 
+ 
+ If you want to implement the good, old, classic relational model, I think what you're doing is right.  
+ In general, it's actually a matter of philosophy. Some systems, Oracle being an example, even allow you to give up the traditional, relational model in favor of objects, which (by being complex structures kept in tables) violate the 1st NF but give you the power of object-oriented model (you can use inheritance, override methods, etc.), which is pretty damn awesome in some cases. The language used is still SQL, only extended. 
+ I know my answer drifts away from the subject (as we take into consideration a whole new database type) but I thought it's an interesting thing to share on the occasion of a pretty general question. 
+ Database design for actual applications is hardly the question of what tables to make. Currently, there are countless possibilities when it comes to keeping and processing your data. There are relational systems we all know and love, object databases (like db4o), object-relational databases (not to be confused with object relational mapping, what I mean is tools like Oracle 11g with its objects), xml databases (take eXist), stream databases (like Esper) and the currently thriving noSQL databases (some insist they shouldn't be called databases) like MongoDB, Cassandra, CouchDB or Oracle NoSQL 
+ In case of some of these, normalization loses its sense. Each model serves a completely different purpose. I think the term "database" has a much wider meaning than it used to. 
+ When it comes to relational databases, I agree with you and not the professor (although I'm not sure if it's a good idea to oppose him to strongly). 
+ Now, to the point. I think you might win him over by showing that you are open-minded and that you understand that there are many options to take into consideration (including his views) but that the situation requires you to normalize the data. 
+ I know my answer is quite a stream of conscience for a stackoverflow post but I hope it's not received as lunatic babbling. 
+ Good luck in the relational tug of war 
+ 
+ You are talking about historical and financial  data here. It is common to store some computations that will never change becasue that is the cost that was charged at the time. If you do the calc from product * price and the price changed 6 months after the transaction, then you have the incorrect value. Your professor is smart, listen to him. Further, if you do a lot of reporting off the database, you don't want to often calculate values that are not allowed to be changed without another record of data entry. Why perform calculations many times over the history of the application when you only need to do it once? That is wasteful of precious server resources.  
+ 
+ The purpose of normalization is to eliminate redundancies so as to eliminate update anomalies, predominantly in transactional systems. Relational is still the best solution by far for transaction processing, DW, master data and many BI solutions. Most NOSQLs have low-integrity requirements. So you lose my tweet - annoying but not catastrophic. But to lose my million dollar stock trade is a big problem. The choice is not NOSQL vs. relational. NOSQL does certain things very well. But Relational is not going anywhere. It is still the best choice for transactional, update oriented solutions. The requirements for normalization can be loosened when the data is read-only or read-mostly. That's why redundancy is not such a huge problem in DW; there are no updates. 
+ 

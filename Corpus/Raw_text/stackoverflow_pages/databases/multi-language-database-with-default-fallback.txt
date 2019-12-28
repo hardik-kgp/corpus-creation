@@ -1,0 +1,50 @@
+*** multi-language-database-with-default-fallback ***
+
+ I have a question that, I know, has been widely discussed about, but in my opinion, there is one aspect that still needs clarification. 
+ I am creating a web-application with a multilanguage database, I already found some good-practices articles (such as   this ) and answers here in stack overflow like  this . 
+ So I decided to use a main table with the IDs of my items and another table with the translation for each item, let's say, for example 
+ 
+ or 
+ 
+ and so on. 
+ Right now what I'm doing? I just get the items from the database with all the translations and then I iterate over each one to look for the correct translation based on the current user's local, and if I find the correct local I set into the main object that translation for the page to render, otherwise I just get the translation that is flagged as the "default" one. 
+ With large amounts of objects and translations, though, server response time might grow and even if the user might not notice, I don't want this. 
+ So, is there any good practice for this use case too? For example some specific queries that say "pick the translation with locale "it" but if you don't find it just get the one with the "default" flag set? 
+ Now for the technology I'm using Spring MVC with Hibernate and JPA (by means of JPARepository). 
+ My objects all extend a basic Translatable class that I made this way 
+ 
+ So in my controller I iterate over the translations, find the one with the right locale and populate the "currentLocale" property, in my page I just take that and the user gets the correct language as intended. 
+ I hope I've been clear and not messy, but if you need more informations I'll be glad to tell you more. 
+ 
+ Some notes upfront: 
+ 
+ my answer is more of an addition to  my answer to this question , where you added a comment which then led to this question 
+ in my answer I'm using C# and MS SQL Server (and I'll leave out any OR-mapping specific code) 
+ 
+ 
+ In my applications, I use two different approaches for loading multilingual data, depending on the use case: 
+ **Administration / CRUD**
+
+ In the case where the user is entering data or editing existing data (e.g. a product with its translations) I'm using the same approach as you have shown above in your question, e.g: 
+ 
+ I.e. I'll let the OR-mapper load the product instance(s) with all their translations attached. I then iterate through the translations and pick the ones needed. 
+ **Front-end / read-only**
+
+ In this case, which is mainly front-end code, where I usually just display information to the user (preferably in the user's language), I'm using a different approach: 
+ First of all, I'm using a different data model which doesn't support/know the notion of multiple translations. Instead it is just the representation of a product in the "best" language for the current user: 
+ 
+ To load this data, I'm using different queries (or stored procedures). E.g. to load a product with ID   in the language  , I'd use the following query: 
+ 
+ This returns the product's title and description in the requested language if a translation for that language exists. If no translation exists, the title and description from the default language will be returned. 
+ 
+ **Using common shared table for all translatable fields of all tables**
+
+ In the above approach the translation table is an extension of the parent table. Hence ProductTranslation has all the translatable fields of Product. It is a neat and quick approach and nice one as well. 
+ But there is one disadvantage (not sure if it can be called disadvantage). If many more tables require translate-able fields, that many new tables are required. From my experience we took a different approach. We created a generic table for translation and a link table to link translations to the translate-able fields of the parent table. 
+ So I'm going to use the previous example of Product which has two fields title and description that are translate-able to explain our approach. Also consider another table ProductCategory with fields name and description that also require translations. 
+ 
+ To load this data, I'm using different queries (modified the above). E.g. to load a product with ID @Id in the language @Language, I'd use the following query 
+ 
+ This query is based on the assumption that individual fields of Product does not have a default translation 
+ Similar query can be used to fetch records from ProductCategory 
+ 

@@ -1,0 +1,51 @@
+*** creating-a-custom-odbc-driver ***
+
+ At my current job, we're looking to implement our own odbc driver to allow many different applications to be able to connect to our own app as a datasource. Right now we are trying to weigh the options of developing our own driver to the implementation spec, which is massive,  or  using an SDK that allows for programmers to 'fill in' the data specific parts and allow higher levels of abstraction. 
+ Has anyone else implemented a custom odbc driver? What pitfalls did you run into? What benefits did you see from doing it yourself? How many manhours would you approximate it took? Did you use an SDK, and if so, what benefits/downsides did you see from that approach? 
+ Any comments and answers would be greatly appreciated. Thanks! 
+ **EDIT:**
+ We are trying to maintain portability with our code, which is written in C. 
+ 
+ I have not, but I once interviewed at a company that had done exactly this.  They made
+a 4GL/DBMS product called AMPS of the same sort of architecture as MUMPS - a hierarchical database with integrated 4GL (a whole genre of such systems came out during the 1970s).  They had quite a substantial legacy code base and customers wishing to connect to it using MS Access. 
+ The lead developer who interviewed me shared some war stories about this.  Apparently it is exceedingly painful to do and shouldn't be taken lightly.  However, they did actually succeed in implemnenting it. 
+ One alternative to doing this would be to provide a data mart/BI product (along the lines of SAP BW) that presents your application data in an external database and massages it into a more friendly format such as a star or snowflake schema. 
+ This would suffer from not supporting real-time access, but might be considerably easier to implement (and more importantly maintain) than an ODBC driver.  If your real-time access requirements are reasonably predicitable and limited, you could possibly expose a web service API to support those. 
+ 
+ Another option: Instead of creating a ODBC driver, implement a back end that talks the wire protocol that another database (Postgresql or MySQL for instance) uses. 
+ Your users can then download and use for instance the Postgresql ODBC driver. 
+ Exactly what back-end database you choose to emulate should probably depend the most on how well the wire protocol format is documented. 
+ Both  Postgres  and  MySQL  has decent documentation for their client-server protocols. 
+ A simple Python 2.7 example of a server backend that understands parts of the Postgresql wire protocol is below. The example script creates a server that listens to port 9876. I can use the command   to connect to the server. Any query executed will return a result set with columns abc and def and two rows, all values NULL. 
+ Reading the Postgresql docs and using something like wireshark to inspect real protocol traffic would make it pretty simple to implement a Postgresql-compatible back end. 
+ 
+ Example command line psql session: 
+ 
+ An ODBC driver that speaks the Postgresql protocol should work as well (but I have not tried it yet). 
+ 
+ ODBC drivers are very complex - the decision to write one should not be taken lightly.  Reviewing existing open source drivers are a good approach for examples but most have shortcommings you may not want to emulate :)  APIs are the same regardless of OS platform.
+FreeTDS for MSSQL/Sybase has one of the better open source ODBC Driver implementations I've seen. 
+ If you control the application you can get away with implementing what may be just a very small subset of the spec in a reasonable amount of time. To use in a general purpose environment can require quite a bit more effort to get right.  Off the top of my head in addition to simply implementing dozens of wrapper calls you will also have to implement: 
+ 
+ Metadata access functions  
+ ODBC specific query syntax parsing  
+ SQLSTATE Error message mappings 
+ Multibyte/Character set marshalling 
+ ODBC version 2,3 support - error messages/function mappings 
+ Cursors 
+ DM configuration UI for managing the datasource 
+ 
+ 
+ I have not implemented an ODBC driver, but just wanted to offer a suggestion that you can start with an open-source implementation and add your own customizations.  This may get you started a lot faster. 
+ There are at least two options: 
+ 
+ unixODBC  is licensed under LGPL, which means if you modify the code you have to make your modifications open-source. 
+ iODBC  is licensed under either LGPL or New BSD, at your choice.  New BSD allows you to make modifications  without  make your modifications open-source. 
+ 
+ However, it's not clear if these packages run on Windows, as opposed to running on UNIX/Linux with a client API consistent with standard ODBC.  You don't state which platform you're using, so I don't know if this is relevant to you. 
+ 
+ This post is now a bit old, but worth mentioning that if you need to have an ODBC driver, you can use an SDK like this:  http://www.simba.com/drivers/simba-engine-sdk/  It takes care of most of the points raised in the other answers and gives you a much simplified interface to implement. 
+ I happen to work for Simba, so I'm a bit biased, but using an SDK does make it fairly easy to create an ODBC driver for whatever you're trying to do. You can get something going in 5 days if you're somewhat proficient at coding. 
+ One of the other posts recommends unixODBC or iODBC as starting points, however this will not work. It's important to realize the distinction between a driver manager (unixODBC, iODBC, etc) and a driver. The Driver Manager acts as the middle-man between the application and the driver, removing the need to link directly to a driver. 
+ You could start with the Postgres or MySQL drivers as a starting point and fork them to use your own database, however this is unlikely to be a trivial task. Creating a driver from scratch is even more difficult and will likely have ongoing (and higher than expected) maintenance costs. As long as you're aware of the costs of this approach, it can be viable as well. 
+ 

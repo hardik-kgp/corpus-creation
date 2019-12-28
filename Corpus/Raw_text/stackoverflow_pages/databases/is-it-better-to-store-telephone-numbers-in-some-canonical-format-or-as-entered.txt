@@ -1,0 +1,84 @@
+*** is-it-better-to-store-telephone-numbers-in-some-canonical-format-or-as-entered ***
+
+ Storing a telehone number in some kind of canonical format has several advantages from a  programmers  point of view, but it might confuse the  user , if suddenly his entered numbers look a lot different.  
+ What's the way to go? 
+ 
+ I would keep the original entered mess but would also insert a cleaned up form in the database. Which only kept the numbers less punctuation and spaces. Using the cleaned form would allow easy lookups without worrying about different possible entered styles. 
+ 
+ Store it however you prefer, but turn it into human readable format before you show it to the user. And please don't force your users to enter phone numbers in a format of your choosing, let them just type it in however they like. 
+ That's how I do it. 
+ 
+ Hopefully this is a more practical and applied answer to an old question. 
+ Take a look at  https://github.com/googlei18n/libphonenumber . 
+ As @Gumbo alluded to, I would store the phone number as  **E.164**
+, which the above library parses for you. It can be used from several different programming languages. 
+ For DB storage you could in fact use E.164 as Base64 (since it ironically is valid base64), and decode Base64 as bytes. I believe the number of bytes from a string like that will fit a standard  . Personally I would just store the E.164 as a string in the database though. 
+ Of course, you should probably also store what the user entered originally before parsing, but I highly recommend you enter in some canonical number like E.164 for future integration with other systems. 
+ 
+ What's your userbase? 
+ If they're going to be limited geographically (i.e., US-only) and you're going to validate numbers strictly, then format the number canonically for them -- i.e., strip out any formatting they used (like periods between numbers...) and put in the dashes (do not fail validation if they don't stick to your formatting... that's just mean).  I'd store that cleaned-up version in the DB as well, not a stripped number; it makes your life a bit easier when generating custom reports, etc.. 
+ If you might have users/numbers from all over the world, it might be better to save the formatting they used.  Also don't forget the case that sometimes US residents are currently traveling and using a foreign number: don't block them unintentionally. 
+ Either way: make sure you DON'T define the column as numeric, or make it too small.  International numbers with formatting can easily be over 16 chars long. 
+ 
+ **Separation of Duties - Content and Rendering**
+
+ Store the number in a canonical format and the display format mask. 
+ Gains: 
+ 
+ Canonical format for consistency, quality, and ease of analysis 
+ Format retained from end-user perspective 
+ Format re-usable to display other phone numbers in end-user preferred method 
+ Other format masks can be used to display canonical number to other users with a need to see the phone number 
+ 
+ Pains: 
+ 
+ Parsing the phone number to the canonical format 
+ Parsing out the display format mask (not too painful in combination with above bullet) 
+ Storing the display format as an end-user preference 
+ 
+ 
+ The UK is a special case as we have variable length STD (area) codes and variable length subscriber number itself. The longer the STD code the shorter the number. Germany and a few other countries also have a similar system. 
+ Numbers are mostly 10 digits after the 0 trunk (long distance) prefix, but several dozen areas also have some 9 digit numbers. 
+ 
+ 020 2345 5678 (London) also Cardiff, Southampton, Portsmouth, Coventry and Northern Ireland 
+ 0115 234 4567 (Nottingham) also Sheffield, Bristol, Leicester, Reading and Leeds 
+ 0141 345 5678 (Glasgow) also Birmingham, Edinburgh, Tyneside, Manchester and Liverpool 
+ 01332 234 456 (Derby) most other areas (about 580 areas) also use this format 
+ 01750 45678   (Selkirk) and about 40 areas have some numbers that are a digit shorter 
+ 017687 45678  (Keswick) also Langholm, Hornby, Hawkshead, Grange-over-Sands, Sedbergh, Wigton, Raughton Head, Brampton, Appleby, Pooley Bridge and Gosforth. 
+ 016977 2345   (Brampton) The only place using "5+4" format.  
+ 07812 123 456 (mobile numbers) 
+ 
+ Beware that 0800 numbers can be different lengths, e.g. 0800 567 1234 or 0800 234 456.
+The old 0500 numbers are also a digit shorter, e.g. 0500 456 456. 
+ Additionally some people like to group their numbers 234 234 while others use 23 23 23 (depending on the actual digits). 
+ There are arguments for storing as entered and storing in a single form: 
+ If you store the number as just the sequence of numbers then you can output it in any way you want, either by taking into account user preferences or their locale and splitting the number up according to "rules" (what ever they may be). 
+ If you store as entered then you'll always display it as the user expects, but you'll need to strip out non numeric values before using it, which if it's often could be expensive. 
+ 
+ The main difficulty in canonicalizing phone numbers is determining the correct canonical format.  Different countries have different ways of grouping numbers - and within a country, different numbers can be grouped differently.   
+ It used (once upon a decade or more ago) to be that case that in the UK, you had 01-234-2345, 021-234-1234, 0334-234234, even 092324-213; things are different in the UK now - generally more digits, and I'm not sure about the groupings any more (absence makes one's knowledge less current).  
+ Dealing with country prefixes and indicating the internal country dialling prefix is fun: +44 (0)1394-726629 is a UK number, country code 44; dialling from outside the UK, drop the 0; dialling inside the UK, do not include the international prefix but do include the 0. Do note that the form with (0) in it is in fact not valid if you follow the E.123 standard. 
+ This is similar to the problem of canonicalizing mail addresses - not as complex, but still bad. 
+ Also, as noted in my comment to HeavyWave's answer, forcing people to enter the phone number as a digit string with no punctuation is nasty.  It's fine to store it that way; just present the data in a human readable format.  There's far too much lazy web form programming out there. 
+ 
+ My gut instinct is to canonicalize according to the local standards of the entity, then render in the canonical representation modulus usability. 
+ 
+ Let the user enter whatever format they are comfortable with, then validate it and store it in the database in a consistent format - preferably with the country code included. 
+ When displaying the number, display it in the correct format for that number range, with correct spacing, and for national format numbers add parentheses around the area code if needed.  
+ If displaying as an international number, be especially careful not to include any international access code as that varies from country to country, e.g. showing a French number as 011 33 55 66 77 88 (as dialled from the US and Canada) is of no use to UK readers because they will dial 00 33 55 66 77 88; always use the +33 55 66 77 88 format. 
+ Also with the international format, never include the (0) trunk prefix. The international format should only include the digits that are dialled from abroad. 
+ 
+ Validate the input but allow wide array of formats. Store it as user typed it and then reformat the output as needed. 
+ Let's say user typed his number during registration to public phonebook application. So I would display it 'as user typed it' in the textfield on his 'edit my profile' page, for example. But I would display it reformatted to standard format on the public user phonebook list. 
+ 
+ Useful resources: 
+ List of UK area codes:   http://www.telephonenumbers.co.uk/Telephone-Area-Codes-UK/i=2  (dated July 2011). 
+ List of number lengths/number formats for the UK (covers 01 and 02 numbers):   http://www.aa-asterisk.org.uk/index.php/01_numbers 
+ Allocations in "Mixed" areas:   http://www.aa-asterisk.org.uk/index.php/Mixed_areas 
+ Allocations in "ELNS" areas:   http://www.aa-asterisk.org.uk/index.php/ELNS_areas 
+ UK prefix list with formatting information:   http://www.aa-asterisk.org.uk/index.php/Sabc.txt 
+ Formatting UK numbers is certainly a LOT more complex than (01234) 567890, (0141) 234 5678 and (020) 3456 7890. 
+ 
+ I usually like to store the number stripped and then format for display.  Since I don't usually build application for use worldwide, I don't generally have to worry about the format.  But in the case of an application for use all around the world, I would probably build a formatting module that formats according to the phone number's locale. 
+ 

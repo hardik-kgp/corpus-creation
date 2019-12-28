@@ -1,0 +1,84 @@
+*** database-per-application-vs-one-big-database-for-all-applications ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  6 years ago . 
+ 
+ 
+ 
+ I'm designing a few applications that will share 2 or 3 database tables and all of the other tables will be independent of each app. The shared databases contain mostly user information, and there might occur the case where other tables need to be shared, but that's my instinct speaking. 
+ I'm leaning over the one database for all applications solution because I want to have referential integrity, and I won't have to keep the same information up to date in each of the databases, but I'm probably going to end with a database of 100+ tables where only groups of ten tables will have related information. 
+ The database per application approach helps me keep everything more organized, but I don't know a way to keep the related tables in all databases up to date. 
+ So, the basic question is: which of both approaches do you recommend? 
+ Thanks, 
+ Jorge Vargas. 
+ Edit 1: 
+ When I talk about not being able to have referential integrity, it's because there's no way to have foreign keys in tables when those tables are in different databases, and at least one of the tables per application will need a foreign key to one of the shared tables. 
+ Edit 2: 
+ Links to related questions: 
+ 
+ SQL design around lack of cross-database foreign key references 
+ Keeping referential integrity across multiple databases 
+ How to salvage referential integrity with mutiple databases 
+ 
+ Only the second one has an accepted answer. Still haven't decided what to do. 
+ **Answer:**
+
+ I've decided to go with a database per application with cross-database references to a shared database, adding views to each database mimicking the tables in the shared database, and using NHibernate as my ORM. As the membership system I'll be using the asp.net one. 
+ I'll also use triggers and logical deletes to try and keep to a minimum the number of ID's I'll have flying around livin' la vida loca without a parent. The development effort needed to keep databases synced is too much and the payoff is too little (as you all have pointed out). So, I'd rather fight my way through orphaned records. 
+ Since using an ORM and Views was first suggested by svinto, he gets the correct answer. 
+ Thanks to all for helping me out with this tough decision. 
+ 
+ It depends and your options are a bit different depending on the database and frameworks you're using. I'd recommend using some sort of ORM and that way you don't need to bother that much. Anyways you could probably put each app in it's own schema in the database and then either reference the shared tables by schemaname.tablename or create views in each application schema that's just a   and then code against that view. 
+ 
+ Neither way looks ideal 
+ I think you should consider not making references in database layer for cross-application relations, and make them in application layer. That would allow you to split it to one database per app. 
+ I'm working on one app with 100+ tables. I have them in one database, and are separated by prefixes - each table has prefix for module it belongs to. Then i have built a layer on top of database functions to use this custom groups. I'm also building data administrator, which takes advantage of this table groups and makes editing data very easy. 
+ 
+ There are no hard and fast rules to choose one over the other. 
+ Multiple databases provide modularity. As far as sync-ing across multiple databases are concerned, one can use the concept of linked servers and views thereof and can gain the advantages of integrated database (unified access) as well. 
+ Also, keeping multiple databases can help better management of security, data, backup & restore, replication, scaling out etc! 
+ My 2cents. 
+ 
+ THat does not sound like "a lot of applications" at all, but like "one application system with different executables". Naturally they can share one database. Make smart usage of Schemata to isolate the different funcational areas within one database. 
+ 
+ One database for all application in my opinion .Data would be stored once no repitation. 
+ With the other approach you would end up replicating and in my opinion when you start replicating it will bring its own headache and data would go out of sync too 
+ 
+ The most appropriate approach from scalability and maintenence point of view would be to make the "shared/common" tables subset self-sufficient and put it to "commons" database, for all others have 1 db per application of per logical scope (business logic determined) and maintain this structure always 
+ This will ease the planning and execution commissioning/decommissioning/relocation/maintenence procedures of your software (you will know exactly which two affected DBs (commons+app_specific) are involved if you know which app you are going to touch and vice versa. 
+ 
+ At our business, we went with a separate database per application, with cross database references for the small amount of shared information and an occasional linked server.  This has worked pretty well with a development, staging, build and production environments.   
+ For users, our entire user base is on windows.  We use Active Directory to manage the users  with application references to groups, so that the apps don't have to manage users, which is nice.  We did not centralize the group management, that is each application has tables for groups and security which is not so nice but works. 
+ I would recommend, that if your applications are really different, to have a database per application.  Looking back, the central shared database for users sounds workable as well. 
+ You can use triggers for cross database referential integrity: 
+ Create a linked server to the server that holds the database that you want to reference. Then use 4-part naming to reference the table in the remote database that holds the reference data. Then put this in the insert and update triggers on the table. 
+ EXAMPLE(assumes single row inserts and updates): 
+ 
+ To do multi row inserts and updates you can join the tables on the reference field but it can be very slow. 
+ 
+ I think the answer to this question depends entirely on your non functional requirements. If you are designing a application that will one day need to be deployed across 100's of nodes then you need to design your database so that if need be it could be horizontally scaled. If on the other hand this application is to be used by a hand full of users and may have a short shelf life then you approach will be different. I have recently listened to a pod cast of how EBAY's architecture is set-up,  http://www.se-radio.net/podcast/2008-09/episode-109-ebay039s-architecture-principles-randy-shoup , and they have a database per application stream and they use sharding to split tables across physical nodes. Now their non-functional requirements are that the system is available 24/7, is fast, can support thousands of users and that is does not lose any important data. EBAY make millions of pounds and so can support the effort that this takes to develop and maintain. 
+ Anyway this does not answer your question:) my personnel opinion would be to make sure your non-functional requirements have been documented and signed off by someone. That way you can decide on the best Architecture. I would be tempted to have each application using its own database and a central database for shared data. And I would try to minimise the dependencies between them, which I'm sure is not easy or you would have done it:), but I would also try to steer clear of having to produce some sort of middle ware software to keep tables in sync as this could create a headaches for you. 
+ At the end of the day you need to get your system up and running and the guys with the pointy hair wont give a monkeys chuff about how cool your design is. 
+ 
+ We went for splitting the database down, and having one common database for all the shared tables.  Due to them all being on the save SQL Server instance it didn't affect the cost of running queries across multiple database. 
+ The key in replication for us was that whole server was on a Virtual Machine (VM), so for replication to create Dev/Test environments, IT Support would just create a copy of that image and restore additional copies when required. 
+ 

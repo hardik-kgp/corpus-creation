@@ -1,0 +1,35 @@
+*** how-do-you-know-what-a-good-index-is ***
+
+ When working with tables in Oracle, how do you know when you are setting up a good index versus a bad index? 
+ 
+ This depends on what you mean by 'good' and 'bad'.  Basically you need to realise that every index you add will increase performance on any search by that column (so adding an index to the 'lastname' column of a person table will increase performance on queries that have "where lastname = " in them) but decrease write performance across the whole table. 
+ The reason for this is when you add or update a row, it must add-to or update both the table itself and every index that row is a member of.  So if you have five indexes on a table, each addition must write to six places - five indexes and the table - and an update may be touching up to six places in the worst case. 
+ Index creation is a balancing act then between query speed and write speed.  In some cases, such as a datamart that is only loaded with data once a week in an overnight job but queried thousands of times daily, it makes a great deal of sense to overload with indexes and speed the queries up as much as possible.  In the case of online transaction processing systems however, you want to try and find a balance between them. 
+ So in short, add indexes to columns that are used a lot in select queries, but try to avoid adding too many and so add the most-used columns first. 
+ After that its a matter of load testing to see how the performance reacts under production conditions, and a lot of tweaking to find an aceeptable balance. 
+ 
+ Fields that are diverse, highly specific, or unique make good indexes.  Such as dates and timestamps, unique incrementing numbers (commonly used as primary keys), person's names, license plate numbers, etc... 
+ A counterexample would be gender - there are only two common values, so the index doesn't really help reduce the number of rows that must be scanned. 
+ Full-length descriptive free-form strings make poor indexes, as whoever is performing the query rarely knows the exact value of the string. 
+ Linearly-ordered data (such as timestamps or dates) are commonly used as a clustered index, which forces the rows to be stored in index order, and allows in-order access, greatly speeding range queries (e.g. 'give me all the sales orders between October and December'). In such a case the DB engine can simply seek to the first record specified by the range and start reading sequentially until it hits the last one. 
+ 
+ @Infamous Cow  -- you must be thinking of primary keys, not indexes. 
+ @Xenph Yan --
+Something others have not touched on is choosing what  kind  of index to create.  Some databases don't really give you much of a choice, but some have a large variety of possible indexes.  B-trees are the  default  but not always the best kind of index.  Choosing the right structure depends on the kind of usage you expect to have.  What kind of queries do you need to support most?  Are you in a read-mostly or write-mostly environment?  Are your writes dominated by updates or appends?  Etc, etc. 
+ A description of the different types of indexes and their pros and cons is available here:  http://20bits.com/2008/05/13/interview-questions-database-indexes/  .  
+ 
+ Here's a great SQL Server article:
+ http://www.sql-server-performance.com/tips/optimizing_indexes_general_p1.aspx 
+ Although the mechanics won't work on Oracle, the tips are very apropos (minus the thing on clustered indexes, which don't quite work the same way in Oracle). 
+ 
+ Some rules of thumb if you are trying to improve a particular query. 
+ For a particular table (where you think Oracle should start) try indexing each of the columns used in the WHERE clause.  Put columns with equality first, followed by columns with a range or like. 
+ For example: 
+ 
+ If columns are very large in size (e.g. you are storing some XML or something) you may be better off leaving them out of the index.  This will make the index smaller to scan, assuming you have to go to the table row to satisfy the select list anyway. 
+ Alternatively, if all the values in the SELECT and WHERE clauses are in the index Oracle will not need to access the table row.   So sometimes it is a good idea to put the selected values last in the index and avoid a table access all together. 
+ You could write a book about the best ways to index - look for author Jonathan Lewis. 
+ 
+ A good index is something that you can rely on to be unique for a specific table row. 
+ One commonly used index scheme is the use of numbers which increment by 1 for each row in the table. Every row will end up having a different number index. 
+ 

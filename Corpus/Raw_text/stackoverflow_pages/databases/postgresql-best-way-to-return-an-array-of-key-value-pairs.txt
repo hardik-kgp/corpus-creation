@@ -1,0 +1,61 @@
+*** postgresql-best-way-to-return-an-array-of-key-value-pairs ***
+
+ I'm trying to select a number of fields, one of which needs to be an array with each element of the array containing  **two**
+ values. Each array item needs to contain a name (character varying) and an ID (numeric). I know how to return an array of single values (using the   keyword) but I'm unsure of how to return an array of an object which in itself contains two values. 
+ The query is something like 
+ 
+ I read that one way to do this is by selecting the values into a type and then creating an array of that type. Problem is, the rest of the function is already returning a type (which means I would then have nested types - is that OK? If so, how would you read this data back in application code - i.e. with a .Net data provider like NPGSQL?) 
+ Any help is much appreciated. 
+ 
+ I suspect that without having more knowledge of your application I'm not going to be able to get you all the way to the result you need. But we can get pretty far. For starters, there is the   function: 
+ 
+ So that right there lets you bundle a whole row into a cell. You could also make things more explicit by making a type for it: 
+ 
+ Incidentally, whenever you make a table, PostgreSQL makes a type of the same name, so if you already have a table like this you also have a type. For example: 
+ 
+ See in the third query there I used   just like a type. 
+ Now this is not likely to be as much help as you'd think for two reasons: 
+ 
+ I can't find any convenient syntax for pulling data out of the nested row.  
+ I may be missing something, but I just don't see many people using this syntax. The only example I see in the documentation is a function taking a row value as an argument and doing something with it. I don't see an example of pulling the row out of the cell and querying against parts of it. It seems like you can package the data up this way, but it's hard to deconstruct after that. You'll wind up having to make a lot of stored procedures. 
+ Your language's PostgreSQL driver may not be able to handle row-valued data nested in a row. 
+ I can't speak for NPGSQL, but since this is a very PostgreSQL-specific feature you're not going to find support for it in libraries that support other databases. For example, Hibernate isn't going to be able to handle fetching an object stored as a cell value in a row. I'm not even sure the JDBC would be able to give Hibernate the information usefully, so the problem could go quite deep. 
+ 
+ So, what you're doing here is feasible provided you can live without a lot of the niceties. I would recommend against pursuing it though, because it's going to be an uphill battle the whole way, unless I'm really misinformed. 
+ 
+ **ARRAYs can only hold elements of the same type**
+
+ Your example displays a   and an   value (no single quotes around  ). It is generally impossible to mix types in an array. To get those values into an array you have to create a   and then form an ARRAY of that composite type like you already mentioned yourself. 
+ **Alternatively**
+ you can use the data types   in Postgres 9.2+,   in Postgres 9.4+ or   for key-value pairs. 
+ 
+ Of course, you can cast the   to  , and work with a two-dimensional text array. Consider the two syntax variants for a array input in the demo below and consult  the manual on array input . 
+ There is a limitation to overcome. If you try to aggregate an ARRAY (build from key and value) into a two-dimensional array, the aggregate function   or the   constructor error out: 
+ 
+ There are ways around it, though. 
+ **Aggregate key-value pairs into a 2-dimensional array**
+
+ PostgreSQL 9.1 with  : 
+ 
+ The column   is just there to demonstrate syntax variants in the INSERT command. The third row is spiked with meta-characters: 
+ 
+ Simple case: aggregate two integer (I use the same twice) into a two-dimensional int array: 
+ **Update: Better with custom aggregate function**
+
+ With the  polymorphic type   it works for all base types: 
+ 
+ Call: 
+ 
+ Note the additional   layer to make it a multidimensional array. 
+ **Update for Postgres 9.5+**
+
+ Postgres now ships a variant of   accepting array input and you can replace my custom function from above with this: 
+ The manual: 
+ 
+ 
+  ... 
+  input arrays concatenated into array of one
+  higher dimension (inputs must all have same dimensionality, and cannot
+  be empty or NULL) 
+ 
+ 

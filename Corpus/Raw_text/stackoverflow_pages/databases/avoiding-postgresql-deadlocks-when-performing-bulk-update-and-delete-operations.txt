@@ -1,0 +1,33 @@
+*** avoiding-postgresql-deadlocks-when-performing-bulk-update-and-delete-operations ***
+
+ We have a single table which does not have references to any other tables.  
+ 
+ The primary key of the table is a composite of id_A and id_B.  
+ Reads and writes of this table are highly concurrent and the table has millions of rows. 
+We have several stored procedures which do mass updates and deletes. Those stored procedures are being called concurrently mainly by triggers and application code.  
+ The operations usually look like the following where it could match thousands of records to update/delete: 
+ 
+ We are experiencing deadlocks and all our attempts to perform operations with locks (row level using   and table level locks) do not seem to solve these deadlock issues. (Note that we cannot in any way use access exclusive locking on this table because of the performance impact) 
+ Is there another way that we could try to solve these deadlock situations?  The reference manual says : 
+ 
+ The best defense against deadlocks is generally to avoid them by being
+  certain that all applications using a database acquire locks on
+  multiple objects in a consistent order. 
+ 
+ But how could we achieve this in the above scenario. Is there a guaranteed way to do bulk update inset operations in a particular order?  
+ 
+ Use explicit row-level locking in  **ordered subqueries**
+ in  **all competing queries**
+. (Simple   does not compete.) 
+ **DELETE**
+
+ 
+ **UPDATE**
+
+ 
+ This way, rows are locked in consistent order as advised in the manual. 
+ Assuming that  ,   are never updated, even rare corner case complications like  detailed in the "Caution" box in the manual  are not possible. 
+ While not updating key columns, you can use the weaker  lock mode  . Requires Postgres 9.3 or later. 
+ 
+ The other ( slow  and sure) option is to use the  Serializable Isolation Level  for competing transactions. You would have to prepare for serialization failures, in which case you have to retry the command. 
+ 

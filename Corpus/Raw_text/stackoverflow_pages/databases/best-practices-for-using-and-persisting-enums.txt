@@ -1,0 +1,83 @@
+*** best-practices-for-using-and-persisting-enums ***
+
+ I've seen several questions/discussions here about the best way to handle and persist enum-like values (e.g.  Persisting data suited for enums  ,  How to persist an enum using NHibernate  ), and I'd like to ask what the general consenus is. 
+ In particular: 
+ 
+ How should these values be handled in the code? 
+ How should they be persisted to a database (as text/as a number)? 
+ What are the tradeoffs of different solutions? 
+ 
+ Note: I moved the explanations originally included in this question to an answer. 
+ 
+ I agree with much of what you say.  One thing I'd like to append, though, about the persistence of enums: I don't believe the generation of the enums at build time from the DB values is acceptable, but I also think that the runtime check is not a good solution.  I'd define a third means: have a unit test which will check the values of the enum against the database.  This prevents "casual" divergence, and avoids the overhead of checking the enums against the database every time the code is run. 
+ 
+ The initial article looks fine to me. Still, based on the comments, it seems some comments concerning Java enums might clarify few things. 
+ Enum type in Java is a class by definition, but many programmers tend to forget this, because they rather relate it to "a list of allowed values" as in some other languages. It's more than that. 
+ So, to avoid those switch statements it might be reasonable to put some code and additional methods in the enum class. There's almost never a need to create a separate "enum-like real class".   
+ Consider also the point of documentation - do you want to document the actual meaning of your enum in the database? In the source code reflecting the values (your enum type) or in some external documentation? I personally prefer the source code.  
+ If you want to present enum values as integers in the database due to speed or whatever reason, that mapping should also reside in the Java enum. You'll get string-name mapping by default, and I've been content with that. There's an ordinal number associated with each enum value, but using that directly as a mapping between code and database is not very bright, because that ordinal number will change if someone reorders the values in the source code. Or adds additional enum values in between existing values. Or removes some value.  
+ (Of course, if someone changes the name of the enum in the source code, the default string-mapping goes sour too, but that's less likely to happen accidentally. And you can more easily protect against that if necessary by putting some runtime-checking and check constraints in the database as suggested here already. ) 
+ 
+ I've tried to summarize my understanding. Feel free to edit this if you have any corrections. So here it goes: 
+ **In the code**
+
+ In the code, enums should be handled using either the language's native enum type (at least in Java and C#), or using something like the  "typesafe enum pattern" . Using plain constants (Integer or similar) is discouraged, as you lose type safety (and make it hard to understand which values are legal input for e.g. a method). 
+ The choice between these two depends on how much additional functionality is to be attached to the enum: 
+ 
+ If you want to put loads of functionality into the enum (which is good, because you avoid switch()ing on it all the time), a class is usually more appropriate. 
+ On the other hand, for simple enum-like values, the language's enum is usually clearer. 
+ 
+ In particular, at least in Java an enum cannot inherit from another class, so if you have several enums with similar behavior which you'd like to put into a superclass, you cannot use Java's enums. 
+ **Persisting enums**
+
+ To persist enums, each enum value should be assigned a unique ID. This can be either an integer, or a short string. A short string is preferred, since it can be mnemonic (makes it easier for DBAs etc. to understand the raw data in the db).  
+ 
+ In the software, every enum should then have mapping functions to convert between the enum (for use inside the software) and the ID value (for persisting). Some frameworks (e.g. (N)Hibernate) have limited suppport for doing this automatically. Otherwise, you have to put it into the enum type/class. 
+ The database should (ideally) contain a table for each enum listing the legal values. One column would be the ID(see above), which is the PK. Additional columns might make sense for e.g. a description. All table columns that will contain values from that enum can then use this "enum table" as a FK. This guarantees that incorrect enum values can never be persisted, and allows the DB to "stand on its own". 
+ 
+ One problem with this approach is that the list of legal enum values exists in two places (code and database). This is hard to avoid and therefore often considered acceptable, but there are two alternatives: 
+ 
+ Only keep the list of values in the DB, generate the enum type at build time. Elegant, but means that a DB connection is required for a build to run, which seems problematic. 
+ Define the list of values in the code to be authoritative. Check against the values in the DB at runtime (usually at startup), complain/abort on mismatch. 
+ 
+ 
+ In the code handling for C# you've missed out defining delcaring the 0 value.
+I almost without fail always declare my first value as: 
+ 
+ So as to serve as a null value. Because the backing type is an integer and an integer defaults to 0 so it is massively useful in a lot of places to know if an enum has actually been programatically set or not. 
+ 
+ Java or C# should always use enums in code.  Disclaimer: My background is C#. 
+ If the value is to be persisted to a database, the integral values of each enumeration member should be explicitly defined so that a later change in code does not accidentally alter translated enum values and thus application behavior. 
+ Values should always be persisted to a database as integral values, to protect against enum name refactoring.  Keep documentation on each enumeration in a wiki and add a comment to the database field pointing to the wiki page documenting the type.  Also add XML documentation to the enum type containing a link to the wiki entry so that it is available through Intellisense. 
+ If you use a tool to generate CRUD code it should be capable of defining an enumeration type to use for a column so that generated code objects always use enumerated members. 
+ If custom logic needs to be applied for an enumeration member, you have some options: 
+ 
+ If you have an enum MyEnum, create a static class MyEnumInfo which offers utility methods to discover additional information about the enum member, by switch statements or whatever means necessary.  Appending "Info" to the end of the enum name in the class name ensures that they will be next to each other in IntelliSense. 
+ Decorate the enumeration members with attributes to specify additional parameters.  For example we have developed an EnumDropDown control which creates an ASP.NET dropdown filled with enumeration values, and an EnumDisplayAttribute specifies the nicely formatted display text to use for each member. 
+ 
+ I have not tried this, but with SQL Server 2005 or later, you could theoretically register C# code with the database that would contain enum information and the ability to convert values to enums for use in views or other constructs, making a method of translating the data in a manner easier for DBAs to use. 
+ 
+ Storing the text value of an enum in a database is less preferred to storing an integer, due to the additional space required and slower searching.  It is valuable in that it has more meaning than a number, however the database is for storage, and the presentation layer is for making things look nice. 
+ 
+ Well, from my experience, using enums for anything other than for passing options (as flags) to an immediate method call, results in  -ing at some point. 
+ 
+ If you are going to use the enum all over your code, then you might end up with code that is not so easy to maintain (the infamous   statement) 
+ Extending enums is a pain. You add a new enum item and end up in going through all of your code to check for all conditions. 
+ With .NET 3.5, you can add extension methods to enums to make them behave a bit more like classes. However, adding real functionality this way is not so easy since it's still not a class (you would end up using  -es in your extension methods if not elsewhere. 
+ 
+ So for an enum-like entity with a bit more of functionality you should take some time and create it as a class, with several things in mind: 
+ 
+ To make your class behave like an enum, you can either force each derived class to instantiate as a Singleton, or override Equals to allow value comparison of different instances. 
+ If your class is enum-like, it should mean that it should contain no serializable state - deserialization should be possible from its type alone (a sort of an "ID", as you said). 
+ Persistence logic should be confined to the base class only, otherwise extending your "enum" would be a nightmare. In case that you went for the Singleton pattern, you would need to ensure proper deserialization into singleton instances. 
+ 
+ 
+ Each time you find your self using "magic numbers" in code change to enums. Besides time savings ( since magic will disappear when the bugs come ...) it will save your  eyes and memory (meaningful enums make code  more readable and self-documenting), since guess what - you are most probably the person to maintain and develop your own code  
+ 
+ Imho, as for the code part: 
+ You should  **always**
+ use the 'enum' type for your enumerations, basically you get alot of freebies if you do: Type safety, encapsulation and switch avoidance, the support of some collections such as   and   and code clarity. 
+ as for the persistence part you can always persist the string representation of the enum and load it back using the enum.valueOf(String) method. 
+ 
+ I know this is an old forum, what if the database might have other things integrating directly to it?  E.g. when the resulting DB is the SOLE purpose of the code.  Then, you will be defining the enums at every integration.  Better then to have them in the DB.  Otherwise, I agree with the original post. 
+ 

@@ -1,0 +1,93 @@
+*** java-best-practice-for-date-manipulation-storage-for-geographically-diverse-user ***
+
+ I have read all of the other Q/A about Date Manipulation, but none of them seems to deliver a satisfactory answer to my concern. 
+ I have a project with geographically diverse users which uses   in some of its classes and data. The thing is that I am looking for an efficient way to manipulate the Dates for the different users in their respective timezone, most of the answers suggest using  Joda  library for   manipulation, which quite don't understand yet because I still have not found any operation you cannot do with traditional Java, so if someone can explain what can I do with  Joda  that can't be done with traditional Java, then I may consider using it. 
+ I finally came to the approach of using   to save my dates into the database (any database). This would avoid me to worry about what timezone is using the database to store the dates. If I want to query the database for an specific date or range of dates, I would perform the queries using the   value of the   I want to query: 
+ 
+ And when retrieving a   I would then format the   value retrieved from database to a readable   using the timezone of the user requesting the data. 
+ 
+ According to some opinions I have read, some people say emphatically that storing   is definitely not the best practice, nevertheless, for some reason they all miss to say  **WHY**
+ it is not recommendable. Am I missing something? Does this cause a performance issue for the conversions  / ? Is there any use case that cannot be accomplished when using   instead   in database? Can someone post a rationale explanation about this? 
+ In the other hand, assuming that I keep using   values to store dates in database, is there a way to avoid worrying about time-zones while handling database  ? 
+ Thanks in advance. 
+ 
+ 
+ I have read all of the other Q/A about Date Manipulation 
+ 
+ No, you certainly did  not  read them all.  
+ 
+ You would have learned that both the legacy date-time classes (such as   &  ) and the Joda-Time project are supplanted by the java.time classes (1,890 results for search on 'java.time').  
+ You would have learned not to track date-time values as a count-from-epoch. Debugging and logging becomes very difficult with bugs going undiscovered as humans cannot decipher the meaning of a long integer as a date-time. And because many granularities of counting (whole seconds, milliseconds, microseconds, nanoseconds, whole days, and more) and at least a  couple dozen of epochs  are employed in various software projects create ambiguity about your data with assumptions leading to errors, misinterpretation, and confusion.  
+ You would have learned to use date-time types in your database to track date-time values.  
+ You would have learned to work and store date-time values in UTC. Adjust into a time zone only where required by logic or as expected by the user for presentation. “Think global, present local.” 
+ You would have learned that while a valiant industry-first effort, the legacy date-time classes are poorly designed, confusing, and troublesome. See  What's wrong with Java Date & Time API?  for some discussion. Joda-Time was the first good date-time library in the industry, and inspired its replacement, the java.time classes built into Java 8 and later. 
+ 
+ I'll be somewhat brief as all of this has been covered  many  times already on Stack Overflow. 
+ Work in UTC. In Java that means the   class is commonly used. The   class represents a moment on the timeline in  UTC  with a resolution of  nanoseconds  (up to nine (9) digits of a decimal fraction).  
+ 
+ Any serious database such as Postgres tracks date-time values in UTC. Your JDBC driver handles the detail of converting from database internally-stored data to a Java type. JDBC drivers that comply with  JDBC 4.2  and later can directly handle java.time types via   &   methods.  
+ 
+ For non-compliant drivers, fall back to using java.sql types such as   to communicate with database, and convert to/from java.time types via new methods added to the old classes. The internal details of how the database handles date-time values may be quite different than how java.time does. For the most part the JDBC driver hides all the nitty-gritty details from you. But one critical issue is resolution, which you should study in your database. The java.time classes handle date-times with a resolution up to  nanoseconds  but your database may not. For example, Postgres uses a resolution of  microseconds . So going back-and-forth means data-loss. You want to use the truncation methods on the java.time classes to match your database. 
+ 
+ So, no time zone involved. So no “worrying about time-zones while handling database Date”. 
+ When you want to see the same moment through the lens of a region’s  wall-clock time , apply a   to get a  . 
+ 
+ When taking a zoned date-time back to the database, extract an  . 
+ 
+ Be aware that for any given moment, the date as well as the time-of-day varies around the globe by time zone. So if an exact moment matters, such as when a contract expires, beware of using a date-only value. Either use a date-time value for the exact moment, or store the intended time zone alongside the date-only so the exact moment can be calculated later. 
+ 
+ 
+ About java.time 
+ The  java.time  framework is built into Java 8 and later. These classes supplant the troublesome old  legacy  date-time classes such as  ,  , &  . 
+ The  Joda-Time  project, now in  maintenance mode , advises migration to java.time. 
+ To learn more, see the  Oracle Tutorial . And search Stack Overflow for many examples and explanations. Specification is  JSR 310 . 
+ Where to obtain the java.time classes?  
+ 
+ **Java SE 8**
+ and  **SE 9**
+ and later
+
+ 
+ Built-in.  
+ Part of the standard Java API with a bundled implementation. 
+ Java 9 adds some minor features and fixes. 
+ 
+ **Java SE 6**
+ and  **SE 7**
+
+ 
+ Much of the java.time functionality is back-ported to Java 6 & 7 in  **ThreeTen-Backport**
+. 
+ 
+ **Android**
+
+ 
+ The  ThreeTenABP  project adapts  **ThreeTen-Backport**
+ (mentioned above) for Android specifically. 
+ See  How to use… . 
+ 
+ 
+ The  ThreeTen-Extra  project extends java.time with additional classes. This project is a proving ground for possible future additions to java.time. You may find some useful classes here such as  ,  ,  , and  more . 
+ 
+ 
+ what can I do with Joda that can't be done with traditional Java 
+ 
+ It's not really about what you can or cannot do with traditional Java in the general case. It's more about how the library API works to make you write better (more robust and correct) code easier than traditional Java does. 
+ So much so that as of Java 8 the Joda API was more or less copied/adopted verbatim with just package names changed and incorporated into the Java 8 SE standard library. 
+ Therefore if you are using Java 8 you should pick the new API, and if not you should consider that using Joda will at least buy you a smooth path towards upgrading/porting to Java 8 when you are able to. 
+ A few examples: 
+ 
+ Consistent API for date and time types. 
+ Date/time objects are immutable, manipulations return new instances of the type representing the altered value. (Like Java Strings). This makes it easier to reason about reuse of date/time objects. 
+ By design avoids mixing DST & timezone dependent values/operations with DST & timezone agnostic ones. This makes it a lot easier to write code that works consistently and correctly and doesn't have corner cases dependent on timezone/locale/date/time-of-day. 
+ Sane defaults for things like   so serialising/deserialising can be expected to work correctly with minimal effort. 
+ Culture/locale dependent corner cases and things you weren't aware of yet (for example, did you know about the traditional Korean calendar?) which saves you a whole lot of hassle when converting your date times between locales/calendaring systems. Also: a wealth of formatting options. 
+ The concept of  s to represent 'absolute' time stamps which is useful when working with geographically distributed systems (when the system default clocks/timezones & DST rules may differ) or for interop because it uses UTC. 
+ 
+ EDIT to add: 
+ 
+ According to some opinions I have read, some people say emphatically that storing   is definitely not the best practice, nevertheless, for some reason they all miss to say WHY it is not recommendable. Am I missing something? 
+ 
+  has a few downsides. The big drawback is that the type of clock is ill defined. It could be a monotonic clock, it could be clock subject to DST and timezone or it could be a UTC time. It is also not necessarily an accurate clock, it is not actually guaranteed to be accurate down to the millisecond. Just whatever happens to be to hand for something that will work as a semblance of the current time  at  the current time, basically. 
+ This means that if you want to use multiple servers to handle incoming requests, for instance, it gets tricky when you have to consider working with the output of   from server   in the context of your program running on a different server   the next day, say. 
+ 

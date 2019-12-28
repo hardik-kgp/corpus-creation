@@ -1,0 +1,110 @@
+*** efficient-comparison-of-100-000-vectors ***
+
+ I save 100.000 Vectors of in a database. Each vector has a dimension 60. (int vector[60]) 
+ Then I take one and want present vectors to the user in order of decreasing similarity to the chosen one. 
+ I use  Tanimoto Classifier  to compare 2 vectors: 
+ 
+ Is there any methods to avoid doing through all entries in the database? 
+ One more thing! I don't need to sort all vectors in the database. I whant to get top 20 the most similar vectors. So maybe we can roughly threshold 60% of entries and use the rest for sorting. What do you think? 
+ 
+ First, preprocess your vector list to make each vector normalized.. unit magnitude.
+Notice now that your comparison function T() now has magnitude terms that become constant, and the formula can be simplified to finding the largest dot product between your test vector and the values in the database. 
+ Now, think of a new function D = the distance between two points in 60D space. This is classic  L2 distance , take the difference of each component, square each, add all the squares, and take the square root of the sum.  D(A, B) = sqrt( (A-B)^2)  where A and B are each 60 dimensional vectors. 
+ This can be expanded, though, to  D(A, B) = sqrt(A * A -2*dot(A,B) + B * B).
+A and B are unit magnitude, then. And the function D is monotonic, so it won't change the sort order if we remove the sqrt() and look at squared distances. This leaves us with only -2 * dot(A,B).  Thus, miniumizing distance is exactly equivalent to maximizing dot product. 
+ So the original T() classificiation metric can be simplified into finding the highest dot product between the nornalized vectors. And that comparison is shown equivalent to finding the  **closest**
+ points to the sample point in 60-D space. 
+ So now all you need to do is solve the equivalent problem of "given a normalized point in 60D space, list the 20 points in the database of normalized sample vectors which are nearest to it." 
+ That problem is a well understood one.. it's  K Nearest Neighbors.  
+There are many algorithms for solving this. The most common is classic  KD trees
+ . 
+ But there's a problem. KD trees have an O(e^D) behavior.. high dimensionality quickly becomes painful. And 60 dimensions is definitely in that extremely painful category. Don't even try it. 
+ There are several alternative general techniques for high D nearest neighbor however.
+ This paper  gives a clear method.  
+ But in practice, there's a great solution involving yet another transform. If you have a metric space (which you do, or you wouldn't be using the Tanimoto comparison), you can reduce the dimensionality of the problem by a 60 dimensional rotation. That sounds complex and scary, but it's very common.. it's a form of singular value decomposition, or eigenvalue decomposition.  In statistics, it's known as  Principal Components Analysis.   
+ Basically this uses a simple linear computation to find what directions your database really spans. You can collapse the 60 dimensions down to a lower number, perhaps as low as 3 or 4, and still be able to accurately determine nearest neighbors.
+There are tons of software libraries for doing this in any language, see  here  for example. 
+ Finally, you'll do a classic K nearest neighbors in probably only 3-10 dimensions.. you can experiment for the best behavior. There's a terrific library for doing this called  Ranger , but you can use other libraries as well.  A great side benefit is you don't even need to store all 60 components of your sample data any more! 
+ The nagging question is whether your data really can be collapsed to lower dimensions without affecting the accuracy of the results. In practice, the PCA decomposition can tell you the maximum residual error for whatever D limit you choose, so you can be assured it works. Since the comparison points are based on a distance metric, it's very likely they are intensely correlated, unlike say hash table values. 
+ So the summary of the above: 
+ 
+ Normalize your vectors, transforming your problem into a K-nearest neighbor problem in 60 dimensions 
+ Use Principal Components Analysis to reduce dimensionality down to a manageable limit of say 5 dimensions 
+ Use a K Nearest Neighbor algorithm such as Ranger's KD tree library to find nearby samples. 
+ 
+ 
+ **Update:**
+
+ After you made clear that   is the dimension of your space, not the length of the vectors, the answer below is not applicable for you, so I'll keep it just for history. 
+ 
+ Since your vectors are normalized, you can employ   to find the neighbors within an   of incremental hypervolume. 
+ No database I'm aware of has native support of  , so you can try to implement the following solution in  , if you are searching for a limited number of closest entries: 
+ 
+ Store the projections of the vectors to each of  -dimensional space possible (takes   columns) 
+ Index each of these columns with a   index 
+ Pick a square   of a given area within any projection. The product of these  's will give you a hypercube of a limited hypervolume, which will hold all vectors with a distance not greater than a given one. 
+ Find all projections within all  's using  
+ 
+ You'll still need to sort within this limited range of values. 
+ For instance, you have a set of  -dimensional vectors with magnitude of  : 
+ 
+ You'll have to store them as follows: 
+ 
+ Say, you want similarity with the first vector   greater than  . 
+ This means having the vectors inside the hypercube:  . 
+ You issue the following query: 
+ 
+ , etc, for all six columns 
+ 
+ So the following information can be cached: 
+ 
+ Norm of the chosen vector 
+ The dot product A.B, reusing it for both the numerator and the denominator in a given T(A,B) calculation. 
+ 
+ If you only need the N closest vectors or if you are doing this same sorting process multiple times, there may be further tricks available.  (Observations like T(A,B)=T(B,A), caching the vector norms for all the vectors, and perhaps some sort of thresholding/spatial sort). 
+ 
+ In order to sort something, you need a sorting key for each item.    So you  will  need to process each entry at least once to calculate the key. 
+ Is that what you think of? 
+ =======
+Moved comment here:  
+ Given the description you cannot avoid looking at all entries to calculate your similarity factor. If you tell the database to use the similarity factor in the "order by" clause you can let it do all the hard work. Are you familiar with SQL? 
+ 
+ In short, no, probably not any way to avoid going through all the entries in the database.  One qualifier on that; if you have a significant number of repeated vectors, you may be able to avoid reprocessing exact repeats. 
+ 
+ If you're willing to live with approximations, there are a few ways you can avoid having to go through the whole database at runtime. In a background job you can start pre-computing pairwise distances between vectors. Doing this for the whole database is a huge computation, but it does not need to be finished for it to be useful (i.e. start computing distances to 100 random vectors for each vector or so. store results in a database). 
+ Then triangulate. if the distance d between your target vector v and some vector v' is large, then the distance between v and all other v'' that are close to v' will be large(-ish) too, so there is no need to compare them anymore (you will have to find acceptable definitions of "large" yourself though). You can experiment with repeating the process for the discarded vectors v'' too, and test how much runtime computation you can avoid before the accuracy starts to drop. (make a test set of "correct" results for comparisons) 
+ good luck. 
+ sds 
+ 
+ **Newer answer**
+
+ How much preprocessing can you do? Can you build "neighborhoods" ahead of time and note which neighborhood each vector is in inside the database? That might let you eliminate many vectors from consideration. 
+ 
+ **Old answer below, which assumed 60 was magnitude of all the vectors, not the dimension.**
+
+ Since the vectors are all the same length (60), I think you're doing too much math. Can't you just do the dot product of the chosen one against each candidate? 
+ In 3D:  
+ Three multiplies. In 2D it's just two multiplies. 
+ Or does that violate your idea of similarity? To me, the most similar vectors are the ones with the least angular distance between them. 
+ 
+ Uh, no?  
+ You only have to do all 99,999 against the one you picked (rather than all   possible pairs), of course, but that's as low as it goes. 
+ 
+ Looking at your response to  nsanders's answer , it is clear you are already on top of this part. But I've thought of a special case where computing the full set of comparisons might be a win. If: 
+ 
+ the list comes in slowly (say your getting them from some data acquisition system at a fixed, low rate) 
+ you don't know until the end which one you want to compare to 
+ you have plenty of storage 
+ you need the answer fast when you do pick one (and the naive approach isn't fast enough) 
+ Looks are faster than computing  
+ 
+ then you could pre-compute the as the data comes in and just lookup the results per pair at sort time. This might also be effective if you will end up doing many sorts... 
+ 
+ Without going trough all entries? It seems not possible.
+The only thing you can do is to do the math at insert time (remembering that   equivalence http://tex.nigma.be/T%2528A%252CB%2529%253DT%2528B%252CA%2529.png   :P ).  
+ This avoids your query to check the list against all the other lists at execution time (but it could heavily increase the space needed for the db) 
+ 
+ Another take on this is the all pair problem with a given threshold for some similarity function.
+Have a look at bayardo's paper and code here  http://code.google.com/p/google-all-pairs-similarity-search/   
+ I do not know if your similarity function matches the approach, but if so, that is another tack to look at. It would also require normalized and sorted vectors in any case. 
+ 

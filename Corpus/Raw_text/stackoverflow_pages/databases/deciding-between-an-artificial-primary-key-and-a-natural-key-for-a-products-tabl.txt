@@ -1,0 +1,92 @@
+*** deciding-between-an-artificial-primary-key-and-a-natural-key-for-a-products-tabl ***
+
+ Basically, I will need to combine product data from multiple vendors into a single database (it's more complex than that, of course) which has several tables that will need to be joined together for most OLTP operations. 
+ I was going to stick with the default and use an auto-incrementing integer as the primary key, but while one vendor supplies their own "ProductiD" field, the rest do not and I would have to do a lot of manual mapping to the other tables then to load the data (as I would have to first load it into the Products table, then pull the ID out and add that along with the other information I need to the other tables). 
+ Alternatively, I could use the product's SKU as it's primary key since the SKU is unique for a single product, and all of the vendors supply a SKU in their data feeds.  If I use the SKU as the PK then I could easily load the data feeds as everything is based off of the SKU, which is how it works in the real world.  However the SKU is alphanumeric and will probably be slightly less efficient than an integer-based key. 
+ Any ideas on which I should look at? 
+ 
+ This is a choice between  surrogate and natural primary keys . 
+ IMHO always favour surrogate primary keys.  Primary keys shouldn't have meaning because that meaning can change.  Even country names can change and countries can come into existence and disappear, let alone products.  Changing primary keys is definitely not advised, which can happen with natural keys. 
+ More on  surrogate vs primary keys : 
+ 
+ So surrogate keys win right? Well,
+  let’s review and see if any of the
+  con’s of natural key’s apply to
+  surrogate keys: 
+ 
+ Con 1: Primary key size – Surrogate keys generally don't have problems
+  with index size since they're usually
+  a single column of type int. That's
+  about as small as it gets. 
+ Con 2: Foreign key size - They don't have foreign key or foreign
+  index size problems either for the
+  same reason as Con 1. 
+ Con 3: Asthetics - Well, it’s an eye of the beholder type thing, but
+  they certainly don’t involve writing
+  as much code as with compound natural
+  keys. 
+ Con 4 & 5: Optionality & Applicability – Surrogate keys have no
+  problems with people or things not
+  wanting to or not being able to
+  provide the data. 
+ Con 6: Uniqueness - They are 100% guaranteed to be unique. That’s a
+  relief. 
+ Con 7: Privacy - They have no privacy concerns should an
+  unscrupulous person obtain them. 
+ Con 8: Accidental Denormalization – You can’t accidentally denormalize
+  non-business data. 
+ Con 9: Cascading Updates - Surrogate keys don't change, so no
+  worries about how to cascade them on
+  update. 
+ Con 10: Varchar join speed - They're generally int's, so they're generally
+  as fast to join over as you can get. 
+ 
+ 
+ And there's also  Surrogate Keys vs Natural Keys for Primary Key? 
+ 
+ In all but the simplest internal situations, I recommend always going for the surrogate key. 
+It gives you options in the future, and protects you from unknowns. 
+ There's no reason why additional keys, like an SKU, couldn't be made non-null to enforce them, but at least by removing your reliance on third-parties you're giving yourself the option to choose, rather than having it taken from you and enduring a painful rewrite at a later stage. 
+ Whether you go for the auto-incremented integer or determine the next primary key yourself, there will be complications. With the auto-incremented method, you can insert the record easily and let it assign its own key, but you may have trouble identifying exactly what key your record was given (and getting the max key isn't guaranteed to return yours). 
+ I tend to go for the self-assigned key because you have more control and, in sql server, you can retrieve your key from a central keys table and ensure nobody else gets the same key, all in one statement: 
+ 
+ The table records the last key used. The sql above increments that key directly in the table and returns the new key, ensuring its uniqueness. 
+ **Why you should avoid alphanumeric primary keys:**
+
+ Three main problems: performance, collation and space. 
+ Performance - there is a performance cost though, like Razzie below, I can't quote any numbers, but it is less efficient to index alphanumerics than numbers. 
+ Collation - your developers may create the same key with different collations in different tables (it happens) which leads to constantly using the 'collate' commands when joining these tables in queries and that gets old really quickly. 
+ Space - a nine-character SKU like David's takes nine bytes, but an integer takes only four (2 for smallint, 1 for tinyint). Even a bigint takes only 8 bytes. 
+ 
+ The ever present danger with natural keys is that either your initial assumptions will be proven wrong now or in the future when some change is made outside your control, or at some place you'll need to reference a record where passing a meaningful field is not desired (ex. a web application that uses an employee's social security number as the primary key, and then has to use urls like /employee.php?ssn=xxxxxxx) 
+ From my own personal experience with "unique" SKU's and vendor data feeds - are you  **absolutely**
+  **sure**
+ they are sending you a feed with complete, unique, well formed SKUs? 
+ I've had to personally deal with all of the following when getting feeds from vendors who have varying levels of IT and clerical competence: 
+ 
+ Products are missing their SKU entirely ("") 
+ Clerks have used placeholder SKUs in their database like 999999999 and 00000000 and never corrected them 
+ Those doing the data entry or importation have confused between various product numbers, mixing up things like UPC with SCC, or even finding ways to mangle them together (I've seen SCC codes with impossible check digits at the end, because they just copied the UPC and added 01 or 10, without correcting the check digit) 
+ For special reasons, or just incompetence, the vendor has entered the same product twice in their database (for example rev. 1 and rev. 2 of the same motherboard have the same SKU, but exist as 2 records in the vendors database and data feed because rev 2. has new features) 
+ 
+ 
+ I'd also go with an auto-increment primary key. The performance impact for having an alphanumeric primary key are there, though I don't dare name any numbers. However, if performance is important in your application, all the more reason to go with the autoincrement primary key column. 
+ 
+ I'd advice on having an autoincremented "meaningless" integer as primary key. Should someone come up with the idea of reorganizing product IDs, at least your DB won't get into trouble. 
+ 
+ Pretty similar to my question a few months ago... 
+ Should I have a dedicated primary key field? 
+ I went with an auto-incrementing PK in the end. 
+ 
+ Since you're dealing with data from multiple vendors outside of your control, I would use a surrogate key.  You don't want to have to rearchitect your database design one day when one of them happens to send you a duplicate. 
+ 
+ A surrogate key (auto increment INT field) will uniquely identify a row in the table. On the other hand, a Unique Natural key (productName) will prevent duplicate product data from entering the table. 
+ With a unique Natural key field, two or more rows can never have same data. 
+ With a surrogate key field, Rows can be unique because of the auto increment INT field but data in rows will not be unique because the surrogate key has no relation to the data. 
+ Lets take an example of a User table, the table's Natural key field (userName) will prevent same user from registering twice but the auto increment INT field (userId) will not.  
+ 
+ If every product will have a SKU and the SKU is unique to each product, I don't see why you wouldn't want to use that for a possible primary key. 
+ 
+ You could always take a  hash  of the SKU which would get rid of the alphas. You'd have to code for possible collisions (which should be very rare) which is an added complication.  
+ I'd use the hash to populate the primary key and make the inital import easy but when using it in the dB always treat it as if it were a random number. That way the primary key will loose it's meaning (and have all the advantages of an auto-incremented key) allowing flexibility in the future. 
+ 

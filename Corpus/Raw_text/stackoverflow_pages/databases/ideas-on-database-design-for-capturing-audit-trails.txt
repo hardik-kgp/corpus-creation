@@ -1,0 +1,65 @@
+*** ideas-on-database-design-for-capturing-audit-trails ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  6 years ago . 
+ 
+ 
+ 
+ How can I maintain a log of the data in my DB? 
+ I have to maintain a log of every change made to each row. That means that I can't allow   and   to be performed. 
+ How can I keep such a log? 
+ 
+ Use "Insert Only Databases" 
+ The basic idea is that you never update or delete data. 
+ Each table has 2 datetime columns  **from**
+ and  **to**
+. 
+ They start with the value null in each (beginning of time to end of time) 
+ When you need to "change" the row you add a new row, at the same time you update the  **to**
+ in the previous row to Now and the  **from**
+ in the row you are adding to Now. 
+ You read data out of the table via a view that has a where to = null in it. 
+ This method also gives you a picture of the state of your database at any point in time. 
+ **EDIT**
+
+ Just to clarify in response to the comment: The sequence would be given by the primary key of the table, which would be an autoincrement number. 
+ 
+ [Late post but it adds two techniques not already mentioned here] 
+ **Reading transaction log**
+ – if your database is in full recovery mode then transaction log stores a lot of useful information that can be used to see history of each row. 
+Downside is that this is not supported by default. You can try using undocumented functions DBCC LOG or fn_dblog or third party tool such as  ApexSQL Log 
+ **Using Change Data Capture**
+ -  Change data capture  essentially does the same thing like shown above but it’s more streamlined and a bit easier to use. Unfortunately this is only available in enterprise edition.    
+ Both of these can solve the problem of allowing updating and deleting because you can’t really change what’s written in transaction log.  
+ 
+ Use an "insert only" database, as described by Shiraz Bhaji, but you can use a simpler technique.  For each table that you need to maintain audit data for, just have an additional column for Updated Time, defaulting to now.  When you make a change to a record, instead of updating, just do an insert with all your data; the UpdatedTime column will get the current time. 
+ Note that this method means you have to break or reconsider your UNIQUE constraints; you can keep a primary key, but the uniqueness becomes a composite of your primary key and your UpdatedTime. 
+ This technique has the advantage of giving you a known range of historical data for each record on the table (each record is valid for a given time if it is the TOP 1 of records WHERE TimeOfInterest > UpdatedTime ORDER BY UpdatedTime DESC) with a low overhead (just a single column on the table).  It's also quite amenable to conversion from tables not using this method, with a simple ALTER TABLE to add a single column (which you can name consistently).  Then you just need to alter your UNIQUE constraints to use a composite of their current contraints and the UpdatedTime column, and some queries will need to be altered. 
+ Note as well that you can actually avoid converting all of your queries if you create a view of the table that simply returns the most recent entry for each of the records; you end up with a table which maintains historical data transparently, and a view which looks like a regular table without the changelogging. 
+ 
+ A totally different approach is to only have an audit log.  You then use this to build the most current version of your data. You create "checkpoints" periodically or using caching to speed this up. 
+ There is a presentation about somebody using this technique:  http://www.infoq.com/presentations/greg-young-unshackle-qcon08 .  The big advantage here is that since you only have the audit log you'll be quite confident that your audit trail is correct. 
+ I've never tried this and it seems pretty complicated ... but something to think about. 
+ 
+ See if my answer to another database logging question contains the information you need. Find it here... 
+ History tables pros, cons and gotchas - using triggers, sproc or at application level   
+ 

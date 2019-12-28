@@ -1,0 +1,119 @@
+*** how-to-restore-a-sql-server-2012-database-to-sql-server-2008-r2 ***
+
+ I am trying to restore the backup taken from a SQL Server 2012 to SQL Server 2008 R2, and it giving an error  
+ 
+ Specified cast is not valid. (SqlManagerUI) 
+ 
+ If you have any solution to this please give comment 
+ thanks.  
+ 
+ **NOTE, SOME OF THE ABOVE ANSWERS ARE MASSIVELY OUT-OF-DATE! THIS CAN BE DONE AND ALL WITHIN SQL SERVER MANAGEMENT STUDIO (SQL MS)**
+
+ 
+ There are numerous methods you can adopt to "downgrade" a database, but one I have found recently and that I believe was not found in early releases of SQL MS 2012, is the Copy Database Wizard. Here is how you can copy a database from a 2012 server instance to a 2008 R2 instance: 
+ 
+ In the 2012 instance, right click on the database you want to copy/"downgrade" and select "Tasks" > "Copy Database...". 
+ "Welcome to the Copy Database Wizard" click [Next]. 
+ "Select a Source Server": Set the "Source server" as the 2012 instance (or the higher version server instance), and set the appropriate authentication. click [Next]. [Note. the Server Agent services must be running] 
+ "Select a Destination Server:" Set the "Destination server" as the 2008 R2 (or lower version instance), and set the appropriate authentication. click [Next].  [Note. the Server Agent services must be running] 
+ "Select the Transfer Method" For the sake of this example, select "Use the SQL Management Object method", click [Next]. 
+ Select to move or copy the required databases, click [Next]. 
+ Configure the destination database path and logical names etc. Select the required option for if the database exists. Click [Next]. 
+ Configure the integration services package, click [Next]. 
+ For this example, select the "Run Immediately" option for "Schedule the Package" options, click [Next]. 
+ "Complete the Wizard", click [Finish] to execute the package and create the "downgraded" database.  
+ 
+ You are done, happy days. :] 
+ 
+ Another method I found was the SQL Database Migration Wizard which was created by Microsoft and which I think (I don't know) that the wizard above was created from. Get it here  http://sqlazuremw.codeplex.com/ . To use this package to migrate a databases from SQL Server 20012 to 2008 R2, you can do the following:  
+ **Note. Microsoft have now removed SQLAzureMW from Codeplex. I have personally made it available **
+**here**
+
+ 
+ Run SQLAzureMW.exe. 
+ Select the Analyse/Migrate radio button from the right hand side of the main window. 
+ Select the Target Server as “SQL Database latest service version (V12)”. Click [Next]. 
+ Connect to the SQL Server 2012 instance. Server name for my machine is “VAIOE\SQLSERVER2012”, use Windows authentication, select “Master DB (list all databases)” from the database options and “Save Login Information”. Click [Connect]. 
+ Select the required database to migrate [use GVH Report database for now]. Click [Next]. 
+ Select “Script all database objects”. 
+ Click [Advance] and change the following options: 
+ 
+ a.  Under General set “Target Server” to “SQL Server”.  
+ b.  Under “Table/View Options” set “Script Table / Data” to “Table Schema with Data”. Set “Database Engine Stored Procedures” to “True”. Set “Security Functions”, “Security Stored Procedures” and “System Functions” to “True”.  
+ Click [OK]. Click [Next]. 
+ 
+ Review your selections. Click [Next]. 
+ You will be prompted “Ready to Generate Script?”, click [Yes]. This will start the script generation. Once this is done, click [Next]. 
+ Now you will get another connection dialog. This time select the database on the target server (the SQL Server 2008 R2 instance). Select Master database so you get a choice of target DB. Click [Connect]. 
+ Now, it is likely that you want to migrate into a new database, so click [Create Database]. 
+ Enter a database target name and leave the “Collation” as the “”, this does not concern us. Click [Create Database]. Click [Next]. 
+ You will now be prompted “Execute script against destination server?”, click [Yes]. 
+ This will now go off and do loads of stuff, setting up the schema using the generated script, but unlike the previous method we found, the data is bulk loaded using BCP, which is blazingly fast. All of this is also done internally, so no generation of massive .sql script files etc.  
+ Click [Exit].  
+ 
+ You are done. Now if you open up Management Studio and connect to both the SQL Server 2012 and 2008 R2 instances we have just worked with you can see that the schema for the 2012 source database matches the target database which was just created.  
+ 
+ The two processes above are almost identical and provide the same functionality. I would not perform the latter unless you specifically need to migrate to Azure or method 1 fails for you. 
+ I hope this helps someone out. 
+ 
+ Right click on your database and select Tasks -> Generate Scripts  
+ Select things you want to restore or just let the complete database be selected by default.  
+ Now click Next -> Click Advanced and Choose 'Script for Server Version' to the 'ssms version' you want to restore like 2008 or 2008 R2 or other. 
+ also, select 'type of data to script' to 'Schema and Data' 
+ Finally execute this .sql file on destination ssms and Change Database Name in first Line Use Database 
+ if database is not there then create one and if you get error with executing the script execute the script from alter keyword to complete bottom. 
+ 
+ You can't, you can NEVER restore from a higher version to a lower version of SQL Server. Your only option is to script out  the database and then transfer the data via SSIS, BCP, linked server or scripting out the data 
+ 
+ To: Killercam
+Thanks for your solutions. I tried the first solution for an hour, but didn't work for me. 
+ I used scripts generate method to move data from SQL Server 2012 to SQL Server 2008 R2 as steps bellow: 
+ In the 2012 SQL Management Studio 
+ 
+ Tasks -> Generate Scripts (in first wizard screen, click Next - may
+not show) 
+ Choose Script entire database and all database objects -> Next 
+ Click [Advanced] button
+3.1 Change [Types of data to script] from "Schema only" to "Schema and data"
+3.2 Change [Script for Server Version] "2012" to "2008" 
+ Finish next wizard steps for creating script file 
+ Use sqlcmd to import the exported script file to your SQL Server 2008 R2
+5.1 Open windows command line
+5.2 Type [sqlcmd -S  -i Path to your file] (Ex: [sqlcmd -S localhost -i C:\mydatabase.sql]) 
+ 
+ It works for me. 
+ 
+ You won't be able to restore from   to  .  You will be able to use a tool like   to copy the schema etc (provided nothing 2012 specific is used).  If you have data to copy across too, you can use their   tool, and I think you get a 14 day free trial. 
+ 
+ Here is another option which did the trick for me:
+ https://dba.stackexchange.com/a/44340 
+ There I used  **Option B**
+. This is not my idea so all credit goes to the original author. I am just putting it in here also as I know that sometimes links don't function and it is recommended to have the full story handy. 
+ Just one tip from me: First resolve the schema incompatibilities if any. Then pouring in the data should be a breeze. 
+ 
+ **Option A**
+: Script out database in compatibility mode using Generate script option: 
+ Note: If you script out database with schema and data, depending on your data size, the script will be massive and wont be handled by SSMS, sqlcmd or osql (might be in GB as well). 
+ 
+ **Option B**
+: 
+ First script out tables first with all Indexes, FK's, etc and create blank tables in the destination database - option with SCHEMA ONLY (No data). 
+ Use BCP to insert data 
+ I. BCP out the data using below script. Set SSMS in Text Mode and copy the output generated by below script in a bat file. 
+ 
+ II. Run the bat file that will generate the .dat files in the folder that you have specified. 
+ III. Run below script on the destination server with SSMS in text mode again. 
+ 
+ IV. Run the output using SSMS to insert data back in the tables. 
+ This is very fast BCP method as it uses Native mode. 
+ 
+ The only built-in way to " downgrade " a database from one SQL Server version to a lower one is the hard way:  Script out the whole database, schema  and  data, then execute the script on the target server.   
+ This is do-able but tends to be brutal. 
+ 
+ As has been mentioned already, you cannot use the "Back up" and "Restore" features to go from a SQL Server 2012 DB to a SQL Server 2008 DB.  A program I wrote,  SQL Server Scripter , will however connect to a SQL Server database and script out a database, its schema and data.  It can be git cloned from BitBucket, and compiled with Visual Studio 2010 or later (if it's a later version, just open the  ). 
+ 
+ Merge replication.  You can create the subscriber (2008) from the distributor (2008).  After the database has fully synchronized, drop the subscription and the publication. 
+ 
+ If you are in same network then add the destination server to the  **MS Server management studio**
+ using  connect  option and then try exporting from source to destination. The most easiest way :) 
+ 

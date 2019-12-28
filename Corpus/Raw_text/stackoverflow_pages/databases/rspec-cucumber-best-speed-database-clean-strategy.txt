@@ -1,0 +1,46 @@
+*** rspec-cucumber-best-speed-database-clean-strategy ***
+
+ I would like to increase the speed of my tests. 
+ 
+ Should I use   or go with the   gem? 
+ Which database_cleaner strategy is the best? I noticed that after migration from   to   my more than 800 examples run about 4 times faster! 
+ Should I turn off   when I use database_cleaner  ? 
+ Is it true that the best strategy for rack_test is  ? 
+ What is the best practices for changing strategy on the fly from   to   when using selenium or  akephalos ? 
+ 
+ P.S. Mysql, Rails 3, Rspec2, Cucumber  
+ P.P.S. I know about  spork  and  parallel_test  and using them. But they are offtopic. For example, Spork save about 15-20 sec on whole suite run, but changing from   to   dramatically increase running time from 3.5 to 13.5 minutes (10 minutes difference). 
+ 
+ **1., 2. & 4.,**
+ You should use transactions (either with   or transactions support from the database_cleaner gem) if you are using capybara's default engine, rack_test. As you noted, using transactions are substantially faster than using a truncation strategy. However, when database writes can go through different threads (as with selenium) transactions won't work. So you'll need to use truncation (or force everything to go through one db thread--another option).  
+ **3.**
+ Yes, you should turn off   when using the database_cleaner gem since the gem natively support transactions. If you only need transactions then just use_transactional_fixtures and never load the database_cleaner gem. 
+ **5.**
+ The following code will switch between   and   on the fly. (Tested this with rspec, capybara, rails3.)  
+ **Features**
+ This should give you the best of both worlds. The  speed  of   when you don't need to test javascript stuff and the  flexibility  of   when you do.  
+ Also this code takes care of repopulating seed data in cases where it is needed (this method assumes you use seeds.rb to load your seed data--as is the current convention). 
+ Add the following code to spec_helper. 
+ 
+ Thanks  Jo Liss  for pointing the way. 
+ **PS: How to switch drivers on the fly**
+
+ The above solution assumes you already know how to switch drivers on the fly. In case some who come here don't, here's how:  
+ As above let's assume that you normally will use the default capybara driver rack_test, but need to use selenium to test some Ajaxy stuff. When you want to use the selenium driver use   or   for Rspec or cucumber respectively. For example: 
+ Rspec example: 
+ 
+ Cucumber example: 
+ 
+ 
+ Using transactional fixtures will be faster since the DBMS doesn't commit changes (and therefore no heavy IO occurs resetting the database between tests) but as you know won't always work. 
+ We have had some success using SQLite in-memory databases in the test environment so tests run super fast while leaving transactional fixtures off.  This option is also available for MySQL (use :options to set "ENGINE=MEMORY") but I've never done it personally and if you search you'll find a few threads about caveats involved.  Might be worth a look.  Depending on your testing methodology it may not be acceptable to use a different DB engine though. 
+ I suggest you enable transactional fixtures and use the  DatabaseCleaner  gem to selectively disable transactional fixtures per example group. I can't say that I've tried this but since you didn't have any answers I figured anything might potentially help you out. 
+ 
+ If it were me I'd factor this out into a  helper and call it as a one-line macro from each example group that needs transactional fixtures turned off. 
+ Seems like there really should be a better way, though....    best of luck. 
+ 
+ 
+ This is from  Avdi Grimm's post  about database cleaner and Rspec. Step-by-step analysis of the code is in the article.  
+ 
+ Have you used Spork ? It greatly enhances speed. 
+ 

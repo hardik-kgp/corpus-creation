@@ -1,0 +1,107 @@
+*** firestore-how-to-get-random-documents-in-a-collection ***
+
+ It is crucial for my application to be able to select multiple documents at random from a collection in firebase. 
+ Since there is no native function built in to Firebase (that I know of) to achieve a query that does just this, my first thought was to use query cursors to select a random start and end index provided that I have the number of documents in the collection. 
+ This approach would work but only in a limited fashion since every document would be served up in sequence with its neighboring documents every time; however, if I was able to select a document by its index in its parent collection I could achieve a random document query but the problem is I can't find any documentation that describes how you can do this or even if you can do this. 
+ Here's what I'd like to be able to do, consider the following firestore schema: 
+ 
+ Then in my client (I'm in a Swift environment) I'd like to write a query that can do this: 
+ 
+ Is there anyway I can do something along the lines of this? Or, is there a different way I can select random documents in a similar fashion? 
+ Please help. 
+ 
+ Using randomly generated indexes and simple queries, you can randomly select documents from a collection or collection group in Cloud Firestore. 
+ This answer is broken into 4 sections with different options in each section: 
+ 
+ How to generate the random indexes 
+ How to query the random indexes 
+ Selecting multiple random documents 
+ Reseeding for ongoing randomness 
+ 
+ How to generate the random indexes 
+ The basis of this answer is creating an indexed field that when ordered ascending or descending, results in all the document being randomly ordered. There are different ways to create this, so let's look at 2, starting with the most readily available. 
+ **Auto-Id version**
+
+ If you are using the randomly generated automatic ids provided in our client libraries, you can use this same system to randomly select a document. In this case, the randomly ordered index  is  the document id. 
+ Later in our query section, the random value you generate is a new auto-id ( iOS ,  Android ,  Web ) and the field you query is the   field, and the 'low value' mentioned later is an empty string. This is by far the easiest method to generate the random index and works regardless of the language and platform. 
+ By default, the document name ( ) is only indexed ascending, and you also cannot rename an existing document short of deleting and recreating. If you need either of these, you can still use this method and just store an auto-id as an actual field called   rather than overloading the document name for this purpose. 
+ **Random Integer version**
+
+ When you write a document, first generate a random integer in a bounded range and set it as a field called  . Depending on the number of documents you expect, you can use a different bounded range to save space or reduce the risk of collisions (which reduce the effectiveness of this technique). 
+ You should consider which languages you need as there will be different considerations. While Swift is easy, JavaScript notably can have a gotcha: 
+ 
+ 32-bit integer: Great for small (~10K  unlikely to have a collision ) datasets 
+ 64-bit integer: Large datasets (note: JavaScript doesn't natively support,  yet ) 
+ 
+ This will create an index with your documents randomly sorted. Later in our query section, the random value you generate will be another one of these values, and the 'low value' mentioned later will be -1. 
+ How to query the random indexes 
+ Now that you have a random index, you'll want to query it. Below we look at some simple variants to select a 1 random document, as well as options to select more than 1.  
+ For all these options, you'll want to generate a new random value in the same form as the indexed values you created when writing the document, denoted by the variable   below. We'll use this value to find a random spot on the index. 
+ **Wrap-around**
+
+ Now that you have a random value, you can query for a single document:   
+ 
+ Check that this has returned a document. If it doesn't, query again but use the 'low value' for your random index. For example, if you did Random Integers then   is  :   
+ 
+ As long as you have a single document, you'll be guaranteed to return at least 1 document. 
+ **Bi-directional**
+
+ The wrap-around method is simple to implement and allows you to optimize storage with only an ascending index enabled. One downside is the possibility of values being unfairly shielded. E.g if the first 3 documents (A,B,C) out of 10K have random index values of A:409496, B:436496, C:818992, then A and C have just less than 1/10K chance of being selected, whereas B is effectively shielded by the proximity of A and only roughly a 1/160K chance. 
+ Rather than querying in a single direction and wrapping around if a value is not found, you can instead randomly select between   and  , which reduces the probability of unfairly shielded values by half, at the cost of double the index storage. 
+ If one direction returns no results, switch to the other direction: 
+ 
+ Selecting multiple random documents 
+ Often, you'll want to select more than 1 random document at a time. There are 2 different ways to adjust the above techniques depending on what trade offs you want. 
+ **Rinse & Repeat**
+
+ This method is straight forward. Simply repeat the process, including selecting a new random integer each time. 
+ This method will give you random sequences of documents without worrying about seeing the same patterns repeatedly. 
+ The trade-off is it will be slower than the next method since it requires a separate round trip to the service for each document. 
+ **Keep it coming**
+
+ In this approach, simply increase the number in the limit to the desired documents. It's a little more complex as you might return   documents in the call. You'll then need to get the missing documents in the same manner, but with the limit reduced to only the difference. If you know there are more documents in total than the number you are asking for, you can optimize by ignoring the edge case of never getting back enough documents on the second call (but not the first). 
+ The trade-off with this solution is in repeated sequences. While the documents are randomly ordered, if you ever end up overlapping ranges you'll see the same pattern you saw before. There are ways to mitigate this concern discussed in the next section on reseeding. 
+ This approach is faster than 'Rinse & Repeat' as you'll be requesting all the documents in the best case a single call or worst case 2 calls. 
+ Reseeding for ongoing randomness 
+ While this method gives you documents randomly if the document set is static the probability of each document being returned will be static as well. This is a problem as some values might have unfairly low or high probabilities based on the initial random values they got. In many use cases, this is fine but in some, you may want to increase the long term randomness to have a more uniform chance of returning any 1 document. 
+ Note that inserted documents will end up weaved in-between, gradually changing the probabilities, as will deleting documents. If the insert/delete rate is too small given the number of documents, there are a few strategies addressing this. 
+ **Multi-Random**
+
+ Rather than worrying out reseeding, you can always create multiple random indexes per document, then randomly select one of those indexes each time. For example, have the field   be a map with subfields 1 to 3: 
+ 
+ Now you'll be querying against random.1, random.2, random.3 randomly, creating a greater spread of randomness. This essentially trades increased storage to save increased compute (document writes) of having to reseed. 
+ **Reseed on writes**
+
+ Any time you update a document, re-generate the random value(s) of the   field. This will move the document around in the random index. 
+ **Reseed on reads**
+
+ If the random values generated are not uniformly distributed (they're random, so this is expected), then the same document might be picked a dispropriate amount of the time. This is easily counteracted by updating the randomly selected document with new random values after it is read. 
+ Since writes are more expensive and can hotspot, you can elect to only update on read a subset of the time (e.g,  ). 
+ 
+ Posting this to help anyone that has this problem in the future. 
+ If you are using Auto IDs you can generate a new Auto ID and query for the closest Auto ID as mentioned in  Dan McGrath's Answer . 
+ I recently created a random quote api and needed to get random quotes from a firestore collection. 
+This is how I solved that problem: 
+ 
+ The key to the query is this: 
+ 
+ And calling it again with the operation reversed if no documents are found. 
+ I hope this helps! 
+If interested, you can find this specific part of  my API  on  GitHub 
+ 
+ Just made this work in Angular 7 + RxJS, so sharing here with people who want an example. 
+ I used @Dan McGrath 's answer, and I chose these options: Random Integer version + Rinse & Repeat for multiple numbers. I also used the stuff explained in this article:  RxJS, where is the If-Else Operator?  to make if/else statements on stream level (just if any of you need a primer on that). 
+ Also note I used  angularfire2  for easy Firebase integration in Angular. 
+ Here is the code: 
+ 
+ 
+ I have one way to get random a list document in Firebase Firestore, it really easy. When i upload data on Firestore i creat a field name "position" with random value from 1 to 1 milions. When i get data from Fire store i will set Order by field "Position" and update value for it, a lot of user load data and data always update and it's will be random value. 
+ 
+ For those using Angular + Firestore, building on @Dan McGrath techniques, here is the code snippet. 
+ Below code snippet returns 1 document. 
+ 
+ 1) .expand() is a rxjs operation for recursion to ensure we definitely get a document from the random selection.  
+ 2) For recursion to work as expected we need to have 2 separate functions.  
+ 3) We use EMPTY to terminate .expand() operator.  
+ 
+ 

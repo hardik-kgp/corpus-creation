@@ -1,0 +1,58 @@
+*** what-is-the-best-way-to-keep-changes-history-to-database-fields ***
+
+ For example I have a table which stores details about properties. Which could have owners, value etc.  
+ Is there a good design to keep the history of every change to owner and value. I want to do this for many tables. Kind of like an audit of the table. 
+ What I thought was keeping a single table with fields  
+ ,  ,  ,  ,  ,  . 
+ But it looks kind of hacky and ugly. Is there a better design? 
+ Thanks. 
+ 
+ There are a few approaches 
+ **Field based**
+
+ 
+ This one can capture the history of all tables and is easy to extend to new tables. No changes to structure is necessary for new tables. 
+ Field_value is sometimes split into multiple fields to natively support the actual field type from the original table (but only one of those fields will be filled, so the data is denormalized; a variant is to split the above table into one table for each type). 
+ Other meta data such as field_type, user_id, user_ip, action (update, delete, insert) etc.. can be useful. 
+ The structure of such records will most likely need to be transformed to be used. 
+ **Record based**
+
+ 
+ For each record type in the database create a generalized table that has all the fields as the original record, plus a versioning field (additional meta data again possible). One table for each working table is necessary. The process of creating such tables can be automated. 
+ This approach provides you with semantically rich structure very similar to the main data structure so the tools used to analyze and process the original data can be easily used on this structure, too. 
+ **Log file**
+
+ The first two approaches usually use tables which are very lightly indexed (or no indexes at all and no referential integrity) so that the write penalty is minimized. Still, sometimes flat log file might be preferred, but of course functionally is greatly reduced. (Basically depends if you want an actual audit/log that will be analyzed by some other system or the historical records are the part of the main system). 
+ 
+ A different way to look at this is to time-dimension the data. 
+ Assuming your table looks like this: 
+ 
+ Then if you changed it like so: 
+ 
+ You'd be able to have a complete running history of my_table, online and available.  You'd have to change the paradigm of the programs (or use database triggers) to intercept UPDATE activity into INSERT activity, and to change DELETE activity into UPDATing the IS_DELETED boolean. 
+ 
+ Unreason: 
+ You are correct that this solution similar to record-based auditing; I read it initially as a concatenation of fields into a string, which I've also seen.  My apologies. 
+ The primary differences I see between the time-dimensioning the table and using record based auditing center around maintainability without sacrificing performance or scalability. 
+ **Maintainability:**
+  One needs to remember to change the shadow table if making a structural change to the primary table.  Similarly, one needs to remember to make changes to the triggers which perform change-tracking, as such logic cannot live in the app.  If one uses a view to simplify access to the tables, you've also got to update it, and change the instead-of trigger which would be against it to intercept DML. 
+ In a time-dimensioned table, you make the strucutural change you need to, and you're done.  As someone who's been the FNG on a legacy project, such clarity is appreciated, especially if you have to do a lot of refactoring. 
+ **Performance and Scalability:**
+  If one partitions the time-dimensioned table on the effective/expiry date column, the active records are in one "table", and the inactive records are in another.  Exactly how is that less scalable than your solution?  "Deleting" and active record involves row movement in Oracle, which is a delete-and-insert under the covers - exactly what the record-based solution would require. 
+ The flip side of performance is that if the application is querying for a record as of some date, partition elimination allows the database to search only the table/index where the record could be; a view-based solution to search active and inactive records would require a UNION-ALL, and not using such a view requires putting the UNION-ALL in everywhere, or using some sort of "look-here, then look-there" logic in the app, to which I say:  blech. 
+ In short, it's a design choice; I'm not sure either's right or either's wrong. 
+ 
+ In our projects we usually do it this way:
+You have a table 
+ 
+ then you add table 
+ 
+  -is an id of history record(not really required) 
+  -points to the record in original properties table. 
+ when you update   table you add new record to   with previous values of record updated in  . This can be done using triggers or in your DAL. 
+ After that you have latest value in   and all the history(previous values) in  . 
+ 
+ I think a simpler schema would be 
+ 
+ No need to save current and previous values in the audit tables. When you make a change to any of the fields you just have to add a row in the audit table with the changed value. This way you can always sort the audit table on time and know what was the previous value in the field prior to your change. 
+ 

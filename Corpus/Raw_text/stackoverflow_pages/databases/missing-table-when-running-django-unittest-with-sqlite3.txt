@@ -1,0 +1,100 @@
+*** missing-table-when-running-django-unittest-with-sqlite3 ***
+
+ I'm trying to run a unittest with Django 1.3. Normally, I use MySQL as my database backend, but since this is painfully slow to spinup for a single unittest, I'm using Sqlite3. 
+ So to switch to Sqlite3 just for my unittests, in my settings.py I have: 
+ 
+ When I run my unittest with  , I get the error: 
+ 
+ Googling shows there are a  few  of  possible   reasons  for this  error , none of which seem applicable to me. I'm not running Apache, so I don't see how permissions would be an issue. The file /tmp/database.db is being created, so /tmp is writable. The app django.contrib.contenttypes is included in my INSTALLED_APPS. 
+ What am I missing? 
+ Edit: I ran into this problem again in Django 1.5, but none of the proposed solutions work. 
+ 
+ In Django 1.4, 1.5, 1.6, 1.7, or 1.8 it  should  be sufficient to use: 
+ 
+ It should not be necessary to override  1 , nor to call   in order to run tests. As @osa points out, the default with the SQLite engine is to create the test database in memory ( ). Calling   should not be necessary because Django's test framework will do this automatically via a call to   or   depending on the Django version. 2  You can observe this with  . 
+ Very loosely speaking Django sets up the test environment by: 
+ 
+ Loading the regular database   from your  
+ Discovering and  **constructing**
+ your test classes (  is called) 
+ Setting the database   to the value of  
+ Running the tests against the database  
+ 
+ Here's the rub: At step 2,   is still pointing at your  **regular**
+ (non-test) database. If your tests contain class-level queries or queries in  , they will be run against the regular database which is likely not what you are expecting. This is identified in  bug #21143 . 
+ Don't do: 
+ 
+ since these will be run against the database specified in  . If   at this stage points to a valid database (e.g. your production database), the query will run, but may have unintended consequences. If you have overridden   and/or   such that it does not point to a pre-existing database, an exception will be thrown because the test database has yet to be created: 
+ 
+ Instead do: 
+ 
+ So, if you are seeing errors, check to see that your tests do not include any queries that might hit the database outside of your test class method definitions. 
+ 
+ [1] In Django >= 1.7,   is  deprecated  in favour of  
+[2] See the   method in  
+ 
+ I had this problem, too. Turned out that I had to add a TEST_NAME property in the settings.py file to identify the test database properly. It solved the problem for me: 
+ 
+ 
+ Just to add another case to this: 
+ If you are trying to upgrade to 1.8 from 1.6 (or from a non-migration setup to a migration setup), you might hit this error if you haven't run created migrations. 
+ I had the same problem and had to create migrations so the test runner could use them, which was not intuitive because pre-migrations, the tests would just make a new DB based on doing syncdb, which always worked. 
+ 
+ Having tried all of the above I eventually discovered another reason this can happen:- 
+ **If any of your models are not created by one of your migrations.**
+
+ I did some debugging and it seems that Django testing sets up the database by applying all your migrations in order, starting with  001_initial.py , before trying to SELECT from the tables based on your  models.py 
+ In my case a table had somehow not been added to the migrations, but added manually, so the full migration set couldn't be properly applied. When I manually fixed the  001_initial.py  migration to create this table the OperationalError went away. 
+ 
+ For future reference, this also happens if your application is not added to your  , for example: 
+ 
+ Otherwise you get; 
+ 
+ 
+ Your database is probably empty, it must be setup with all the tables corresponding to your models.  Normally, this would be done by running   first, to create all your database tables.  The problem is that in your case, when you run syncdb, python will not see that you are running a test so it will try to setup tables in your MySQL database instead.   
+ To get around this, temporarily change 
+ 
+ to 
+ 
+ Then run   to setup the sqlite database tables.  Now that everything is setup, you can put back in   and everything should run smoothly. However you probably want to move your database out of the   directory: django needs to re-use the same database every time you run your tests, otherwise you'll have to create database tables before every test. 
+ Note that if you add new models, you will need to repeat this procedure to create the new tables in sqlite.  If you add new fields to an existing model, you will need to manually add columns to your sqlite database using the sqlite interface and  , or do it automatically using a tool like  South. 
+ 
+ I had to add the follwoing lines after test database definition: 
+ 
+ 
+ For those who tried all possible ways but still stuck in this: 
+ Since our test code is still running in other machine but not mine, I tried to: 
+ 
+ Create a new virtual-env. (so isolate the affect of apps) 
+ Clone a new repository. (isolate the affect of ignored files) 
+ Set in   to use   instead of   (isolate the affect of database, and database settings) 
+ Check   variables, and   file (since I used  ) 
+ 
+ None of those helped. Until I: 
+ 
+ Create a new account on my machine. (So start clean) 
+ Clone the repository. 
+ Run tests -> Success 😑 
+ Go back to my main account. 
+ Open a new terminal (kill current   server if you're using them). 
+ Run tests -> Success 😯 
+ 
+ So this is not a real answer for your question, since I don't know what was wrong and how it fixed, just another suggestion that you may try. 
+ 
+ For anyone that will get here, searching for why Django keeps creating a database regardless of the   option. Why it says  , but then runs a bunch of   statements. 
+ If you don't set a  DATABASES > default > TEST > NAME  setting, Django will try to use in memory database, and it wont be kept, so set this and override a defaults.  
+ You can make it like this: 
+ 
+ 
+ I had a similar problem and I was caused by a previous branch code, so I fixed it removing the pyc files in my projects: 
+ 
+ 
+ There are a lot of reasons why this error can occur, for me it had to do with hackish data-migrations. 
+ These data-migrations did some operations on a model that required a field that was not created yet. 
+ E.g. 
+ 
+ It fails on 0002 as it tries to save the user object but doesn't have the new column yet. 
+ To debug: 
+ 
+ See where it stops, that is probably the hackish datamigration you'd want to uncomment. 
+ 

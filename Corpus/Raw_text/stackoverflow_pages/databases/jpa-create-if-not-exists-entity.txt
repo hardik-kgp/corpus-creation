@@ -1,0 +1,60 @@
+*** jpa-create-if-not-exists-entity ***
+
+ I have several mapped objects in my JPA / Hibernate application. On the network I receive packets that represent updates to these objects, or may in fact represent new objects entirely.  
+ I'd like to write a method like  
+ 
+ that returns an object of the provided class if one exists in the database with pk primaryKey, and otherwise creates a new object of that class, persists it and returns it. 
+ The very next thing I'll do with the object will be to update all its fields, within a transaction.  
+ Is there an idiomatic way to do this in JPA, or is there a better way to solve my problem?  
+ 
+ 
+ Create an EntityManager instance (let's call it "em"), unless you already have an active one   
+ Create a new transaction (let's call it "tx")   
+ Call em.find(Object pk)   
+ Call tx.begin()   
+ 
+ If find() returned a non-null entity reference then you need to do an update. Apply your changes to the returned entity and then call em.merge(Object entity).   
+ if find() returned a null reference, then that PK does not exist in the database. Create a new entity and then call em.persist(Object newEntity).   
+ 
+ Call em.flush()   
+ Call tx.commit()   
+ Return your entity reference, per your method signature. 
+ 
+ 
+ 
+ I'd like to write a method like  
+ 
+ This won't be easy.  
+ A naive approach would be to do something like this (assuming the method is running inside a transaction): 
+ 
+ But in a concurrent environment, this code could fail due to some race condition:  
+ 
+T1: BEGIN TX;
+T2: BEGIN TX;
+
+T1: SELECT w/ id = 123; //returns null
+T2: SELECT w/ id = 123; //returns null
+
+T1: INSERT w/ id = 123;
+T1: COMMIT; //row inserted
+
+T2: INSERT w/ name = 123;
+T2: COMMIT; //constraint violation
+ 
+ And if you are running multiple JVMs, synchronization won't help. And without acquiring a table lock (which is pretty horrible), I don't really see how you could solve this. 
+ In such case, I wonder if it wouldn't be better to systematically insert first and handle a possible exception to perform a subsequent select (in a new transaction). 
+ You should probably add some details regarding the mentioned constraints (multi-threading? distributed environment?).  
+ 
+ Using pure JPA one can solve this optimistically in a multi-threaded solution with nested entity managers (really we just need nested transactions but I don't think that is possible with pure JPA).  Essentially one needs to create a micro-transaction that encapsulates the find-or-create operation.  This performance won't be fantastic and isn't suitable for large batched creates but should be sufficient for most cases. 
+ Prerequisites: 
+ 
+ The entity must have a unique constraint violation that will fail if two instances are created 
+ You have some kind of finder to find the entity (can find by primary key with EntityManager.find or by some query) we will refer to this as  
+ You have some kind of factory method to create a new entity should the one you are looking for fail to exist, we will refer to this as  . 
+ I'm assuming that the given findOrCreate method would exist on some repository object and it is called in the context of an existing entity manager and an existing transaction. 
+ If the transaction isolation level is serializable or snapshot this won't work.  If the transaction is repeatable read then you must not have attempted to read the entity in the current transaction. 
+ I'd recommend breaking the logic below into multiple methods for maintainability. 
+ 
+ Code: 
+ 
+ 

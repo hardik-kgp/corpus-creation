@@ -1,0 +1,31 @@
+*** couchdb-keeps-growing-filesize ***
+
+ I'm very confused about the  CouchDB  behaviour in terms of database file-size on disk. It seems like it doesn't matter what I do, the database-file only gets bigger and bigger (even on deleting/purging documents or whole databases). 
+ I watched my   file and it never decreased in size ever. Simple example: 
+ 
+  increased filesize by 5kb. 
+ 
+ No changes in filesize. Even if I do  filtered replications  of Databases (filtering out deleted documents) or manually trigger a  compaction , the disk file-size does not decrease.
+What's really confusing now is, that Fauxton actually shows reduced databases sizes after those actions, but it never reflects in the physical diskspace used. 
+ I'm using pretty much a standard configuration after a fresh installation. 
+ Is this "working like intended" or is there anything wrong here? 
+ More importantly: Is there anything I can do about it? 
+ 
+ It's working as intended, you're just not looking at the right files. 
+ Each database has corresponding files with the same name. 
+ For example with: 
+ 
+ 
+ 
+ Since you have a _dbs.couch file, you're probably using CouchDB 2.X.X with the sharding feature.
+It will create multiple files in subfolders of the "shards" folder.  
+ 
+ 
+ More infos:  http://docs.couchdb.org/en/latest/cluster/sharding.html 
+ 
+ In a nutshell, the sharding and cluster features allow you to have a distributed database with distributed map/reduce computation. In the above example, each dbs has 2 shards, which means each database spans over two files. Every new doc created can end up in one of those two. The disk usage won't be evenly distributed though. For example, if every doc is a small json doc, but one of them gets a 1GB attachment ( http://docs.couchdb.org/en/latest/intro/api.html#attachments ), only one shard will get a 1GB bump. The sharding is doc based. You can have 2 shards, you can have 20, and they don't all have to be on the same server ( http://docs.couchdb.org/en/latest/cluster/theory.html ). If you know that one server won't have enough disk space to hold all your data, you can set up 20 couchdb servers that will each hold 1 shard (around 1/20 of all the docs). Whether it's a single node in a basement, or a cluster of couchdb servers all over the world, for the client app (curl, pouchdb, firefox, etc), it's the same api. 
+ The _dbs database ( ) records informations for each dbs for cluster and shards management. Its size increases because each time you create and delete a database, it gets updated (Copy-On-Write). From CouchDB 2.1.0 and beyond, it will auto-compact. You can check the auto-compaction settings in your server's config.(in a browser:  http://localhost:5984/_utils/#/_config/ ,   sections). Admin panel is on a different port:  http://localhost: **5986**
+/_utils 
+ The size reported in Fauxton is the "active size". Doesn't count deleted docs still on disk that will be deleted after compaction.   will give additional informations, like the size on disk ( http://docs.couchdb.org/en/latest/api/database/common.html#get--db ). 
+ 
+ 

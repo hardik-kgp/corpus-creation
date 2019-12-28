@@ -1,0 +1,108 @@
+*** mysql-performance-variables-tweaking ***
+
+ I have a problem with a MySql server causing it to freeze all the time. In phpMyAdmin when this happens I can see in "Show Processlist" are lots of processes for User "unauthenticated user" with Command "connect" and State "reading from net". 
+ The database is using InnoDB but I also use one table running MyISAM to be able to perform full text search. The server has about 4GB memory, less than 500MB in use. 
+ I have been using the slow Query Log from MySql to find the queries not using indexes. I also think I need to do some changes / tweaking on the server variables.  
+ I really could use some help here and therefore I'm posting both SHOW GLOBAL STATUS and SHOW GLOBAL VARIABLES here and maybe you can give me some ideas how I should set the variables? 
+ Current SHOW GLOBAL STATUS: 
+ 
+ Current SHOW GLOBAL VARIABLES: 
+ 
+ 
+ Optimising mysql is very well commented on the net, and you’ll find huge information on how to do this. There is never “best parameters”, the best parameters is those fits your needs, box hardware, mysql usage… 
+So, I’ll not give the best parameters but rather how to define these ones. Make some tests, and you’ll quickly find your own parameters. 
+ There a lot of available parameters but only few one are very important to tweak your mysql box. 
+ The most important variables are (for me, and it is not exhaustive): 
+ 
+ To obtain the stat of your mysql server since it has been loaded, run mysqladmin processlist extended-status as mentionned above. 
+ 1 - The two most important variables :  **Table_cache and Key_buffer_size**
+
+ 
+ If Opened_tables is big, then your table_cache variable is probably
+too small.
+table_cache 64
+Open_tables 64
+Opened_tables 544468 
+ 
+ This is the first serious problem. "The table_cache is the number of open
+tables for all threads. MySQL, being multi-threaded, may be running many
+queries on the table at one time, and each of these will open a table."
+Therefore, even though we only have a few tables, we will need many more
+open_tables. 
+ The Opened_tables value is high and shows the number of
+cache misses. Getting the table_cache size correct is one of the two best
+things you can do to improve performance. 
+ 
+ If Key_reads is big, then your key_buffer_size variable is probably
+too small. The cache hit rate can be calculated with
+Key_reads/Key_read_requests.
+key_buffer_size 16M
+Key_read_requests 2973620399
+Key_reads 8490571
+(cache hit rate = 0.0028) 
+ 
+ “The key_buffer_size affects the size of the index buffers and the speed
+of index handling, particularly reading." The MySQL manual (and other sources) say that
+"Key_reads/Key_read_request ratio should normally be < 0.01." This is the
+other most important thing to get correct. Here the value seems to be correct (< 0.01) 
+ Also check key_write_requests and key_writes.
+The key_writes/key_writes_request should normally be < 1 (near 0.5 seems to be fine) 
+ Here is a very interesting web pointer :  table_cache and key_buffer_size 
+ 2 - Others important settings are :  **Wait_timeout, max_connexion, thread_cache**
+
+ A little explanation : 
+Generaly you have a lot of mysql process that are sleeping because wait_timeout are not set low. So I make sure that the wait_timeout is set to a very low value: 15 seconds (for me) . That means MySQL would close any connection that was idle for more than 15 seconds. 
+ The problem is you also have to increment your max_connexion (mine is set to 300) to be sure there is not a lot of idle clients holding connections and blocking out new clients from connecting and getting real work done.
+The pbm is that the box has to create new threads (MySQL is a multi-threaded server) at a very high rate. That may sucks up a measurable amount of CPU time. 
+ So the solution is to use the Thread_cache (from mysql doc) :
+“How many threads we should keep in a cache for reuse. When a client disconnects, the client's threads are put in the cache if there aren't more than thread_cache_size threads from before. All new threads are first taken from the cache, and only when the cache is empty is a new thread created. This variable can be increased to improve performance if you have a lot of new connections. (Normally this doesn't give a notable performance improvement if you have a good thread implementation.) By examing the difference between the Connections and Threads_created you can see how efficient the current thread cache is for you.” 
+ 
+ If Threads_created is big, you may want to increase the
+thread_cache_size variable. The cache hit rate can be calculated with
+Threads_created/Connections.
+thread_cache_size 0
+Threads_created 150022
+Connections 150023 
+ 
+ This is the second problem that should be fixed. A cache size of zero is the default for my-medium.cnf but the recommended size in my-large.cnf is 8.  
+ you may try this formula : table_cache = opened table / max_used_connection 
+ 3 - Finally, you may also have a look at :  **tmp_table_size and Handler_read_rnd / Handler_read_rnd_next**
+  
+ 
+ If Created_tmp_disk_tables is big, you may want to increase the
+tmp_table_size variable to get the temporary tables memory-based instead
+of disk based. 
+ 
+ tmp_table_size 32M
+Created_tmp_disk_tables 3227
+Created_tmp_tables 159832
+Created_tmp_files 4444 
+ Created_tmp_disk_tables are the "number of implicit temporary tables on
+disk created while executing statements" and Created_tmp_tables are
+memory-based. Obviously it is bad if you have to go to disk instead of
+memory. About 2% of temp tables go to disk, which doesn't seem too bad
+but increasing the tmp_table_size probably couldn't hurt either. 
+ 
+ If Handler_read_rnd is big, then you probably have a lot of queries
+that require MySQL to scan whole tables or you have joins that don't use
+keys properly.
+Handler_read_rnd 27712353
+Handler_read_rnd_next 283536234 
+ 
+ These values are high, that we could probably stand to improve
+the indexes and queries. 
+ I hope this will help some of you to more understand how it is possible to optimise MYSQL to fit your needs, hardaware box, or mysql current usage. 
+ 
+ For those who'll read this response later : 
+ **ONLY FOR MYSQL SERVER LESS THAN 6.0**
+ If you change  , don't forget to carry about   value too. 
+ Explanation  here   
+ Another topic about this VARS :  here 
+ 
+ For people just discovering this very helpful post, other possible changes include: 
+ max_connections of 2000 could be safely reduced since max_used_connections is 137. 
+ key_buffer_size at 16384 bytes seems very small for the workload. 
+ key_cache_division_limit = 50 would keep repetetively used keys in hot/warm memory and avoid disk reads. 
+ key_age_threshold = 3600 seconds would keep keys available in memory for 1 hr vs 5 minutes. 
+ open_files_limit = 1024 would support the workload. 
+ 

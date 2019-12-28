@@ -1,0 +1,65 @@
+*** geojson-and-mongodb-is-it-worth-it-to-store-points-as-geojson-point ***
+
+ With the introduction of   MongoDB has become even more useful with location data handling and querying. MongoDB stores documents as BSON, so each document with have all the document fields, which obviously potentially leads to larger databases than our conventional RMDBS. 
+ I used to store polylines and polygons as a series of indexed points, with an extra field representing the order of each line (I was doing this to ensure consistency as I use JavaScript, so points weren't always stored in their correct order). It was something like this: 
+ 
+ Whereas now I use: 
+ 
+ I've seen an improvement in the size of documents, as some polylines can have up to 500 points. 
+ However, I'm wondering what the benefits of storing all my   data as   would be. I am discouraged by the increase in document size, as for example: 
+ 
+ is way better than  
+ 
+ and would thus be easier to work with. 
+ My question is:  
+ **Is it better/recommended to store points as **
+** objects as opposed to a 2 point array?**
+
+ What I have considered is the following: 
+ 
+ Size constraints: I could potentially have millions of documents with a location, which might impact the size of the collection, and potentially my pocket. 
+ Consistency: It would be better do deal with every set of coordinates in the   format as opposed to sticking to   for points, and the former for all my other location features. 
+ Convenience: If I grab a point, and use a   or   with it, I wouldn't need to convert it to GeoJSON first before using it as a   parameter. 
+ 
+ What I am unsure of is: 
+ 
+ Whether support for   will be dropped in the future on MongoDB 
+ Any indexing benefits from   as opposed to  
+ Whether any planned   additions to MongoDB might result in the need for the consistency mentioned above. 
+ 
+ I'd rather move to   while my data is still manageable, than switch in future under a lot of strain. 
+ May I please kindly ask for a thoroughly (even if slightly) thought out answer. I won't select a correct answer soon, so I can evaluate any responses . 
+ I'm also not sure if SO is the right place to pose the question, so if DBA is a more appropriate place I'll move the question there. I chose SO because there's a lot of MongoDB related activity here . 
+ 
+ I would recommend using the new GeoJSON format. Whilst I don't believe that any announcement has been made about dropping support for the old format, the fact that they refer to it as legacy should be an indication of their opinion. 
+ There are some indexing benefits to using 2dsphere rather than 2d. 
+ 
+ Firstly it actually calculates queries based on the Earth being a sphere. One of the disadvantages of a 2d index is that it doesn't account for this meaning that you will have to handle the conversion  yourself if you are interested in the actual area covered  by a query rather than the basic lat/lngs. 
+ The ability to use compound indexes, if you want to do something like "get me 100 results from this area most recent first" then 2dsphere is your only choice. 
+ The ability to use geoIntersects queries. 
+ The geoWithin geometry queries require that you use the geoJSON format. 
+ 
+ One other important thing to note is that you need to be sure the query you are using is supported by the index you use. If you use a 2dsphere for example you can't use a $box query as it won't be indexed - however  **mongo will not warn you**
+ - the result will just perform a table scan and will be very slow! 
+ Mongo provide a compatibility chart of which queries can be used with which index 
+ 
+ Yes, I think it is worth it. From my experience with GeoSpatial Information System's, it would be best to store your location data in a useful and transferable standard. GeoJSON in MongoDB supports the  WGS84  datum standard. 
+ In MongoDB the  $near  operator can search on legacy 2d coordinates and GeoJSON coordinates. On a legacy 2d coordinate collection, $near returns a closest first sorted collection.  $geoNear  returns a closest first sorted collection with distance from searched point meta data. 
+ Another benefit is the ability to use other geospatial queries  (i.e $geoWithin and $geoIntersect)  especially if you store other GeoJSON types  (Polyline, Polygon) 
+ Lastly  While basic queries using spherical distance are supported by the 2d index, consider moving to a 2dsphere index if your data is primarily longitude and latitude. 
+ I hope this information gives you some thinking points on what to do with your location data. 
+ 
+ If you are only  **storing point geometries**
+ in your database, but want to support multiple different  **GeoJSON queries**
+ on that data, then note that it is possible to store points in legacy coordinate pair format  **and**
+ use a   index.  
+ The  release notes  for mongoose's  **GeoJSON support (MongoDB >= 2.4)**
+ give the following example: 
+ ** index on legacy coordinate pairs:**
+
+ 
+ ** query on the legacy coordinate pairs, using the **
+** index:**
+
+ 
+ 

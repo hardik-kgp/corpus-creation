@@ -1,0 +1,70 @@
+*** error-restoring-database-backup ***
+
+ I am getting an error using SQL Server 2012 when restoring a backup made with a previous version (SQL Server 2008). I actually have several backup files of the same database (taken at different times in the past). The newest ones are restored without any problems; however, one of them gives the following error: 
+ 
+ System.Data.SqlClient.SqlError: Directory lookup for the file
+  "C:\PROGRAM FILES\MICROSOFT SQL
+  SERVER\MSSQL.1\MSSQL\DATA\MYDB_ABC.MDF" failed with the operating
+  system error 3(The system cannot find the path specified.).
+  (Microsoft.SqlServer.SmoExtended) 
+ 
+ This is a x64 machine, and my database file(s) are in this location:  . 
+ I do not understand why it tries to restore on   and not  .  
+ 
+ Sounds like the backup was taken on a machine whose paths do not match yours. Try performing the backup using T-SQL instead of the UI. Also make sure that the paths you're specifying actually exist and that there isn't already a copy of these mdf/ldf files in there. 
+ 
+ 
+ The backup stores the original location of the database files and, by default, attempts to restore to the same location. Since your new server installation is in new directories and, presumably, the old directories no longer exist, you need to alter the directories from the defaults to match the location you wish it to use. 
+ Depending on how you are restoring the database, the way to do this will differ. If you're using SSMS, look through the tabs and lists until you find the list of files and their associated disk locations - you can then edit those locations before restoring. 
+ 
+ When restoring, under Files, check 'Relocate all files to folder' 
+ 
+ 
+ I have managed to do this from code. This was not enough   
+ 
+ The   property must be filled with the names and paths of the files to be relocated. For each file you must specify the name of the file and the new physical path. So what I did was looking at the   of the database I was restoring to, and use that as the physical location. Something like this: 
+ 
+ Same for the log file. 
+ 
+ I had the same problem, and this fixed it without any C# code: 
+ 
+ 
+ As has already been said a few times, restoring a backup where the new and old paths for the mdf and ldf files don't match can cause this error.  There are several good examples here already of how to deal with that with SQL, none of them however worked for me until I realised that in my case I needed to include the '.mdf' and '.ldf' extensions in the from part of the 'MOVE' statement, e.g.: 
+ 
+ Hope that saves someone some pain, I could not understand why SQL was suggesting I needed to use the   option when I already was doing so. 
+ 
+ Please try to uncheck the “Tail-Log Backup” option on the Options page of the Restore Database dialog 
+ 
+ There is some version issue in this. You can migrate your database to 2012 by 2 another methods:- 
+ 1) take the database offline > copy the .mdf and .ldf files to the target server data folder and attach the database. refer this:-
+ https://dba.stackexchange.com/questions/30440/how-do-i-attach-a-database-in-sql-server 
+ 2) Create script of the whole database with schema & Data and run it on the target server(very slow process takes time). refer this:-
+ Generate script in SQL Server Management Studio 
+ 
+ Try restarting the SQL Service. Worked for me.  
+ 
+ Just in case this is useful for someone working directly with Powershell (using the  SMO  library), in this particular case there were secondary data files as well.  I enhanced the script a little by killing any open processes and then doing the restore.  
+ 
+ 
+ You should remove these lines from your script. 
+ 
+ 
+ This usually happens, when you are using one MSSQL Studio for backup (connected to old server) and restore (connected to new one). Just make sure you are executing the restore on the correct server. Either check the server name and IP in the left pane in UI or dou 
+ 
+ If you're doing this with C#, and the physical paths are not the same, you need to use RelocateFiles, as one answer here also mentioned. 
+ For most cases, the below code will work, assuming: 
+ 
+ You're just restoring a backup of a database from elsewhere, otherwise meant to be identical. For example, a copy of production to a local Db. 
+ You aren't using an atypical database layout, for example one where the rows files are spread across multiple files on multiple disks. 
+ 
+ In addition, the below is only necessary on first restore. Once a single successful restore occurs, the below file mapping will already be setup for you in Sql Server. But, the first time - restoring a bak file to a blank db - you basically have to say, "Yes, use the Db files in their default, local locations, instead of freaking out" and you need to tell it to keep things in the same place by, oddly enough, telling it to relocate them: 
+ 
+ To better clarify what a typical case would be, and how you'd do the restore, here's the full code for a typical restore of a .bak file to a local machine: 
+ 
+ This code will work whether you've manually restored this Db before, created one manually with just the name and no data, or done nothing - started with a totally blank machine, with just Sql Server installed and no databases whatsoever. 
+ 
+ Please change the .mdf file path. Just create a folder in any drive, ie - in "D" drive, just create a folder with custom name (dbase) and point the path to the new folder, mssql will automatically create the files. 
+ "C:\PROGRAM FILES\MICROSOFT SQL SERVER\MSSQL.1\MSSQL\DATA\MYDB_ABC.MDF"
+to
+"D:\dbase\MYDB_ABC.MDF" 
+ 

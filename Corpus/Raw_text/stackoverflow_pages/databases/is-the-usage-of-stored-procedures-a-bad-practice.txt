@@ -1,0 +1,92 @@
+*** is-the-usage-of-stored-procedures-a-bad-practice ***
+
+ We have an application that is written in C# that is connected to a ms sql server.
+We use to make a stored procedure for every database call, but then we've noticed that using stored procedures gives us a very big disadvantage, we don't know what stored procedures we need to update if we change our database. 
+ Now I was wondering if using stored procedures is a bad thing or a good thing? 
+ 
+ That's not a SP problem, that's an issue of your development process. If you have no information you need - just get it. 
+ You can make a simple visual map that shows your table schema and dependant SPs. If your DB is too large for visual mapping, add common text file that consists of your SPs and names of tables it depends upon. 
+ Anyway, the bigger your DB is, the worse will be your job when inlining details of your schema into your application code. When you use SP you guarantee that this functionality won't be doubled and that most changes will occur on DB side without application  **recompilation**
+ and  **redistribution**
+. 
+ **Upd**
+
+ I forgot to mention one other thing. Good DB tools provide easy way to find dependant tables for each SP. There's 'View Dependencies' item in SP context menu in Microsoft SQL Management Studio, for example. 
+ 
+ Stored procedures have been falling out of favour for several years now. The preferred approach these days for accessing a relational database is via an O/R mapper such as NHibernate or Entity Framework. 
+ 
+ Stored procedures require  much  more work to develop and maintain. For each table, you have to write out individual stored procedures to create, retrieve, update and delete a row, plus a separate stored procedure for each different query that you wish to make. On top of that, you have to write classes and/or methods in your code to call into each stored procedure. Compare that with an O/R mapper: all you need to write are your class definitions, your database table, and a mapping file. In fact, modern ORMs use a convention-based approach that eliminates the need for a separate mapping definition. 
+ Stored procedures promote bad development practices, in particular they require you to violate DRY (Don't Repeat Yourself), since you have to type out the list of fields in your database table half a dozen times or more  at least . This is a massive pain if you need to add a single column to your database table. It isn't possible to pass an object as a parameter to a stored procedure, only simple types (string, integer, date/time etc) making it almost impossible to avoid huge parameter lists (a dozen or more). 
+ Stored procedures promote bad configuration management practices. This arises from the argument that DBAs should be able to modify them independently of the code itself. Doing this results in a version of your code going into production that has never been integration tested, does not correspond to a single specific revision in source control, and may in fact not even correspond to  any  revision in source control at all. Basically, if you don't have an auditable record, end to end, of exactly which revision of your code is in production, you're going to run into trouble. 
+ Stored procedures have to be deployed separately from the main body of your code. Unless you have a fully automated process in place to update them, there is a dramatically increased risk that they can get out of sync with your main codebase in one or more environments, introducing errors. This is especially problematic if you need to use your source control's bisect tool to track down the revision that introduced an error. 
+ Stored procedures are inflexible. If you want to query your data in several different ways (different sort orders, lazy versus eager loading, paging, etc) you will need to write a multitude of separate stored procedures for all the different use cases, whereas ORMs give you a flexible, powerful query language (e.g. Linq to NHibernate). 
+ Stored procedures require you to reinvent wheels. If you need optimistic concurrency, or a Unit of Work pattern, or lazy loading, or an Identity Map, or handling of parent/child collections, or caching, or class hierarchy mappings, or pretty much any of the other design patterns you read about in Martin Fowler's book,  Patterns of Enterprise Application Architecture , you need to rebuild this functionality yourself from scratch, whereas an O/R mapper gives you all this, and more, straight out of the box. Very often, you will end up reinventing these wheels using copy and paste code, which again is a bad practice. 
+ Stored procedures are difficult to unit test. With an ORM, you can mock your database code so as to be able to test your business logic quickly. With stored procedures, you have to rebuild an entire test database from scratch. 
+ Stored procedures offer no performance advantage whatsoever. The (tiny) gains you get from passing only the name of the sproc over the wire as opposed to a SQL string are easily offset by the fact that you are all too likely to end up calling the same procedure two or three times with the same parameters in the same request, whereas an ORM would look in its Identity Map and say, "Hey, I've already retrieved that one, no need to do another round trip at all." Furthermore, the claim that stored procedures are cached on the server, whereas ad-hoc SQL is not, is a myth that was busted by Frans Bouma in his blog post, " Stored Procedures are bad, m'kay? " 
+ Stored procedures offer little or no advantage in terms of security, and do not protect you against SQL injection vulnerabilities. Case in point: 
+ 
+ 
+ 
+ 
+ Of course, you can write stored procedures that don't have SQL injection vulnerabilities, but you can equally write ad-hoc SQL in your business layer that doesn't have SQL injection vulnerabilities, by using parametrised queries. Attributing protection against SQL injection to stored procedures, rather than to not smashing SQL strings together, is a red herring and totally misleading. 
+ 
+ I believe SP are good for calculations/data manipulation/report data sources in the DB. 
+ When using it solely for data retrieveal/updates to table rows you will run into a whole world of hurt. 
+ This is the approach followed by some data access layers, and data retrievel sps for an individual row can become a pain. 
+ So no, i would not recomend this as the best way to go. 
+ 
+ There are 2 views on this, some say they are evil, others swear by them.  I take a middle of the road view on this. 
+ Pros 
+Maintainability, if you need to change your query slightly without actually impacting other code, you can do this without needing to roll out new assemblies
+Security, no SQL injection attacks, unless you break best practices and build dynamic queries in the proc 
+ Cons 
+Without documentation and standards, things can quickly spiral out of control, and make the database maintenance a nightmare. 
+ Suggestions 
+Use them for reporting, and for more advanced database operations, but try to steer clear for simple CRUD operations. 
+Keep your business logic out of the database, that should be in a separate layer IMHO. 
+ 
+ Stored procedures are useful for enforcing constraints at the database level. It's easier to validate a handful of stored procedures restricting access to the database than it is to validate every bit of client code. So this makes them good. 
+ Other than that, I'm a skeptic. I like to have everything in one place, in a language I can unit test. 
+ 
+ You can't say that it is a good or bad thing. They have advantages and disadvantages and, depending on the project, their weight may differ. 
+ Some advantages: 
+ 
+ They are executed by the DBMS directly, so no need for intermediate data transfer to middle layer, in case of multiple queries involved (complex logic). 
+ Allows you to have single layer of modifying the data in db. 
+ 
+ Some disadvantages: 
+ 
+ You have the logic split between the middle layer (C# in your case) and persistence layer (DB), which might determine problems from maintenance point of view. 
+ 
+ 
+ I have worked on projects that used stored procedures a lot. Basically, the business layer was moved to the database, because the team leader was impressed by some oracle guru he met in his previous job. 
+ Stored procedure code is harder to maintain than C# (in Visual Studio), since the tools are worse, debugging is harder etc. 
+ At the same time, having clear interfaces to your data rules. Thinking about which queries will be done on the database can be a good thing. 
+ Try to keep the database generation and migration (update) code in source control. Include stored procedures there if you really want them. Keep stored procedure logic as simple as possible (don't do any business logic, just consistency style stuff). Maybe even generate them from a more abstract representation (along with the C# code to call them). 
+ 
+ Your wan't to know if DB schema changes affect SP. This means the team that changes DB doesn't write the SPs. In this context moving away from SP to inline SQL or ORM will not help you. Instead of checking SP you will have to check your code. I suggest you buy good tools that shows you dependencies between your tables and SP. 
+ 
+ That's why you need good documentation and a good DBA for writing such software. 
+ IMHO stored procedures are not bad, they can be used for many useful things like triggers, or performing some complicated queries where you would have to write many queries on the client side instead. But of course there is nothing that is only good. Some drawbacks that I found: stored procedures can cause much more work on the server side (what can be sometimes moved to the client side) and sometimes they are hard to maintain. 
+ But on the other hand they are very useful when some day you'll have to give access to the database to some programmers writing software in e.g. Java who won't be able to use all those db classes that you wrote in C#. In that case it is good to have some logic in the database so you can use it regardless the client or language that is used. 
+ 
+ Stored Procedures are really good for queries that are very common, that will not change frequently. If you have a SP for "getname" that always pulls the first and last name from a table, it will be a good one to keep in the long run. Also, if you have a very complex query that could take a lot of horsepower on the client end, a stored procedure would help.  
+ Any query that could be dynamic should not be a SP. If it's something that changes frequently, or something you need fast access to, it's a bad idea to make an SP. Here is why. Let's say you build a nice SP that gets a certain type of data. You have 3 different projects that use it. But you need something a little different, so your choices are: 
+ 
+ Change the stored procedure and risk breaking all dependent applications 
+ Creating a new stored procedure that's very similar for your function.  
+ 
+ All in all Stored procedures are great for some needs, but not for others. Assess how much your needs might change, or what the disadvantages are to using a standard query.  
+ 
+ Another big advantage of stored procedures is that you can make changes on the backend on the fly, without requiring an application redeployment (as long as the prototype doesn't change). 
+ At the large company for which I work, a code deployment is a MAJOR exercise, requiring at least 30 days and multiple approvals.  A change to the DB can be done almost immediately. 
+ Finally, remember that stored procedures can also offer protection against bad programmers.  Got a great DBA but a team of cheapest-bid contractors writing your code?  The DBA can write stored procedures and then remove DML permissions from the tables, forcing the code to go through the stored procedure to make any changes.  That way, you don't have to worry that some guy is going to put some SQL in the code that accidentally wipes out half the DB. 
+ 
+ Storage procedures are generally a good thing: 
+ 
+ They are more performant than standard querys, specially for certain operations. 
+ They help decoupling your database design team from your business design team. 
+ They give you good protection against sql injection 
+ They allow you to easily define separate user permissions for separate operations 
+ 
+ 

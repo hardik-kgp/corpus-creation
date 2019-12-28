@@ -1,0 +1,58 @@
+*** deploying-entity-framework-code-first-with-production-database ***
+
+ I've developed a pretty simple web app using entity framework code first. I realized after hours of frustration that even though localdb is SQL Server Express it is actually not meant to be used with production when using 'publish' (the publish wizard). FYI I'm using EF 6.1.3, SQL Server 2014, VS 2013, and IIS 7. 
+ If I understand correctly, when you click publish with localdb, all you're really doing is copying your localdb database to your IIS 7 server. I couldn't figure out why that when I updated my lodaldb database through VS migrations that my production server database wasn't being updated. I understand (and believe now) that it's actually two different instances of localdb, and hence not the same data. 
+ OK whatever - I'm done with localdb and I created a real SQL Server 2014 db on my machine. I've googled for hours and can't figure out what to do now. I have some questions: 
+ 
+ How do I manage this new database using EF? For instance, suppose I want to add a new column. First I add it to my localdb, do some testing, and do the migration using Add-Migration blah then Update-Database... Do I then have to generate a SQL script using VS and then manually run that on the production DB server? 
+ I know this isn't great, but instead of using local DB with entity framework, can I just attach EF to a real staging SQL Server database (a test one) and skip all this localdb bull****? Then could I manage it using code-first migrations and keep everything in sync? 
+ Am I supposed to use an Initializer? I've read conflicting reports about whether to use these or not for a production db (like this one) 
+ public class PricedNotesInitializer: MigrateDatabaseToLatestVersion<...,...>      {
+} 
+ 
+ It's frustrating that the only way I learn about this stuff is through blog posts from other people frustrated. I don't understand why the documentation is so garbage. 
+ Thanks for your help and sorry for the rant. 
+ 
+ If you work on   edition locally then you can migrate it pretty easily to the SQL production server.SQL production server can be a SQL Azure or your own production server. 
+ **A 1.**
+ You just need to change your   to a   one and run below command on  . Then all your not updated migration  scripts will run on the production. 
+ 
+ **A 2 :**
+ I don't recommend this method. 
+ **A 3 :**
+ You can do that like this : 
+ 
+ 
+ **Using an initializer**
+
+ You can use the  MigrateDatabaseToLatestVersion  initializer so schema changes to the database will be (if possible without data loss) done automatically when your application first starts up after a deploy. 
+ If data loss would occur you'll get an error and have to take appropriate action. This can be overriden to proceed even with data loss. 
+ **Development environment setup experience**
+
+ As other answers already pointed out, you need one connection string per environment so the LocalDB is fine for development, I would even encourage it because it can be created and initialized (and seeded with test data) automatically for any new developer that needs to develop or debug it just by building and running the application from source. 
+ The "set up new development environment" experience should be as smooth as possible with as few and preferably zero manual steps apart from loading the solution, building and running the code-base. 
+ **Automate your release cycle**
+
+ Your deploy and release pipeline should be automatic and not require any manual commands that might be executed wrongly, be forgotten or worse.  
+ What could be a manual step is a simple yes/no approval on the staged changes if you want to be careful or fulfill some compliance requirements. 
+ Automated tests in your staging environment should however alleviate this and when successful automatically deploy to production - in a perfect world ;)  
+ Running update-database manually against production requires that whatever machine is running it has access to the production database - an unlikely or not-recommended scenario if you're running it interactively I would say. If required you could  script it  as part of your automated deploy pipeline if you want more control over it than using the initializer, which seems best suited for simpler projects (which this one seemed to be though). 
+ 
+ You should have two connection strings, one for your localdb and one for your production SQL server.  
+ You should develop as normal, for example using   and   for your localdb. 
+ Then when you are ready to publish to live should you change your connection string to your live one. Publish your site. Then run the   command. This will sync your live database to what you just published. 
+ 
+ Thanks everyone for the help. I figured it out using your guys' help. For anyone interested in the steps, here they are. I'm just going to list some extra help here but the above answers truly answer the question. This assumes the set-up in my question. Once you have your database set-up, I would recommend you update it with your local db like so: 
+ 
+ In VS2013, go to Tools -> sql server object explorer -> (LocalDb)\v11.0 -> databases -> [database_name] -> right click -> Data Comparison -> schema compare 
+ In the right drop down, find your SQL database and test the connection to make sure it works.  
+ Click compare -> Update Target (I wouldn't recommend this for production databases but if it's a staging db you just created, it's fine)  
+ If you go SSMS (SQL Server Management Studio), you should see the new tables and whatever the schema compare tool made. Great! 
+ If you want to use an initializer, go ahead, just make sure it's set to CreateDatabaseIfNotExists or something that won't drop the database. I mean I guess you could use anything you want, but it would defeat the purpose of the above steps.  
+ Right click your web project, click publish, use web deploy, go to your databases, target your new database, ensure  **Execute Code First Migrations**
+ is checked (this will run all the migrations you've done for your localdb on your new database). You don't actually have to do this. You can alternatively leave this unchecked and do what Sampath recommends in the accepted answer.  
+ Done! Now you've successfully converted to a real SQL Server Express DB. 
+ 
+ To manage your database, just follow the answers above. Alternatively, use the publish wizard again, ensure  **Execute Code First Migrations**
+ is checked and publish! 
+ 

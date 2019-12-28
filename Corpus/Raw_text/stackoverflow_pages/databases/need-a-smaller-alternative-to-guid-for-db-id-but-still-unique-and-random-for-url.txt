@@ -1,0 +1,125 @@
+*** need-a-smaller-alternative-to-guid-for-db-id-but-still-unique-and-random-for-url ***
+
+ I have looked all of the place for this and I can't seem to get a complete answer for this. So if the answer does already exist on stackoverflow then I apologize in advance. 
+ I want a unique and random ID so that users in my website can't guess the next number and just hop to someone else's information. I plan to stick to a incrementing ID for the primary key but to also store a random and unique ID (sort of a hash) for that row in the DB and put an index on it. 
+ From my searching I realize that I would like to avoid collisions and I have read some mentions of SHA1.  
+ My basic requirements are 
+ 
+ Something smaller than a GUID. (Looks horrible in URL) 
+ Must be unique 
+ Avoid collisions 
+ Not a long list of strange characters that are unreadable. 
+ 
+ An example of what I am looking for would be www.somesite.com/page.aspx?id=AF78FEB 
+ I am not sure whether I should be implementing this in the database (I am using SQL Server 2005) or in the code (I am using C# ASP.Net) 
+ EDIT: 
+ From all the reading I have done I realize that this is security through obscurity. I do intend having proper authorization and authentication for access to the pages. I will use .Net's Authentication and authorization framework. But once a legitimate user has logged in and is accessing a legimate (but dynamically created page) filled with links to items that belong to him. For example a link might be www.site.com/page.aspx?item_id=123. What is stopping him from clicking on that link, then altering the URL above to go www.site.com/page.aspx?item_id=456 which does NOT belong to him? I know some Java technologies like Struts (I stand to be corrected) store everything in the session and somehow work it out from that but I have no idea how this is done. 
+ 
+ [In response to the edit] 
+You should consider query strings as "evil input".  You need to programmatically check that the authenticated user is allowed to view the requested item. 
+ 
+ 
+ Raymond Chen  has a good article on why you shouldn't use "half a guid", and offers a suitable solution to generating your own "not quite guid but good enough" type value here: 
+ 
+ GUIDs are globally unique, but substrings of GUIDs aren't 
+ 
+ His strategy (without a specific implementiation) was based on: 
+ 
+ 
+ Four bits to encode the computer number, 
+ 56 bits for the timestamp, and 
+ four bits as a uniquifier. 
+ 
+ We can reduce the number of bits to make the computer unique since the number of computers in the cluster is bounded, and we can reduce the number of bits in the timestamp by assuming that the program won’t be in service 200 years from now. 
+ You can get away with a four-bit uniquifier by assuming that the clock won’t drift more than an hour out of skew (say) and that the clock won’t reset more than sixteen times per hour. 
+ 
+ 
+ **UPDATE (4 Feb 2017):**
+
+ Walter Stabosz  discovered a bug in the original code.  Upon investigation there were further bugs discovered, however, extensive testing and reworking of the code by myself, the original author ( CraigTP ) has now fixed all of these issues.  I've updated the code here with the correct working version, and you can also  download a Visual Studio 2015 solution here  which contains the "shortcode" generation code and a fairly comprehensive test suite to prove correctness. 
+ One interesting mechanism I've used in the past is to internally just use an incrementing integer/long, but to "map" that integer to a alphanumeric "code". 
+ **Example**
+
+ 
+ Code 
+ The following code shows a simple class that will change a long to a "code" (and back again!): 
+ 
+ } 
+ This is essentially your own baseX numbering system (where the X is the number of unique characters in the shortCode_Keyspace constant. 
+ To make things unpredicable, start your internal incrementing numbering at something other than 1 or 0 (i.e start at 184723) and also change the order of the characters in the shortCode_Keyspace constant (i.e. use the letters A-Z and the numbers 0-9, but scamble their order within the constant string.  This will help make each code somewhat unpredictable. 
+ If you're using this to "protect" anything, this is still security by obscurity, and if a given user can observe enough of these generated codes, they can predict the relevant code for a given long.  The "security" (if you can call it that) of this is that the shortCode_Keyspace constant is scrambled, and remains secret. 
+ EDIT:
+If you just want to generate a GUID, and transform it to something that is still unique, but contains a few less characters, this little function will do the trick: 
+ 
+ 
+ If you don't want other users to see people information why don't you secure the page which you are using the id? 
+ If you do that then it won't matter if you use an incrementing Id. 
+ 
+ You could randomly generate a number. Check that this number is not already in the DB and use it. If you want it to appear as a random string you could just convert it to hexadecimal, so you get A-F in there just like in your example. 
+ 
+ A GUID is 128 bit. If you take these bits and don’t use a character set with just 16 characters to represent them (16=2^4 and 128/4 = 32 chacters) but a character set with, let’s say, 64 characters (like Base 64), you would end up at only 22 characters (64=2^6 and 128/6 = 21.333, so 22 characters). 
+ 
+ Take your auto-increment ID, and HMAC-SHA1 it with a secret known only to you.  This will generate a random-looking 160-bits that hide the real incremental ID.  Then, take a prefix of a length that makes collisions sufficiently unlikely for your application---say 64-bits, which you can encode in 8 characters.  Use this as your string. 
+ HMAC will guarantee that no one can map from the bits shown back to the underlying number.  By hashing an auto-increment ID, you can be pretty sure that it will be unique.  So your risk for collisions comes from the likelihood of a 64-bit partial collision in SHA1.  With this method, you can predetermine if you will have any collisions by pre-generating all the random strings that this method which generate (e.g. up to the number of rows you expect) and checking. 
+ Of course, if you are willing to specify a unique condition on your database column, then simply generating a totally random number will work just as well.  You just have to be careful about the source of randomness. 
+ 
+ How long is too long?  You could convert the GUID to Base 64, which ends up making it quite a bit shorter. 
+ 
+ What you could do is something I do when I want exactly what you are wanting. 
+ 
+ Create your GUID. 
+ Get remove the dashes, and get a
+substring of how long you want your
+ID 
+ Check the db for that ID, if it
+exists goto step 1. 
+ Insert record. 
+ 
+ This is the simplest way to insure it is obscured and unique. 
+ 
+ I have just had an idea and I see Greg also pointed it out. I have the user stored in the session with a user ID. When I create my query I will join on the Users table with that User ID, if the result set is empty then we know he was hacking the URL and I can redirect to an error page. 
+ 
+ **A GUID is just a number**
+
+ The latest generation of GUIDs (version 4) is basically a big random number* 
+ Because it's a big random number the chances of a collision are REALLY small. 
+ The biggest number you can make with a GUID is over: 
+ 
+ So if you generate two GUIDs the chance the second GUID is the same as the first is: 
+ 
+ **If you generate 100 BILLION GUIDs.**
+
+ The chance your  **100 billionth**
+ GUID collides with the other 99,999,999,999 GUIDs is: 
+ 
+ **Why 128 bits?**
+
+ One reason is that computers like working with multiples of 8 bits. 
+ 8, 16, 32, 64, 128, etc 
+ The other reason is that the guy who came up with the GUID felt 64 wasn't enough, and 256 was way too much. 
+ **Do you need 128 bits?**
+
+ No, how many bits you need depends on how many numbers you expect to generate and how sure you want to be that they don't collide. 
+ **64 bit example**
+
+ Then the chance that your second number would collide with the first would be: 
+ 
+ Instead of: 
+ 
+ What about the  **100 billionth**
+ number? 
+ The chance your 100 billionth number collides with the other 99,999,999,999 would be: 
+ 
+ Instead of: 
+ 
+ So should you use 64 bits? 
+ Depends are you generating 100 billion numbers? Even if you were then does 180,000,000 make you uncomfortable? 
+ **A little more details about GUIDs**
+
+ I'm specifically talking about version 4. 
+ Version 4 doesn't actually use all 128 bits for the random number portion, it uses 122 bits. The other 6 bits are used to indicate that is version 4 of the GUID standard. 
+ The numbers in this answer are based on 122 bits. 
+ And yes since it's just a random number you can just take the number of bits you want from it. (Just make sure you don't take any of the 6 versioning bits that never change - see above). 
+ Instead of taking bits from the GUID though you could instead use the the same random number generator the GUID got it's bits from. 
+ It  probably  used the random number generator that comes with the operating system. 
+ 

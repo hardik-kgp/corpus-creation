@@ -1,0 +1,88 @@
+*** database-design-for-user-settings ***
+
+ Which of the following options, if any, is considered best practice when designing a table used to store user settings?  
+ (OPTION 1) 
+ 
+ (OPTION 2)  
+ create a new table for each setting where, for example, notification settings would require you to create: 
+ 
+ (OPTION 3) 
+ 
+ 
+ Other answers have ably outlined the pros and cons of your various options.   
+ I believe that your Option 1 (property bag) is the best overall design for most applications, especially if you build in some protections against the weaknesses of propety bags. 
+ See the following ERD: 
+ 
+ In the above ERD, the   table is very similar to OP's.  The difference is that instead of varchar   and   columns, this design has a FK to a   table which defines the allowable settings (Codes) and two mutually exclusive columns for the value.  One option is a varchar field that can take any kind of user input, the other is a FK to a table of legal values. 
+ The   table also has a flag that indicates whether user settings should be defined by the FK or by unconstrained varchar input.  You can also add a   to the   to tell the system how to encode and interpret the  .  If you like, you can also add the   table to help organize the various settings for user-maintenance. 
+ This design allows you to table-drive the rules around what your settings are.  This is convenient, flexible and easy to maintain, while avoiding a free-for-all. 
+ 
+ **EDIT:**
+ A few more details, including some examples... 
+ Note that the ERD, above, has been augmented with more column details (range values on SETTING and columns on ALLOWED_SETTING_VALUE). 
+ Here are some sample records for illustration. 
+ 
+ From these tables, we can see that some of the user settings which can be determined are Favourite Colour, Item Max Limit and Item Min Limit.  Favourite Colour is a pick list of alphanumerics.  Item min and max limits are numerics with allowable range values set.  The   column determines whether users are picking from the related  s or whether they need to enter a  .  The GUI that allows users to work with their settings needs to understand which option to offer and how to enforce both the   and the   and   limits, if they exist. 
+ Using this design, you can table drive the allowable settings including enough metadata to enforce some rudimentary constraints/sanity checks on the values selected (or entered) by users. 
+ **EDIT: Example Query**
+
+ Here is some sample SQL using the above data to list the setting values for a given user ID: 
+ 
+ And now the DML to extract a user's settings: 
+ 
+ See this in  SQL Fiddle . 
+ 
+ Option 1 (as noted, "property bag") is easy to implement - very little up-front analysis.  But it has a bunch of downsides. 
+ 
+ If you want to restrain the valid values for UserSettings.Code, you need an auxiliary table for the list of valid tags.  So you have either (a) no validation on UserSettings.Code – your application code can dump any value in, missing the chance to catch bugs, or you have to add maintenance on the new list of valid tags. 
+ UserSettings.Value probably has a string data type to accommodate all the different values that might go into it.  So you have lost the true data type – integer, Boolean, float, etc., and the data type checking that would be done by the RDMBS on insert of an incorrect values. Again, you have bought yourself a potential QA problem.  Even for string values, you have lost the ability to constrain the length of the column. 
+ You cannot define a DEFAULT value on the column based on the Code.  So if you wanted EmailLimitMax to default to 5, you can’t do it. 
+ Similarly, you can’t put a CHECK constraint on the Values column to prevent invalid values.  
+ The property bag approach loses validation of SQL code.  In the named column approach, a query that says “select Blah from UserSettings where UserID = x” will get a SQL error if Blah does not exist.  If the SELECT is in a stored procedure or view, you will get the error when you apply the proc/view – way before the time the code goes to production.  In the property bag approach, you just get NULL.  So you have lost another automatic QA feature provided by the database, and introduced a possible undetected bug. 
+ As noted, a query to find a UserID where conditions apply on multiple tags becomes harder to write – it requires one join into the table for each condition being tested. 
+ Unfortunately, the Property Bag is an invitation for application developers to just stick a new Code into the property bag without analysis of how it will be used in the rest of application.  For a large application, this becomes a source of “hidden” properties because they are not formally modeled.  It’s like doing your object model with pure tag-value instead of named attributes:  it provides an escape valve, but you’re missing all the help the compiler would give you on strongly-typed, named attributes.  Or like doing production XML with no schema validation. 
+ The column-name approach is self-documenting.  The list of columns in the table tells any developer what the possible user settings are. 
+ 
+ I have used property bags; but only as an escape valve and I have often regretted it.  I have never said “gee, I wish I had made that explicit column be a property bag.” 
+ 
+ Consider this simple example.  
+ 
+ If you have 2 tables,  **UserTable**
+(contains user details) and
+   **SettingsTable**
+(contains settings details). Then create a new table  **UserSettings**
+ for relating the UserTable and SettingsTable as shown below 
+ 
+ 
+ Hope you will found the right solution from this example. 
+ 
+ Each option has its place, and the choice depends on your specific situation. I am comparing the pros and cons for each option below: 
+ Option 1: Pros: 
+ 
+ Can handle many options 
+ New options can easily be added 
+ A generic interface can be developed to manage the options 
+ 
+ Option 1: Cons 
+ 
+ When a new option is added, its more complex to update all user accounts with the new option 
+ Option names can spiral out of control 
+ Validation of allowed option values is more complex, additional meta data is needed for that  
+ 
+ Option 2: Pros 
+ 
+ Validation of each option is easier than option 1 since each option is an individual column 
+ 
+ Option 2: Cons 
+ 
+ A database update is required for each new option 
+ With many options the database tables could become more difficult to use 
+ 
+ 
+ It's hard to evaluate "best" because it depends on the kind of queries you want to run.  
+ Option 1 (commonly known as "property bag", "name value pairs" or "entity-attribute-value" or EAV) makes it easy to store data whose schema you don't know in advance. However, it makes it hard - or sometimes impossible - to run common relational queries. For instance, imagine running the equivalent of  
+ 
+ This would rapidly become very convoluted, especially because your database engine may not compare varchar fields in a numerically meaningful way (so "> 5" may not work the way you expect). 
+ I'd work out the queries you want to run, and see which design supports those queries best. If all you have to do is check limits for an individual user, the property bag is fine. If you have to report across all users, it's probably not. 
+ The same goes for JSON or XML - it's okay for storing individual records, but makes querying or reporting over all users harder. For instance, imagine searching for the configuration settings for email adress "bob@domain.com" - this would require searching through all XML documents to find the node "email address".  
+ 

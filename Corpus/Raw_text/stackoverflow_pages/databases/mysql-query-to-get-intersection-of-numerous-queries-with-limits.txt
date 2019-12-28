@@ -1,0 +1,252 @@
+*** mysql-query-to-get-intersection-of-numerous-queries-with-limits ***
+
+ Assume I have a single mySQL table (users) with the following fields: 
+ 
+ I want to be able to return the number of total records based on the number a user enters.  Furthermore, they will also be providing additional criteria. 
+ In the simplest example, they may ask for 1,000 records, where 600 records should have gender = 'Male' and 400 records where gender = 'Female'.  That's simple enough to do. 
+ Now, go one step further.  Assume they now want to specify Region: 
+ 
+ Again, only 1000 records should be returned, but in the end, there must be 600 males, 400 females, 100 Northerners, 200 Southerners, 300 Easterners and 400 Westerners. 
+ I know this isn't valid syntax, but using pseudo-mySQL code, it hopefully illustrates what I'm trying to do: 
+ 
+ Note that I'm not looking for a one-time query.  The total number of records and the number of records within each criteria will constantly be changing based on input by the user.  So, I'm trying to come up with a generic solution that can be re-used over and over, not a hard-coded solution. 
+ To make things more complicated, now add more criteria. There could also be age, ethnicity and income each with their own set number of records for each group, additional code appended to above: 
+ 
+ I'm not sure if this is possible to write in one query or if this requires multiple statements and iterations. 
+ 
+ **Flatten Your Criteria**
+
+ 
+ You can flatten your multi-dimensional criteria into a single level criteria 
+ 
+ Now this criteria can be achieved in one query as follow 
+ 
+ **Problem**
+
+ 
+ It does not always return the correct result. For example, if there are less than 40 users whose are male and from north, then the query will return less than 1,000 records. 
+ 
+ 
+ **Adjust Your Criteria**
+
+ 
+ Let say that there is less than 40 users whose are male and from north. Then, you need to adjust other criteria quantity to cover the missing quantity from "Male" and "North". I believe it is not possible to do it with bare SQL. This is pseudo code that I have in mind. For sake of simplification, I think we will only query for Male, Female, North, and South  
+ 
+ Let say that there are only 30 northener male. So we need to adjust +10 male, and +10 northener. 
+ 
+ 'Male' + 'South' is the first condition that match the 'Male' adjustment condition. Increase it by +10, and remove it from the "remain condition" list. Since, we increase the South, we need to decrease it back at other condition. So add "South" condition into "To Adjust" list 
+ 
+ Find condition that match the 'South' and repeat the same process. 
+ 
+ And finally 
+ 
+ I haven't come up with the exact implementation of adjustment yet. It is more difficult than I have expected. I will update once I can figure out how to implement it. 
+ 
+ The problem that you describe is a multi-dimensional modeling problem.  In particular, you are trying to get a stratified sample along multiple dimensions at the same time.  The key to this is to go down to the smallest level of granularity and build up the sample from there. 
+ I am further assuming that you want the sample to be representative at all levels.  That is, you don't want all the users from "North" to be female.  Or all the "males" to be from "West", even if that does meet the end criteria. 
+ Start by thinking in terms of a total number of records, dimensions, and allocations along each dimension.  For instance, for the first sample, think of it as: 
+ 
+ 1000 records 
+ 2 dimensions: gender, region 
+ gender split:  60%, 40% 
+ region split:  10%, 20%, 30%, 40% 
+ 
+ Then, you want to allocate these numbers to each gender/region combination.  The numbers are: 
+ 
+ North, Male:    60 
+ North, Female:  40 
+ South, Male:   120 
+ South, Female:  80 
+ East, Male:    180 
+ East, Female:  120 
+ West, Male:    240 
+ West, Female:  160 
+ 
+ You'll see that these add up along the dimensions. 
+ The calculation of the numbers in each cell is pretty easy.  It is the product of the percentages times the total.  So, "East, Female" is 30%*40% * 1000 . . . Voila!  The value is 120. 
+ Here is the solution: 
+ 
+ Take the input along each dimension as  percentages  of the total.  And be sure they add up to 100% along each dimension. 
+ Create a table of the expected percentages for each of the cells.  This is the product of the percentages along each dimension. 
+ Multiple the expected percentages by the overall total. 
+ The final query is outlined below. 
+ 
+ Assume that you have a table   with the expected count and the original data ( ). 
+ 
+ Note that this is a sketch of the solution.  You have to fill in the details about the dimensions. 
+ This will work as long as you have enough data for all the cells. 
+ In practice, when doing this type of multi-dimensional stratified sampling, you do run the risk that cells will be empty or too small.  When this happens, you can often fix this with an additional pass afterwards.  Take what you can from the cells that are large enough.  These typically account for the majority of the data needed.  Then add records in to meet the final count.  The records to be added in are those whose values match what is needed along the most needed dimensions.  However, this solution simply assumes that there is enough data to satisfy your criteria. 
+ 
+ Problem with your request is that there's enormous number of options that can be used to achieve proposed numbers: 
+ 
+ Just by combining North, East and West (with south always male: 200) you'll get 400 possibilities how to achieve proposed numbers. And it gets even more complicated when you have just a limited amount of records per each " class " (Male/North = " class "). 
+ You may need need up to   records for every cell in table above (for the case that it's counterpart will be zero). 
+ That is up to: 
+ 
+ So you need to count available records of each gender/location pair  .  
+ Finding particular fit seems to be close to  semimagic squares [1] [2] . 
+ And there are several questions on math.stackexchange.com about this  [3] [4] . 
+ I've ended up reading  some paper  on how to construct these and I doubt it's possible to do this with one select. 
+ If you have enough records and won't end up in situation like this: 
+ 
+ I would go with iterating trough locations and add proportional number of Males/Females in each step: 
+ 
+ M: 100 (16%); F: 0   (0%) 
+ M: 100 (16%); F: 200 (50%) 
+ M: 400 (66%); F: 200 (50%) 
+ M: 600 (100%); F: 400 (100%) 
+ 
+ But this will give you only approximate results and after validating those you may want to iterate trough result few times and adjust counts in each category to be " good enough ".  
+ 
+ I'd build a map of the distribution of the database and use that to implement the sampling logic. Bonuses include possibility to add quick demography feedback to the user and no additional burden to the server. On the con side, you'd need to implement a mechanism to keep the database and the map in sync. 
+ It could look like this using JSON: 
+ 
+ So the user selects  
+ 
+ Calculate a linear distribution: 
+ 
+ then we'd check the map: 
+ 
+ Mark everything that meets the linear distribution as ok and keep track of surplus. If something (like male.north.u20) is below first adjust in parent (to make sure male.north for example meets the criteria), you get missing 8 for u20 and overused 8 for f21to29. After first run adjust each missing criteria in other regions. So like  . 
+ It is pretty tedious to get it right. 
+ In the end you have the correct distribution that can be used to construct a trivial SQL query. 
+ 
+ This can be solved in two steps. I will describe how to do it for the example where gender and region are the dimensions. Then I will describe the more general case. In the first step we solve a system of equations of 8 variables, then we take the disjoint union of 8 select statements limited by the solutions found in step one.  Notice that there are only 8 possibilities for any row. They can be male or female and then the region is one of north, south, east  or west. Now let, 
+ 
+ The equations are: 
+ 
+ Now solve for X1,X2, ...X8 in the above. There are many solutions (I will describe how to solve in a moment) Here is a solution:  
+ 
+ Now we can get the result by  a simple union of 8  selects: 
+ 
+ Notice that if there are not 60 rows in the data base the satisfy the first select above then  the particular solution  given will not work. So we have to add other constraints, LT: 
+ 
+ Now let's generalize for this case allowing any splits. The  equations are E: 
+ 
+ Th numbers n1,n2,m1,m2, m3,m4 are given and satisfy n1+n2=(m1+m2+m3+m4).  So we have reduced the problem to solving the equations LT and E above. This is a just a linear programming problem and can  be solved using the simplex method or other methods. Another possibility is to view this as a System of linear Diophantine equations and  use methods for that to find solutions.  In any case I have reduced the problem to finding the solution to the equations above.   (Given that the equations are of a special form there may be a faster way then using the simplex method or solving a system of linear diophantine equations).Once we solve for Xi the final solution is: 
+ 
+ Lets denote a dimension D with n  possibilities as D:n. Suppose you have D1:n1, D2:n2, ...DM:nM dimensions. The would generate n1*n2*...nM variables. The number of equations generated is n1+n2+...nM.  Rather then define the general method lets take another case of 3 dimensions, 4 dimensions and 2 dimensions; Lets call the possible values for D1 to be d11, d12,d13, D2 is d21, d22, d23, d24, and D3 values are d31,d32.  We will have 24 variables, and the equations  are: 
+ 
+ Where  
+ 
+ Add the less then constraints. Then solve for X1,X2, ... X24. Create the 24 select statements and take the disjoint union.
+We can solve similarly for any dimensions. 
+ So in summary: Given dimensions D1:n1, D2:n2, ...DM:nM we can solve the corresponding linear programming problem as describe above for n1*n2*...nM variables and then generate a solution by taking the disjoint union over n1*n2*...nM select statements.  So yes, we can generate a solution by select statements but first we have to solve the equations and determine limits   by getting counts for each of the n1*n2*...nM variables. 
+ Even though the bounty is over I am going to add a bit more for those you are interested. I claim here that I have completely shown how to solve this if there is a solution.   
+ To clarify my approach. In the case of 3 dimensions, lets say we split age into one of 3 possibilities. Then well use gender and region as in the question. There are 24 different possibilities for each user corresponding to where they fall in those categories.   Let Xi be the number of each of those possibilities in the final result.  Let me write a matrix where each row  is represents one of each possibility. Each user will contribute at most 1 to m or f, 1 to north, south, east or west, and 1 to the age category. And there are only 24 possibilities for the user. Lets show a matrix: (abc) the 3 ages, (nsew) the regions and
+(mf) male or female:  a is age less then or equal to 10, b is age between 11 and 30 and c is age between 31 and 50. 
+ 
+ Each row represents a user where there is a 1 in the column if it contributes to a result. For example, the first row shows 1 for a, 1 for n, and 1  for m. Which means the user's age is less then or equal to 10, is from the  north and is a male.
+The Xi represents how many of that  kind of row is in the final result.  So lets say X1 is 10 that means that we are say the final result has 10 results all of which are from the north, are males and are less then or equal 10.  OK so now we just have to add things up.   Notice that the first 8   are all the rows that whose age less then or equal to 10. They must add up to whatever we chose for that category. Similarly for the next 2 sets of 8. 
+ So so far we get the equations:   (na is the number with age less then 10, nb the age between 10 and 20, nc the number whose age less then 50 
+ 
+ Those are the age splits. Now lets look at the region splits. Just add up the variables in the "n" column, 
+ 
+ etc.
+Do you see how I am getting those equations by just looking down the columns?
+Continue for ew and mf.  giving 3+4+2 equations in total.  So what I did here is quite simple.   I have reasoned that any row you pick contributes one to each of the 3 dimensions and there are only 24 possibilities. Then let Xi be the number for each possibility and you get the equations that needs to be solved.   It seems to me  that whatever method you come up with must be a solution to those equations. In other words I simply reformulated the problem in terms of solving those equations. 
+ Now we want an integer solution since we cannot have a  fractional row. Notice these are all linear equations. But we want an integer solution.  Here is a link to a paper that describes how to solve these:   https://www.math.uwaterloo.ca/~wgilbert/Research/GilbertPathria.pdf 
+ 
+ Forming the business logic in SQL is never a good idea as it'll hamper ability to absorb even minor changes. 
+ My suggestion would be to do this in an ORM and keep the business logic abstracted from SQL. 
+ For example if your were using  **Django**
+: 
+ Your model would look like: 
+ 
+ And your query function could be something like this: 
+ 
+ The query function can be abstracted further with the knowledge of all queries you plan to support, but this should serve as an example. 
+ If you are using a different ORM, the same idea can be translated to that too as any good ORM would have the union and intersection abstraction. 
+ 
+ I would use a programming language to generate the SQL statements, but below is a solution in pure mySQL. One assumption made: There is always enough male/female in one region to fit the numbers (e.g. what if there are no female living in the north?).  
+ The routine is pre-calculating the needed row quantities. Limit cannot be specified using a variable. I am more an oracle guy where we have analytical functions. MySQL also provides this to some extend by allowing variables. So I set the target regions and gender and calculate the breakdown. Then I limit my output using the calculations.  
+ This query shows the counts to proof the concept. 
+ 
+ Output: 
+ 
+ Remove the outer part to get the real records: 
+ 
+ For testing I have written a procedure which does create 10000 sample records fully random: 
+ 
+ Hope this all helps you. The bottom line is: Use a   and restrict with pre-calculated variables not  . 
+ 
+ Well, I think the question is about randomly getting the records and not in the proportion of 60/40 for all regions. I have done for Region and Gender. It can be generalized to other fields like age, income and ethnicity in the same way. 
+ 
+ 
+ I expect you'd want to generate a bunch of queries based on the required filters. 
+ I'll explain a possible approach, with a full code sample - but note the caveats later on. 
+I'll also address the issue where you can't fulfil the requested sample from a proportional distribution, but you can from an adjusted distribution - and explain how to do that adjustment 
+ The basic algorithm goes like this: 
+ Start with a set of filters  , each which has a group of values, and percentages which should be distributed amongst those values. For example F1 might be gender, with 2 values (F1V1 = Male: 60%, F1V2 = Female: 40%) You'll also want the total sample size required (call this   ) From this starting point you can then combine all the filters items from each filter to get a single set all of the combined filter items, and the quantities required for each.
+The code should be able to handle any number of filters, with any number of values (either exact values, or ranges) 
+ EG: suppose 2 filters, F1: gender, {F1V1 = Male: 60%, F1V2 = Female: 40%}, F2: region, {F2V1 = North: 50%, F2V2 = South: 50%} and a total sample required of X = 10 people. 
+In this sample we'd like 6 of them to be male, 4 of them to be female, 5 to be from the north, and 5 to be from the south. 
+ Then we do 
+ 
+ Create an sql stub for each value in F1 - with an associated fraction of the initial percentage (i.e. 
+
+ 
+  : 0.6,  
+ : 0.4 ) 
+ 
+ For each item in F2 - create a new sql stub from every item from the step above - with the filter now being both the F1 Value & the F2 Value, and the associated fraction being the product of the 2 fractions. So we now have 2 x 2 = 4 items of 
+
+ 
+ : 0.6 * 0.5 = 0.3,  
+ : 0.4 * 0.5 = 0.2,  
+ : 0.6*0.5 = 0.3,  
+ : 0.4*0.5 = 0.2 
+ 
+ Repeat step 2 above for every additional Filter F3 to Fn. (in our example there were only 2 filters, so we are already done) 
+ Calculate the limit for each SQL stub as being [fraction associated with stub] * X = total required sample size (so for our example thats 0.3 * 10 = 3 for Male/North, 0.2 * 10 = 2 for Female/North etc) 
+ Finally for every sql stub - turn it into a complete SQL statement , and add the limit  
+ 
+ **Code Sample**
+
+ I'll provide C# code for this, but it should be easy enough to translate this to other languages.
+It would be pretty tricky to attempt this in pure dynamic SQL 
+ Note this is untested - and probably full of errors - but its an idea of the approach you could take. 
+ I've defined a public method and a public class - which would be the entry point. 
+ 
+  (as per comment by Sign) 
+ 
+ Rounding errors may mean you don't get exactly the 600  / 400 split you were aiming for when applying a large number of filters - but should be close. 
+ If your dataset is not very diverse then it may not be possible to always generate the required split. This method will require an even distribution amongst the filters (so if you were doing a total of 10 people, 6 male, 4 female , 5 from the north, 5 from the south it would require 3 males from the north, 3 males from the south, 2 females from the north and 2 females from the south.) 
+ The people are not going to be retrieved at random - just whatever the default sort is. You would need to add something like ORDER BY RAND() (but not that as its VERY inefficient) to get a random selection. 
+ Beware of SQL injection. Sanitise all user input, replacing single quote   chars. 
+ 
+ **Badly distributed sample problem**
+
+ How do you address the problem of there being insufficient items in one of our buckets to create our sample as per a representative split (that the above algorithm gives)? Or what if your numbers are not integers? 
+ Well I won't go so far as to provide code, but I will describe a possible approach. You'd need to alter the code above quite a bit, because a flat list of sql stubs isn't going to cut it anymore. Instead you'd need to build a n-dimensional matrix of SQL stubs (adding a dimension for every filter F1 - n)  After step 4 above has been completed (where we have our desired, but not necessarily possible numbers for each SQL stub item), what I'd expect to do is  
+ 
+ generate SQL to select counts for all the combined sql WHERE stubs. 
+ Then you'd iterate the collection - and if you hit an item where the requested limit is higher than the count (or not an integer), 
+
+ 
+ adjust the requested limit down to the count (or nearest integer).  
+ Then pick another item  on each of the axis that is at least the above adjustment lower that its max count, and adjust it up by the same. If its not possible to find qualifying items then your requested split is not possible. 
+ Then adjust all the intersecting items for the upward adjusted items down again 
+ Repeat the step above for intersects between the intersecting points for every additional dimension to n (but toggle the adjustment between negative and positive each time) 
+ 
+ 
+ So suppose continuing our previous example - our representative split is: 
+Male/North = 3, Female/North = 2, Male/South = 3, Female/South = 2, but there are only 2 Males in the north (but theres loads of people in the other groups we could pick) 
+ 
+ We adjust Male/North down to 2 (-1) 
+ We adjust Female/North to 3 (+1) and Male/South to 4 (+1) 
+ We adjust the Intersecting Female/South to 1 (-1). Voila! (there are no additional dimensions as we only had 2 criteria/dimensions) 
+ 
+ This illustration may be helpful when adjusting intersecting items in higher dimensions (only showing up to 4 dimensions, but should help to picture what needs to be done! Each point represents one of our SQL stub items in the n-dimensional matrix (and has an associated limit number) A line represents a common criteria value (such as gender = male). The objective is that the total along any line should remain the same after adjustments have finished! We start with the red point, and continue for each additional dimension... In the example above we would only be looking at 2 dimensions - a square formed from the red point, the 2 orange points above and to the right of it, and the 1 green point to the NE to complete the square. 
+ 
+ 
+ I'd go with  : 
+ 
+ 
+ You can verify you have 600 males, 400 females, 100 North, 200 South, 300 East and 400 West. 
+ You can include other fields as well. 
+ For range fields, like age and income, you can follow this example: 
+ 
+ So, the results would be like: 
+ 
+ 

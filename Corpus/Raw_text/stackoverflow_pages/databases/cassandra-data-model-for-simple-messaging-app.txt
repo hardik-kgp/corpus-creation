@@ -1,0 +1,68 @@
+*** cassandra-data-model-for-simple-messaging-app ***
+
+ I am trying to learn Cassandra and always find the best way is to start with creating a very simple and small application. Hence I am creating a basic messaging application which will use Cassandra as the back-end. I would like to do the following: 
+ 
+ User will create an account with a username, email, and password. The
+email and the password can be changed at anytime. 
+ The user can add another user as their contact. The user would add a
+contact by searching their username or email. The contacts don't need
+to be mutual meaning if I add a user they are my contact, I don't
+need to wait for them to accept/approve anything like in Facebook. 
+ A message is sent from one user to another user. The sender needs to
+be able to see the messages they sent (ordered by time) and the
+messages which were sent to them (ordered by time). When a user opens
+the app I need to check the database for any new messages for that
+user. I also need to mark if the message has been read. 
+ 
+ As I come from the world of relational databases my relational database would look something like this: 
+ 
+ Reading through a couple of Cassandra textbooks I have a thought of how to model the database. My main concern is to model the database in a very efficient manner. Hence I am trying to avoid things such as secondary indexes etc. This is my model so far: 
+ 
+ To spread data evenly and to read a minimal amount of partitions (hopefully just one) I can lookup a user based on their username or email quickly. The downside of this is obviously I am doubling my data, but the cost of storage is quite cheap so I find it to be a good trade off instead of using secondary indexes. Last logged in will also need to be written in twice but Cassandra is efficent at writes so I believe this is a good tradeoff as well. 
+ For the contacts I can't think of any other way to model this so I modelled it very similar to how I would in a relational database. This is quite a denormalized design I beleive which should be good for performance according to the books I have read? 
+ 
+ I am stuck on how to create this next part. For messaging I was thinking of this table as it created wide rows which enables ordering of the messages.
+I need messaging to answer two questions. It first needs to be able to show the user all the messages they have and also be able to show the user
+the messages which are new and are unread. This is a basic model, but am unsure how to make it more efficent? 
+ 
+ I was also looking at using things such as STATIC columns to 'glue' together the user and messages, as well as SETS to store contact relationships, but from my narrow understanding so far the way I presented is more efficient. I ask if there are any ideas to improve this model's efficiency, if there are better practices do the things I am trying to do, or if there are any hidden problems I can face with this design?  
+ In conclusion, I am trying to model around the queries. If I were using relation databases these would be essentially the queries I am looking to answer: 
+ 
+ Cheers 
+ 
+ Yes it's always a struggle to adapt to the limitations of Cassandra when coming from a relational database background.  Since we don't yet have the luxury of doing joins in Cassandra, you often want to cram as much as you can into a single table.  In your case that would be the users_by_username table. 
+ There are a few features of Cassandra that should allow you to do that. 
+ Since you are new to Cassandra, you could probably use Cassandra 3.0, which is currently in beta release.  In 3.0 there is a nice feature called materialized views.  This would allow you to have users_by_username as a base table, and create the users_by_email as a materialized view.  Then Cassandra will update the view automatically whenever you update the base table. 
+ Another feature that will help you is user defined types (in C* 2.1 and later).  Instead of creating separate tables for followers and messages, you can create the structure of those as UDT's, and then in the user table keep lists of those types. 
+ So a simplified view of your schema could be like this (I'm not showing some of the fields like timestamps to keep this simple, but those are easy to add). 
+ First create your UDT's: 
+ 
+ Next we create your base table: 
+ 
+ Now we create a materialized view partitioned by email: 
+ 
+ Now let's take it for a spin and see what it can do.  Let's create a user: 
+ 
+ Let the user follow another user: 
+ 
+ Let's send the user a message: 
+ 
+ Now let's see what's in the table: 
+ 
+ Now let's check that our materialized view is working: 
+ 
+ Now let's read the email and put it in the old messages: 
+ 
+ So hopefully that gives you some ideas you can use.  Have a look at the documentation on collections (i.e. lists, maps, and sets), since those can really help you to keep more information in one table and are sort of like tables within a table. 
+ 
+ For cassandra or noSQL data modelling beginners, there is a process involved in data modelling your application, like 
+ 1- Understand your data, design a concept diagram 
+2- List all your quires in detail 
+3- Map your queries using defined rules and patterns, best suitable for cassandra 
+4- Create a logical design, table with fields derived from queries 
+5- Now create a schema and test its acceptance. 
+ if we model it well, then it is easy to handle issues such as new complex queries, data over loading, data consistency setc. 
+ After taking this free online data modelling training, you will get more clarity 
+ https://academy.datastax.com/courses/ds220-data-modeling 
+ Good Luck! 
+ 

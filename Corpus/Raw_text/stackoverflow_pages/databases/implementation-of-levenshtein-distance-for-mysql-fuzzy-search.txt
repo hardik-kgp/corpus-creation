@@ -1,0 +1,115 @@
+*** implementation-of-levenshtein-distance-for-mysql-fuzzy-search ***
+
+ I would like to be able to search a table as follows for smith as get everything that it within 1 variance. 
+ Data: 
+ 
+O'Brien
+Smithe
+Dolan
+Smuth
+Wong
+Smoth
+Gunther
+Smiht
+ 
+ I have looked into using Levenshtein distance does anyone know how to implement this with it? 
+ 
+ In order to efficiently search using levenshtein distance, you need an efficient, specialised index, such as a  bk-tree . Unfortunately, no database system I know of, including MySQL, implements bk-tree indexes. This is further complicated if you're looking for full-text search, instead of just a single term per row. Off-hand, I can't think of any way that you could do full-text indexing in a manner that allows for searching based on levenshtein distance. 
+ 
+ There is a mysql UDF implementation of Levenshtein Distance function 
+ https://github.com/jmcejuela/Levenshtein-MySQL-UDF 
+ It is implemented in C and has better performance than the "MySQL Levenshtein distance query" mentioned by schnaader 
+ 
+ An implementation for the damerau-levenshtein distance can be found here:
+ Damerau-Levenshtein algorithm: Levenshtein with transpositions 
+The improvement over pure Levenshtein distance is that the swapping of characters is considered. I found it in the comments of schnaader's link, thanks! 
+ 
+ The function given for levenshtein <= 1 above is not right -- it gives incorrect results for e.g., "bed" and "bid". 
+ I modified the "MySQL Levenshtein distance query" given above, in the first answer, to accept a "limit" that will speed it up a little.  Basically, if you only care about Levenshtein <= 1, set the limit to "2" and the function will return the exact levenshtein distance if it is 0 or 1; or a 2 if the exact levenshtein distance is 2 or greater.   
+ This mod makes it 15% to 50% faster -- the longer your search word, the bigger the advantage (because the algorithm can bail earlier.)  For instance, on a search against 200,000 words to find all matches within distance 1 of the word "giggle," the original takes 3 min 47 sec on my laptop, versus 1:39 for the "limit" version.  Of course, these are both too slow for any real-time use. 
+ Code: 
+ 
+ 
+ you can use this function 
+ 
+
+CREATE FUNCTION `levenshtein`( s1 text, s2 text) RETURNS int(11)
+    DETERMINISTIC
+BEGIN 
+    DECLARE s1_len, s2_len, i, j, c, c_temp, cost INT; 
+    DECLARE s1_char CHAR; 
+    DECLARE cv0, cv1 text; 
+    SET s1_len = CHAR_LENGTH(s1), s2_len = CHAR_LENGTH(s2), cv1 = 0x00, j = 1, i = 1, c = 0; 
+    IF s1 = s2 THEN 
+      RETURN 0; 
+    ELSEIF s1_len = 0 THEN 
+      RETURN s2_len; 
+    ELSEIF s2_len = 0 THEN 
+      RETURN s1_len; 
+    ELSE 
+      WHILE j <= s2_len DO 
+        SET cv1 = CONCAT(cv1, UNHEX(HEX(j))), j = j + 1; 
+      END WHILE; 
+      WHILE i <= s1_len DO 
+        SET s1_char = SUBSTRING(s1, i, 1), c = i, cv0 = UNHEX(HEX(i)), j = 1; 
+        WHILE j <= s2_len DO 
+          SET c = c + 1; 
+          IF s1_char = SUBSTRING(s2, j, 1) THEN  
+            SET cost = 0; ELSE SET cost = 1; 
+          END IF; 
+          SET c_temp = CONV(HEX(SUBSTRING(cv1, j, 1)), 16, 10) + cost; 
+          IF c > c_temp THEN SET c = c_temp; END IF; 
+            SET c_temp = CONV(HEX(SUBSTRING(cv1, j+1, 1)), 16, 10) + 1; 
+            IF c > c_temp THEN  
+              SET c = c_temp;  
+            END IF; 
+            SET cv0 = CONCAT(cv0, UNHEX(HEX(c))), j = j + 1; 
+        END WHILE; 
+        SET cv1 = cv0, i = i + 1; 
+      END WHILE; 
+    END IF; 
+    RETURN c; 
+  END
+ 
+ and for getting it as XX% use this function 
+ 
+
+CREATE FUNCTION `levenshtein_ratio`( s1 text, s2 text ) RETURNS int(11)
+    DETERMINISTIC
+BEGIN 
+    DECLARE s1_len, s2_len, max_len INT; 
+    SET s1_len = LENGTH(s1), s2_len = LENGTH(s2); 
+    IF s1_len > s2_len THEN  
+      SET max_len = s1_len;  
+    ELSE  
+      SET max_len = s2_len;  
+    END IF; 
+    RETURN ROUND((1 - LEVENSHTEIN(s1, s2) / max_len) * 100); 
+  END
+ 
+ 
+ I am setting up a search based on Levenshtein or Damerau-Levenshtein (probably the latter) for multiple searches over an indexed text, based on a paper by  by Gonzalo Navarro and Ricardo Baeza-yates:  link text 
+ After building a suffix array ( see wikipedia ), if you are interested in a string with at most k mismatches to the search string, break the search string into k+1 pieces; at least one of those must be intact.  Find the substrings by binary search over the suffix array, then apply the distance function to the patch around each matched piece. 
+ 
+ If you only want to know if the levenshtein-distance is at most 1, you can use the following MySQL function. 
+ 
+ This is basically a single step in the recursive description of the levenshtein distance.
+The function returns 1, if the distance is at most 1, else it returns 0. 
+ Since this function does not completely compute the levenshtein-distance, it is much faster. 
+ You can also modify this function such that it returns   if the levenshtein-distance is at most 2 or 3, by calling it self recursively. If MySQL does not support recursive calls, you can copy slightly modified versions of this function two times and call them instead. But you should not use the recursive function to calculate the exact levenshtein-distance. 
+ 
+ I had a specialized case of k-distance searching and after installing the Damerau-Levenshtein UDF in MySQL found that the query was taking too long.  I came up with the following solution: 
+ 
+ I have a very restrictive search space (9 character string limited to numeric values).   
+ 
+ Create a new table (or append columns to your target table) with columns for each character position in your target field. ie. My VARCHAR(9) ended up as 9 TINYINT columns + 1 Id column that matches my main table (add indexes for each column).  I added triggers to ensure that these new columns always get updated when my main table gets updated. 
+ To perform a k-distance query use the following predicate: 
+ (Column1=s[0]) + (Column2=s[1]) + (Column3=s[2]) + (Column4=s[3]) + ... >= m 
+ where s is your search string and m is the required number of matching characters (or m = 9 - d in my case where d is the maximum distance I want returned). 
+ After testing I found that a query over 1 million rows that was taking 4.6 seconds on average was returning matching ids in less than a second.  A second query to return the data for the matching rows in my main table similarly took under a second.  (Combining these two queries as a subquery or join resulted in significantly longer execution times and I'm not sure why.) 
+ Though this is not Damerau-Levenshtein (doesn't account for substitution) it suffices for my purposes.   
+ Though this solution probably doesn't scale well for a larger (length) search space it worked for this restrictive case very well. 
+ 
+ Based on  Chella's answer  and Ryan Ginstrom's  article , a fuzzy search could be implemented as so: 
+ 
+ 

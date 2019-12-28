@@ -1,0 +1,233 @@
+*** mysql-error-access-denied-for-user-rootlocalhost ***
+
+ $  **./mysqladmin -u root -p**
+ ' redacted ' 
+Enter password:  
+ 
+ mysqladmin: connect to server at 'localhost' failed error: 
+ **'Access denied for user 'root'@'localhost' (using password: YES)'**
+
+ 
+ How can I fix this? 
+ 
+ 
+ Open & Edit   or  , depending on your distro. 
+ Add   under  
+ Restart Mysql 
+ You should be able to login to mysql now using the below command  
+ Run  
+ Set new password by  
+ Go back to /etc/my.cnf and  **remove/comment**
+ skip-grant-tables 
+ Restart Mysql 
+ Now you will be able to login with the new password  
+ 
+ 
+ All solutions I found were much more complex than necessary and none worked for me. Here is the solution that solved my problem. No need to restart mysqld or start it with special privileges. 
+ 
+ With a single query we are changing the  **auth_plugin**
+ to  **mysql_native_password**
+ and setting the root password to  **root**
+  (feel free to change it in the query) 
+ Now you should be able to login with root. More information can be found in  mysql documentation 
+ (exit mysql console with  **Ctrl + D**
+ or by typing  **exit**
+) 
+ 
+ I tried many steps to get this issue corrected. There are so many sources for possible solutions to this issue that is is hard to filter out the sense from the nonsense. I finally found a good solution  here : 
+ **Step 1: Identify the Database Version**
+
+ 
+ **You'll see some output like this with MySQL:**
+
+ 
+ **Or output like this for MariaDB:**
+
+ 
+ Make note of which database and which version you're running, as you'll use them later. Next, you need to stop the database so you can access it manually. 
+ **Step 2: Stopping the Database Server**
+
+ To change the root password, you have to shut down the database server beforehand. 
+ **You can do that for MySQL with:**
+
+ 
+ **And for MariaDB with:**
+
+ 
+ **Step 3: Restarting the Database Server Without Permission Checking**
+
+ If you run MySQL and MariaDB without loading information about user privileges, it will allow you to access the database command line with root privileges without providing a password. This will allow you to gain access to the database without knowing it. 
+ To do this, you need to stop the database from loading the grant tables, which store user privilege information. Because this is a bit of a security risk, you should also skip networking as well to prevent other clients from connecting. 
+ **Start the database without loading the grant tables or enabling networking:**
+
+ 
+ The ampersand at the end of this command will make this process run in the background so you can continue to use your terminal. 
+ **Now you can connect to the database as the root user, which should not ask for a password.**
+
+ 
+ You'll immediately see a database shell prompt instead. 
+ **MySQL Prompt**
+
+ 
+ **MariaDB Prompt**
+
+ 
+ Now that you have root access, you can change the root password. 
+ **Step 4: Changing the Root Password**
+
+ 
+ Now we can actually change the root password. 
+ For  **MySQL 5.7.6 and newer**
+ as well as  **MariaDB 10.1.20 and newer**
+, use the following command: 
+ 
+ For  **MySQL 5.7.5 and older**
+ as well as  **MariaDB 10.1.20 and older**
+, use: 
+ 
+ Make sure to replace   with your new password of choice. 
+ **Note:**
+ If the   command doesn't work, it's usually indicative of a bigger problem. However, you can try   to reset the root password instead. 
+ **[IMPORTANT] This is the specific line that fixed my particular issue:**
+
+ 
+ Remember to reload the grant tables after this. 
+ In either case, you should see confirmation that the command has been successfully executed. 
+ 
+ The password has been changed, so you can now stop the manual instance of the database server and restart it as it was before. 
+ **Step 5: Restart the Database Server Normally**
+
+ The tutorial goes into some further steps to restart the database, but the only piece I used was this: 
+ **For MySQL, use:**
+
+    $ sudo systemctl start mysql 
+ **For MariaDB, use:**
+
+ 
+ Now you can confirm that the new password has been applied correctly by running: 
+ 
+ The command should now prompt for the newly assigned password. Enter it, and you should gain access to the database prompt as expected. 
+ **Conclusion**
+
+ You now have administrative access to the MySQL or MariaDB server restored. Make sure the new root password you choose is strong and secure and keep it in safe place. 
+ 
+ For Ubuntu/Debian users 
+ Run the following to connect as   (without any password) 
+ 
+ If you don't want to add   each time you want to connect as  , you can copy   into your home directory: 
+ 
+ and then: 
+ 
+ 
+ For new linux users this could be a daunting task. Let me update this with mysql 8(the latest version available right now is 8.0.12 as on 12-Sep-2018) 
+ 
+ Open "mysqld.cnf" configuration file at "/etc/mysql/mysql.conf.d/". 
+ Add  **skip-grant-tables**
+ to the next line of [mysql] text and save. 
+ Restart mysql service as "sudo service mysql restart". Now your mysql is free of any authentication. 
+ Connect to mysql client(also known as mysql-shell) as  **mysql -u root -p**
+. There is no password to be keyed in as of now. 
+ run sql command  **flush privileges;**
+
+ Reset the password now as  **ALTER USER 'root'@'localhost' IDENTIFIED BY 'MyNewPassword';**
+
+ Now let's get back to the normal state; remove that line "skip-grant-tables" from "mysqld.cnf" and restart service. 
+ 
+ That's it. 
+ 
+ After trying all others answers, this it what finally worked for me  
+ 
+ I found the answer in this post :  https://medium.com/@chiragpatel_52497/solved-error-access-denied-for-user-root-localhost-of-mysql-programming-school-6e3611838d06 
+ 
+ None of the above answers helped me with this problem, so  here's the solution I found . 
+ The relevant part: 
+ 
+ In Ubuntu systems running MySQL 5.7 (and later versions), the root MySQL user is set to authenticate using the auth_socket plugin by default rather than with a password. This allows for some greater security and usability in many cases, but it can also complicate things when you need to allow an external program (e.g., phpMyAdmin) to access the user. 
+ In order to use a password to connect to MySQL as root, you will need to switch its authentication method from auth_socket to mysql_native_password. To do this, open up the MySQL prompt from your terminal: 
+ 
+ 
+ 
+ Next, check which authentication method each of your MySQL user accounts use with the following command: 
+ 
+ 
+ 
+ Output 
+ 
+ 
+ 
+ In this example, you can see that the root user does in fact authenticate using the auth_socket plugin. To configure the root account to authenticate with a password, run the following ALTER USER command. Be sure to change password to a strong password of your choosing, and note that this command will change the root password you set in Step 2: 
+ 
+ 
+ 
+ Then, run FLUSH PRIVILEGES which tells the server to reload the grant tables and put your new changes into effect: 
+ 
+ 
+ 
+ Check the authentication methods employed by each of your users again to confirm that root no longer authenticates using the auth_socket plugin: 
+ 
+ 
+ 
+ Output 
+ 
+ 
+ 
+ You can see in this example output that the root MySQL user now authenticates using a password. Once you confirm this on your own server, you can exit the MySQL shell: 
+ 
+ 
+ 
+ 
+ 
+ In your MySQL workbench, you can go to the left sidebar, under Management select "Users and Privileges", click root under User Accounts, the in the right section click tab "Account Limits" to increase the max queries, updates, etc, and then click tab "Administrative Roles" and check the boxes to give the account access. Hope that helps! 
+ 
+ I did this to set my root password in initial set up of MySQL in OSx. Open a terminal.  
+ 
+ Close the terminal and open a new terminal.
+And followings are worked in Linux, to set root password.  
+ 
+ (sudo mysqld_safe --skip-grant-tables : This did not work for me in first time. But second try, out was success.) 
+ Then login to MySQL 
+ 
+ Now change the password: 
+ 
+ Restart MySQL: 
+ 
+ 
+ In my case under Debian 10, the error 
+ 
+ was solved by (GOOD WAY) 
+ 
+ BAD WAY: 
+ 
+ 
+ If you are like me and all the above suggestions failed, proceed to uninstall all versions of mysql on your machine, search for all remaining mysql files using this command   and   every file or directory with the mysql name attached to it (you should skip files related to programming language libraries). Now install a fresh version of MySQL and enjoy. NB: You will loose all your data so weigh your options first. 
+ 
+ It can happen if you don't have enough privileges.
+Type  , enter root password and try again. 
+ 
+ Okay, I know this is an old thread but if you reached this page via Google like I did and none of the above solutions worked, what turned out to be the error was 100% foolishness on my end.  **I didn't connect to the server.**
+ Once connected everything was smooth sailing. 
+ In case it helps to know my setup, I'm using Sequel Pro and trying to connect to it with Node using the NPM package, mysql. I didn't think I needed to actually connect (other than run Sequel Pro) because I was doing that from my app already. 
+ 
+ 
+ Ugh- nothing worked for me! I have a CentOS 7.4 machine running mariadb 5.5.64.  
+ What I had to do was this, right after installation of mariadb from yum; 
+ 
+ The   will take you through a number of steps, including "Set root password? [Y/n]". Just say "y" and give it a password. Answer the other questions as you wish. 
+ Then you can get in with your password, using 
+ 
+ It will survive 
+ 
+ **The Key**
+
+ Then, I checked the   source code to find out how it was magically able to change the root password and none of the other answers here could. The import bit is: 
+ 
+ ...It says   and not  . So, the proper procedure for this version (5.5.64) is: 
+ 
+ From the mysql> prompt: 
+ 
+ kill the running mysqld_safe. restart mariadb. Login as root:  . Use your new password. 
+ If you want, you can set all the root passwords at once. I think this is wise: 
+ 
+ This will perform updates on all the root passwords: ie, for "localhost", "127.0.0.1", and "::1" 
+ In the future, when I go to RHEL8 or what have you, I will try to remember to check the /bin/mysql_secure_installation and see how the guys did it, who were the ones that configured mariadb for this OS. 
+ 

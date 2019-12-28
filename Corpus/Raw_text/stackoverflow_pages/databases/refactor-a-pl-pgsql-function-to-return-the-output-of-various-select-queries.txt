@@ -1,0 +1,95 @@
+*** refactor-a-pl-pgsql-function-to-return-the-output-of-various-select-queries ***
+
+ I wrote a function that outputs a PostgreSQL   query well formed in text form. Now I don't want to output a text anymore, but actually run the generated   statement against the database and return the result - just like the query itself would. 
+ **What I have so far:**
+
+ 
+  holds the list of column names for the table  . Those are declared and filled in the course of the function. Eventually, they hold values like: 
+ 
+ :  
+Except for   ( ) all columns are of type  . 
+  : 
+Can be the name of one of four tables. Each has different columns, except for the common column  . 
+ 
+ **Definition of the underlying tables**
+. 
+ The variable   will hold  all  columns displayed here for the corresponding table in  . For example: If   is   then   will be  
+ The variables are used to build a   statement that is stored in  . Like: 
+ 
+ Right now, my function returns this statement as  . I copy-paste and execute it in pgAdmin or via psql. I want to automate this, run the query automatically and return the result. How can I do that? 
+ 
+ **Dynamic SQL and **
+** type**
+
+ (I saved the best for last, keep reading!) 
+You want to execute  **dynamic SQL**
+. In principal, that's simple in plpgsql with the help of  . You don't  need  a cursor - in fact, most of the time you are better off without explicit cursors. 
+ Find examples on SO with a search . 
+ The problem you run into: you want to  **return records of yet undefined type**
+. A function needs to declare the return type with the   clause (or with   or   parameters). In your case you would have to fall back to anonymous records, because  number ,  names  and  types  of returned columns vary. Like: 
+ 
+ However, this is not particularly useful. This way you'd have to provide a column definition list with every call of the function. Like: 
+ 
+ But how would you even do this, when you don't know the columns beforehand? 
+You could resort to a less structured document data types like  ,  ,   or  : 
+ 
+ How to store a data table (or List<KeyValuePair<int,Object>>, or Dictionary) in database? 
+ 
+ But for the purpose of this question let's assume you want to return individual, correctly typed and named columns as much as possible. 
+ **Simple solution with fixed return type**
+
+ The column   seems to be a given, I'll assume data type   and that there are always two more columns with varying name and data type. 
+ Names  we'll abandon in favor of generic names in the return type. 
+ Types  we'll abandon, too, and cast all to   since  every  data type can be cast to  . 
+ 
+ **How does this work?**
+
+ 
+ The variables   and   could be input parameters instead. 
+ Note the   clause. 
+ Note the use of  . That is one of the more elegant ways to return rows from a dynamic query. 
+ I use a name for the function parameter, just to make the   clause of   less confusing.   in the SQL-string does not refer to the function parameter but to the value passed with the   clause. (Both happen to be   in their respective scope in this simple example.) 
+ Note the example value for  : each column is cast to type  . 
+ This kind of code is very vulnerable to  **SQL injection**
+. I use   to protect against it. Lumping together a couple of column names in the variable   prevents the use of   (and is typically a bad idea!). Ensure that no bad stuff can be in there some other way, for instance by individually running the column names through   instead. A   parameter comes to mind ... 
+ 
+ **Simpler with PostgreSQL 9.1+**
+
+ With version 9.1 or later you can use   to further simplify: 
+ 
+ Again, individual column names could be escaped properly and would be the clean way. 
+ **Variable number of columns sharing the same type**
+
+ After your question updates it looks like your return type has 
+ 
+ a variable  number  of columns 
+ but all columns of the same  type    (alias  ) 
+ 
+ As we have to define the   type of a function I resort to an   type in this case, which can hold a variable number of values. Additionally, I return an array with column names, so you could parse the names out of the result, too: 
+ 
+ 
+ Various complete table types 
+ If you are actually trying to return  **all columns of a table**
+ (for instance one of the  tables at the linked page , then use this simple, very powerful solution with a  **polymorphic type**
+: 
+ 
+ Call: 
+ 
+ Replace   in the call with any other table name. 
+ **How does this work?**
+
+ 
+  is a pseudo data type, a polymorphic type, a placeholder for any non-array data type. All occurrences of   in the function evaluate to the same type provided at run time. By supplying a value of a defined type as argument to the function, we implicitly define the return type. 
+ PostgreSQL automatically defines a row type (a composite data type) for every table created, so there is a well defined type for every table. This includes temporary tables, which is convenient for ad-hoc use. 
+ Any type can be  . So we hand in a   value, cast to the table type. 
+ Now the function returns a well-defined row type and we can use   to decompose the row and get individual columns. 
+  returns the name of the table as  object identifier type  . When automatically converted to  , identifiers are  **automatically double-quoted and schema-qualified**
+ if needed. Therefore, SQL injection is not a possible. This can even deal with schema-qualified table-names  where   would fail . 
+ 
+ 
+ You'll probably want to return a  cursor . Try something like this (I haven't tried it): 
+ 
+ 
+ I'm sorry to say but your question is very unclear. However below you'll find a self contained example how to create and use a function that returns a cursor variable. Hope it helps ! 
+ 
+ 

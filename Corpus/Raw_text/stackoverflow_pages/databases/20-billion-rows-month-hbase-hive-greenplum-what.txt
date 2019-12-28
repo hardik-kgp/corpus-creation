@@ -1,0 +1,102 @@
+*** 20-billion-rows-month-hbase-hive-greenplum-what ***
+
+ I'd like to use your wisdom for picking up the right solution for a data-warehouse system.
+Here are some details to better understand the problem: 
+ Data is organized in a star schema structure with one BIG fact and ~15 dimensions. 
+  
+20B fact rows per month
+  
+10 dimensions with hundred rows (somewhat hierarchy)
+  
+5 dimensions  with thousands rows
+  
+2 dimensions with ~200K rows
+  
+2 big dimensions with 50M-100M rows 
+ Two typical queries run against this DB  
+ **Top members in dimq:**
+
+ 
+ **Measures against a tuple:**
+
+ 
+ **Questions:**
+
+ 
+ What is the best platform to perform such queries 
+ 
+ What kind of hardware needed 
+ 
+ Where can it be hosted (EC2?) 
+ 
+(please ignore importing and loading issues at the moment)
+ 
+ 
+ Tnx,
+  
+Haggai.  
+ 
+ I cannot stress this enough:  Get something that plays nicely with off-the-shelf reporting tools. 
+ 20 Billion rows per month puts you in VLDB territory, so you need partitioning.  The low cardinality dimensions would also suggest that bitmap indexes would be a performance win. 
+ 
+ Forget the cloud systems ( Hive ,
+ Hbase ) until they have mature SQL support.
+For a data warehouse
+application you want something that
+works with conventional
+reporting tools.  Otherwise, you
+will find yourself perpetually
+bogged down writing and maintaining
+ad-hoc report programs. 
+ The data volumes are manageable with
+a more conventional DBMS like Oracle - I know of a  major European telco  that loads 600GB per day
+into an  Oracle  database.  All other
+things being equal, that's two orders of
+magnitude bigger than your data volumes,
+so  shared disk architectures  still have
+headroom for you.  A
+ shared-nothing  architecture like
+ Netezza  or  Teradata  will probably be 
+faster still but these volumes are 
+not at a level that is beyond a 
+conventional shared-disk system.
+Bear in mind, though, that these systems are all
+quite expensive. 
+ Also bear in mind that MapReduce is  not
+an efficient query selection
+algorithm .  It is
+     fundamentally a mechanism for distributing brute-force
+computations.  Greenplum 
+     does have a MapReduce back-end, but a purpose-built shared nothing
+engine will be a lot more efficient
+and get more work done for less
+hardware. 
+ 
+ My take on this is that Teradata or Netezza would probably be the ideal tool for the job but definitely the most expensive. 
+ Oracle ,  Sybase IQ  or even  SQL Server  would also handle the data volumes involved but will be slower - they are shared disk architectures but can still manage this sort of data volume.  See  This posting  for a rundown on VLDB related features in Oracle and SQL Server, and bear in mind that Oracle has just introduced the  Exadata storage platform  also. 
+ My back-of-a-fag-packet capacity plan suggests maybe 3-5 TB or so per month including indexes for Oracle or SQL Server.  Probably less on Oracle with bitmap indexes, although an index leaf has a 16-byte ROWID on oracle vs. a 6 byte page reference on SQL Server. 
+ Sybase IQ makes extensive use of bitmap indexes and is optimized for data warehouse queries.  Although a shared-disk architecture, it is very efficient for this type of query (IIRC it was the original column-oriented architecture).  This would probably be better than Oracle or SQL Server as it is specialized for this type of work. 
+ Greenplum might be a cheaper option but I've never actually used it so I can't comment on how well it works in practice.   
+ If you have 10 dimensions with just a few hundred rows consider merging them into a single  junk dimension  which will slim down your fact table by merging the ten keys into just one.  You can still implement hierarchies on a junk dimension and this would knock 1/2 or more off the size of your fact table and eliminate a lot of disk usage by indexes. 
+ I strongly recommend that you go with something that plays nicely with a reasonable cross-section of reporting tools.   This means a SQL front end.   Commercial systems like  Crystal Reports  allow reporting and analytics to be done by people with a more readily obtainable set of  SQL skills.  The open-source world has also generated  BIRT ,  Jasper Reports  and  Pentaho. .  Hive or HBase put you in the business of building a custom front-end, which you  really  don't want unless you're  happy to spend the next 5 years writing custom report formatters in Python.  
+ Finally, host it somewhere you can easily get a fast data feed from your production systems.  This probably means your own hardware in your own data centre.  This system will be I/O bound; it's doing simple processing on large volumes of data.  This means you will need machines with fast disk subsystems.  Cloud providers tend not to support this type of hardware as it's an order of magnitude more expensive than the type of disposable 1U box traditionally used by these outfits.  Fast Disk I/O is not a strength of cloud architectures.   
+ 
+ I have had great success with  vertica . I am currently loading anywhere between 200 million to 1 billion rows in a day - averaging about 9 billons row a month - though I have gone as high as 17 billion in a month. I have close to 21 dimensions and the queries run blazingly fast. We moved on from the older system when we simply didn't have the windows of time to do the dataload. 
+ we did a very exhaustive trial and study of different solutions - and practically looked at everything on the market. While both Teradata and Netezza would have suited us, they were simply too expensive for us. Vertica beat them both on the price/performance ratio. It is by the way a columnar database.  
+ We have about 80 users now - and it is expected to grow to about 900 by the end of next year when we start rolling out completely.  
+ We are extensively using ASP.NET/dundas/reporting services for reports. It also plays nice with third party reporting solutions - though we haven't tried it. 
+ By the way what are you going to use for dataload ? We are using  informatica  and have been very pleased with it. SSIS drove us up the wall. 
+ 
+ Using HBase and jasperserver hbase reporting pluging, decent reports can be created. Low latency OLAP can be created in HBase. This will work the same as the SQL. Jasperserver HBase plugin provides Hbase query language which is an extension Hbase scan command. 
+ 
+ Read the site of Monash:  http://www.dbms2.com/  He writes about big databases.  
+ Maybe you can use Oracle Exadata ( http://www.oracle.com/solutions/business_intelligence/exadata.html  and   http://kevinclosson.wordpress.com/exadata-posts/ ) or maybe you can use Hadoop. Hadoop is free.  
+ 
+ I'm curious what you finally selected. Your question was to the tail end of 2008.
+Today the situation is different with HBase, Greenplum, pig etc. giving SQL like access. 
+ 
+ An alternative for a low number of users would be a (beowulf) cluster. 20K buys you 50 nettops with 500G each. That's about 3KW peak power. Or 4 months of cloud storage. 
+ 
+ NXC, are you sure about those 600 billion rows per day? Even if one row would be just one byte, that's 600 GB of data daily. Assuming a more reasonable 100 bytes per row, we're talking about 60 TB of data per day, 1.8 PB per month. I really doubt anybody is pumping that much data through Oracle. 
+ Other Sources  seem to confirm that Oracle becomes quite difficult to handle when the data volume reaches 2-digit TB figures. 
+ 

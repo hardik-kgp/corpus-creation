@@ -1,0 +1,167 @@
+*** large-data-work-flows-using-pandas ***
+
+ I have tried to puzzle out an answer to this question for many months while learning pandas.  I use SAS for my day-to-day work and it is great for it's out-of-core support.  However, SAS is horrible as a piece of software for numerous other reasons. 
+ One day I hope to replace my use of SAS with python and pandas, but I currently lack an out-of-core workflow for large datasets.  I'm not talking about "big data" that requires a distributed network, but rather files too large to fit in memory but small enough to fit on a hard-drive. 
+ My first thought is to use   to hold large datasets on disk and pull only the pieces I need into dataframes for analysis.  Others have mentioned MongoDB as an easier to use alternative.  My question is this: 
+ What are some best-practice workflows for accomplishing the following: 
+ 
+ Loading flat files into a permanent, on-disk database structure 
+ Querying that database to retrieve data to feed into a pandas data structure 
+ Updating the database after manipulating pieces in pandas 
+ 
+ Real-world examples would be much appreciated, especially from anyone who uses pandas on "large data". 
+ Edit -- an example of how I would like this to work: 
+ 
+ Iteratively import a large flat-file and store it in a permanent, on-disk database structure.  These files are typically too large to fit in memory. 
+ In order to use Pandas, I would like to read subsets of this data (usually just a few columns at a time) that can fit in memory. 
+ I would create new columns by performing various operations on the selected columns. 
+ I would then have to append these new columns into the database structure. 
+ 
+ I am trying to find a best-practice way of performing these steps. Reading links about pandas and pytables it seems that appending a new column could be a problem. 
+ Edit -- Responding to Jeff's questions specifically: 
+ 
+ I am building consumer credit risk models. The kinds of data include phone, SSN and address characteristics; property values; derogatory information like criminal records, bankruptcies, etc... The datasets I use every day have nearly 1,000 to 2,000 fields on average of mixed data types: continuous, nominal and ordinal variables of both numeric and character data.  I rarely append rows, but I do perform many operations that create new columns. 
+ Typical operations involve combining several columns using conditional logic into a new, compound column. For example,  .  The result of these operations is a new column for every record in my dataset. 
+ Finally, I would like to append these new columns into the on-disk data structure.  I would repeat step 2, exploring the data with crosstabs and descriptive statistics trying to find interesting, intuitive relationships to model. 
+ A typical project file is usually about 1GB.  Files are organized into such a manner where a row consists of a record of consumer data.  Each row has the same number of columns for every record.  This will always be the case. 
+ It's pretty rare that I would subset by rows when creating a new column.  However, it's pretty common for me to subset on rows when creating reports or generating descriptive statistics.  For example, I might want to create a simple frequency for a specific line of business, say Retail credit cards.  To do this, I would select only those records where the line of business = retail in addition to whichever columns I want to report on.  When creating new columns, however, I would pull all rows of data and only the columns I need for the operations. 
+ The modeling process requires that I analyze every column, look for interesting relationships with some outcome variable, and create new compound columns that describe those relationships.  The columns that I explore are usually done in small sets.  For example, I will focus on a set of say 20 columns just dealing with property values and observe how they relate to defaulting on a loan.  Once those are explored and new columns are created, I then move on to another group of columns, say college education, and repeat the process.  What I'm doing is creating candidate variables that explain the relationship between my data and some outcome.  At the very end of this process, I apply some learning techniques that create an equation out of those compound columns. 
+ 
+ It is rare that I would ever add rows to the dataset.  I will nearly always be creating new columns (variables or features in statistics/machine learning parlance). 
+ 
+ I routinely use tens of gigabytes of data in just this fashion
+e.g. I have tables on disk that I read via queries, create data and append back. 
+ It's worth reading  the docs  and  late in this thread  for several suggestions for how to store your data. 
+ Details which will affect how you store your data, like: 
+ Give as much detail as you can; and I can help you develop a structure. 
+ 
+ Size of data, # of rows, columns, types of columns; are you appending
+rows, or just columns?  
+ What will typical operations look like. E.g. do a query on columns to select a bunch of rows and specific columns, then do an operation (in-memory), create new columns, save these. 
+(Giving a toy example could enable us to offer more specific recommendations.) 
+ After that processing, then what do you do? Is step 2 ad hoc, or repeatable? 
+ Input flat files: how many, rough total size in Gb. How are these organized e.g. by records? Does each one contains different fields, or do they have some records per file with all of the fields in each file? 
+ Do you ever select subsets of rows (records) based on criteria (e.g. select the rows with field A > 5)? and then do something, or do you just select fields A, B, C with all of the records (and then do something)? 
+ Do you 'work on' all of your columns (in groups), or are there a good proportion that you may only use for reports (e.g. you want to keep the data around, but don't need to pull in that column explicity until final results time)? 
+ 
+ **Solution**
+
+ Ensure you have  pandas at least   installed. 
+ Read  iterating files chunk-by-chunk  and  multiple table queries . 
+ Since pytables is optimized to operate on row-wise (which is what you query on), we will create a table for each group of fields. This way it's easy to select a small group of fields (which will work with a big table, but it's more efficient to do it this way... I think I may be able to fix this limitation in the future... this is more intuitive anyhow): 
+(The following is pseudocode.) 
+ 
+ Reading in the files and creating the storage (essentially doing what   does): 
+ 
+ Now you have all of the tables in the file (actually you could store them in separate files if you wish, you would prob have to add the filename to the group_map, but probably this isn't necessary). 
+ This is how you get columns and create new ones: 
+ 
+ When you are ready for post_processing: 
+ 
+ About data_columns, you don't actually need to define  **ANY**
+ data_columns; they allow you to sub-select rows based on the column. E.g. something like: 
+ 
+ They may be most interesting to you in the final report generation stage (essentially a data column is segregated from other columns, which might impact efficiency somewhat if you define a lot). 
+ You also might want to: 
+ 
+ create a function which takes a list of fields, looks up the groups in the groups_map, then selects these and concatenates the results so you get the resulting frame (this is essentially what select_as_multiple does).  This way the structure would be pretty transparent to you. 
+ indexes on certain data columns (makes row-subsetting much faster). 
+ enable compression. 
+ 
+ Let me know when you have questions! 
+ 
+ I think the answers above are missing a simple approach that I've found very useful.  
+ When I have a file that is too large to load in memory, I break up the file into multiple smaller files (either by row or cols) 
+ Example: In case of 30 days worth of trading data of ~30GB size, I break it into a file per day of ~1GB size. I subsequently process each file separately and aggregate results at the end 
+ One of the biggest advantages is that it allows parallel processing of the files (either multiple threads or processes) 
+ The other advantage is that file manipulation (like adding/removing dates in the example) can be accomplished by regular shell commands, which is not be possible in more advanced/complicated file formats 
+ This approach doesn't cover all scenarios, but is very useful in a lot of them 
+ 
+ There is now, two years after the question, an 'out-of-core' pandas equivalent:  dask . It is excellent! Though it does not support all of pandas functionality, you can get really far with it. 
+ 
+ If your datasets are between 1 and 20GB, you should get a workstation with 48GB of RAM. Then Pandas can hold the entire dataset in RAM. I know its not the answer you're looking for here, but doing scientific computing on a notebook with 4GB of RAM isn't reasonable. 
+ 
+ I know this is an old thread but I think the  Blaze  library is worth checking out.  It's built for these types of situations. 
+ **From the docs:**
+
+ Blaze extends the usability of NumPy and Pandas to distributed and out-of-core computing. Blaze provides an interface similar to that of the NumPy ND-Array or Pandas DataFrame but maps these familiar interfaces onto a variety of other computational engines like Postgres or Spark. 
+ **Edit:**
+ By the way, it's supported by ContinuumIO and Travis Oliphant, author of NumPy. 
+ 
+ This is the case for pymongo.  I have also prototyped using sql server, sqlite, HDF, ORM (SQLAlchemy) in python.  First and foremost pymongo is a document based DB, so each person would be a document (  of attributes).  Many people form a collection and you can have many collections (people, stock market, income). 
+ pd.dateframe -> pymongo Note: I use the   in   to keep it to 5 to 10k records(pymongo drops the socket if larger) 
+ 
+ querying: gt = greater than... 
+ 
+  returns an iterator so I commonly use   to chop into smaller iterators.   
+ How about a join since I normally get 10 data sources to paste together: 
+ 
+ then (in my case sometimes I have to agg on   first before its "mergeable".) 
+ 
+ And you can then write the new info to your main collection via the update method below. (logical collection vs physical datasources). 
+ 
+ On smaller lookups, just denormalize.  For example, you have code in the document and you just add the field code text and do a   lookup as you create documents. 
+ Now you have a nice dataset based around a person, you can unleash your logic on each case and make more attributes. Finally you can read into pandas your 3 to memory max key indicators and do pivots/agg/data exploration.  This works for me for 3 million records with numbers/big text/categories/codes/floats/... 
+ You can also use the two methods built into MongoDB (MapReduce and aggregate framework).  See here for more info about the aggregate framework , as it seems to be easier than MapReduce and looks handy for quick aggregate work.  Notice I didn't need to define my fields or relations, and I can add items to a document.  At the current state of the rapidly changing numpy, pandas, python toolset, MongoDB helps me just get to work :) 
+ 
+ I spotted this a little late, but I work with a similar problem (mortgage prepayment models). My solution has been to skip the pandas HDFStore layer and use straight pytables. I save each column as an individual HDF5 array in my final file. 
+ My basic workflow is to first get a CSV file from the database. I gzip it, so it's not as huge. Then I convert that to a row-oriented HDF5 file, by iterating over it in python, converting each row to a real data type, and writing it to a HDF5 file. That takes some tens of minutes, but it doesn't use any memory, since it's only operating row-by-row. Then I "transpose" the row-oriented HDF5 file into a column-oriented HDF5 file. 
+ The table transpose looks like: 
+ 
+ Reading it back in then looks like: 
+ 
+ Now, I generally run this on a machine with a ton of memory, so I may not be careful enough with my memory usage. For example, by default the load operation reads the whole data set. 
+ This generally works for me, but it's a bit clunky, and I can't use the fancy pytables magic. 
+ Edit: The real advantage of this approach, over the array-of-records pytables default, is that I can then load the data into R using h5r, which can't handle tables. Or, at least, I've been unable to get it to load heterogeneous tables. 
+ 
+ One trick I found helpful for  **large data**
+ use cases is to reduce the volume of the data by reducing float precision to 32-bit. It's not applicable in all cases, but in many applications 64-bit precision is overkill and the 2x memory savings are worth it. To make an obvious point even more obvious: 
+ 
+ 
+ As noted by others, after some years an 'out-of-core' pandas equivalent has emerged:  dask . Though dask is not a drop-in replacement of pandas and all of its functionality it stands out for several reasons: 
+ Dask is a flexible parallel computing library for analytic computing that is optimized for dynamic task scheduling for interactive computational workloads of
+“Big Data” collections like parallel arrays, dataframes, and lists that extend common interfaces like NumPy, Pandas, or Python iterators to larger-than-memory or distributed environments and scales from laptops to clusters. 
+ 
+ Dask emphasizes the following virtues:   
+ 
+ Familiar: Provides parallelized NumPy array and Pandas DataFrame    objects 
+ Flexible: Provides a task scheduling interface for more    custom workloads and integration with other projects. 
+ Native: Enables distributed computing in Pure Python with access to the    PyData stack. 
+ Fast: Operates with low overhead, low latency, and    minimal serialization necessary for fast numerical algorithms   
+ Scales up: Runs resiliently on clusters with 1000s of cores   Scales    down: Trivial to set up and run on a laptop in a single process   
+ Responsive: Designed with interactive computing in mind it provides    rapid feedback and diagnostics to aid humans 
+ 
+ 
+ and to add a simple code sample: 
+ 
+ replaces some pandas code like this: 
+ 
+ and, especially noteworthy, provides through the concurrent.futures interface a general for the submission of custom tasks: 
+ 
+ 
+ One more variation 
+ Many of the operations done in pandas can also be done as a db query (sql, mongo) 
+ Using a RDBMS or mongodb allows you to perform some of the aggregations in the DB Query (which is optimized for large data, and uses cache and indexes efficiently) 
+ Later, you can perform post processing using pandas. 
+ The advantage of this method is that you gain the DB optimizations for working with large data, while still defining the logic in a high level declarative syntax - and not having to deal with the details of deciding what to do in memory and what to do out of core. 
+ And although the query language and pandas are different, it's usually not complicated to translate part of the logic from one to another. 
+ 
+ It is worth mentioning here  Ray  as well, 
+it's a distributed computation framework, that has it's own implementation for pandas in a distributed way.   
+ Just replace the pandas import, and the code should work as is: 
+ 
+ can read more details here: 
+ https://rise.cs.berkeley.edu/blog/pandas-on-ray/ 
+ 
+ Consider  Ruffus  if you go the simple path of creating a data pipeline which is broken down into multiple smaller files.  
+ 
+ I recently came across a similar issue. I found simply reading the data in chunks and appending it as I write it in chunks to the same csv works well. My problem was adding a date column based on information in another table, using the value of certain columns as follows. This may help those confused by dask and hdf5 but more familiar with pandas like myself.  
+ 
+ 
+ I'd like to point out the Vaex package. 
+ 
+ Vaex is a python library for lazy Out-of-Core DataFrames (similar to Pandas), to visualize and explore big tabular datasets. It can calculate statistics such as mean, sum, count, standard deviation etc, on an N-dimensional grid up to a billion (10 9 ) objects/rows per second. Visualization is done using histograms, density plots and 3d volume rendering, allowing interactive exploration of big data. Vaex uses memory mapping, zero memory copy policy and lazy computations for best performance (no memory wasted). 
+ 
+ Have a look at the documentation:  https://vaex.readthedocs.io/en/latest/ 
+The API is very close to the API of pandas. 
+ 

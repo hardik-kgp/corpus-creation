@@ -1,0 +1,63 @@
+*** how-to-store-images-in-your-filesystem ***
+
+ Currently, I've got images (max. 6MB) stored as BLOB in a InnoDB table.
+As the size of the data is growing, the nightly backup is growing slower and slower hindering normal performance. 
+ So, the binary data needs to go to the file system. (pointers to the files will be kept in the DB.) 
+ The data has a tree like relation: 
+ 
+ Now I want the data to be distributed evenly trough the directory structure. How should I accomplish this? 
+ I guess I could try   and slice up the resulting string to get my directory path: 
+ 
+  /var/imageStorage/f/347e/013b/c042/51cf/985f7ad0daa987d.jpeg
+ 
+ This would allow me to map the first character to a server and evenly distribute the directory structure over multiple servers. 
+ This would however  not  keep images organised per user, likely spreading the images for 1 album over multiple servers. 
+ My question is: 
+What is the best way to store the image data in the file system in a balanced way, while keeping user/album data together ? 
+ Am I thinking in the right direction? or is this the wrong way of doing things altogether? 
+ **Update:**
+
+I will go for the   string slicing for the split up on highest level.
+And then put all user data in that same bucket. This will ensure an even distribution of data while keeping user data stored close together. 
+ 
+  /var
+   - imageStorage
+     - f/347e/013b
+       - f347e013bc04251cf985f7ad0daa987d
+         - 0
+           - album1_10
+             - picture_1.jpeg
+         - 1
+           - album1_1
+             - picture_2.jpeg
+             - picture_3.jpeg
+           - album1_11
+             - picture_n.jpeg
+         - n
+           - album1_n
+ 
+ I think I will use albumId splitted up from behind (I like that idea!) as to keep the number of albums per directory smaller (although it won't be necessary for most users).  
+ Thanks! 
+ 
+ Just split your userid from behind. e.g. 
+ 
+ As for the backup you could use MySQL Replication and backup the slave 
+database to avoid problems (e.g. locks) while backuping. 
+ 
+ one thing about distributing the filenames into different directories, if you consider splitting your md5 filenames into different subdirectories (which is generally a good idea), I would suggest keeping the complete hash as filename and duplicate the first few chars as directory names. This way you will make it easier to identify files e.g. when you have to move directories. 
+ e.g. 
+ abcdefgh.jpg -> a/ab/abc/abcdefgh.jpg 
+ if your filenames are not evenly distributed (not a hash), try to choose a splitting method that gets an even distribution, e.g. the last characters if it is an incrementing user-id 
+ 
+ I'm using this strategy given a unique picture ID 
+ 
+ reverse the string 
+ zerofill it with leading zero if there's an odd number of digits 
+ chunk the string into two-digits substrings 
+ build the path as below 
+ 
+ 
+ This method ensures that each folder contains up to 100 pictures and 100 sub-folders and the load is evenly distributed between the left-most folders. 
+ Moreover, you just need the ID of the picture to reach the file, no need to read picture table containing other metadata.
+User data are not stored close together indeed and the ID-Path relation is predictable, it depends on your needs. 
+ 

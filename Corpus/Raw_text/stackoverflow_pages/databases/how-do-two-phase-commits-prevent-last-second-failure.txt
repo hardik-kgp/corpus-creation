@@ -1,0 +1,38 @@
+*** how-do-two-phase-commits-prevent-last-second-failure ***
+
+ I am studying how two-phase commit works across a distributed transaction. It is my understanding that in the last part of the phase the transaction coordinator asks each node whether it is ready to commit. If everyone agreed, then it tells them to go ahead and commit. 
+ What prevents the following failure? 
+ 
+ All nodes respond that they are
+ready to commit 
+ The transaction
+coordinator tells them to "go ahead
+and commit" but one of the nodes
+crashes before receiving this
+message 
+ All other nodes commit successfully, but now the distributed transaction is corrupt 
+ It is my understanding that when the crashed node comes back, its transaction will have been rolled back (since it never got the commit message) 
+ 
+ I am assuming each node is running a normal database that doesn't know anything about distributed transactions. What did I miss? 
+ 
+ No, they are not instructed to roll back because in the original poster's scenario, some of the nodes have already committed. What happens is when the crashed node becomes available, the transaction coordinator tells it to commit again. 
+ Because the node responded positively in the "prepare" phase, it is required to be able to "commit", even when it comes back from a crash. 
+ 
+ Summarizing everyone's answers: 
+ 
+ One cannot use normal databases with distributed transactions. The database must explicitly support a transaction coordinator. 
+ The nodes are not instructed to roll back because some of the nodes have already committed. What happens is that when the crashed node comes back, the transaction coordinator tells it to finish the commit. 
+ 
+ 
+ No.  Point 4 is incorrect.  Each node records in stable storage that it was able to commit or rollback the transaction, so that it will be able to do as commanded even across crashes.  When the crashed node comes back up, it must realize that it has a transaction in pre-commit state, reinstate any relevant locks or other controls, and then attempt to contact the coordinator site to collect the status of the transaction. 
+ The problems only occur if the crashed node never comes back up (then everything else thinks the transaction was OK, or will be when the crashed node comes back). 
+ 
+ Two phase commit isn't foolproof and is just designed to work in the 99% of the time cases. 
+ "The protocol assumes that there is stable storage at each node with a write-ahead log, that no node crashes forever, that the data in the write-ahead log is never lost or corrupted in a crash, and that any two nodes can communicate with each other." 
+ http://en.wikipedia.org/wiki/Two-phase_commit_protocol 
+ 
+ There are many ways to attack the problems with two-phase commit. Almost all of them wind up as some variant of the Paxos three-phase commit algorithm. Mike Burrows, who designed the Chubby lock service at Google which is based on Paxos, said that there are two types of distributed commit algorithms - "Paxos, and incorrect ones" - in a lecture I saw. 
+ One thing the crashed node could do, when it reawakes, is say "I never heard about this transaction, should it have been committed?" to the coordinator, which will tell it what the vote was. 
+ Bear in mind that this is an example of a more general problem: the crashed node could miss many transactions before it recovers. Therefore it's terribly important that upon recovery it should talk either to the coordinator or another replica before making itself available. If the node itself can't tell whether or not it has crashed, then things get more involved but still tractable.  
+ If you use a quorum system for database reads, the inconsistency will be masked (and made known to the database itself).  
+ 

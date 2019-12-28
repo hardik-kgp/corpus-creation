@@ -1,0 +1,106 @@
+*** how-can-you-represent-inheritance-in-a-database ***
+
+ I'm thinking about how to represent a complex structure in a SQL Server database. 
+ Consider an application that needs to store details of a family of objects, which share some attributes, but have many others not common. For example, a commercial insurance package may include liability, motor, property and indemnity cover within the same policy record. 
+ It is trivial to implement this in C#, etc, as you can create a Policy with a collection of Sections, where Section is inherited as required for the various types of cover. However, relational databases don't seem to allow this easily. 
+ I can see that there are two main choices: 
+ 
+ Create a Policy table, then a Sections table, with all the fields required, for all possible variations, most of which would be null.   
+ Create a Policy table and numerous Section tables, one for each kind of cover. 
+ 
+ Both of these alternatives seem unsatisfactory, especially as it is necessary to write queries across all Sections, which would involve numerous joins, or numerous null-checks. 
+ What is the best practice for this scenario? 
+ 
+ @Bill Karwin  describes three inheritance models in his  SQL Antipatterns  book, when proposing solutions to the SQL  Entity-Attribute-Value  antipattern. This is a brief overview: 
+ **Single Table Inheritance (aka Table Per Hierarchy Inheritance):**
+
+ Using a single table as in your first option is probably the simplest design. As you mentioned, many attributes that are subtype-specific will have to be given a   value on rows where these attributes do not apply. With this model, you would have one policies table, which would look something like this: 
+ 
+ Keeping the design simple is a plus, but the main problems with this approach are the following: 
+ 
+ When it comes to adding new subtypes, you would have to alter the table to accommodate the attributes that describe these new objects. This can quickly become problematic when you have many subtypes, or if you plan to add subtypes on a regular basis. 
+ The database will not be able to enforce which attributes apply and which don't, since there is no metadata to define which attributes belong to which subtypes.  
+ You also cannot enforce   on attributes of a subtype that should be mandatory. You would have to handle this in your application, which in general is not ideal. 
+ 
+ **Concrete Table Inheritance:**
+
+ Another approach to tackle inheritance is to create a new table for each subtype, repeating all the common attributes in each table. For example: 
+ 
+ This design will basically solve the problems identified for the single table method: 
+ 
+ Mandatory attributes can now be enforced with  . 
+ Adding a new subtype requires adding a new table instead of adding columns to an existing one.  
+ There is also no risk that an inappropriate attribute is set for a particular subtype, such as the   field for a property policy.  
+ There is no need for the   attribute as in the single table method. The type is now defined by the metadata: the table name. 
+ 
+ However this model also comes with a few disadvantages: 
+ 
+ The common attributes are mixed with the subtype specific attributes, and there is no easy way to identify them. The database will not know either. 
+ When defining the tables, you would have to repeat the common attributes for each subtype table. That's definitely not  DRY . 
+ Searching for all the policies regardless of the subtype becomes difficult, and would require a bunch of  s.  
+ 
+ This is how you would have to query all the policies regardless of the type: 
+ 
+ Note how adding new subtypes would require the above query to be modified with an additional   for each subtype. This can easily lead to bugs in your application if this operation is forgotten.  
+ **Class Table Inheritance (aka Table Per Type Inheritance):**
+
+ This is the solution that  @David mentions in the other answer . You create a single table for your base class, which includes all the common attributes. Then you would create specific tables for each subtype, whose primary key also serves as a  foreign key  to the base table. Example: 
+ 
+ This solution solves the problems identified in the other two designs: 
+ 
+ Mandatory attributes can be enforced with  . 
+ Adding a new subtype requires adding a new table instead of adding columns to an existing one.  
+ No risk that an inappropriate attribute is set for a particular subtype. 
+ No need for the   attribute. 
+ Now the common attributes are not mixed with the subtype specific attributes anymore. 
+ We can stay DRY, finally. There is no need to repeat the common attributes for each subtype table when creating the tables. 
+ Managing an auto incrementing   for the policies becomes easier, because this can be handled by the base table, instead of each subtype table generating them independently. 
+ Searching for all the policies regardless of the subtype now becomes very easy: No  s needed - just a  . 
+ 
+ I consider the class table approach as the most suitable in most situations. 
+ 
+ The names of these three models come from  Martin Fowler's  book  Patterns of Enterprise Application Architecture . 
+ 
+ The 3rd option is to create a "Policy" table, then a "SectionsMain" table that stores all of the fields that are in common across the types of sections.  Then create other tables for each type of section that only contain the fields that are not in common. 
+ Deciding which is best depends mostly on how many fields you have and how you want to write your SQL.  They would all work.  If you have just a few fields then I would probably go with #1.  With "lots" of fields I would lean towards #2 or #3. 
+ 
+ With the information provided, I'd model the database to have the following: 
+ **POLICIES**
+
+ 
+ POLICY_ID (primary key) 
+ 
+ **LIABILITIES**
+
+ 
+ LIABILITY_ID (primary key) 
+ POLICY_ID (foreign key) 
+ 
+ **PROPERTIES**
+
+ 
+ PROPERTY_ID (primary key) 
+ POLICY_ID (foreign key) 
+ 
+ ...and so on, because I'd expect there to be different attributes associated with each section of the policy.  Otherwise, there could be a single   table and in addition to the  , there'd be a  ... 
+ Either way, this would allow you to support optional sections per policy... 
+ I don't understand what you find unsatisfactory about this approach - this is how you store data while maintaining referential integrity and not duplicating data.  The term is "normalized"... 
+ Because SQL is SET based, it's rather alien to procedural/OO programming concepts & requires code to transition from one realm to the other.  ORMs are often considered, but they don't work well in high volume, complex systems. 
+ 
+ The another way to do it, is using the   component. For example: 
+ 
+ Thus it's possible to define a inheritance between tables. 
+ 
+ In addition at the Daniel Vassallo solution, if you use SQL Server 2016, there is another solution that I used in some cases without considerable lost of performances. 
+ You can create just a table with only the common field and add a single column with the  JSON  string that contains all the subtype specific fields. 
+ I have tested this design for manage inheritance and I am very happy for the flexibility that I can use in the relative application. 
+ 
+ I lean towards method #1 (a unified Section table), for the sake of efficiently retrieving entire policies with all their sections (which I assume your system will be doing a lot). 
+ Further, I don't know what version of SQL Server you're using, but in 2008+  Sparse Columns  help optimize performance in situations where many of the values in a column will be NULL.  
+ Ultimately, you'll have to decide just how "similar" the policy sections are. Unless they differ substantially, I think a more-normalized solution might be more trouble than it's worth... but only you can make that call. :) 
+ 
+ Alternatively, consider using a document databases (such as MongoDB) which natively support rich data structures and nesting. 
+ 
+ Check out the answer I gave here 
+ Fluent NHibernate one-to-one mapping with synthetic keys 
+ 

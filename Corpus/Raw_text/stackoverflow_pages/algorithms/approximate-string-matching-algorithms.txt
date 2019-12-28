@@ -1,0 +1,41 @@
+*** approximate-string-matching-algorithms ***
+https://stackoverflow.com/questions/49263/approximate-string-matching-algorithms
+
+ Here at work, we often need to find a string from the list of strings that is the closest match to some other input string. Currently, we are using Needleman-Wunsch algorithm. The algorithm often returns a lot of false-positives (if we set the minimum-score too low), sometimes it doesn't find a match when it should (when the minimum-score is too high) and, most of the times, we need to check the results by hand. We thought we should try other alternatives. 
+ Do you have any experiences with the algorithms?
+Do you know how the algorithms compare to one another? 
+ I'd really appreciate some advice. 
+ PS: We're coding in C#, but you shouldn't care about it - I'm asking about the algorithms in general. 
+ 
+ Oh, I'm sorry I forgot to mention that. 
+ No, we're not using it to match duplicate data. We have a list of strings that we are looking for - we call it search-list. And then we need to process texts from various sources (like RSS feeds, web-sites, forums, etc.) - we extract parts of those texts (there are entire sets of rules for that, but that's irrelevant) and we need to match those against the search-list. If the string matches one of the strings in search-list - we need to do some further processing of the thing (which is also irrelevant). 
+ We can not perform the normal comparison, because the strings extracted from the outside sources, most of the times, include some extra words etc. 
+ Anyway, it's not for duplicate detection. 
+ 
+ OK, Needleman-Wunsch(NW) is a classic end-to-end ("global") aligner from the bioinformatics literature.  It was long ago available as "align" and "align0" in the FASTA package.  The difference was that the "0" version wasn't as biased about avoiding end-gapping, which often allowed favoring high-quality internal matches easier.  Smith-Waterman, I suspect you're aware, is a local aligner and is the original basis of BLAST.  FASTA had it's own local aligner as well that was slightly different.  All of these are essentially heuristic methods for estimating Levenshtein distance relevant to a scoring metric for individual character pairs (in bioinformatics, often given by Dayhoff/"PAM", Henikoff&Henikoff, or other matrices and usually replaced with something simpler and more reasonably reflective of replacements in linguistic word morphology when applied to natural language). 
+ Let's not be precious about labels:  Levenshtein distance, as referenced in practice at least, is basically edit distance and you have to estimate it because it's not feasible to compute it generally, and it's expensive to compute exactly even in interesting special cases:  the water gets deep quick there, and thus we have heuristic methods of long and good repute. 
+ Now as to your own problem:  several years ago, I had to check the accuracy of short DNA reads against reference sequence known to be correct and I came up with something I called "anchored alignments". 
+ The idea is to take your reference string set and "digest" it by finding all locations where a given N-character substring occurs.  Choose N so that the table you build is not too big but also so that substrings of length N are not too common.  For small alphabets like DNA bases, it's possible to come up with a perfect hash on strings of N characters and make a table and chain the matches in a linked list from each bin.  The list entries must identify the sequence and start position of the substring that maps to the bin in whose list they occur.  These are "anchors" in the list of strings to be searched at which an NW alignment is likely to be useful. 
+ When processing a query string, you take the N characters starting at some offset K in the query string, hash them, look up their bin, and if the list for that bin is nonempty then you go through all the list records and perform alignments between the query string and the search string referenced in the record.  When doing these alignments, you line up the query string and the search string  at  the anchor and extract a substring of the search string that is the same length as the query string and which contains that anchor at the same offset, K. 
+ If you choose a long enough anchor length N, and a reasonable set of values of offset K (they can be spread across the query string or be restricted to low offsets) you should get a subset of possible alignments and often will get clearer winners.  Typically you will want to use the less end-biased align0-like NW aligner. 
+ This method tries to boost NW a bit by restricting it's input and this has a performance gain because you do less alignments and they are more often between similar sequences.  Another good thing to do with your NW aligner is to allow it to give up after some amount or length of gapping occurs to cut costs, especially if you know you're not going to see or be interested in middling-quality matches. 
+ Finally, this method was used on a system with small alphabets, with K restricted to the first 100 or so positions in the query string and with search strings much larger than the queries (the DNA reads were around 1000 bases and the search strings were on the order of 10000, so I was looking for approximate substring matches justified by an estimate of edit distance specifically).  Adapting this methodology to natural language will require some careful thought:  you lose on alphabet size but you gain if your query strings and search strings are of similar length. 
+ Either way, allowing more than one anchor from different ends of the query string to be used simultaneously might be helpful in further filtering data fed to NW.  If you do this, be prepared to possibly send overlapping strings each containing one of the two anchors to the aligner and then reconcile the alignments... or possibly further modify NW to emphasize keeping your anchors mostly intact during an alignment using penalty modification during the algorithm's execution. 
+ Hope this is helpful or at least interesting. 
+ 
+ Related to the Levenstein distance: you might wish to normalize it by dividing the result with the length of the longer string, so that you always get a number between 0 and 1 and so that you can compare the distance of pair of strings in a meaningful way (the expression L(A, B) > L(A, C) - for example - is meaningless unless you normalize the distance). 
+ 
+ Alternative algorithms to look at are  agrep  ( Wikipedia entry on agrep ),
+ FASTA and BLAST  biological sequence matching algorithms. These are special cases of  approximate string matching , also in the  Stony Brook algorithm repositry . If you can specify the ways the strings differ from each other, you could probably focus on a tailored algorithm. For example, aspell uses some variant of "soundslike" (soundex-metaphone) distance in combination with a "keyboard" distance to accomodate bad spellers and bad typers alike. 
+ 
+ We are using the  Levenshtein distance  method to check for duplicate customers in our database. It works quite well. 
+ 
+ Use  FM Index  with Backtracking, similar to the one in  Bowtie  fuzzy aligner 
+ 
+ In order to minimize mismatches due to slight variations or errors in spelling, I've used the Metaphone algorithm, then Levenshtein distance (scaled to 0-100 as a percentage match) on the Metaphone encodings for a measure of closeness. That seems to have worked fairly well.  
+ 
+ To expand on Cd-MaN's answer, it sounds like you're facing a normalization problem.  It isn't obvious how to handle scores between alignments with varying lengths. 
+ Given what you are interested in, you may want to obtain p-values for your alignment.  If you are using Needleman-Wunsch, you can obtain these p-values using Karlin-Altschul statistics  http://www.ncbi.nlm.nih.gov/BLAST/tutorial/Altschul-1.html 
+ BLAST will can local alignment and evaluate them using these statistics.  If you are concerned about speed, this would be a good tool to use. 
+ Another option is to use HMMER.  HMMER uses Profile Hidden Markov Models to align sequences.  Personally, I think this is a more powerful approach since it also provides positional information.  http://hmmer.janelia.org/ 
+ 

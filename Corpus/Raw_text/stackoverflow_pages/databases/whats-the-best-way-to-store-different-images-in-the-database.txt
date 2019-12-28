@@ -1,0 +1,86 @@
+*** whats-the-best-way-to-store-different-images-in-the-database ***
+
+ What is the best way (regarding database design) for storing images for different purposes? 
+ I have a bunch of user photos and I got another 5 different sets of photos (like user photos but with no connection to user photos). 
+ Is the best thing to store all photos in a single database table and try to reference them from within that table, or is the best to create different tables for each set of photos? 
+ I can see one benefit from creating multiple tables and that's the cascade delete function for removing the photo when the main object is deleted. 
+ Any other aspects to consider? 
+ Another example could be addresses. A user can have an address but so can a company or a location. 
+Create one table for all addresses and try to have some sort of index tables to reference what address belongs to what object or have different tables and eliminate the problem. 
+ 
+ How to store large blobs in sql server 
+ Storing large chunks of binary data in SQL Server is not a great approach. It makes your database very bulky to backup and performance is generally not great. Storing  **files**
+ is usually done on the  **file**
+ system. Sql Server 2008 has out of the box support for  . 
+Microsoft documents the cases to use  **FileStream**
+ as follows 
+ 
+ Objects that are being stored are, on average, larger than 1 MB. 
+ Fast read access is important. 
+ You are developing applications that use a middle tier for application logic.  
+ 
+ In your case I think all points are valid.  
+ **Enable on Server**
+
+ To enable   support on the server use the following statement. 
+ 
+ **Configure the Database**
+
+ To get a filestream filegroup linked to your database create  
+ 
+ **Creating the table**
+
+ The next step is getting your data in the database with filestream storage: 
+ 
+ For   to work you not only need the   property on a field in the table, but also a field which has the   property. 
+ **Inserting Data with TSQL**
+
+ Now to insert data in this table you can use TSQL: 
+ 
+ **Inserting data using **
+
+ There also exists an approach to get the file data on disk using Win32 directly. This offers you streaming access   inherits from  .  
+ Inserting data using win32 can be done with for example the code below: 
+ 
+ 
+ How to model a Photo storage database 
+ With the filestream approach to store the images the table is very narrow which is good for performance since many records can be stored per 8K data page. I would use the following model: 
+ 
+ This translates to the following Entity RelationShip Diagram: 
+ 
+ 
+ Performance wise, the narrow images table is very good as it contains only a few bytes of data per record.  
+ We can assume that an image is always member of an Image Set, The Set information could be hidden if there is only 1 image in it. 
+ I assume you want to track which users are member of which organisations, so I added a table to link them (Assuming a user can be member of multiple organisations). 
+ The primary key on the OrganisationMembers table has UserId as first field since there normally a lot more users than Organisations and you probably will want to show which organisations a user is member off more often than the inverse. 
+ The index on OrganisationId in OrganisationMembers is there to cater for queries where the list of members for a specific Organisation needs to be shown.  
+ 
+ References: 
+ 
+ Enable and configure Filestream 
+ Create a filestream enabled Database 
+ Create a table for storing filestream data 
+ Managing Filestream with Transact SQL 
+ Create Client applications with Filestreams 
+ 
+ 
+ The only reason to have different tables is that you can have FKs. But this is veruy,very importantfor data integrity. 
+ One reason to have a single table with all the photos would be if you wanted to make a single query against all the photos. 
+ Another reason could be that it makes writing your app easier (i.e because you don't have to change code which is working in a single photos table) 
+ As the second and third reasons are quite improbable, I'd recommend you to use the first option. 
+ 
+ When I have some sort of entity that recurs in several contexts, e.g. a mailing address, I'll often gather them all in a single table.  That generally simplifies validation (e.g. ZIP codes), managing duplicates, ... . 
+ Where appropriate, I'll have a cross reference table.  For example, telephone numbers might reside in one table along with a note ("home", "mobile", ...).  A cross reference table between vendors and telephone numbers can match up one individual with as many telephone numbers as they need.  It also provides an opportunity to add a rank so that they can specify their preferred telephone number.  In some cases you may want to prompt a user updating information about related changes, e.g. when you update the 800 number for a company, should any other references to it be updated? 
+ In any event, deletion requires checking for any outstanding references to an entity.  In most applications this doesn't happen frequently enough to be a problem.  I'm not a big fan of using cascading deletion.  I'd much rather have a stored procedure that manages deletions and handle any cascading "by hand" to avoid really big surprises. 
+ BLOBs are another discussion.  Photographs, PDF documents and other bulky binaries have issues regarding database size, naming conventions, backup/restore, ... .  These vary somewhat depending on the specific version of SQL Server being employed. 
+ 
+ Retrieving a row from a table that contains any sort of large data takes time. Images tend to be very big these days, and if I were to design a database that stores images or other large files within its structure then I would:  
+ 
+ attempt to spread the images over a number of tables, especially if you intend to display thumbnails of the images which would be considerably quicker to retrieve than full-size images. 
+ the image tables should be independant of related data eg. alt text, name, description or labels. The only data I would have with the image is the primary-key and the doctype eg. jpg, jpeg, png, gif, bmp, etc. 
+ avoid using linq's where function. Instead structure the sql query yourself, as for reasons I have not yet figured out, the where function is far slower than writing an sql query that does the same thing. Not in all cases though, but if you do use linq and while debugging, you discover that the where method takes a long time to finish then definitely write your own sql query. 
+ Try to enforce that uploaded photos are either cropped to a fixed ratio, or even shrunk to a standard size. It might not be necessary depending on your purposes, but in my experience, it saves a lot of pain when it comes to displaying a collectionOfImage in a grid or list. 
+ 
+ 
+ FileStream is ok, as discussed above.  But it's complicated.  You know what's best to store a file?  The file system.  That's what it does.  You just need to set up a share that all your web servers can write to, and your save process is 1) generate an image id, 2) save the file using that as a name, 3) insert a row specifying the file share network path or a url to the file.  Then your db table stays small and fast and your client can pull the file from the file system.  It is cheaper, faster, more reliable to set up a terabyte file server with RAID on SSDs to store your files and just store the access path in the database server.  BLOBs have weird effects in sql server, like not relinquishing their space once deleted, and lots of other issue (can't rebuild clustered index online, etc).   
+ 

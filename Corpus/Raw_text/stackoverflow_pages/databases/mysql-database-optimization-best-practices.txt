@@ -1,0 +1,50 @@
+*** mysql-database-optimization-best-practices ***
+
+ What are the best practices for optimizing a MySQL installation for best performance when handling somewhat larger tables (> 50k records with a total of around 100MB per table)? We are currently looking into rewriting DelphiFeeds.com (a news site for the Delphi programming community) and noticed that simple Update statements can take up to 50ms. This seems like a lot. Are there any recommended configuration settings that we should enable/set that are typically disabled on a standard MySQL installation (e.g. to take advantage of more RAM to cache queries and data and so on)? 
+ Also, what performance implications does the choice of storage engines have? We are planning to go with InnoDB, but if MyISAM is recommended for performance reasons, we might use MyISAM. 
+ 
+ The "best practice" is: 
+ 
+ Measure performance, isolating the relevant subsystem as well as you can.  
+ Identify the root cause of the bottleneck.  Are you I/O bound?  CPU bound?  Memory bound?  Waiting on locks? 
+ Make changes to alleviate the root cause you discovered. 
+ Measure again, to demonstrate that you fixed the bottleneck and  by how much . 
+ Go to step 2 and repeat as necessary until the system works fast enough. 
+ 
+ Subscribe to the RSS feed at  http://www.mysqlperformanceblog.com  and read its historical articles too.  That's a hugely useful resource for performance-related wisdom.  For example, you asked about InnoDB vs. MyISAM.  Their conclusion:  InnoDB has ~30% higher performance than MyISAM on average.  Though there are also a few usage scenarios where MyISAM out-performs InnoDB. 
+ 
+ InnoDB vs. MyISAM vs. Falcon benchmarks - part 1 
+ 
+ The authors of that blog are also co-authors of "High Performance MySQL," the book mentioned by @Andrew Barnett. 
+ 
+ Re comment from @ʞɔıu:  How to tell whether you're I/O bound versus CPU bound versus memory bound is platform-dependent.  The operating system may offer tools such as ps, iostat, vmstat, or top.  Or you may have to get a third-party tool if your OS doesn't provide one. 
+ Basically, whichever resource is pegged at 100% utilization/saturation is likely to be your bottleneck.  If your CPU load is low but your I/O load is at its maximum for your hardware, then you are I/O bound. 
+ That's just one data point, however.  The remedy may also depend on other factors.  For instance, a complex SQL query may be doing a filesort, and this keeps I/O busy.  Should you throw more/faster hardware at it, or should you redesign the query to avoid the filesort?   
+ There are too many factors to summarize in a StackOverflow post, and the fact that many books exist on the subject supports this.  Keeping databases operating efficiently and  making best use of the resources is a full-time job requiring specialized skills and constant study. 
+ 
+ Jeff Atwood just wrote a nice blog article about finding bottlenecks in a system: 
+ 
+ The Computer Performance Shell Game 
+ 
+ 
+ Go buy "High Performance MySQL" from O'Reilly. It's almost 700 pages on the topic, so I doubt you'll find a succinct answer on SO. 
+ 
+ It's hard to broadbrush things, but a moderately high-level view is possible. 
+ 
+ You need to evaluate read:write ratios. For tables with ratios lower than about 5:1, you will probably benefit from InnoDB because then inserts won't block selects. But if you aren't using transactions, you should change   to 1 to get performance back over MyISAM. 
+ Look at the memory parameters. MySQL's defaults are very conservative and some of the memory limits can be raised by a factor of 10 or more on even ordinary hardware. This will benefit your SELECTs rather than INSERTs. 
+ MySQL can log things like queries that aren't using indices, as well as queries that just take too long (user-defineable). 
+ The query cache can be useful, but you need to instrument it (i.e. see how much it is used). Cacti can do that; as can Munin. 
+ Application design is also important:
+
+ 
+ Lightly caching frequently fetched but smallish datasets will have a big difference (i.e. cache lifetime of a few seconds).  
+ Don't re-fetch data that you already have to hand. 
+ Multi-step storage can help with a high volume of inserts into tables that are also busily read. The basic idea is that you can have a table for ad-hoc inserts (  can also be useful), but a batch process to move the updates within MySQL from there to where all the reads are happening. There are variations of this. 
+ 
+ Don't forget that perspective and context are important, too: what you might think is a long time for an   to happen might actually be quite trivial if that "long" update only happens once a day.  
+ 
+ 
+ There are tons of best practices which have been previously discussed so there is no reason to repeat them. For actually concrete advice on what to do, I would try running  MySQL Tuner . Its a perl script that you can download and then run on your database server, it will give you a bunch of statistics on how your database is performing (e.g. cache hits) along with some concrete recommendations for what issues or config parameters need to be adjusted to improve performance.  
+ While these statistics are all available in MySQL itself, I find that this tool provides them in a much easier to understand fashion. While it is important to note that YMMV with respect to the recommendations, I have found them to generally be pretty accurate. Just make sure that you have done a good job exercising the database beforehand with realistic traffic. 
+ 

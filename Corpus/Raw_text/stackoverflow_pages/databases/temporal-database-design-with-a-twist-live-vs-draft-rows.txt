@@ -1,0 +1,61 @@
+*** temporal-database-design-with-a-twist-live-vs-draft-rows ***
+
+ I'm looking into implementing object-versioning with the added twist of needing to have both live and draft objects, and could use the insights from someone experience in this, as I'm beginning to wonder if it's even possible without potentially horrific hacks. 
+ I'll break it down to posts with tags for the sake of the example, but my use-case is a bit more general (involving slowly changing dimensions -  http://en.wikipedia.org/wiki/Slowly_changing_dimension ). 
+ Suppose you've a posts table, a tags table, and a post2tag table: 
+ 
+ I'm in need of a couple of things: 
+ 
+ Being able to show exactly how a post looked like at an arbitrary datetime, including for deleted rows. 
+ Keep track of who is editing what, for a complete audit trail. 
+ Needs a set of materialized views ("live" tables) for the sake of keeping referential integrity (i.e. logging should be transparent to the developers). 
+ Needs to be appropriately fast for live  and  the latest draft rows. 
+ Being able to have a draft post coexist with a live post. 
+ 
+ I've been investigating various options. So far, the best I've come up with (without points #4/#5) looks a bit like the SCD type6-hybrid setup, but instead of having a current boolean there's a materialized view for the current row. For all intents and purposes, it looks like this: 
+ 
+ I'm using pg_temporal to maintain indexes on period(created_at, deleted_at). And I keep the various tables in sync using triggers. Yada yada yada... I created the triggers that allow to cancel an edit to posts/tags in such a way that the draft gets stored into the revs without being published. It works great. 
+ Except  when I need to worry about draft-row related relations on post2tag. In that case, all hell breaks loose, and this hints to me that I've some kind of design problem in there. But I'm running out of ideas... 
+ I've considered introducing data duplication (i.e. n post2tag rows introduced for each draft revision). This kind of works, but tends to be a lot slower than I'd like it to be. 
+ I've considered introducing drafts tables for the "last draft", but this quickly tends to become very very ugly. 
+ I've considered all sorts of flags... 
+ So question: is there a generally accepted means of managing live vs non-live rows in a row-version controlled environment? And if not, what have you tried and been reasonably successful with? 
+ 
+ **Anchor modeling**
+ is a nice way to implement a temporal dB -- see the  **Wikipedia article**
+ too.
+Takes some time to get used to, but work nice.
+There is an  **online modeling tool**
+ and if you load the supplied XML file  
+you should see something like this -- also use  . 
+ 
+ The   will produce DDL for tables, views and point-in-time functions.
+The code is quite long, so I am not posting it here. Check the code out -- you may need to modify it
+for your DB. 
+ Here is the file to load into modeling tool. 
+ 
+ 
+ I've implemented a temporal database using SCD type 2 and PostgreSQL Rules and Triggers, and wrapped it in a self-contained package for ActiveRecord:  http://github.com/ifad/chronomodel 
+ The design is independent from the language / framework, though - you can create Rules and Triggers manually and the database will take care of the rest. Have a look at  https://github.com/ifad/chronomodel/blob/master/README.sql . 
+ Also efficient indexing and querying of temporal data using geometric operators is included as a bonus. :-) 
+ 
+ post2tag_revs has a problem in that it is trying to express 2 fundamentally different concepts. 
+ A tag applied to a draft post revision only ever applies to that one revision, unless the revision is ever published. 
+ Once a tag is published (i.e. associated with a published post revision), it applies to every future revision of the post until it is revoked. 
+ And associating with a published revision, or unasociating, isn't necessarily simultaneous with a revision being published, unless you artificially enforce this by cloning a revision just so you can associate tag additions or removals... 
+ I'd change the model by making post2tag_revs.post_rev only relevant for draft tags. Once the revision is published (and the tag is live), I'd use a time stamp column to mark the beginning and end of the published validity. You may or may not want a new post2tag_revs entry to represent this change. 
+ As you point out, this makes this relationship  bi-temporal . You might improve performance in the "normal" case by adding a boolean to post2tag to indicate that the tag is currently associated with the post. 
+ 
+ I think I nailed it. Basically, you add a (unique) draft field to the relevant tables, and you work on the drafts as if they were a new post/tag/etc.: 
+ 
+ 
+ Use only 3 tables: posts, tags and post2tag. 
+ Add start_time and end_time columns to all tables. Add unique index for key, start_time and end_time. Add unique index for key where end_time is null. Add trigers. 
+ For current:  
+ 
+ At time: 
+ 
+ Search of current data is not slow because of functional index. 
+ Edit: 
+ 
+ 

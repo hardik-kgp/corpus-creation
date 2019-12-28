@@ -1,0 +1,40 @@
+*** mapping-lots-of-similar-tables-in-sqlalchemy ***
+
+ I have many (~2000) locations with time series data. Each time series has millions of rows. I would like to store these in a Postgres database. My current approach is to have a table for each location time series, and a meta table which stores information about each location (coordinates, elevation etc). I am using Python/SQLAlchemy to create and populate the tables. I would like to have a relationship between the meta table and each time series table to do queries like "select all locations that have data between date A and date B" and "select all data for date A and export a csv with coordinates". What is the best way to create many tables with the same structure (only the name is different) and have a relationship with a meta table? Or should I use a different database design? 
+ Currently I am using this type of approach to generate a lot of similar mappings: 
+ 
+ This approach has some problems, most notably that if I create more than one   the foreign key doesn't work. Previously I've used some work arounds, but it all seems like a big hack and I feel that there must be a better way of doing this. How should I organise and access my data? 
+ 
+ 
+  immediately comes to mind as soon as I read  **exactly**
+ the same table structure. I am not a DBA, and do not have much production experience using it (even more so on PostgreSQL), but 
+please read   documentation. Table partitioning seeks to solve exactly the problem you have, but over 1K tables/partitions sounds challenging; therefore please do more research on forums/SO for scalability related questions on this topic.   
+ Given that both of your mostly used search criterias,   component is very important, therefore there must be solid indexing strategy on it. If you decide to go with   root, the obvious partitioning strategy would be based on date ranges. This might allow you to partition older data in different chunks compared to most recent data, especially assuming that old data is (almost never) updated, so physical layouts would be dense and efficient; while you could employ another strategy for more "recent" data. 
+ 
+ This basically makes your sample code work by tricking SA to assume that all those   are   of one entity using  . The code below is self-contained and creates 50 table with minimum data in it. But if you have a database already, it should allow you to check the performance rather quickly, so that you can make a decision if it is even a close possibility. 
+ 
+ 
+ If you do get into performance problems using database, I would probably try: 
+ 
+ still keep the data in separate tables/databases/schemas like you do right now 
+ bulk-import data using "native" solutions provided by your database engine 
+ use  -like  analysis.
+ 
+ Here I would stay with python and sqlalchemy and implemnent own distributed query and aggregation (or find something existing). This, obviously, only works if you do not have requirement to produce those results directly on the database. 
+ 
+ 
+ edit-1:   
+ I have no experience using those on a large scale, but definitely an option worth considering. 
+ 
+ Would be fantastic if you could later share your findings and whole decision-making process on this. 
+ 
+ I would avoid the database design you mention above. I don't know enough about the data you are working with, but it sounds like you should have two tables. One table for location, and a child table for location_data. The location table would store the data you mention above such as coordinates and elevations. The location_data table would store the location_id from the location table as well as the time series data you want to track. 
+ This would eliminate changing db structure and code changes every time you add another location, and would allow the types of queries you are looking at doing. 
+ 
+ Two parts: 
+ only use two tables 
+ there's no need to have dozens or hundreds of identical tables.  just have a table for   and one for   , where every entry will fkey onto location.  also create an index on the location_data table for the location_id, so you have efficient searching.   
+ don't use sqlalchemy to create this 
+ i love sqlalchemy. i use it every day.  it's great for managing your database and adding some rows, but you don't want to use it for initial setup that has millions of rows.  you want to generate a file that is compatible with postgres' "COPY" statement [  http://www.postgresql.org/docs/9.2/static/sql-copy.html  ]  COPY will let you pull in a ton of data fast; it's what is used during dump/restore operations. 
+ sqlalchemy will be great for querying this and adding rows as they come in.  if you have bulk operations, you should use COPY. 
+ 

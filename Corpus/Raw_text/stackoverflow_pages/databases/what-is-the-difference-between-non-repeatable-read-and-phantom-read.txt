@@ -1,0 +1,135 @@
+*** what-is-the-difference-between-non-repeatable-read-and-phantom-read ***
+
+ What is the difference between non-repeatable read and phantom read? 
+ I have read the  Isolation (database systems) article from Wikipedia , but I have a few doubts. In the below example, what will happen: the  **non-repeatable read**
+ and  **phantom read**
+? 
+ **Transaction A**
+
+ 
+ **OUTPUT:**
+
+ 
+ **Transaction B**
+
+ 
+ **Transaction A**
+
+ 
+ Another doubt is, in the above example, which isolation level should be used? And why? 
+ 
+ From Wikipedia  (which has great and detailed examples for this): 
+ 
+ A non-repeatable read occurs, when during the course of a transaction, a row is retrieved twice and the values within the row differ between reads. 
+ 
+ and 
+ 
+ A phantom read occurs when, in the course of a transaction, two identical queries are executed, and the collection of rows returned by the second query is different from the first. 
+ 
+ Simple examples: 
+ 
+ User A runs the same query twice.  
+ In between, User B runs a transaction and commits. 
+ Non-repeatable read: The A row that user A has queried has a different value the second time. 
+ Phantom read: All the rows in the query have the same value before and after,  but different rows are being selected  (because B has deleted or inserted some). Example:   will return a different result even if none of the affected rows themselves have been updated, if rows have been added or deleted. 
+ 
+ 
+ In the above example,which isolation level to be used? 
+ 
+ What isolation level you need depends on your application. There is a high cost to a "better" isolation level (such as reduced concurrency). 
+ In your example, you won't have a phantom read, because you select only from a single row (identified by primary key). You can have non-repeatable reads, so if that is a problem, you may want to have an isolation level that prevents that. In Oracle, transaction A could also issue a SELECT FOR UPDATE, then transaction B cannot change the row until A is done. 
+ 
+ A simple way I like to think about it is:  
+ Both non-repeatable and phantom reads have to do with data modification operations from a different transaction, which were committed after your transaction began, and then read by your transaction. 
+ Non-repeatable reads are when your transaction reads committed  **UPDATES**
+ from another transaction.  The same row now has different values than it did when your transaction began. 
+ Phantom reads are similar but when reading from committed  **INSERTS**
+ and/or  **DELETES**
+ from another transaction.  There are new rows or rows that have disappeared since you began the transaction. 
+ Dirty reads are  similar  to non-repeatable and phantom reads, but relate to reading UNCOMMITTED data, and occur when an UPDATE, INSERT, or DELETE from another transaction is read, and the other transaction has NOT yet committed the data.  It is reading "in progress" data, which may not be complete, and may never actually be committed. 
+ 
+ As explained in  this article , the  **Non-Repeatable Read**
+ anomaly looks as follows: 
+ 
+ 
+ Alice and Bob start two database transactions. 
+ Bob’s reads the post record and title column value is Transactions. 
+ Alice modifies the title of a given post record to the value of ACID. 
+ Alice commits her database transaction. 
+ If Bob’s re-reads the post record, he will observe a different version of this table row. 
+ 
+ In  this article  about  **Phantom Read**
+, you can see that this anomaly can happen as follows: 
+ 
+ 
+ Alice and Bob start two database transactions. 
+ Bob’s reads all the post_comment records associated with the post row with the identifier value of 1. 
+ Alice adds a new post_comment record which is associated with the post row having the identifier value of 1. 
+ Alice commits her database transaction. 
+ If Bob’s re-reads the post_comment records having the post_id column value equal to 1, he will observe a different version of this result set. 
+ 
+ So, while the  **Non-Repeatable Read**
+ applies to a single row, the  **Phantom Read**
+ is about a range of records which satisfy a given query filtering criteria. 
+ 
+ **Read phenomena**
+
+ 
+ **Dirty reads**
+: read UNCOMMITED data from another transaction 
+ **Non-repeatable reads**
+: read COMMITTED data from an   query from another transaction 
+ **Phantom reads**
+: read COMMITTED data from an   or   query from another transaction 
+ 
+ **Note**
+ : DELETE statements from another transaction, also have a very low probability of causing Non-repeatable reads in certain cases. It happens when the DELETE statement unfortunately, removes the very same row which your current transaction was querying. But this is a rare case, and far more unlikely to occur in a database which have millions of rows in each table. Tables  containing transaction data usually have high data volume in any production environment. 
+ Also we may observe that UPDATES may be a more frequent job in most use cases rather than actual INSERT or DELETES (in such cases, danger of  non-repeatable reads  remain only -  phantom reads  are not possible in those cases). This is why UPDATES are treated differently from INSERT-DELETE and the resulting anomaly is also named differently.  
+ There is also an additional processing cost associated with handling for INSERT-DELETEs, rather than just handling the UPDATES.   
+ 
+ **Benefits of different **
+**isolation levels**
+
+ 
+ READ_UNCOMMITTED prevents nothing. It's the zero
+isolation level 
+ READ_COMMITTED prevents just one, i.e. Dirty reads 
+ REPEATABLE_READ prevents two anomalies: Dirty reads and
+Non-repeatable reads 
+ SERIALIZABLE prevents all three anomalies: Dirty reads,
+Non-repeatable reads and Phantom reads 
+ 
+ Then why not just set the transaction SERIALIZABLE at all times?  Well, the answer to the above question is: SERIALIZABLE setting makes transactions very  slow , which we again don't want.  
+ In fact transaction time consumption is in the following rate: 
+ 
+ SERIALIZABLE  **>**
+ REPEATABLE_READ  **>**
+ READ_COMMITTED  **>**
+ READ_UNCOMMITTED 
+ 
+ So READ_UNCOMMITTED setting is the  fastest .  
+ 
+ **Summary**
+
+ Actually we need to analyze the use case and decide an  isolation level  so that we optimize the transaction time and also prevent most anomalies. 
+ Note that databases by default have REPEATABLE_READ setting. 
+ 
+ There is a difference in the implementation between these two kinds isolation levels. 
+For "non-repeatable read", row-locking is needed. 
+For "phantom read"，scoped-locking is needed, even a table-locking. 
+We can implement these two levels by using  two-phase-locking  protocol. 
+ 
+ In a system with non-repeatable reads, the result of Transaction A's second query will reflect the update in Transaction B - it will see the new amount. 
+ In a system that allows phantom reads, if Transaction B were to  insert  a new row with ID = 1, Transaction A will see the new row when the second query is executed; i.e. phantom reads are a special case of non-repeatable read. 
+ 
+ The accepted answer indicates most of all that the so-called distinction between the two is actually not significant at all. 
+ If "a row is retrieved twice and the values within the row differ between reads", then they are not the same row (not the same tuple in correct RDB speak) and it is then indeed by definition also the case that "the collection of rows returned by the second query is different from the first". 
+ As to the question "which isolation level should be used", the more your data is of vital importance to someone, somewhere, the more it will be the case that Serializable is your only reasonable option. 
+ 
+ I think there are some difference between Non-repeateable-read & phantom-read. 
+ The Non-repeateable means there are tow transaction A & B. if B can notice the modification of A, so maybe happen dirty-read, so we let B notices the modification of A after A committing. 
+ There is new issue: we let B notice the modification of A after A committing, it means A modify a value of row which the B is holding, sometime B will read the row again, so B will get new value different with first time we get, we call it Non-repeateable, to deal with the issue, we let the B remember something(cause i don't know what will be remembered yet) when B start. 
+ Let's think about the new solution, we can notice there is new issue as well, cause we let B remember something, so whatever happened in A, the B can't be affected, but if B want to insert some data into table and B check the table to make sure there is no record, but this data has been inserted by A, so maybe occur some error. We call it Phantom-read. 
+ 
+ non-repeatable read is an isolation level and phantom read (reading committed value by other transactions) is a concept (type of read e.g. dirty read or snapshot read). Non-repeatable read isolation level allows phantom read but not dirty reads or snapshot reads.  
+ 

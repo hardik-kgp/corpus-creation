@@ -1,0 +1,104 @@
+*** how-to-produce-phantom-reads ***
+
+ Using "repeatable read" it should be possible to produce a phantom read, but how? I need it for an example teaching CS-students. 
+ I think that I must make a "SELECT ... WHERE x<=888" on a non-indexed field x, with an upperlimit 888 not present, and then on another connection insert a new row with a value just below 888. 
+ Except it doesn't work. Do I need a very large table? Or something else? 
+ 
+ Erik, 
+ I come just from test it with a very large number of rows.  
+ You will never found phantoms on InnoDB mysql with read commited or more restricted isolation level. It is explained on documentation: 
+ REPEATABLE READ: For consistent reads, there is an important difference from the READ COMMITTED isolation level: All consistent reads within the same transaction  **read the snapshot established by the first read**
+. This convention means that if you issue several plain (nonlocking) SELECT statements within the same transaction, these SELECT statements are consistent also with respect to each other. See Section 13.6.8.2, “Consistent Nonlocking Reads”. 
+ But you can't also found phantoms in read commited isolation level: This is necessary because “phantom rows” must be blocked for MySQL replication and recovery to work.  
+ More detailed information:  http://dev.mysql.com/doc/refman/5.1/en/set-transaction.html 
+ I think you will need to move to another database brand to show phantoms to your students. I use both  MSSQLSERVER  and  Oracle . 
+ Well ... its a pity for your first question. 
+ 
+ The "phantom read" in MySQL on RR isolation level is hidden deep, but still can reproduce it. Here are the steps:  
+ 
+ create table ab(a int primary key, b int);  
+ Tx1: 
+    begin;  
+    select * from ab; // empty set    
+ Tx2:  
+    begin;  
+    insert into ab values(1,1); 
+    commit;  
+ Tx1:  
+    select * from ab; // empty set, expected phantom read missing.  
+    update ab set b = 2 where a = 1; // 1 row affected.  
+    select * from ab; // 1 row.  **phantom read here!!!!**
+  
+    commit; 
+ 
+ 
+ Possibility to reproduce phantom reads for InnoDB engine for isolation level REPEATABLE READ is questionable, because InnoDB uses  Multiversion concurrency control  - for every row MVCC engine knows transaction numbers when row was inserted and deleted and can reproduce history of row updates. 
+ So, all consequent SELECT statements will show state of table in the beginning of transaction, except for rows that were inserted, deleted or updated by same this transaction. No new rows committed by other transactions will appear, because they will have insertion transaction numbers greater that of this transaction, and range of rows has no matter here. 
+ I was able to reproduce PHANTOM READS for isolation level REPEATABLE READ for  Apache Derby  database, because it does not use multiversion concurrency control (version 10.8.2.2 in the moment of writing of this answer). 
+ To reproduce, set proper transaction level (in ij - Derby's SQL client): 
+ 
+ T1: 
+ 
+ T2: 
+ 
+ T1 again: 
+ 
+ Now T1 should see one more row; 
+ 
+ InnoDB should protect against phantom reads, as others have written. 
+ But InnoDB has a different weird behavior related to locking. When a query acquires a lock, it always acquires the lock on the most recent version of the row. So try the following 
+ 
+ Then in two concurrent sessions (open two terminal windows): 
+ 
+ This should show val = 10, 20, 30 in both SELECTs, since REPEATABLE-READ means the second window sees only the data as it existed when its transaction started. 
+ However: 
+ 
+ The second window waits to acquire the lock on row 3. 
+ 
+ Now the SELECT in the second window finishes, and shows rows with val = 10, 20, 35, because locking the row causes the SELECT to see the most recent committed version. Locking operations in InnoDB act like they are run under READ-COMMITTED, regardless of the transaction's isolation level. 
+ You can even switch back and forth: 
+ 
+ 
+ Phantom reads can occur because not range-locks exist, then an example is (pseudocode):  
+ Thread1 
+ 
+Transaction 1
+
+Update TableN set X=2 where X=1
+
+wait(s1)
+Select TableN where X=1
+
+Commit 
+ 
+ thread2 
+ 
+Transaction 2:
+
+insert into tableN(id, X) values(55,1)
+commit;
+notify(s1)
+ 
+ In wikipedia there are another example of phantom reads:  Phantom Reads|wikipedia 
+ The important thing here is the transactions syncronization, you can use sync points. 
+ **EDIT**
+ Example using mysql sleep function(not tested):  
+ 
+ BEGIN TRANSACTION;
+Update TableN set X=2 where X=1
+SELECT SLEEP(30) FROM DUAL;
+select TableN from where X=1;
+COMMIT;  
+ --In other thread, before 20 secs; 
+ BEGIN TRANSACTION;
+insert into TableN(id, X) values(55,1); 
+ COMMIT;
+
+ 
+ 
+ To complement Dani's good answer, you could use Microsoft Sql Server to show that behavior to your students. 
+ Sql Server shows phantom reads in the repeatable read isolation level as claimed by the documentation  here . 
+ Postgres subscribes to the same notion as InnoDb as explained  here . With Postgres too, no phantom reads happen in repeatable read and is thus also unsuited for your didactic purpose. 
+ Sql Server offers another isolation level, snapshot, that does what MySql InnoDb and Postgres does in repeatable read (which is a lock-free, version-based implementation of repeatable read without phantom reads, but is not serializable). 
+ Sql Server Express is free although you do need a Windows machine. You could also get yourself a Windows Azure account and show that behavior with Sql Azure online. 
+ 

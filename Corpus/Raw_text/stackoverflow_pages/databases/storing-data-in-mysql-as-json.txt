@@ -1,0 +1,138 @@
+*** storing-data-in-mysql-as-json ***
+
+ I thought this was a n00b thing to do. And, so, I've never done it. Then I saw that FriendFeed did this and actually made their DB scale better and decreased latency. I'm curious if I should do this. And, if so, what's the right way to do it? 
+ Basically, what's a good place to learn how to store everything in MySQL as a CouchDB sort of DB? Storing everything as JSON seems like it'd be easier and quicker (not to build, less latency). 
+ Also, is it easy to edit, delete, etc., things stored as JSON on the DB? 
+ 
+ CouchDB and MySQL are two very different beasts. JSON is the native way to store stuff in CouchDB. In MySQL, the best you could do is store JSON data as text in a single field. This would entirely defeat the purpose of storing it in an RDBMS and would greatly complicate every database transaction. 
+ **Don't.**
+
+ Having said that, FriendFeed seemed to use an  extremely custom schema  on top of MySQL. It really depends on what exactly you want to store, there's hardly one definite answer on how to abuse a database system so it makes sense for you. Given that the article is very old and their main reason against Mongo and Couch was immaturity, I'd re-evaluate these two if MySQL doesn't cut it for you. They should have grown a lot by now. 
+ 
+ Everybody commenting seems to be coming at this from the wrong angle, it is fine to store JSON code via PHP in a relational DB and it will in fact be faster to load and display complex data like this, however you will have design considerations such as searching, indexing etc. 
+ The best way of doing this is to use hybrid data, for example if you need to search based upon datetime MySQL (performance tuned) is going to be a lot faster than PHP and for something like searching distance of venues MySQL should also be a lot faster (notice searching not accessing). Data you do not need to search on can then be stored in JSON, BLOB or any other format you really deem necessary. 
+ Data you need to access is very easily stored as JSON for example a basic per-case invoice system. They do not benefit very much at all from RDBMS, and could be stored in JSON just by json_encoding($_POST['entires']) if you have the correct HTML form structure.  
+ I am glad you are happy using MongoDB and I hope that it continues to serve you well, but don't think that MySQL is always going to be off your radar, as your app increases in complexity you may well end up needing an RDBMS for some functionality and features (even if it is just for retiring archived data or business reporting) 
+ 
+ MySQL 5.7 Now supports a native JSON data type similar to MongoDB and other schemaless document data stores: 
+ 
+ **JSON support**
+
+ Beginning with MySQL 5.7.8, MySQL supports a native JSON type. JSON values are not stored as strings, instead using an internal binary format that permits quick read access to document elements. JSON documents stored in JSON columns are automatically validated whenever they are inserted or updated, with an invalid document producing an error. JSON documents are normalized on creation, and can be compared using most comparison operators such as =, <, <=, >, >=, <>, !=, and <=>; for information about supported operators as well as precedence and other rules that MySQL follows when comparing JSON values, see Comparison and Ordering of JSON Values. 
+ MySQL 5.7.8 also introduces a number of functions for working with JSON values. These functions include those listed here: 
+ 
+ Functions that create JSON values: JSON_ARRAY(), JSON_MERGE(), and JSON_OBJECT(). See Section 12.16.2, “Functions That Create JSON Values”. 
+ Functions that search JSON values: JSON_CONTAINS(), JSON_CONTAINS_PATH(), JSON_EXTRACT(), JSON_KEYS(), and JSON_SEARCH(). See Section 12.16.3, “Functions That Search JSON Values”. 
+ Functions that modify JSON values: JSON_APPEND(), JSON_ARRAY_APPEND(), JSON_ARRAY_INSERT(), JSON_INSERT(), JSON_QUOTE(), JSON_REMOVE(), JSON_REPLACE(), JSON_SET(), and JSON_UNQUOTE(). See Section 12.16.4, “Functions That Modify JSON Values”. 
+ Functions that provide information about JSON values: JSON_DEPTH(), JSON_LENGTH(), JSON_TYPE(), and JSON_VALID(). See Section 12.16.5, “Functions That Return JSON Value Attributes”. 
+ 
+ In MySQL 5.7.9 and later, you can use column->path as shorthand for JSON_EXTRACT(column, path). This works as an alias for a column wherever a column identifier can occur in an SQL statement, including WHERE, ORDER BY, and GROUP BY clauses. This includes SELECT, UPDATE, DELETE, CREATE TABLE, and other SQL statements. The left hand side must be a JSON column identifier (and not an alias). The right hand side is a quoted JSON path expression which is evaluated against the JSON document returned as the column value. 
+ See Section 12.16.3, “Functions That Search JSON Values”, for more information  about -> and JSON_EXTRACT(). For information about JSON path support in MySQL 5.7, see Searching and Modifying JSON Values. See also Secondary Indexes and Virtual Generated Columns. 
+ 
+ More info: 
+ https://dev.mysql.com/doc/refman/5.7/en/json.html 
+ 
+ json characters are nothing special when it comes down to storage, chars such as  
+ , , , , , , .... are really nothing special and can be stored as text. 
+ the first problem your going to have is this 
+ {
+    profile_id: 22,
+    username: 'Robert',
+    password: 'skhgeeht893htgn34ythg9er'
+} 
+ that stored in a database is not that simple to update unless you had your own proceedure and developed a jsondecode for mysql 
+ 
+ So as you cant do that you would Have to first SELECT the json, Decode it, change it, update it, so in theory you might as well spend more time constructing a suitable database structure! 
+ I do use json to store data but only Meta Data, data that dont get updated often, not related to the user specific.. example if a user adds a post, and in that post he adds images ill parse the images and create thumbs and then use the thumb urls in a json format. 
+ 
+ To illustrate how difficult it is to get JSON data using a query, I will share the query I made to handle this. 
+ It doesn't take into account arrays or other objects, just basic datatypes. You should change the 4 instances of  **column**
+ to the column name storing the JSON, and change the 4 instances of  **myfield**
+ to the JSON field you want to access. 
+ 
+ 
+ It really depends on your use case. If you are storing information that has absolutely no value in reporting, and won't be queried via JOINs with other tables, it may make sense for you to store your data in a single text field, encoded as JSON. 
+ This could greatly simplify your data model. However, as mentioned by RobertPitt, don't expect to be able to combine this data with other data that has been normalized. 
+ 
+ This is an old question, but I am still able to see this at the top of the search result of Google, so I guess it would be meaningful to add a new answer 4 years after the question is asked. 
+ First of all, there is better support in storing JSON in RDBMS. You may consider switching to PostgreSQL (although MySQL has supported JSON since v5.7.7). PostgreSQL uses very similar SQL commands as MySQL except they support more functions. One of the functions they added is that they provide JSON data type and you are now able to query the JSON stored. ( Some reference on this ) If you are not making up the query directly in your program, for example, using PDO in php or eloquent in Laravel, all you need to do is just to install PostgreSQL on your server and change database connection settings. You don't even need to change your code. 
+ Most of the time, as the other answers suggested, storing data as JSON directly in RDBMS is not a good idea. There are some exception though. One situation I can think of is a field with variable number of linked entry.  
+ For example, for storing tag of a blog post, normally you will need to have a table for blog post, a table of tag and a matching table. So, when the user wants to edit a post and you need to display which tag is related to that post, you will need to query 3 tables. This will damage the performance a lot if your matching table / tag table is long.  
+ By storing the tags as JSON in the blog post table, the same action only requires a single table search. The user will then be able to see the blog post to be edit quicker, but this will damage the performance if you want to make a report on what post is linked to a tag, or maybe search by tag. 
+ You may also try to de-normalize the database. By duplicating the data and storing the data in both ways, you can receive benefit of both method. You will just need a little bit more time to store your data and more storage space (which is cheap comparing to the cost of more computing power) 
+ 
+ I would say the only two reasons to consider this are: 
+ 
+ performance just isn't good enough with a normalised approach 
+ you cannot readily model your particularly fluid/flexible/changing data 
+ 
+ I wrote a bit about my own approach here: 
+ What scalability problems have you encountered using a NoSQL data store? 
+ (see the top answer) 
+ Even JSON wasn't quite fast enough so we used a custom-text-format approach. Worked / continues to work well for us.  
+ Is there a reason you're not using something like MongoDB? (could be MySQL is "required"; just curious) 
+ 
+ It seems to me that everyone answering this question is kind-of missing the one critical issue, except @deceze --  **use the right tool for the job**
+. You can force a relational database to store almost any type of data and you can force Mongo to handle relational data, but at what cost? You end up introducing complexity at all levels of development and maintenance, from schema design to application code; not to mention the performance hit. 
+ In 2014 we have access to many database servers that handle specific types of data exceptionally well.  
+ 
+ Mongo (document storage) 
+ Redis (key-value data storage) 
+ MySQL/Maria/PostgreSQL/Oracle/etc (relational data) 
+ CouchDB (JSON) 
+ 
+ I'm sure I missed some others, like RabbirMQ and Cassandra. My point is, use the right tool for the data you need to store.  
+ If your application requires storage and retrieval of a variety of data really, really fast, (and who doesn't) don't shy away from using multiple data sources for an application. Most popular web frameworks provide support for multiple data sources (Rails, Django, Grails, Cake, Zend, etc). This strategy limits the complexity to one specific area of the application, the ORM or the application's data source interface. 
+ 
+ Here is a function that would save/update keys of a JSON array in a column and another function that retrieves JSON values. This functions are created assuming that the column name of storing the JSON array is  **json**
+. It is using  **PDO**
+. 
+ **Save/Update Function**
+
+ 
+ where  **$uid**
+ is the user's id,  **$key**
+ - the JSON key to update and it's value is mentioned as  **$val**
+. 
+ **Get Value Function**
+
+ 
+ where  **$key**
+ is a key of  **JSON**
+ array from which we need the value. 
+ 
+ I believe that storing JSON in a mysql database does in fact defeat the purpose of using RDBMS as it is intended to be used. I would not use it in any data that would be manipulated at some point or reported on, since it not only adds complexity but also could easily impact performance depending on how it is used. 
+ However, I was curious if anyone else thought of a possible reason to actually do this. I was thinking to make an exception for logging purposes. In my case, I want to log requests that have a variable amount of parameters and errors. In this situation, I want to use tables for the type of requests, and the requests themselves with a JSON string of different values that were obtained. 
+ In the above situation, the requests are logged and never manipulated or indexed within the JSON string field. HOWEVER, in a more complex environment, I would probably try to use something that has more of an intention for this type of data and store it with that system. As others have said, it really depends on what you are trying to accomplish, but following standards always helps longevity and reliability! 
+ 
+ Early support for storing JSON in MySQL has been added to the  MySQL 5.7.7 JSON labs release  ( linux binaries ,  source )! The release seems to have grown from a series of JSON-related user-defined functions made public  back in 2013 . 
+ This nascent native JSON support seems to be heading in a very positive direction, including JSON validation on INSERT, an optimized binary storage format including a lookup table in the preamble that allows the JSN_EXTRACT function to perform binary lookups rather than parsing on every access. There is also a whole raft of new functions for handling and querying specific JSON datatypes: 
+ 
+ IMHO, the above is a great use case for this new functionality; many SQL databases already have a user table and, rather than making endless schema changes to accommodate an evolving set of user preferences, having a single JSON column a single   away is perfect. Especially as it's unlikely that it would ever need to be queried for individual items. 
+ While it's still early days, the MySQL server team are doing a great job of communicating the changes  on   the   blog . 
+ 
+ JSON is a valid datatype in PostgreSQL database as well. However, MySQL database has not officially supported JSON yet. But it's baking:  http://mysqlserverteam.com/json-labs-release-native-json-data-type-and-binary-format/ 
+ I also agree that there are many valid cases that some data is better be serialized to a string in a database. The primary reason might be when it's not regularly queried, and when it's own schema might change - you don't want to change the database schema corresponding to that. The second reason is when the serialized string is directly from external sources, you may not want to parse all of them and feed in the database at any cost until you use any. So I'll be waiting for the new MySQL release to support JSON since it'll be easier for switching between different database then. 
+ 
+ I use json to record anything for a project, I use three tables in fact ! one for the data in json, one for the index of each metadata of the json structure (each meta is encoded by an unique id), and one for the session user, that's all.
+The benchmark cannot be quantified at this early state of code, but for exemple I was user views (inner join with index) to get a category (or anything, as user, ...), and it was very slow (very very slow, used view in mysql is not the good way).
+The search module, in this structure, can do anything I want, but, I think mongodb will be more efficient in this concept of full json data record.
+For my exemple, I user views to create tree of category, and breadcrumb, my god ! so many query to do ! apache itself gone ! and, in fact, for this little website, I use know a php who generate tree and breadcrumb, the extraction of the datas is done by the search module (who use only index), the data table is used only for update.
+If I want, I can destroy the all indexes, and regenerate it with each data, and do the reverse work to, like, destroy all the data (json) and regenerate it only with the index table.
+My project is young, running under php and mysql, but, sometime I thing using node js and mongodb will be more efficient for this project. 
+ Use json if you think you can do, just for do it, because you can ! and, forget it if it was a mistake; try by make good or bad choice, but try ! 
+ Low 
+ a french user 
+ 
+ I know this is really late but I did have a similar situation where I used a hybrid approach of maintaining RDBMS standards of normalizing tables upto a point and then storing data in JSON as text value beyond that point. So for example I store data in 4 tables following RDBMS rules of normalization. However in the 4th table to accomodate dynamic schema I store data in JSON format. Every time I want to retrieve data I retrieve the JSON data, parse it and display it in Java. This has worked for me so far and to ensure that I am still able to index the fields I transform to json data in the table to a normalized manner using an ETL. This ensures that while the user is working on the application he faces minimal lag and the fields are transformed to a RDBMS friendly format for data analysis etc. I see this approach working well and believe that given MYSQL (5.7+) also allows parsing of JSON this approach gives you the benefits of both RDBMS and NOSQL databases. 
+ 
+ You can use this gist:  https://gist.github.com/AminaG/33d90cb99c26298c48f670b8ffac39c3 
+ After installing it to the server (just need root privilege not super), you can do something like this: 
+ 
+ It will return
+ 
+.You can return anything inside JSON by using this
+The good part is that it is support MySQL 5.1,5.2,5.6. And you do not need to install any binary on the server. 
+ Based on old project  , but it is still working today
+ https://code.google.com/archive/p/common-schema/ 
+ 

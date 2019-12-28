@@ -1,0 +1,34 @@
+*** how-to-implement-materialized-view-with-mysql ***
+
+ How to implement Materialized Views? 
+ If not, how can I implement Materialized View with MySQL? 
+ **Update:**
+
+ Would the following work? This doesn't occur in a transaction, is that a problem? 
+ 
+ 
+ I maintain a project called Flexviews ( http://github.com/greenlion/swanhart-tools ) which adds incrementally refreshable materialized views to MySQL (aka fast refresh), even for views that use joins and aggregation.  I've been working on this project for three years.  It includes a change data capture utility to read the database logs.  No triggers are used. 
+ It includes two refresh methods.  The first is similar to your method, except a new version is built, and then RENAME TABLE is used to swap the new for the old.  At no point is the view unavailable for querying, but 2x the space is used for a short time. 
+ The second method is true "fast refresh", it even has support for aggregation and joins.   
+ There is a blog post about it:
+ http://www.mysqlperformanceblog.com/2011/04/04/flexviews-part-3-improving-query-performance-using-materialized-views/ 
+ Flexviews is significantly more advanced than the FromDual example referenced by astander. 
+ 
+ Your example approximates a "full refresh" materialized view. You may need a "fast refresh" view, often used in a data warehouse setting, if the source tables include millions or billions of rows. 
+ You would approximate a fast refresh by instead using insert / update (upsert) joining the existing "view table" against the primary keys of the source views (assuming they can be key preserved) or keeping a date_time of the last update, and using that in the criteria of the refresh SQL to reduce the refresh time. 
+ Also, consider using table renaming, rather than drop/create, so the new view can be built and put in place with nearly no gap of unavailability. Build a new table 'mview_new' first, then rename the 'mview' to 'mview_old' (or drop it), and rename 'mview_new' to 'mview'. In your above sample, your view will be unavailable while your SQL populate is running. 
+ 
+ According to the  mySQL docs and comments at the bottom of the page , it just seems like people are creating views then creating tables from those views. Not sure if this solution is the equivalent of creating a materialized view, but it seems to be the only avenue available at this time.  
+ 
+ This thread is rather old, so I will try to re-fresh it a bit: 
+ I've been experimenting and even deployed in production several methods for having materialized views in MySQL. Basically all methods assume that you create a normal view and transfer the data to a normal table - the actual materialized view. Then, it's only a question of how you refresh the materialized view. 
+ Here's what I've success with so far: 
+ 
+ Using triggers - you can set triggers on the source tables on which you build the view. This minimizes the resource usage as the refresh is only done when needed. Also, data in the materialized view is realtime-ish 
+ Using cron jobs with stored procedures or SQL scripts - refresh is done on a regular basis. You have more control as to when resources are used. Obviously you data is only as fresh as the refresh-rate allows. 
+ Using MySQL scheduled events - similar to 2, but runs inside the database 
+ Flexviews - using FlexDC mentioned by Justin. The closest thing to real materialized 
+ 
+ I've been collecting and analyzing these methods, their pros and cons in my article  Creating MySQL materialized views 
+ looking forwards for feedback or proposals for other methods for creating materialized views in MySQL 
+ 

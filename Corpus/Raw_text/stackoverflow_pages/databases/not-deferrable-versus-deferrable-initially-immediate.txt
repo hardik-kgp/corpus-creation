@@ -1,0 +1,68 @@
+*** not-deferrable-versus-deferrable-initially-immediate ***
+
+ I read this about the SQL keyword   in  Database Systems - The Complete Book . 
+ 
+ The latter  [NOT DEFERRABLE]  is default, and means that every time a database modification statement is executed, the constraint is checked immediately afterwards, if the modification could violate the foreign-key constraint. 
+ However, if we declare a constraint to be  **DEFERRABLE**
+, then we have the option of having it wait until a transaction is complete before checking the constraint. 
+ We follow the keyword  **DEFERRABLE**
+ by either  **INITIALLY DEFERRED**
+ or  **INITIALLY IMMEDIATE**
+. In the former case, checking will be deferred to just before each transaction commits. In the latter case, the check will be made immediately after each statement. 
+ 
+ How is   different from  ? In both cases, it seems, any constraints are checked after each individual statement. 
+ 
+ With   you can defer the constraints on demand when you need it.  
+ This is useful if you normally want to check the constraints at statement time, but for e.g. a batch load want to defer the checking until commit time. 
+ The syntax how to defer the constraints is different for the various DBMS though. 
+ With   you will never ever be able to defer the checking until commit time. 
+ 
+ Aside from the other (correct) answers,  **when speaking of PostgreSQL**
+, it must be stated that: 
+ 
+ with  **NOT DEFERRABLE**
+ each row is checked at insert/update time 
+ with  **DEFERRABLE**
+ (currently  **IMMEDIATE**
+) all rows are checked at the end of the insert/update 
+ with  **DEFERRABLE**
+ (currently  **DEFERRED**
+) all rows are checked at the end of the transaction 
+ 
+ So  **it's not correct**
+ to say that a DEFERRABLE constraint acts like a NOT DEFERRABLE one when it is set to IMMEDIATE. 
+ 
+ Let's elaborate on this difference: 
+ 
+ This correctly outputs:   
+ 
+ But if we remove the DEFERRABLE INITIALLY IMMEDIATE instruction, 
+ 
+ ERROR:  duplicate key value violates unique constraint
+  "example_row_col_key" DETAIL:  Key ("row", col)=(2, 2) already exists.
+  ********** Error ********** 
+ ERROR: duplicate key value violates unique constraint
+  "example_row_col_key" SQL state: 23505 Detail: Key ("row", col)=(2, 2)
+  already exists. 
+ 
+ 
+ **ADDENDUM**
+  (October 12, 2017) 
+ This behavior is indeed documented  here , section "Compatibility": 
+ 
+ Also, PostgreSQL checks non-deferrable uniqueness constraints immediately, not at end of statement as the standard would suggest. 
+ 
+ 
+ Aside from the obvious of being able to defer, the difference is actually performance.  If there wasn't a performance penalty then there would be no need to have an option to choose deferrable or not -- all constraints would simply be deferrable. 
+ The performance penalty has to do with optimizations that the database can perform given the knowledge of how the data is restricted.  For example, the index that is created to back a unique constraint in Oracle cannot be a unique index if the constraint is deferrable since temporarily allowing duplicates must be allowed.  However, if the constraint is not deferrable then the index can be unique. 
+ 
+ NOT DEFERRABLE - you cannot change the constraint checking, oracle checks it after each statement(i.e. directly after insert statement). 
+ DEFERRABLE INITIALLY IMMEDIATE - oracle checks constraint after each statement. BUT, you can change it to after each transaction(i.e. after commit):  
+ 
+ 
+ I'm very late to the party but I wanted to add that -- as of December 2018 -- only two databases I know of (there may be more) offer some level of implementation of this  standard SQL feature : 
+ 
+ *1 Even though Oracle 12c accepts the    constraint state , it actually ignores it and makes it work as  . 
+ As you see, Oracle does not implement the first type ( ), and that's why developers using Oracle (the OP in this case) may get confused and consider the first two types equivalent. 
+ Interestingly enough Oracle and PostgreSQL have a different default type. Maybe it has performance implications. 
+ 

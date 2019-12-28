@@ -1,0 +1,55 @@
+*** table-with-80-million-records-and-adding-an-index-takes-more-than-18-hours-or-f ***
+
+ A short recap of what happened. I am working with 71 million records (not much compared to billions of records processed by others). On a different  thread , someone suggested that the current setup of my cluster is not suitable for my need. My table structure is: 
+ 
+ And I added the 71 million records and then did a: 
+ 
+ It's been 14 hours and the operation is still not completed. Upon Googling, I found that there is a well-known approach for solving this problem - Partitioning. I understand that I need to partition my table now based on the ipaddress but can I do this without recreating the entire table? I mean, through an ALTER statement? If yes, there was one requirement saying that the column to be partitioned on should be a primary key. I will be using the id of this ipaddress in constructing a different table so ipaddress is not my primary key. How do I partition my table given this scenario? 
+ 
+ Ok turns out that this problem was more than just a simple create a table, index it and forget problem :) Here's what I did just in case someone else faces the same problem (I have used an example of IP Address but it works for other data types too): 
+ **Problem: Your table has millions of entries and you need to add an index really fast**
+
+ **Usecase:**
+ Consider storing millions of IP addresses in a lookup table. Adding the IP addresses should not be a big problem but creating an index on them takes more than 14 hours.  
+ **Solution**
+: Partition your table using  MySQL's Partitionin g strategy 
+ **Case #1: When the table you want is not yet created**
+
+ 
+ **Case #2: When the table you want is already created.**
+
+There seems to be a way to use ALTER TABLE to do this but I have not yet figured out a proper solution for this. Instead, there is a slightly inefficient solution: 
+ 
+ Insert your IP addresses into this table. And then create the actual table with partitions: 
+ 
+ And then finally 
+ 
+ And there you go... indexing on the new table took me about 2 hours on a 3.2GHz machine with 1GB RAM :) Hope this helps. 
+ 
+ Creating indexes with MySQL is slow, but not that slow. With 71 million records, it should take a couple minutes, not 14 hours. Possible problems are : 
+ 
+ you have not configured sort buffer sizes and other configuration options 
+ 
+ look here :  http://dev.mysql.com/doc/refman/5.5/en/server-system-variables.html#sysvar_myisam_sort_buffer_size 
+ If you try to generate a 1GB index with a 8MB sort buffer it's going to take lots of passes. But if the buffer is larger than your CPU cache it will get slower. So you have to test and see what works best. 
+ 
+ someone has a lock on the table 
+ your IO system sucks 
+ your server is swapping 
+ etc 
+ 
+ as usual check iostat, vmstat, logs, etc. Issue a LOCK TABLE on your table to check if someone has a lock on it. 
+ FYI on my 64-bit desktop creating an index on 10M random BIGINTs takes 17s... 
+ 
+ I had the problem where I wanted to speed up my query by adding an index. The table only had about 300.000 records but it also took way too long. When I checked the mysql server processes, it turned out that the query I was trying to optimize was still running in the background. 4 times! After I killed those queries, indexing was done in a jiffy. Perhaps the same problem applies to your situation. 
+ 
+ You are using MyISAM which is being deprecated soon.  An alternative would be InnoDB. 
+ "InnoDB is a transaction-safe (ACID compliant) storage engine for MySQL that has commit, rollback, and crash-recovery capabilities to protect user data. InnoDB row-level locking (without escalation to coarser granularity locks) and Oracle-style consistent nonlocking reads increase multi-user concurrency and performance. InnoDB stores user data in clustered indexes to reduce I/O for common queries based on primary keys. To maintain data integrity, InnoDB also supports FOREIGN KEY referential-integrity constraints. You can freely mix InnoDB tables with tables from other MySQL storage engines, even within the same statement."\ 
+ http://dev.mysql.com/doc/refman/5.0/en/innodb.html 
+ According to: 
+ http://dev.mysql.com/tech-resources/articles/storage-engine/part_1.html 
+ ,  you should be able to switch between different engine by utilizing a simple alter command which allows you some flexibility.  It also states that each table in your DB can be configured independently. 
+ 
+ In your table . you have already inserted 71 billion records. now if you want to create partitions on the primary key column of your table, you can use alter table option. An example is given for your reference. 
+ 
+ 

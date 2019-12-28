@@ -1,0 +1,60 @@
+*** how-do-you-sort-a-tree-stored-using-the-nested-set-model ***
+
+ When I refer to nested set model I mean what is described  here. 
+ I need to build a new system for storing "categories" (I can't think of better word for it) in a user defined hierarchy.  Since the nested set model is optimized for reads instead of writes, I decided to use that.  Unfortunately during my research and testing of nested sets, I ran into the problem of how do I display the hierarchical tree with sorted nodes.  For example if I have the hierarchy: 
+ 
+ I want that to be sorted so that it displays as: 
+ 
+ Notice that the fabrication appears before research. 
+ Anyway, after a long search I saw answer such as "store the tree in a multi-dimensional array and sort it" and "resort the tree and serialized back into your nested set model" (I'm paraphrazing...).  Either way, the first solution is a horrible waste of RAM and CPU, which are both very finite resources...  The second solution just looks like a lot of painful code. 
+ Regardless, I was able to figure out how to (using the nested set model): 
+ 
+ Start a new tree in SQL 
+ Insert a node as a child of another node in tree 
+ Insert a node after a sibling node in the tree 
+ Pull the entire tree with the hierarchy structure from SQL 
+ Pull a subtree from a specific node (including root) in the hierarchy with or without a depth limit 
+ Find the parent of any node in the tree 
+ 
+ So I figured #5 and #6 could be used to do the sorting I wanted, and it could also be used to rebuild the tree in sorted order as well. 
+ However, now that I've looked at all of these things I've learned to do I see that #3, #5, and #6 could be used together to perform sorted inserts.  If I did sorted inserts it always be sorted.  However, if I ever change the sort criteria or I want a different sort order I'm back to square one. 
+ Could this just be the limitation of the nested set model?  Does its use inhibit in query sorting of the output? 
+ 
+ I think this is indeed a limitation of the nested set model. You can not easily sort the child nodes within their respective parent node, because the ordering of the result set is essential to reconstruct the tree structure. 
+ I think it is probably the best approach to keep the tree sorted when inserting, updating or deleting nodes. This even makes queries very fast, which is one of the main goals of this data structure. If you implement stored procedures for all operations, it is very easy to use. 
+ You can also reverse the sort order of a presorted tree. You just have to use   instead of  . 
+ If you really need to support another sort criteria, you could possible implement it by adding a second   and   index to each node and keep this sorted by the other criteria on every insert/update/delete. 
+ 
+ I have used Nested Sets a lot and I have faced the same problem often. What I do, and what I would recommend, is to just not sort the items in the database. Instead, sort them in the user interface. After you pulled all the nodes from the DB, you likely have to convert them into some hierarchical data structure, anyway. In that structure, sort all the arrays containing the node's children. 
+ For example, if your frontend is a Flex app, and the children of a node are stored in an ICollectionView, you can use the sort property to have them display the way you want. 
+ Another example, if your frontend is some output from a PHP script, you could have the children of each node in an array and use PHP's array sorting functions to perform your sorting. 
+ Of course, this only works if you don't need the actual db entries to be sorted, but do you? 
+ 
+ I have just finished writing the following which works for me in sorting an entire nested set tree.  
+ The sort (ideally) requires a view that lists the current level of each node in the tree and a procedure for swapping two nodes - both are included below, the sibling swap code comes from Joe Celkos ' Tree & Hierarchies' book which I strongly recommend to anyone using nested sets. 
+ The sort can be altered in the 'INSERT INTO @t' statement, here it is a simple alphanumeric sort on 'Name' 
+ This may be a poor way of doing it especially using the cursor for set based code but as I say it works for me, hope it helps. 
+ **UPDATE:**
+
+ Code below now shows version without using cusor. I see about 10x speed improvements 
+ 
+ 
+ Yes it is a limitation of the nested set model, since nested sets are a pre-ordered representation of a hierarchy. This pre-ordering is the reason that it's so quick for reads.
+The adjacency model, also described on the page you link to, provides for the most flexible sorting and filtering but with a significant performance impact. 
+ My preferred approach for inserts and moves in a nested set is to handle the affected branch as in the adjacency model: Get a list of the new siblings; find the right place in the list for the new node; and construct the required update statements (that being the bit where you really have to be careful). As for changing your ordering criteria: It's a one off batch job, so you can afford to blow some RAM and CPU on it, the most flexible answer would be to break the nested set representation down into an adjacency representation and rebuild the nested set from the adjacency based on new criteria. 
+ 
+ I believe that, in your case, where the nodes you want to swap don't have any descendants, you can simply swap the lft and rgt values around. Consider this tree: 
+ 
+ This could turn into this group of nested sets: 
+ 
+ Now consider you want to swap D and E. The following nested sets are valid and D and E are swapped: 
+ 
+ Swapping nodes that have subtrees cannot be done this way, of course, because you would need to update the childrens' lft and rgt values as well.  
+ 
+ You can sort thier when you render. I explained rendering here  How to render all records from a nested set into a real html tree 
+ 
+ See my simple solution from method of my class. $this->table->order is Nette framework code to get data from DB. 
+ 
+ 
+ Sorting Nested Sets has no limits and it's not difficult.  Just sort by the LEFT bower (anchor, whatever) and it's done.  If you have a LEVEL for each node, you can also pull-off correct indentation based on the Level. 
+ 

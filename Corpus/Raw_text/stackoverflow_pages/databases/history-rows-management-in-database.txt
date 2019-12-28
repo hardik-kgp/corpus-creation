@@ -1,0 +1,129 @@
+*** history-rows-management-in-database ***
+
+ As in many databases, i am designing a database that should keep record of previous versions of the rows changed in each table. 
+ The standard solution to this problem is to keep a history table for each data table,
+and whenever a row needs to be updated in the data table, a copy of the current row gets inserted to the history table and than the row in the data table gets updated. 
+ the disadvantages of this solution for me: 
+ 
+ maintenance of 2 tables instead of 1, (in case the structure of the table needs change) 
+ the application needs to know both of the tables instead of one 
+ names of the tables might need to be short to keep a convention of the table name and the history table name (SOME_TABLE, SOME_TABLE_HIST for example) 
+ 
+ I am considering a different solution and would like to know if it's ok.
+for each table, we add the column IS_LAST 
+ 
+ when a row gets inserted to the table, it will get inserted with IS_LAST=1. 
+ when a row gets updated, a copy of the original row will be duplicated to the same table with the change of IS_LAST=0, and the original row will get updated as needed (still keeping IS_LAST=1). 
+ 
+ assume that in my case, rows are updated at an average of 10 times.
+also assume that at least 90% of the actions performed by the application happens only on the recent version of the rows.  
+ my database is an Oracle 10g so to keep the "active" table slim, we can split the table to 2 partitions: the IS_LAST=1 partition, and the IS_LAST=0 partition. 
+ Is partitioning a good way of solving the history data keeping problem? 
+ Does this solution limits other partition potential to these tables? 
+ thanks! 
+ 
+ First question should be: what would you do with that data? If you don't have clear business requirement, don't do it. 
+ I did something similar and after 3 years of running there is about 20% of "valid data" and rest is "previous versions". And it is 10 million + 40 million records. In last three years we had 2 (two) requests to investigate history of changes and both times requests were silly - we record time stamp of record change and we were asked to check if persons worked overtime (after 5pm). 
+ Now, we are stuck with oversized database that contains 80% of data that nobody needs. 
+ **EDIT:**
+
+ Since you asked for possible solutions, I'll describe what we did. It's a bit different than solution you are considering. 
+ 
+ All tables have surrogate primary key.  
+ All primary keys are generated from single sequence. This works fine because Oracle can generate and cache numbers, so no performance problems here. We use ORM and we wanted each object in memory (and corresponding record in database) to have unique identifier 
+ We use ORM and mapping information between database table and class is in form of attributes. 
+ 
+ We record all changes in single archive table with following columns: 
+ 
+ id (surrogate primary key)   
+ time stamp 
+ original table 
+ id of original record 
+ user id 
+ transaction type (insert, update, delete) 
+ record data as varchar2 field
+
+ 
+ this is actual data in form of fieldname/value pairs. 
+ 
+ 
+ Thing works this way: 
+ 
+ ORM has insert/update and delete comands.  
+ we created one base class for all our business objects that overrides insert/update and delete commands 
+
+ 
+ insert/update/delete commands create string in form of fieldname/value pairs using reflection. Code looks for mapping information and reads field name, associated value and field type. Then we create something similar to JSON (we added some modifications). When string representing current state of object is created, it is inserted into archive table. 
+ 
+ when new or updated object is saved to database table, it is saved to his target table and at the same time we insert one record with current value into archive table. 
+ when object is deleted, we delete it from his target table and at the same time we insert one record in archive table that have transaction type = "DELETE" 
+ 
+ Pro: 
+ 
+ we don't have archive tables for each table in database. We also don't need to worry about updating archive table when schema changes.  
+ complete archive is separated from "current data", so archive does not impose any performance hit on database. We put it onto separate tablespace on separate disk and it works fine. 
+ we created 2 forms for viewing archive:
+
+ 
+ general viewer that can list archive table according to filter on archive table. Filter data user can enter on form (time span, user, ...). We show each record in form fieldname/value and each change is color coded. Users can see all versions for each record and they can see who and when made changes.  
+ invoice viewer - this one was complex, but we created form that shows invoice very similar to original invoice entry form, but with some additional buttons that can show different generations. It took considerable effort to create this form. Form was used few times and then forgotten because it was not needed in current workflow.  
+ 
+ code for creating archive records is located in single C# class. There is no need for triggers on every table in database. 
+ performance is very good. At peak times, system is used by around 700-800 users. This is ASP.Net application. Both ASP.Net and Oracle are running on one dual XEON with 8Gb RAM.  
+ 
+ Cons: 
+ 
+ single table archive format is harder to read than solution where there is one archive table for each of the data tables. 
+ search on non-id field in archive table is hard - we can use only   operator on string. 
+ 
+ So, again,  check the requirements on archive . It is not trivial task, but gains and use can be minimal. 
+ 
+ I'd create two tables: one for IsLast kind of values and one for historical ones. Then I'd setup a trigger that inserts value into the historical table every time the isLast is updated. 
+ 
+ If I have 1 or 2 tables of history to keep I would do it exactly as Tuinstoel has suggested. But if you had dozens of tables to do this on I would move more toward a solution described by zendar. The reason is this. 
+ How do you answer questions like, 
+ 
+ What changed since yesterday when everything was fine? 
+ Has user SMITHG made any changes? 
+ 
+ Those questions require a one query per table, whether it's a separate _hist table or a partition inside the table. No matter, it's some huge list of queries. If you have a central table that looks like this, then it's a piece of pie.  
+ 
+ Inserts have only after values,   
+ Deletes have only before values, 
+ Update have both but only for the columns which changed. 
+ Some variations 
+ You can include a column for I/U/D if you prefer
+You can exclude column values for Inserts and just record the PK and I since the correct values are still in the table. 
+ Since this is Oracle you could partition on table_name, so in essence you actually do have one hist "table" per real table. 
+ You can easily answer the above questions, which I believe are, quite simply, the most often asked questions. And it handles every question you can answer with partitions or _hist tables. 
+ 
+ Since you are using Oracle, you could check  Oracle Flashback Technology . It records changes of all changes in database, both data and structure. It also records time stamp and user name.  
+ I didn't use it, but it looks capable. 
+ 
+ The main limitation that comes to my mind is that a substantial portion of your table will be history data, which means indexing concerns and potentially introducing additional complexity into your CRUD queries. 
+ Is there some particular reason you don't want to use what seems to be the usual solution to this situation? 
+ 
+ How will you define primary keys?  There will be many rows with the same  primary key due to keaping the history rows in the same table. 
+ Also you don't seem to have a way to know the order of your history rows when a single "real" row gets changed more the once. 
+ (One project I worked on, we generated all the history tables and triggers using codesmith, this worked very well.) 
+ 
+ I would use the   partition, and the   partition system. Because it is partitioned it will be fast (partition pruning) and you will never have to query a union of the normal table and the history table.  
+ I would use IS_LAST='Y'/'N' and not 1/0.  1 and 0 are meaningless.  
+ There is a special trick that can help guarrantee that there is max one row with   per entity: You can create a unique function based index with a function that returns null when   and return the id when  . It is explained here:  http://www.akadia.com/services/ora_function_based_index_1.html   
+ 
+ Would tracking it based on time help you achieve the effect you are looking for on a daily basis and at the end of the business or at mid night depending on the lowest transaction volume time if you executed a procedure to move trailing data into history table then would it help ?? that way all your updates would be inserts and no locking is required as well. Regards, Andy 
+ 
+ It all depends on what you have: 
+ 
+ Are you running Standard or Enterprise Edition?  Partitioning is only included as an option on top of Enterprise Edition.  More info on that  here . 
+ You might consider going with  Workspace Manager  to do it if you are looking for an easy solution where you don't have to maintain your own code.  However, there are some limitations I have found (e.g. Oracle Text index maintenance appears to be difficult, if not impossible, although I only have looked at it on 10gR2). 
+ Otherwise, I would go with either zvolkov's solution (live table with a trigger writing to history table) or Mark Brady's solution (change log).  I have used both patterns and each has its pros and cons. 
+ @zendar: Flashback query only works for as far back as you have undo.  It isn't a long-term solution, only a solution to look back at most a few hours (depending on how much undo retention you specified). 
+ 
+ 
+ As with others, I use an ORM (Propel) with a Base Object containing custom save & delete methods. These methods override the standard save & delete that come with the ORM. They check to see which columns have changed, and create 1 row in the change table for each changed column. 
+ Schema for   table:
+change_pk, user_fk, user_name, session_id, ip_address, method, table_name, row_fk, field_name, field_value, most_recent, date_time 
+ Example:
+1, 4232, 'Gnarls Barkley', 'f2ff3f8822ff23', '234.432.324.694', 'UPDATE', 'User', 4232, 'first_name', 'Gnarles', 'Y', '2009-08-20 10:10:10'; 
+ 

@@ -1,0 +1,91 @@
+*** how-to-check-if-a-table-exists-in-a-given-schema ***
+
+ Postgres 8.4 and greater databases contain common tables in   schema and company specific tables in   schema. 
+  schema names always start with   and end with the company number. 
+So there may be schemas like: 
+ 
+ An application always works with a single company. 
+The   is specified accordingly in odbc or npgsql connection string, like: 
+ 
+ How would you check if a given table exists in a specified   schema? 
+ eg: 
+ 
+ should return  , and 
+ 
+ should return  . 
+ In any case, the function should check only   schema passed, not other schemas. 
+ If a given table exists in both   and the passed schema, the function should return  . 
+It should work for Postgres 8.4 or later. 
+ 
+ It depends on what you want to test  **exactly**
+. 
+ **Information schema?**
+
+ To find "whether the table exists" ( no matter who's asking ), querying the information schema ( ) is  **incorrect**
+, strictly speaking, because ( per documentation ): 
+ 
+ Only those tables and views are shown that the current user has access
+  to (by way of being the owner or having some privilege). 
+ 
+ The query  demonstrated by @kong  can return  , but the table can still exist. It answers the question: 
+ **How to check whether a table (or view) exists, and the current user has access to it?**
+
+ 
+ The information schema is mainly useful to stay portable across major versions and across different RDBMS. But the implementation is slow, because Postgres has to use sophisticated views to comply to the standard (  is a rather simple example). And some information (like OIDs) gets lost in translation from the system catalogs - which  actually  carry all information. 
+ **System catalogs**
+
+ Your question was: 
+ **How to check whether a table exists?**
+
+ 
+ Use the system catalogs   and   directly, which is also considerably faster. However,  per documentation on  : 
+ 
+ The catalog   catalogs tables and most everything else that has
+  columns or is otherwise similar to a table. This includes  **indexes**
+ (but
+  see also  ),  **sequences**
+,  **views**
+,  **materialized views**
+,  **composite
+  types**
+, and  **TOAST tables**
+; 
+ 
+ For this particular question you can also use the  system view  . A bit simpler and more portable across major Postgres versions (which is hardly of concern for this basic query): 
+ 
+ Identifiers have to be unique among  all  objects mentioned above. If you want to ask: 
+ **How to check whether a name for a table or similar object in a given schema is taken?**
+
+ 
+ 
+ Related answer on dba.SE discussing  **"Information schema vs. system catalogs"**
+
+ 
+ **Alternative: cast to **
+
+ 
+ This  raises an exception  if the (optionally schema-qualified) table (or other object occupying that name) does not exist. 
+ If you do not schema-qualify the table name, a cast to   defaults to the   and returns the OID for the first table found - or an exception if the table is in none of the listed schemas. Note that the system schemas   and   (the schema for temporary objects of the current session) are automatically part of the  . 
+ You can use that and catch a possible exception in a function. Example:   
+ 
+ Check if sequence exists in Postgres (plpgsql) 
+ 
+ A query like above avoids possible exceptions and is therefore slightly faster. 
+ ** in Postgres 9.4+**
+
+ Much simpler now: 
+ 
+ Same as the cast,  **but**
+ it returns ... 
+ 
+ ... null rather than throwing an error if the name is not found 
+ 
+ 
+ Perhaps use  information_schema : 
+ 
+ 
+ **For PostgreSQL 9.3 or less...Or who likes all normalized to text**
+
+ Three flavors of my old SwissKnife library:  ,   and  . All checks from  pg_catalog.pg_class  table, and returns standard universal datatypes ( boolean ,  text  or  text []). 
+ 
+ 

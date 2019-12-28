@@ -1,0 +1,90 @@
+*** sql-index-for-date-range-query ***
+
+ For a few days, I've been struggling with improving the performance of my database and there are some issues that I'm still kind a confused about regarding indexing in a SQL Server database. 
+ I'll try to be as informative as I can. 
+ My database currently contains about 100k rows and will keep growing, therfore I'm trying to find a way to make it work faster. 
+ I'm also writing to this table, so if you suggestion will drastically reduce the writing time please let me know. 
+ Overall goal is to select all rows with a specific names that are in a date range. 
+ That will usually be to select over 3,000 rows out of a lot lol ... 
+ Table schema: 
+ 
+ This is the SQL query I'm using: 
+ 
+ As I understood, my best approach to improve efficency without hurting the writing time as much would be to create a nonclustered index on the   and  . 
+ Which I did like such, index schema: 
+ 
+ Now we are getting to the tricky part which got me completely lost, the index above sometimes works, sometime half works and sometime doesn't work at all.... 
+ (not sure if it matters but currently 90% of the database rows has the same Source, although this won't stay like that for long) 
+ 
+ With the query below, the index isn't used at all, I'm using SQL Server 2014 and in the Execution Plan it says it only uses the clustered index scan: 
+ 
+ With this query, the index isn't used at all, although I'm getting a suggestion from SQL Server to create an index with the date first and source second... I read that the index should be made by the order the query is? Also it says to include all the columns Im selecting, is that a must?... again I read that I should include in the index only the columns I'm searching. 
+ 
+ SQL Server index suggestion -  
+ 
+ 
+ Now I tried using the index SQL Server suggested me to make and it works, seems like it uses 100% of the nonclustered index using both the queries above. 
+ I tried to use this index but deleting the included columns and it doesn't work... seems like I must include in the index all the columns I'm selecting? 
+ BTW it also work when using the index I made if I include all the columns. 
+ To summarize: seems like the order of the index didn't matter, as it worked both when creating   and  
+ But for some reason its a must to include all the columns... (which will drastically affect the writing to this table?) 
+ Thanks a lot for reading, My goal is to understand why this stuff happens and what I should do otherwise (not just the solution as I'll need to apply it on other projects as well ). 
+ Cheers :) 
+ 
+ Indexing in SQL Server is part know-how from long experience (and many hours of frustration), and part black magic. Don't beat yourself up over that too much - that's what a place like SO is ideal for - lots of brains, lots of experience from many hours of optimizing, that you can tap into. 
+ 
+ 
+ I read that the index should be made by the order the query is?  
+ 
+ 
+ If you read this - it is absolutely  **NOT TRUE**
+ - the order of the columns  is  relevant - but in a different way: a compound index (made up from multiple columns) will only ever be considered if you specify the  **n left-most columns**
+ in the index definition in your query. 
+ Classic example: a phone book with an index on (city, lastname, firstname). Such an index  might be used : 
+ 
+ in a query that specifies all three columns in its   clause 
+ in a query that uses   and   (find all "Miller" in "Detroit") 
+ or in a query that only filters by city  
+ 
+ but it can  **NEVER EVER**
+ be used if you want to search only for   .....  **that's**
+ the trick about compound indexes you need to be aware of. But if you always use all columns from an index, their ordering is typically not really relevant - the query optimizer will handle this for you. 
+ 
+ As for the  **included columns**
+ - those are stored  **only**
+ in the leaf level of the nonclustered index - they are  **NOT**
+ part of the search structure of the index, and you cannot specify filter values for those included columns in your   clause. 
+ The main benefit of these included columns is this: if you search in a nonclustered index, and in the end, you actually find the value you're looking for - what do you have available at that point? The nonclustered index will store the columns in the non-clustered index definition (  and  ), and it will store the  **clustering key**
+ (if you have one - and you  **should!**
+) - but nothing else. 
+ So in this case, once a match is found, and your query wants  **everything**
+ from that table, SQL Server has to do what is called a  **Key lookup**
+ (often also referred to as a  bookmark lookup ) in which it takes the clustered key and then does a  **Seek**
+ operation against the clustered index, to get to the actual data page that contains all the values you're looking for. 
+ If you have  **included columns**
+ in your index, then the leaf level page of your  **non-clustered**
+ index contains 
+ 
+ the columns as defined in the nonclustered index 
+ the clustering key column(s) 
+ **all those additional columns**
+ as defined in your   statement 
+ 
+ If those columns "cover" your query, e.g. provide all the values that your query needs, then SQL Server is done once it finds the value you searched for in the nonclustered index - it can take all the values it needs from that leaf-level page of the nonclustered index, and it  **does NOT need**
+ to do another (expensive) key lookup into the clustering index to get the actual values. 
+ Because of this, trying to always  **explicitly specify**
+ only those columns you  really need  in your   can be beneficial - in this case, you  might be able  to create an efficient  **covering index**
+ that provides all the values for your   - always using   makes that really hard or next to impossible..... 
+ 
+ In general, you want the index to be from most selective (i.e. filtering out the most possible records) to least selective; if a column has low cardinality, the query optimizer may ignore it. 
+ That makes intuitive sense - if you have a phone book, and you're looking for people called "smith", with the initial "A", you want to start with searching for "smith" first, and then the "A"s, rather than all people whose initial is "A" and then filter out those called "Smith". After all, the odds are that one in 26 people have the initial "A". 
+ So, in your example, I guess you have a wide range of values in short date - so that's the first column the query optimizer is trying to filter out. You say you have few different values in "source", so the query optimizer may decide to ignore it; in that case, the second column in that index is no use either. 
+ The order of where clauses in the index is irrelevant - you can swap them round and achieve the exact same results, so the query optimizer ignores them. 
+ EDIT: 
+ So, yes, make the index. Imagine you have a pile of cards to sort - in your first run, you want to remove as many cards as possible. Assuming it's all evenly spread - if you have 1000 separate short_dates over a million rows, that means you end up with 1000 items if your first run starts on short_date; if you sort by source, you have 100000 rows. 
+ 
+ The included columns of an index is for the columns you are selecting.
+Due to the fact that you do   (which isn't good practice), the index won't be used, because it would have to lookup the whole table to get the values for the columns. 
+ For your scenario, I would drop the default clustered index (if there is one) and create a new clustered index with the following statement: 
+ 
+ 

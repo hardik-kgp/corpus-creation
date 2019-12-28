@@ -1,0 +1,56 @@
+*** best-practices-storing-a-workflow-state-of-an-item-in-a-database ***
+
+ I have a question about best practices regarding how one should approach storing complex workflow states for processing tasks in a database.  I've been looking online to no avail, so I figured I'd ask the community what they thought was best. 
+ This question comes out of the same "BoxItem" example I gave in a prior question.  This "BoxItem" is being tracked in my system as various tasks are performed on it.  The task may take place over several days and with human interaction, so the state of the BoxItem must be persisted.  Who did the task (if applicable), and when the task was done must also be tracked. 
+ At first, I approached this by adding three fields to the "BoxItems" table for every human-interactive task that needed to be done: 
+ Is TaskName Complete 
+ Date TaskName Complete 
+ User TaskName Complete 
+ This worked when the workflow was simple... but now that it has grown to a complex process (> 10 possible human interactions in the flow... about half of which are optional, and may or may not be done for the BoxItem, which resulted in me beginning to add "Do TaskName " fields as well for those optional tasks), I've found that what should've been a simple table now has 40 or so field devoted entirely to the retaining of this state information. 
+ I find myself asking if there isn't a better way to do it... but I'm at a loss. 
+ My first thought was to make a generic "BoxItemTasks" table which defined the tasks that may be done on a given box, but I still would need to save the Date and User information individually, so it didn't really help. 
+ My second thought was that perhaps it didn't matter, and I shouldn't worry if this table has 40 or more fields devoted to state retaining... and maybe I'm just being paranoid.  But it feels like that's a lot of information to retain. 
+ Anyways, I'm at a loss as far as what a third option might be, or if one of the two options above is actually reasonable.  I can see this workflow potentially getting even more complex in the future, and for each new task I'm going to need to add 3-4 fields just to support the tracking of it... it feels like it's spiraling out of control. 
+ What would you do in this situation? 
+ I should note that this is maintenance of an existing system, one that was built without an ORM, so I can't just leave it up to the ORM to take care of it. 
+ EDIT: 
+ Kev, are you talking about doing something like this: 
+ **BoxItems**
+
+ (PK) BoxItemID 
+ (Other irrelevant stuff) 
+ **BoxItemActions**
+
+ (PK) BoxItemID 
+ (PK) BoxItemTaskID 
+ IsCompleted 
+ DateCompleted 
+ UserCompleted 
+ **BoxItemTasks**
+
+ (PK) TaskType 
+ Description (if even necessary) 
+ Hmm... that would work... it would represent a need to change how I currently approach doing SQL Queries to see which items are in what state, but in the long term something like this looks like it would work better (without having to make a fundamental design change like the Serialization idea represents... though if I had the time, I'd like to do it that way I think.). 
+ So is this what you were mentioning Kin, or am I off on it? 
+ EDIT: Ah, I see your idea as well with the "Last Action" to determine the current state... I like it!  I think that might work for me... I might have to change it up a little bit (because at some point tasks happen concurrently), but the idea seems like a good one! 
+ EDIT FINAL:  So in summation, if anyone else is looking this up in the future with the same question... it sounds like the serialization approach would be useful if your system has the information pre-loaded into some interface where it's queryable (i.e. not directly calling the database itself, as the ad-hoc system I'm working on does), but if you don't have that, the additional tables idea seems like it should work well!  Thank you all for your responses! 
+ 
+ If I'm understanding correctly, I would add the BoxItemTasks table (just an enumeration table, right?), then a BoxItemActions table with foreign keys to BoxItems and to BoxItemTasks for what type of task it is.  If you want to make it so that a particular task can only be performed once on a particular box item, just make the (Items + Tasks) pair of columns be the primary key of BoxItemActions. 
+ (You laid it out much better than I did, and kudos for correctly interpreting what I was saying.  What you wrote is exactly what I was picturing.) 
+ As for determining the current state, you could write a trigger on BoxItemActions that updates a single column BoxItems.LastAction.  For concurrent actions, your trigger could just have special cases to decide which action takes recency. 
+ 
+ As the previous answer suggested, I would break your table into several. 
+ BoxItemActions, containing a list of actions that the work flow needs to go through, created each time a BoxItem is created.  In this table, you can track the detailed dates \ times \ users of when each task was completed. 
+ With this type of application, knowing where the Box is to go next can get quite tricky, so having a 'Map' of the remaining steps for the Box will prove quite helpful.  As well, this table can group like crazy, hundreds of rows per box, and it will still be very easy to query. 
+ It also makes it possible to have 'different paths' that can easily be changed.  A master data table of 'paths' through the work flow is one solution, where as each box is created, the user has to select which 'path' the box will follow.  Or you could set up so that when the user creates the box, they select tasks are required for this particular box.  Depends on our business problem. 
+ 
+ How about a hybrid of the serialization and the database models. Have an XML document that serves as your master workflow document, containing a node for each step with attributes and elements that detail it's name, order in the process, conditions for whether it's optional or not, etc. Most importantly each step node can have a unique step id. 
+ Then in your database you have a simple two table structure. The BoxItems table stores your basic BoxItem data. Then a BoxItemActions table much like in the solution you marked as the answer.  
+ It's essentially similar to the solution accepted as the answer, but instead of a BoxItemTasks table to store the master list of tasks, you use an XML document that allows for some more flexibility for the actual workflow definition. 
+ 
+ For what it's worth, in BizTalk they "dehydrate" long-running message patterns (workflows and the like) by binary serializing them to the database. 
+ 
+ I think I would serialize the Workflow object to XML and store in the database with an ID column.  It may be more difficult to report on, but it sounds like it may work in your case. 
+ 
+ For this kind of problem, consider the database schema shown in  http://www.databaseanswers.org/data_models/workflow/index.htm  which models a series of events in a busniess process. 
+ 

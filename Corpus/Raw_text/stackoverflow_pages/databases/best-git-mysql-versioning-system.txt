@@ -1,0 +1,21 @@
+*** best-git-mysql-versioning-system ***
+
+ I've started using git with a small dev team of people who come and go on different projects; it was working well enough until we started working with Wordpress.  Because Wordpress stores a lot of configurations in MySQL, we decided we needed to include that in our commits.   
+ This worked well enough (using msyql dump on pre-commits, and pushing the dumped file into mysql on post-checkout) until two people made modifications to plugins and committed, then everything broke again. 
+ I've looked at every solution I could find, and thought Liquibase was the closest option, but wouldn't work for us.  It requires you to specify schema in XML, which isn't really possible because we are using plugins which insert data/tables/modifications automatically into the DB. 
+I plan on putting a bounty on it in a few days to see if anyone has the "goldilocks solution" of: 
+ **The question:**
+
+Is there a way to version control a MySQL database semantically (not using diffs EDIT: meaning that it doesn't just take the two versions and diff it, but instead records the actual queries run in sequence to get from the old version to the current one) without the requirement of a developer written schema file, and one that can be merged using git. 
+ I know I can't be the only one with such a problem, but hopefully there is somebody with a solution? 
+ 
+ The proper way to handle db versioning is through a version script which is additive-only. Due to this nature, it will conflict all the time as each branch will be appending to the same file. You want that. It makes the developers realize how each others' changes affect the persistence of their data. Rerere will ensure you only resolve a conflict once though. (see my blog post that touches on rerere sharing:  http://dymitruk.com/blog/2012/02/05/branch-per-feature/ ) 
+ Keep wrapping each change within a if then clause that checks the version number, changes the schema or modifies lookup data or something else, then increments the version number. You just keep  doing this for each change. 
+ in psuedo code, here is an example. 
+ 
+ The benefit of this is that you can automatically run this script after a successful build of your test project if you're using a static language - it will always roll you up to the latest. All acceptance tests should pass if you just updated to the latest version. 
+ The question is, how do you work on 2 different branches at the same time? What I have done in the past is just spun up a new instance that's delimited in the db name by the branch name. Your config file is cleaned (see git smudge/clean) to set the connection string to point to the new or existing instance for that branch. 
+ If you're using an ORM, you can automate this script generation as, for example, nhibernate will allow you to export the graph changes that are not reflected in the db schema yet as a sql script. So if you added a mapping for the customer class, NHibernate will allow you to generate the table creation script. You just script the addition of the if-then wrapper and you're automated on the feature branch. 
+ The integration branch and the release candidate branch have some special requirements that will require wiping and recreating the db if you are resetting those branches. That's easy to do in a hook by ensuring that the new revision   the old revision. If not, wipe and regenerate. 
+ I hope that's clear. This has worked well in the past and requires the ability for each developer to create and destroy their own instances of dbs on their machines, although could work on a central one with additional instance naming convention. 
+ 

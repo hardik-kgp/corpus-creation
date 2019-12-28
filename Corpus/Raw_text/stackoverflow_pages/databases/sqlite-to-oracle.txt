@@ -1,0 +1,26 @@
+*** sqlite-to-oracle ***
+
+ I have a SQLite database in one system, I need to extract the data stored in SQLite to Oracle database. How do I do this? 
+ 
+ Oracle provides product called the  Oracle Database Mobile Server  (previously called Oracle Database Lite) which allows you to synchronize between a SQLite and an Oracle database. It provides scalable bi-directional sync, schema mapping, security, etc. The Mobile Server supports both synchronous and asynchronous data sync. If this is more than a one-time export and you need to keep your SQLite and Oracle Databases in sync, this is a great tool! 
+ Disclaimer: I'm one of the Product Managers for Oracle Database Mobile Server, so I'm a bit biased. However, the Mobile Server really is a great tool to use for keeping your SQLite (or Berkeley DB) and Oracle Databases in sync.  
+ 
+ You'll have to convert the SQLite to a text file (not certain of the format) and then use Oracle to load the database from text (source is  http://www.orafaq.com/wiki/SQLite ). You can use the   command from the SQLite interactive shell to dump to a text file (see  the docs  for syntax). 
+ 
+ SQL Loader is a utility that will read a delimited text file and import it into an oracle database.  You will need to map out how each column from your flat file out of sqlite matches to the corresponding one in the Oracle database. Here is a good  FAQ  that should help you get started. 
+ 
+ If you are a developer, you could develop an application to perform the sync.  You would do  
+   
+ to get the table names, then you could re-create them in Oracle (you can do   in Oracle first, to avoid a conflict, assuming SQLite will be authoritative) with   commands.  Getting the columns for each one takes  
+   
+ And then you have to parse the result: 
+ 
+ A   can be used to collect the table name with its columns to create your   command.  To add the values, it would just be a matter of doing   for each of the tables during your loop through the table names you got back from the initial query.  You would iterate the columns of the rows of the datatable you were returned and add the values to the  : 
+  + columnA, columnB, etc. +   datarow[0], datarow[1], etc. +  . 
+ Not exactly like that, though - you fill in the data by appending the column name and its data as you run through the loops.  You can get the column names by appending   in that   loop, above.  Each column value is then set using a   loop that gives you each  .  If all you have are string fields, it's easy, you just add   to your   for each column value in your query like I have below.  Then you run the query after collecting all of the column values for each row.  You use a new   for each row - it needs to get reset to   + columnA, columnB, etc. +   prior to each new row, so the new column values can be appended. 
+ If you have mixed datatypes (i.e.  ,  , etc.), you'll need to determine the column types along the way, store it in a list or array, then use a counter to determine the index of that list/array slot and get the type, so you know how to translate your object into something Oracle can use - whether that means simply adding   to the result, with formatting, for a date (since SQLite stores these as date strings with the format  ), or adding it to an   for a   and sending that along to a   function.  (I did not go into this, below.) 
+ Putting all of this together yields this: 
+ 
+ All of this assumes you have a   void function that can take a SQL command and run it against an Oracle DB, and a   function that can return a DataTable from your SQLite DB by passing it a SQL command. 
+ Note that this code is untested, as I wrote it directly in this post, but it is based heavily on code I wrote to sync Oracle into SQLite, which has been tested and works. 
+ 

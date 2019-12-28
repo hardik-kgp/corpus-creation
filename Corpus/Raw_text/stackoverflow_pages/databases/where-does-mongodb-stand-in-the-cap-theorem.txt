@@ -1,0 +1,47 @@
+*** where-does-mongodb-stand-in-the-cap-theorem ***
+
+ Everywhere I look, I see that MongoDB is CP.
+But when I dig in I see it is eventually consistent.
+Is it CP when you use safe=true? If so, does that mean that when I write with safe=true, all replicas will be updated before getting the result? 
+ 
+ MongoDB is strongly consistent by default - if you do a write and then do a read, assuming the write was successful you will always be able to read the result of the write you just read.  This is because MongoDB is a single-master system and all reads go to the primary by default.  If you optionally enable reading from the secondaries then MongoDB becomes eventually consistent where it's possible to read out-of-date results. 
+ MongoDB also gets high-availability through automatic failover in replica sets:  http://www.mongodb.org/display/DOCS/Replica+Sets 
+ 
+ This should help answer the question, along with other NoSQL and other persistent storage systems. 
+ 
+ 
+ I agree with Luccas post. You can't just say that MongoDB is CP/AP/CA, because it actually is a  **trade-off between C, A and P, depending on both database/driver configuration and type of disaster**
+: here's a visual recap, and below a more detailed explanation. 
+ 
+ **Consistency:**
+
+ MongoDB is strongly consistent when you use a single connection or the correct  Write / Read Concern Level  ( Which will cost you execution speed ). As soon as you don't meet those conditions (especially when you are reading from a secondary-replica) MongoDB becomes Eventually Consistent.  
+ **Availability:**
+
+ MongoDB gets high availability through  Replica-Sets . As soon as the primary goes down or gets unavailable else, then the secondaries will determine a new primary to become available again. There is an disadvantage to this: Every write that was performed by the old primary, but not synchronized to the secondaries will be  rolled back  and saved to a rollback-file, as soon as it reconnects to the set(the old primary is a secondary now). So in this case some consistency is sacrificed for the sake of availability. 
+ **Partition Tolerance:**
+
+ Through the use of said Replica-Sets MongoDB also achieves the partition tolerance: As long as more than half of the servers of a Replica-Set is connected to each other,  a new primary can be chosen . Why? To ensure two separated networks can not both choose a new primary. When not enough secondaries are connected to each other you can still read from them (but consistency is not ensured), but not write. The set is practically unavailable for the sake of consistency.  
+ 
+ As a  brilliant new article  showed up and also some  awesome experiments by Kyle  in this field, you should be careful when labeling MongoDB, and other databases, as C or A.  
+ Of course CAP helps to track down without much words what the database prevails about it, but people often forget that C in CAP means atomic  consistency (linearizability), for example. And this caused me lots of pain to understand when trying to classify. So, besides MongoDB give strong consistency, that doesn't mean that is C. In this way, if one make this classifications, I  recommended to also give more depth in how it actually works to not leave doubts. 
+ 
+ Yes, it is CP when using  . This simply means, the data made it to the masters disk.
+If you want to make sure it also arrived on some replica, look into the 'w=N' parameter where N is the number of replicas the data has to be saved on. 
+ see  this  and  this  for more information. 
+ 
+ I'm not sure about P for Mongo. Imagine situation: 
+ 
+ Your replica gets split into two partitions. 
+ Writes continue to both sides as new masters were elected 
+ Partition is resolved - all servers are now connected again 
+ What happens is that new master is elected - the one that has highest oplog, but the data from the other master gets reverted to the common state before partition and it is dumped to a file for manual recovery 
+ all secondaries catch up with the new master 
+ 
+ The problem here is that the dump file size is limited and if you had a partition for a long time you can loose your data forever.  
+ You can say that it's unlikely to happen - yes, unless in the cloud where it is more common than one may think. 
+ This example is why I would be very careful before assigning any letter to any database. There's so many scenarios and implementations are not perfect. 
+ If anyone knows if this scenario has been addressed in later releases of Mongo please comment! (I haven't been following everything that was happening for some time..) 
+ 
+ Mongodb never allows write to secondary. It allows optional reads from secondary but not writes. So if your primary goes down, you can't write till a secondary becomes primary again. That is how, you sacrifice High Availability in CAP theorem. By keeping your reads only from primary you can have strong consistency. 
+ 

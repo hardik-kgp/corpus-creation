@@ -1,0 +1,54 @@
+*** why-does-an-insert-that-groups-by-the-primary-key-throw-a-primary-key-constraint ***
+
+ I have an insert statement that's throwing a primary key error but I don't see how I could possibly be inserting duplicate key values. 
+ First I create a temp table with a primary key. 
+ 
+ Then I pull prices from the Prices table, grouping by idIsbn, which is the primary key in the temp table. 
+ 
+ I understand that grouping by idIsbn by definition makes it unique. The idIsbn in the prices table is:  . 
+ But every once in a while when I run this query I get this error: 
+ 
+ NOTE: I've got a lot of questions about timing. I will select this statement, press F5, and no error will occur. Then I'll do it again, and it will fail, then I'll run it again and again and it will succeed a couple times before it fails again. I guess what I'm saying is that I can find no pattern for when it will succeed and when it won't. 
+ How can I be inserting duplicate rows if (A) I just created the table brand new before inserting into it and (B) I'm grouping by the column designed to be the primary key? 
+ For now, I'm solving the problem with  , but I'd really like to know the root cause of the problem. 
+ Here is what I'm actually seeing in my SSMS window. There is nothing more and nothing less: 
+ 
+ @@Version is: 
+ 
+ Execution Plan:
+ 
+ Here is an example of what it looks like when it runs fine. Here I'm using READ COMMITTED, but it doesn't matter b/c I get the error no matter whether I read it committed or uncommited.
+ 
+ Here is another example of it failing, this time w/ READ COMMITTED. 
+ 
+ Also: 
+ 
+ I get the same error whether I'm populating a temp table or a
+persistent table. 
+ When I add   to the end of the insert it seems to fail every time, though I can't be exhaustively sure of that b/c I can't run it for infinity. But it seems to be the case. 
+ 
+ Here is the definition of the price table. Table has 25M rows. 108,529 updates in the last hour. 
+ 
+ And the two non-clustered indexes: 
+ 
+ 
+ You hadn't supplied your table structure. 
+ This is a repro with some assumed details that causes the problem at read committed (NB: now you have supplied the definition I can see in your case updates to the   column will move rows around in the   index if that's the one being seeked) 
+ **Connection 1 (Set up tables)**
+
+ 
+ **Connection 2**
+
+ **Concurrent DataModifications that move a row from the beginning of the seeked range **
+** to the end **
+** and back again repeatedly.**
+
+ 
+ **Connection 3 (Do the insert into a temp table with a unique constraint)**
+
+ 
+ 
+ The plan has no aggregate as there is a unique constraint on idIsbn (a unique constraint on idIsbn,idMarketplace would also work) therefore the group by can be optimised out as there are no duplicate values. 
+ But at read committed isolation level shared row locks are released as soon as the row is read. So it is possible for a row to move places and be read a second time by the same seek or scan. 
+ The index   doesn't explicitly include   as a secondary key column but as it is not declared unique SQL Server silently includes the clustering key behind the scenes, hence updating that column value can move rows around in it. 
+ 

@@ -1,0 +1,51 @@
+*** how-to-release-possible-postgres-row-locks ***
+
+ I ran an update statement on a large PostgreSQL table through the phpPgAdmin interface. This timed out as it ran for too long. 
+ I can now update some rows from that table but not all. Trying to update some rows will hang. 
+ Are the rows locked? How can I allow these rows to be updated? 
+ 
+ What version of PostgreSQL are you running?  The following assumes 8.1.8 or later (it may apply to earlier versions too, I don't know). 
+ I presume that you mean that phpPgAdmin timed out -- the PostgreSQL backend will take as long as it takes to complete a query/update.  In that case, it's possible that the original session is still alive and the UPDATE query is still running.  I suggest running the following query (taken from  chapter 24 of the PostgreSQL docs ) on the machine that hosts the PostgreSQL server process, to see whether the session is still alive: 
+ 
+ Several rows should appear: 1 for the   master process, and 1 each for "writer", "stats buffer", and "stats collector" processes.  Any remaining lines are for processes serving DB connections.  These lines will contain the username and database name. 
+ Hopefully, from that you can see whether the session you performed the original UPDATE in is still hanging around.  Although in theory you could find more detailed info by  ing from the system view  , by default PostgreSQL is not set up to populate the most useful fields (such as   and  ).  See chapter 24 for how to enable this in the future. 
+ If you see the session is still there, kill it.  You will need to be logged in as the user running the process (usually  ) or root to do so -- if you don't run the server yourself, get your DBA to do this for you. 
+ One more thing: for updating rows in a table, PostgreSQL avoids using locks.  Instead, it allows every writing transaction to create a new "version" of the DB, which becomes the "current version" when the transaction is committed, provided it doesn't conflict with updates made in the meantime by other transactions.  So I suspect the "hanging" you're seeing is caused by something else -- though what, I'm not sure.  (Have you checked the obvious things, like whether the disk partition containing the DB is full?) 
+ 
+ It's possible to see the locks. 
+ Here is a view to make it a bit easier than using pg_locks directly:  
+ 
+ Then you just select from the view: 
+ 
+ And kill it with: 
+ 
+ Other solutions:
+ http://wiki.postgresql.org/wiki/Lock_Monitoring 
+ 
+ **Simple:**
+
+ Get the active locks from pg_locks: 
+ 
+ select t.relname,l.locktype,page,virtualtransaction,pid,mode,granted
+  from pg_locks l, pg_stat_all_tables t where l.relation=t.relid order
+  by relation asc; 
+ 
+ Copy the pid(ex: 14210) from above result and substitute in the below command. 
+ 
+ SELECT pg_terminate_backend('14210') 
+ 
+ 
+ To release possible locks from Postgres I generally follow these in sequence. 
+ 
+ Find long-running queries in your DB by running the following query. This will help you fetch the PIDs of the long-running query which is blocking your update.  
+ 
+ or if you can find out which processes are holding a lock on a particular table by running this query  
+ 
+ Once you figure out the PID which is 'active' and blocking your update you can kill it by running this query. It takes some time to kill the process. 
+ 
+ Check by running Query 2 if the process is killed. If it still is active then kill this process by running this query. 
+ 
+ 
+ 
+ i've never worked with PostreSql but if it's similar to others i'd say you have to kill the connection/end the transaction that's holding the locks. 
+ 

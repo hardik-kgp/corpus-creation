@@ -1,0 +1,40 @@
+*** cursor-window-window-is-full ***
+
+ I've created a ListView populated by the data returned from a query. 
+It works, but in the LogCat I've got the message: 
+ 
+ and it uses a couple of minutes for loading / visualizing the ListView. 
+ My query returns about 3700 rows of String/Int/Double, each of which with 30 columns; no images or particular datatypes 
+ What does this message exactly mean and how can I avoid it? 
+Can you improve performances by changing this Cursor Window? 
+ 
+ From my experience this means that the query results are too large for the cursor's window and it requests more memory. Most times this request is honored, but on low end devices it could throw exceptions.  
+ I don't know the specifics of the app in question but you referred to a ListView. A ListView cannot show 3700 rows at once and a  endless list  could help to load the data on demand 
+ My advise is to break up the query into a multiple queries that return smaller results and close them before running the next query. After each successive query combine the results.  
+ 
+ **Short version:**
+
+ After some investigation, it appears that this message is part of normal operation, and not a cause for concern. It is logged at the "Warning" level, but I think this is simply overeager. 
+ **Longer version:**
+
+ This is (clearly labelled as) a "Windowed" cursor, which means that old records will be discarded as new records are obtained. In the simplest form, such a "window" implementation may contain up to N rows total, possibly with some read-ahead.  In this implementation, however, the window size is defined instead by the total size. The number of rows kept in memory is instead based on how many would fit in the overall window, and will vary at runtime (This could perhaps be considered more of a "buffered" Cursor than "windowed" Cursor). 
+ As a buffered implementation with a (soft-?)capped size, the earliest rows will be discarded only when the buffer is too full to accommodate the next row. In this case, 1 or more older rows are dropped. This "keep allocating rows as-needed until we can no longer have room for more, at which point we free up the oldest record(s) in our buffer and try again" process appears to be completely normal and expected, as a normal part of the process to keep the memory space confined. 
+ I based this conclusion on reading the source here, combined with some inference:
+ https://android.googlesource.com/platform/frameworks/base/+/master/libs/androidfw/CursorWindow.cpp 
+ **Why are people talking about images and other massive LOBs?**
+
+ If the size of a single row is larger than the entire "window" (buffer), then this strategy breaks down and you have an actual problem. 
+ This was the message @op was getting: 
+ 
+ This was the message @vovahost was getting: 
+ 
+ In the first case, requested allocation is much smaller than the windows size. I expect that similar messages are issued repeatedly, with the same window size and varying requested allocation sizes. Each time this is printed, memory is freed from the larger window, and new allocations are made. This is normal and healthy operation. 
+ In the second case, requested allocation size exceeds the overall window size. This is an  actual  problem, requiring storing and reading data in a more streamable way. 
+ The difference is "length" (total number of rows) vs "width" (memory cost of the largest single row). The former (@tirrel's issue) is not an issue, but the latter (@vovahost's issue) is. 
+ 
+ I also got this problem. In my case I saved a 2.2 MB image in database. When loading the data from the database using   I would see this message in the Log:  
+ 
+ After I would get this message if I try to retrieve any data (String, number, etc) for successive rows it is returned as  **null**
+ without any errors. 
+The solution was to remove the 2.2 MB blob. I don't know if it's possible to load bigger blobs from database in Android. 
+ 

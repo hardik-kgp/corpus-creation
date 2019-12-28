@@ -1,0 +1,37 @@
+*** optimizing-sql-queries-by-removing-sort-operator-in-execution-plan ***
+
+ I’ve just started looking into optimizing my queries through indexes because SQL data is growing large and fast. I looked at how the optimizer is processing my query through the Execution plan in SSMS and noticed that a Sort operator is being used. I’ve heard that a Sort operator indicates a bad design in the query since the sort can be made prematurely through an index. So here is an example table and data similar to what I’m doing:  
+ 
+ Here is an example query: 
+ 
+ I create a non clustered index to help speed up the query: 
+ 
+ To build the IX_Store index, I start with the simple predicates  
+ 
+ Then I add the   column for the ORDER BY and to cover the SELECT output 
+ So even when the index is built, the optimizer still uses the Sort operator (and not the index sort) because   is sorted AFTER   AND  . If I remove the   column from the index and run the query: 
+ 
+ Then of course the Sort operator is not used by the optimizer because   is sorted by  . 
+ So the question is how can I create an index that will cover the query (including the   predicate) and not have the optimizer use a Sort? 
+ **EDIT:**
+
+ The table I'm working with has more than 20 million rows 
+ 
+ First, you should verify that the sort is actually a performance bottleneck. The duration of the sort will depend on the number of elements to be sorted, and the number of stores for a particular parent store is likely to be small. (That is assuming the sort operator is applied after applying the where clause). 
+ 
+ I’ve heard that a Sort operator indicates a bad design in the query since the sort can be made prematurely through an index 
+ 
+ That's an over-generalization. Often, a sort-operator can trivially be moved into the index, and, if only the first couple rows of the result set are fetched, can substantially reduce query cost, because the database no longer has to fetch all matching rows (and sort them all) to find the first ones, but can read the records in result set order, and stop once enough records are found. 
+ In your case, you seem to be fetching the entire result set, so sorting that is unlikely to make things much worse (unless the result set is huge). Also, in your case it might not be trivial to build a useful sorted index, because the where clause contains an or. 
+ Now, if you still want to get rid of that sort-operator, you can try: 
+ 
+ Alternatively, you can try the following index: 
+ 
+ to try getting the query optimizer to do an index range scan on   only, then scan all matching rows in the index, outputting them if   matches. However, this is likely to cause more disk I/O, and hence slow your query down rather than speed it up. 
+ **Edit**
+: As a last resort, you could use 
+ 
+ with 
+ 
+ and sort the two lists on the application server, where you can merge (as in merge sort) the presorted lists, thereby avoiding a complete sort. But that's really a micro-optimization that, while speeding up the sort itself by an order of magnitude, is unlikely to affect the total execution time of the query much, as I'd expect the bottleneck to be network and disk I/O, especially in light of the fact that the disk will do a lot of random access as the index is not clustered. 
+ 

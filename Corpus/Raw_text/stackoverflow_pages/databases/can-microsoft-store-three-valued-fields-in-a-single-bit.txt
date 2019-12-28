@@ -1,0 +1,24 @@
+*** can-microsoft-store-three-valued-fields-in-a-single-bit ***
+
+ I'm completely ignorant of SQL/databases, but I was chatting with a friend who does a lot of database work about how some databases use a "boolean" field that can take a value of NULL in addition to true and false. 
+ Regarding this, he made a comment along these lines: "To Microsoft's credit, they have never referred to that kind of field as a boolean, they just call it a bit. And it's a true bit - if you have eight or fewer bit fields in a record, it only requires one byte to store them all." 
+ Naturally that seems impossible to me - if the field can hold three values you're not going to fit eight of them into a byte. My friend agreed that it seemed odd, but begged ignorance of the low-level internals and said that so far as he knew, such fields can hold three values when viewed from the SQL side, and it does work out to require a byte of storage. I imagine one of us has a wire crossed. Can anyone explain what's really going on here? 
+ 
+ I recommend reading this for a good explanation of null storage:  How does SQL Server really store NULL-s .  In short, the null/not null bit is stored in a different place, the null bitmap for the row.   
+ From the article: 
+ 
+ Each row has a null bitmap for columns that allow nulls. If the row in that column is null then a bit in the bitmap is 1 else it's 0. 
+ 
+ So while the actual  values  for 8 bit columns are stored in 1 byte, there are extra bits in the row's null bitmap that indicate if that column is NULL or not...so depends on how you're counting.  To be  completely  accurate, 8 bit columns use  **2 bytes**
+, just split up in 2 different locations. 
+ 
+ The null indicator is stored separately, so a nullable bit actually requires two bits. And strictly speaking, "null" isn't a third value; it's sort of a placeholder that says, "There could be a value here, but we don't know what it is."  So if a bit is null, you can compare it to true and the comparison will fail, but you can also compare it to false and the comparison will fail. 
+ 
+ You are correct. You can pack the eight true/false values into a single byte, but you still need additional storage to indicate whether it is NULL or not. Representing 3 8  different states with only 2 8  is impossible. 
+ 
+ Your friend is right, but wrong at the same time.  It's possible for a BIT field to be considered as being able to maintain three different values, but by definition NULL is the absence of a value.   
+ Additionally, allowing NULL on the bit fields, means that 2 bits will be used for that field (one for the value, and one for if it is NULL or not).  But the NULL state of the field (the NULL Bit) is stored in a bitmap for the row, and not in the exact memory space for the given column.  
+ 
+ Others have already said that BIT requires 2 bits, not one. 
+ Another important point that is often forgotten: Bit in SQL Server is not a Boolean or logic data type; it's a numeric (integer) data type.  "An integer data type that can take a value of 1, 0, or NULL" . Bit supports only numeric operators (<, >, +, -). It does not support any of the logic operators (AND, OR, NOT, etc). 
+ 

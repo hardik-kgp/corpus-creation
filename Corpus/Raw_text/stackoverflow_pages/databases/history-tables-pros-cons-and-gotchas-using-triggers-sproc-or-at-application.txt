@@ -1,0 +1,78 @@
+*** history-tables-pros-cons-and-gotchas-using-triggers-sproc-or-at-application ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  6 years ago . 
+ 
+ 
+ 
+ I am currently playing around with the idea of having history tables for some of my tables in my database.  Basically I have the main table and a copy of that table with a modified date and an action column to store what action was preformed eg Update,Delete and Insert. 
+ So far I can think of three different places that you can do the history table work. 
+ 
+ Triggers on the main table for update, insert and delete. (Database) 
+ Stored procedures. (Database) 
+ Application layer. (Application) 
+ 
+ My main question is, what are the pros, cons and gotchas of doing the work in each of these layers. 
+ One advantage I can think of by using the triggers way is that integrity is always maintained no matter what program is implmentated on top of the database. 
+ 
+ I'd put it this way: 
+ 
+ **Stored procs:**
+ they're bypassed if you modify the table directly. Security on the database can control this  
+ **Application:**
+ same deal. Also if you have multiple applications, possibly in different languages, it needs to be implemented in each stack, which is somewhat redundant; and 
+ **Triggers:**
+ transparent to the application and will capture all changes. This is my preferred method. 
+ 
+ 
+ Triggers are the quickest and easiest way to achieve simple history. The following information assumes a more complex example where history processing may include some business rules and may require logging information not found in the table being tracked.  
+ To those that think that triggers are safer than sprocs because they cannot be bypassed I remind them that they are making the following assumption:  
+ !) Permissions exist that stop users from executing DISABLE TRIGGER [but then permissions could too exist to limit all access to the database except for EXECUTE on sprocs which is a common pattern for enterprise applications] - therefore one must assume correct permissions and therefore sprocs equal triggers in terms of security and ability to be bypassed 
+ !) Depending on the database it may be possible to execute update statements that do not fire triggers. I could take advantage of knowledge of nested trigger execution depth to bypass a trigger. The only sure solution includes security in database and limiting access to data using only approved mechanisms - whether these be triggers, sprocs or data access layers. 
+ I think the choices are clear here. If the data is being accessed by multiple applications then you want to control the history from the lowest common layer and this will mean the database. 
+ Following the above logic, the choice of triggers or stored procedures depends again on whether the stored procedure is the lowest common layer. You should prefer the sproc over the trigger as you can control performance, and side effects better and the code is easier to maintain. 
+ Triggers are acceptable, but try to make sure that you do not increase locks by reading data outside of the tables being updated. Limit triggers to inserts into the log tables, log only what you need to.  
+ If the application uses a common logical access layer and it is unlikely that this would change over time I would prefer to implement the logic here. Use a Chain Of Responsibility pattern and a plug-in architecture, drive this from Dependency Injection to allow for all manner of processing in you history module, including logging to completely different types of technology, different databases, a history service or anything else that you could imagine. 
+ 
+ Have been using the trigger based approach for years and it has definitely worked well for us, but then you do have the following points to ponder over: 
+ 
+ Triggers on a heavily used (say, a multi-tenant SaaS based application) could be extremely expensive 
+ In some scenarios, a few fields can get redundant.  Triggers are good only when you are crystal clear on the fields to be logged; though using an application you could have an interceptor layer which could help you log certain fields based on the "configuration"; though with it's own share of overheads 
+ Without adequate database control, a person could easily disable the triggers, modify the data and enable the triggers; all without raising any alarms 
+ In case of web applications, where the connections are established from a pool, tracking the actual users who made the changes can be tedious.  A possible solution would be to have the "EditedBy" field in every transaction table. 
+ 
+ 
+ Late one but it adds couple more options that can be considered. 
+ **Change Data Capture:**
+  This  feature is available in SQL Server 2008 R2+ but only in enterprise edition. It allows you to select tables you want to track and SQL Server will do the job for you. It works by reading transaction log and populating history tables with data. 
+ **Reading transaction log:**
+ If database is in full recovery mode then transaction log can be read and details on almost transactions can be found.  
+ Downside is that this is not supported by default. Options are to read transaction log using undocumented functions like fn_dblog or third party tools such as  ApexSQL Log .  
+ **Triggers:**
+ Works just fine for small number of tables where there are not too many triggers to manage. If you have a lot of tables you want to audit then you should consider some third party tool for this. 
+ All of these work at the database level and are completely transparent to application.  
+ 
+ Triggers are the only reliable way to capture changes. If you do it in Stored Procs or the App, you can always go in and SQL away a change that you don't have a log for (inadvertantly). Of course, somebody who doesn't want to leave a log can disable triggers. But you'd rather force somebody to disable the logging than hope that they remember to include it. 
+ 
+ Usually if you choose the application layer, you can design your app code to do the logging in a single point, that will handle consistenly all your historical table. differently triggers are a more complicated approach to maintain because they are (depending on the db technology) replicated for every table: in case of hundred of tables the amount of code for the trigger coud be a problem.  
+ if you have a support organization that will maintain the code you are writing now, and you don't know who will maintain your code (tipical for big industries) you cannot assume which is the skill level of the person who will do fix on your application, in that case it is better in my opinion to make the historical table working principle as simple as possible, and the application layer is probably the best place for this purpose. 
+ 

@@ -1,0 +1,57 @@
+*** how-to-write-unit-tests-for-functions-that-rely-on-dynamic-data ***
+
+ Lets say you have a website, that uses a function to retrieve data from the database and returns the result to be displayed/parsed/etc... 
+ Since the data that is retrieved from the database is dynamic and could potentially change every second of the day, how do you properly write a Unit Test for this function? 
+ Let's say the function is supposed to return an array of results. Obviously a unit test could test to see if an array is returned or not. But what happens when the contents of the array itself are incorrect due to an incorrectly written MySQL query? The size of the array could be zero or the content of the array could be incorrect. Since it relies on ever-changing data, how would the Unit Test know what is correct and what isn't? Would calls to the database from within the Unit Test itself be necessary so there is something to compare it to? 
+ How do you properly write a Unit Test for functions that rely on dynamic data? 
+ 
+ Unit tests, in their ideal form, should only test one thing. In this case, you're testing two things: 
+ 
+ the logic of your function 
+ the database retrieval 
+ 
+ So I would suggest the following refactor: 
+ 
+ Move the database retrieval logic into a separate function 
+ Have the function you want to test call that other function 
+ Mock out the function that returns data so you can unit test just the logic of your app 
+ If it makes sense (if you're just relying on another library to do this, then hopefully that lib already has tests), write a unit test for the dynamic retrieval function, where you can't test specifics, but can can test the structure and reasonableness of the data returned (e.g. it has all the fields set, and is a time within 5 seconds of now). 
+ 
+ Also, typically it's a good idea to run unit tests in a test environment where you have complete control over what's stored in the database. You don't want to run these against production data. 
+ 
+ If your function does something interesting beyond pulling the data out of the database you should extract the retrieval into a different function and mock it, so you can test the rest.  
+ This still leaves you with the task of testing the database access. You can't really do a unit test for that, because that would by definition not access any db and you could just test if it sends the sql statement you think it should, but not if the sql statement actually works. 
+ **So you need a database**
+
+ You have various optiones: 
+ 1) create a fixed database for such tests which doesn't get changed by the tests.  
+ Pro: Conceptually easy
+Con: hard to maintain. Tests become interdependent, because they rely on the same data. No way to test stuff that does updates, inserts or deletes (let alone DDL) 
+ 2) create a database during your test. Now you have two problems: setting up the database for the test and filling it with data. 
+ Setting up: 
+ 1) have a database server running, with a user/schema/database for erveryone who needs to run tests (at least devs + ci-server). Schema can get created using stuff like hibernate or the scripts you use for deployment. 
+ Works great, but drives oldfashioned DBAs crazy. The application must not depend on the schema name. You will also run into problems when you have more then one schema used by the app. This setup is fairly slow. It can help to put in on fast discs. Like RAM discs 
+ 2) Have an in memory database. Easy to start from code and fast. But in most cases it will behave the same as your production database. This is of less concern if you use something that tries to hide the difference. I often use an in memory database for the first build stage and the real thing in a second stage. 
+ Loading the testdata 
+ 1) people tell me to use dbunit. I'm not convinced it seems to be lots of XML and hard to maintain when columns or constraints change. 
+ 2) I prefer normal application code. (Java + Hibernate) in my case, but the code that writes you data into the database in production should in many cases be suitable to write test data for your test. It helps to have a little special API that hides the details of satisfying all the foreign key and stuff:  http://blog.schauderhaft.de/2011/03/13/testing-databases-with-junit-and-hibernate-part-1-one-to-rule-them/ 
+ 
+ You can't, really.  You'll need a guaranteed static set of data to create reliable unit tests.  Perhaps a database snapshot will work for you.   
+ Dynamic data can be useful in other ways, such as to perform regression testing... 
+ 
+ Most tests focus on the logic paths that are involved in things like obtaining data. Not on the validity of the data itself. Validity of data is only meaningful if your application is somehow calculating or aggregating it or whatever, in which case you should be able to control the inputs and verify that the results are correct. 
+ That said, sometimes you do want to hit the same database your app is using to verify returns. For example, if you're testing a function that returns a filtered dataset, your unit test could perform the same query and then do a row-by-row comparison of, say, each records primary key, and verify that your function returned the same set of data you were expecting. 
+ I don't know if this is your specific question, but there's nothing wrong with hitting the database to perform asserts in unit tests, on the contrary. At least I do it all the time and no one has tried to have me arrested :) 
+ 
+ Ignoring the fact that you are talking about the DB I think you may be looking for your unit tests to cover every eventuallity where as that can lead to set of diminishing returns. If I were you I'd cover a standard path and then a couple of edge cases. The fact is you cannot pragmatically test everything. 
+ Here's some further reading 
+ http://37signals.com/svn/posts/3159-testing-like-the-tsa 
+ How deep are your unit tests? 
+ http://johnnosnose.blogspot.co.uk/2012/04/re-over-testing.html 
+ http://martinfowler.com/bliki/TestCoverage.html 
+ Looking at your specifc db related problem, to test this function you probably need to create a  seam  to pre poulate the data so you can cover those cases. 
+ 
+ I would build the data in the test itself. That way you can even test complicated scenarios for the ever changing data. The key point is that you can control the data changes in your tests by having a dedicated test db, 
+ Step 1: Insert the data you need into a db that is only used by the test
+Step 2: The db is now in a stable predictable state, so you can run your queries and test the output 
+ 

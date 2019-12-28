@@ -1,0 +1,31 @@
+*** delivering-activity-feed-items-in-a-moderately-scalable-way ***
+
+ The application I'm working on has an activity feed where each user can see their friends' activity (much like Facebook). I'm looking for a moderately scalable way to show a given users' activity stream on the fly. I say 'moderately' because I'm looking to do this with just a database (Postgresql) and  maybe  memcached. For instance, I want this solution to scale to 200k users each with 100 friends. 
+ Currently, there is a master activity table that stores the rendered html for the given activity (Jim added a friend, George installed an application, etc.). This master activity table keeps the source user, the html, and a timestamp. 
+ Then, there's a separate ('join') table that simply keeps a pointer to the person who should see this activity in their friend feed, and a pointer to the object in the main activity table. 
+ So, if I have 100 friends, and I do 3 activities, then the join table will then grow to 300 items. 
+ Clearly this table will grow very quickly. It has the nice property, though, that fetching activity to show to a user takes a single (relatively) inexpensive query. 
+ The other option is to just keep the main activity table and query it by saying something like: 
+ 
+ This has the disadvantage that you're querying for users who may never be active, and as your friend list grows, this query can get slower and slower. 
+ I see the pros and the cons of both sides, but I'm wondering if some SO folks might help me weigh the options and suggest one way or they other. I'm also open to other solutions, though I'd like to keep it simple and not install something like CouchDB, etc. 
+ Many thanks! 
+ 
+ I'm leaning towards just having the master activity table. If you go with that, this is what I would consider implementing: 
+ 
+ You can create several activity tables and do a UNION ALL when fetching the data from the database. For example, roll them over monthly - activity_2010_02, etc. Just going by your example - 200K users x 100 friends x 3 activities = 60 million rows. Not a concern performance-wise for PostgreSQL, but you might consider this purely for convenience now and eventually for effortless future expansion. 
+ 
+ This has the disadvantage that you're querying for users who may never be active, and as your friend list grows, this query can get slower and slower. 
+ 
+ 
+ Are you going to display the  entire  activity feed, going back to the beginning of times? You haven't provided much detail in the original question but I'd hazard a guess that you'd be showing the last 10/20/100 items sorted by time stamp. A couple of indexes and the LIMIT clause should be enough to provide an instant response (as I've just tested on a table with about 20 million rows). It can be slower on a busy server, but that is something that should be worked out with hardware and caching solutions, Postgres is not going to be the bottleneck there. 
+ Even if you do provide activity feeds going back to the dawn of time,  paginate  the output! The LIMIT clause will save you there. If the basic query with a LIMIT on it is not enough, or if your users have a long tail of friends that are no longer active, you could consider limiting the lookup to the last day/week/month  first  and  then  provide the list of friend ids: 
+ 
+ If you've got a table spanning months or years back, the search for the friends ids will only be performed within the rows selected by the first WHERE clause. 
+ That's just if I choose between the two solutions you are considering now. I would also look at things like: 
+ 
+ Reconsidering your denormalisation of the table. Is storing pre-generated HTML output really the best way? Will you be better off performance-wise by having a lookup table of activities instead and generating templated output on the fly? Pre-generated HTML can seem better at the outset, but consider things like disk storage, APIs, future layout changes and storing HTML may not be that attractive after all. The lookup table could contain your possible activities - added a friend, changed status, etc., and the activity log would reference that and the friend's id if another user is involved in the activity. 
+ Doing  pre-generate HTML, but not storing it in the database. Save the stuff on disk as pre-generated pages. This is not a silver bullet, however, and largely depends on the ratio of write-to-reads on your site. I.e. a typical discussion thread on a public forum could have a dozen messages, but could be viewed hundreds of times - a good candidate for caching. Whereas if your application is more tuned to immediate status updates and you'd have to regenerate the HTML page and save it again on disk after every couple of views, then there's little value in this approach.  
+ 
+ Hope this helps. 
+ 

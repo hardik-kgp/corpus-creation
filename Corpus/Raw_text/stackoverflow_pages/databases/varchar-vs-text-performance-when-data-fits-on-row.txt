@@ -1,0 +1,91 @@
+*** varchar-vs-text-performance-when-data-fits-on-row ***
+
+ 
+ **255 - 'a' characters in each row(In both tables)**
+
+ 
+ **Query table 1:**
+  
+ 
+ **Query table 2:**
+
+ 
+ **Stats:**
+
+ 
+ **My question:**
+ How can the difference in execution speed be explained? 
+ The rows contents are same in both tables. 
+ As I understood   and   columns keep contents offPage only when it exceeds row size. So both tables contents will be inline data for my  . Then what was the reason for this query execution time difference. 
+ 
+ Note: Both table column is not indexed 
+ 
+ 
+ Reference link:  https://stackoverflow.com/a/48301727/5431418 
+ **Update:**
+
+Same flow now I tried with 5000 characters ('a') in both tables the result difference is high. 
+ 
+ **Update 2:**
+
+Same flow now I tried with 2 characters ('a') in both tables still there is  a performance difference 
+ **Adding table status:**
+
+ 
+ 
+ **let's use some tools**
+
+ Since the  **initial hunch (see below) was a miss**
+, try running your query via  **MySQL Workbench**
+ in order to gather  Query Performance Stats . 
+ 
+ **initial hunch (no result)**
+
+ Just a thought: 
+ 
+ **TEXT**
+ column size on disk is  **2 + N**
+ bytes where N is the length of the string 
+ **VARCHAR**
+ takes  **1 + N**
+ bytes (for N ≤ 255) or  **2 + N**
+ bytes (for 256 ≤ N ≤ 65535) 
+ 
+ Try extending the size of the text in the column  **above 256**
+ characters and re-run your tests. Potentially they will run with performance more closely matched. 
+ Please also mind that the differences you post are expressed in microseconds per record, so there could be many OS events getting in the way or very simple   code path in the source. 
+ 
+ TEXT type will be always slower than VARCHAR because those types have different methods of storage. VARCHAR field stored in the table with all columns but TEXT stored differently.  Each TEXT value is a separate object. It means if you want to do something with TEXT value MySQL will make additional operations to get that object.  
+ Quote from  the official documentation : 
+ 
+ Each BLOB or TEXT value is represented internally by a separately
+  allocated object. This is in contrast to all other data types, for
+  which storage is allocated once per column when the table is opened. 
+ 
+ 
+ 
+ With respect to storage, InnoDB will handle VARCHAR and TEXT much the
+  same when both stored inline. However, when fetching the data from
+  InnoDB, the server will allocate space for all VARCHAR columns before
+  query execution. While space for TEXT columns will only be allocated
+  if they are actually read, where DYNAMIC memory allocation takes time. 
+ 
+ https://forums.mysql.com/read.php?24,645115,645164#msg-645164 
+ 
+ Your first case assumption is not correct. Based on     stores one more byte for    **a**
+ than   so for   records in your table you need   to load in memory and explains the time delay. 
+ That of course would not apply for    **a**
+ where based on the same documentation the size is the same  . But i think the reason for that delay is described in   where it writes: 
+ 
+ The internal representation of a MySQL table has a maximum row size
+  limit of  **65,535 bytes**
+, even if the storage engine is capable of
+  supporting larger rows.  **BLOB**
+ and  **TEXT**
+ columns  **only contribute 9 to 12
+  bytes toward the row size limit**
+ because their contents are stored
+  separately from the rest of the row. 
+ 
+ I think it is quite different to be part of the row data and to be stored separately(need some time to retrieve it from the location stored) and this explains the time delay. 
+ 

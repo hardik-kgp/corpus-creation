@@ -1,0 +1,39 @@
+*** determining-querys-progress-oracle-pl-sql ***
+
+ I am a developer on a web app that uses an Oracle database. However, often the UI will trigger database operations that take a while to process. As a result, the client would like a progress bar when these situations occur. 
+ I recently discovered that I can query V$SESSION_LONGOPS from a second connection, and this is great, but it only works on operations that take longer than 6 seconds. This means that I can't update the progress bar in the UI until 6 seconds has passed. 
+ I've done research on wait times in V$SESSION but as far as I've seen, that doesn't include the waiting for the query. 
+ Is there a way to get the progress of the currently running query of a session? Or should I just hide the progress bar until 6 seconds has passed? 
+ 
+ Are these operations Pl/SQL calls or just long-running SQL?   
+ With PL/SQL operations we can write messages with   in the   package.  We can monitor these messages in  .   Find out more .  
+ For this to work you need to be able to quantify the operation in units of work.  These must be iterations of something concrete, and numeric not time.  So if the operation is insert 10000 rows you could split that up into 10 batches.   The   parameter is the number of batches (i.e.  ) and you call SET_SESSION_LONGOPS() after every 1000 rows to increment the   parameter.  This will allow you to render a thermometer of ten blocks. 
+ These messages are session-based but there's no automatic way of distinguishing the current message from previous messages from the same session & SID.  However if you assign a UID to the   parameter you can then use that value to filter the view.  
+ 
+ This won't work for a single long running query, because there's no way for us to divide it into chunks.   
+ 
+ i found this very usefull  
+ 
+ you can monitor the progress using 
+ 
+ 
+ I've done quite a lot of web development with   over the years and found that most users prefer an indeterminate progress bar, than a determinate bar that is inaccurate (a la pretty much any of   progress bars which annoy me no end), and unfortunately there is no infallible way of accurately determining query progress. 
+ Whilst your research into the long ops capability is admirable and would definitely help to make the progress of the database query more reliable, it can't take into account the myriad of other variables that may/will affect the web operation's transactional progress (network load, database load, application server load, client-side data parsing, the user clicking on a  submit button 1,000 times, etc and so on). 
+ I'd stick to the indeterminate progress method using Javascript callbacks. It's much easier to implement and it will manage your user's expectations as appropriate. 
+ 
+ Using V$_SESSION_LONGOPS requires to set TIMED_STATISTICS=true or SQL_TRACE=true. Your database schema must be granted the ALTER SESSION system privilege to do so. 
+ I once tried using V$_SESSION_LONGOPS with a complex and long running query. But it turned up that V$_SESSION_LONGOPS may show the progress of  parts  of the query like full table scans, join operations, and the like. 
+ See also:  http://www.dba-oracle.com/t_v_dollar_session_longops.htm 
+ What you can do is just to show the user "the query is still running". I implemented a   nested into a   that gets longer with every status request sent by the browser. Status requests are initiated by   (every 3 seconds) and are AJAX calls to a server-side procedure. The status report returned by the server-side procedure simply says "we are still running". The progress bar's width (i.e. the  's width) increments by 5% of the  s width every time and is reset to 5% after showing 100%. 
+ For long running queries you might track the time they took in a separate table, possibly with individual entries for varying where clauses. You could use this to display the average time plus the time that just elapsed in the client-side dialog. 
+ If you have a long running PL/SQL procedure or the like on the server side doing several steps, try this: 
+ 
+ create a table for status messages 
+ use a unique key for any process the user starts. Suggestion: client side's javascript date in milliseconds + session ID. 
+ in case the long running procedure is to be started by a link in a browser window, create a job using  DBMS_JOB.SUBMIT to run the procedure instead of running the procedure directly 
+ write a short procedure that updates the status table, using PRAGMA AUTONOMOUS_TRANSACTION. This pragma allows you to commit updates to the status table without committing your main procedure's updates. Each major step of your main procedure should have an entry of its own in this status table. 
+ write a procedure to query the status table to be called by the browser 
+ write a procedure that is called by an AJAX call if the use clicks "Cancel" or closes the window 
+ write a procedure that is called by the main procedure after completion of each step: it queries the status table and raises an exception with an number in the 20,000s if the cancel flag was set or the browser did not query the status for, say, 60 seconds. In the main procedure's exception handler look for this error, do a rollback, and update the status table. 
+ 
+ 

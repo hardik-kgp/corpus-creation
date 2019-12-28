@@ -1,0 +1,94 @@
+*** postgresql-sql-script-to-get-a-list-of-all-tables-that-has-a-particular-column ***
+
+ I'm using PostgreSQL and I'm trying to list all the tables that have a particular column from a table as a foreign-key/reference. Can this be done? I'm sure this information is stored somewhere in   but I have no idea how to start querying it. 
+ 
+ 
+ This uses the full catalog/schema/name triplet to identify a db table from all 3 information_schema views.  You can drop one or two as required. 
+ The query lists all tables that have a foreign key constraint against the column 'a' in table 'd' 
+ 
+ **The other solutions are not guaranteed to work in postgresql**
+, as the constraint_name is not guaranteed to be unique; thus you will get false positives. PostgreSQL used to name constraints silly things like '$1', and if you've got an old database you've been maintaining through upgrades, you likely still have some of those around. 
+ Since this question was targeted AT PostgreSQL and that is what you are using, then you can query the internal postgres tables pg_class and pg_attribute to get a more accurate result. 
+ NOTE: FKs can be on multiple columns, thus the referencing column (attnum of pg_attribute) is an ARRAY, which is the reason for using array_agg in the answer. 
+ The only thing you need plug in is the TARGET_TABLE_NAME: 
+ 
+ If you want to go the other way (list all of the things a specific table refers to), then just change the last line to: 
+ 
+ Oh, and since the actual question was to target a specific column, you can specify the column name with this one: 
+ 
+ 
+ Personally, I prefer to query based on the referenced unique constraint rather than the column. That would look something like this: 
+ 
+ 
+ Here is a version that allows querying by column name: 
+ 
+ 
+ This query requires  **only**
+ the referenced  table name  and  column name , and produces a result set containing both sides of the foreign key. 
+ 
+ 
+ Example result set: 
+ 
+ 
+ All credit to  Lane and Krogh at the PostgreSQL forum . 
+ 
+ 
+ 
+ A simple request for recovered the names of foreign key as well as the names of the tables: 
+ 
+ 
+ If you use the   client, you can simply issue the   command to see which tables reference the given table. From the linked documentation page: 
+ 
+ 
+ For each relation (table, view, materialized view, index, sequence, or foreign table) or composite type matching the  ,
+  show all columns, their types, the tablespace (if not the default) and
+  any special attributes such as   or defaults. Associated
+  indexes, constraints, rules, and triggers are also shown. For foreign
+  tables, the associated foreign server is shown as well. 
+ 
+ 
+ Table constraints can include multiple columns . The trick to getting this right is to join each column by their  constraint ordinal positions . If you don't join correctly your script will blow up with  duplicate rows  😥 whenever a table has multiple columns in a unique constraint. 
+ Table Notes 
+ This may be helpful in understanding what these tables do. 
+ **information_schema.table_constraints**
+
+ 
+ lists all table constraints  
+ explains constraint types 
+ does not include column information 
+ 
+ **information_schema.referential_constraints**
+
+ 
+ maps fk constraints to pk constraints.
+
+ 
+ constraint_name = fk constraint name 
+ unique_constraint_name = pk constraint name 
+ 
+ does not include column information 
+ 
+ **information_schema.key_column_usage**
+
+ 
+ list column level constraint info 
+ includes column  ordinal positions  in constraints. this is important! 
+ 
+ Query 
+ Lists all foreign key columns and their references. 
+ 
+ Example 
+ consider the relationship between these to tables. 
+ 
+ If we check the   table we can see the names of the pk constraint and the fk constraint. 
+ 
+ 
+ And when we check the   table we can see that our foreign key constraint depends on our primary keys unique constraint. 
+ 
+ 
+ And finally, we check that   table. we can see the the   of the FK columns correctly map to the   of the PK columns. 
+ Notice that   correctly maps to   and   correctly maps to   per the table definitions above. 
+ 
+ 
+ Now all that's left is to join them together. The main query above is one way you could do so. 
+ 

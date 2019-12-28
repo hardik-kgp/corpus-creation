@@ -1,0 +1,53 @@
+*** how-to-universally-skip-database-touches-when-precompiling-assets-on-heroku ***
+
+ I'm deploying a Rails 3.1 app to Heroku's Cedar stack. With  Heroku Cedar and Rails 3.1 , you can compile the assets yourself locally, let Heroku compile them when you push (during "slug compilation"), or have them be compiled just-in-time while the app is running. I want to do the middle option, letting Heroku precompile the assets. 
+ When Heroku runs the assets:precompile task, it errors with  "could not connect to server"  because the app is trying to connect to the database but no database is available at that stage of slug compilation. The lack of database connection is expected and unavoidable at this point. I'm looking for a way to move past it, because a database connection isn't crucial to asset precompilation. 
+ The part of my app that's trying to connect to the database is Devise. There's a   line in routes.rb that wants to look at the User model. 
+ I could just write a rake task that stubs out devise_for and make it a prereq of assets:precompile. I think that would solve my problem, but  **I'm looking for a more universal solution**
+ that I could use on  any  Rails 3.1 app with this problem on Heroku. 
+ Is there anything out there, or can you conceive of anything that silences database connection errors while still running the app enough to have route and asset path generation? 
+ Obviously if an app needs to read/write data during startup, we can't stub that, but can we fake every ActiveRecord model automatically? 
+ 
+ EDIT: This answer is out of date and no longer works - See fringd's answer. 
+ Not quite a universal stubbing but devise has added a check now to fix this particular problem . See the  issue  and  fix  on Github. By providing a RAILS_ASSETS_PRECOMPILE environment config devise should skip building the routes 
+ 
+ add this to config/application.rb 
+ 
+ took me a while to hunt this down... adding it to config/environments/*.rb did NOT work 
+ UPDATE : It doesn't work with rails 4 
+ 
+ Heroku now makes a  labs  flag available that'll make the runtime environment available during compilation time, which means your app will be able to successfully connect to your   database. 
+ First you need to install the  labs  plugin: 
+ 
+ then enable the   labs feature : 
+ 
+ 
+ For me the problem is activerecord calling   in  . This will load the observers and the respective models.   then connects to the db. 
+ I think I'll override this method when   is present, which is used by devise in the fix Bradley linked to. 
+ EDIT: So this snippet fixed it for me: 
+ 
+ 
+ Workaround for Rails (4.2 edge): 
+ Add the following as  :  
+ 
+ and use it in your   like this: 
+ 
+ 
+ I stuck this in 'lib/tasks/assets.rake' and was able to get assets:precompile to actually succeed.  This should work as long as you don't actually access the database as a result of requiring your environment.  It obviously won't help with ActiveRecord, but it should work for all mongoid-based apps. 
+ 
+ 
+ Heroku added an unofficial flag to make the environment (i.e. also the DB) accessible during precompilation. Just ask them to switch it on and DB dependencies during asset precompilations are no longer an issue. Not sure, if/when this flag is officially available though, or if it will simply be the new default. 
+ 
+ Spork.trap_method is also an interesting solution to the problem of Devise's routes_for calling the model early in the load process. Solution can't be applied directly AFAIK, but it's solving the same sort of problem, so it might provide inspiration for somebody. 
+ Spork.trap_method 
+ 
+ I lack sufficient reputation to comment, so here's another answer. 
+ It's true that @fringd's top-rated answer does not work on Rails 4.  I have, however, found this technique to work: 
+ https://iprog.com/posting/2013/07/errors-when-precompiling-assets-in-rails-4-0 
+ Although, I rearranged the BASH variables like so: 
+ 
+ BTW, This is a fantastic aid if you need to build a Docker image.  Put that line into your Dockerfile so your DB can live in a different container and your app containers don't need to precompile assets every time they start up! 
+ 
+ Disable AR: 
+ 
+ 

@@ -1,0 +1,76 @@
+*** what-are-the-benefits-of-using-database-cursor ***
+
+ It is based on the interview question that I faced. 
+ Very short definition can be 
+ 
+ It can be used to manipulate the rows
+  returned by a query. 
+ 
+ Besides the use of the cursor (Points are listed  here  on MSDN), I have a question in my mind that if we can perform all the operations using query or stored procedure (if I'm not wrong, Like we can use Transact-SQL for ms-sql), is there any concrete point that we should use cursor? 
+ 
+ Using cursors compared to big resultsets is like using video streaming instead of downloading an video in one swoop, and watching it when it has downloaded. 
+If you download, you have to have a few gigs of space and the patience to wait until the download finished. Now, no matter how fast your machine or network may be, everyone watches a movie at the same speed. 
+ Normally any query gets sent to the server, executed, and the resultset sent over the network to you, in one burst of activity.
+The cursor will give you access to the data row by row and stream every row only when you request it (can actually view it). 
+ 
+ A cursor can save you time - because you don't need to wait for the processing and download of your complete recordset 
+ It will save you memory, both on the server and on the client because they don't have to dedicate a big chunk of memory to resultsets 
+ Load-balance both your network and your server - Working in "burst" mode is usually more efficient, but it can completely block your server and your network. Such delays are seldom desirable for multiuser environments. Streaming leaves room for other operations. 
+ Allows operations on queried tables (under certain conditions) that do not affect your cursor directly. So while you are holding a cursor on a row, other processes are able to read, update and even delete other rows. This helps especially with very busy tables, many concurrent reads and writes. 
+ 
+ Which brings us to some caveats, however: 
+ 
+ Consistency: Using a cursor, you do (usually) not operate on a consistent snapshot of the data, but on a row. So your concurrency/consistency/isolation guarantees drop from the whole database (ACID) to only one row. You can usually inform your DBMS what level of concurrency you want, but if you are too nitpicky (locking the complete table you are in), you will throw away many of the resource savings on the server side. 
+ Transmitting every row by itself can be very inefficient, since every packet has negotiation overhead that you might avoid by sending big, maybe compressed, chunks of data per packet. ( No DB server or client library is stupid enough to transmit every row individually, there's caching and chunking on both ends, still, it is relevant.) 
+ Cursors are harder to do right. Consider a query with a big resultset, motivating you to use a cursor, that uses a GROUP BY clause with aggregate functions. (Such queries are common in data warehouses). The GROUP BY can completely trash your server, because it has to generate and store the whole resultset at once, maybe even holding locks on other tables. 
+ 
+ Rule of thumb: 
+ 
+ If you work on small, quickly created resultsets, don't use cursors. 
+ Cursors excell on ad hoc, complex (referentially), queries of sequential nature with big resultsets and low consistency requirements.  
+ 
+ "Sequential nature" means there are no aggregate functions in heavy GROUP BY clauses in your query. The server can lazily decide to compute 10 rows for your cursor to consume from a cache and do other stuff meanwhile. 
+ HTH 
+ 
+ A cursor is a tool that allows you to iterate the records in a set. It has concepts of  order  and  current record . 
+ Generally,   operates with multisets: these are sets of possibly repeating records in no given order, taken as a whole. 
+ Say, this query: 
+ 
+ , operates on multisets   and  . 
+ Nothing in this query makes any assumptions about the order of the records, how they are stored, in which order they should be accessed, etc. 
+ This allows to abstract away implementation details and let the system try to choose the best possible algorithm to run this query. 
+ However, after you have transformed all your data, ultimately you will need to access the records in an ordered way and one by one. 
+ You don't care about how exactly the entries of a phonebook are stored on a hard drive, but a printer does require them to be feed in alphabetical order; and the formatting tags should be applied to each record individually. 
+ That's exactly where the cursors come into play. Each time you are processing a resultset on the client side, you are using a cursor. You don't get megabytes of unsorted data from the server: you just get a tiny variable: a resultset descriptor, and  just write something like this: 
+ 
+ That's cursor that implements all this for you. 
+ This of course concerns database-client interaction. 
+ As for the database itself:  inside  the database, you rarely need the cursors, since, as I have told above, almost all data transformations can be implemented using set operations more efficiently. 
+ However, there are exceptions: 
+ 
+ **Analytic operations**
+ in   are implemented very poorly. A cumulative sum, for instance, could be calculated much more efficiently with a cursor than using the set-based operations 
+ **Processing data in chunks**
+. There are cases when a set based operation should be sequentially applied to a  portion  of a set and the results of each chunk should be committed independently. While it's still possible to do it using set-based operations, a cursor is often a more preferred way to do this. 
+ **Recursion**
+ in the systems that do not support it natively. 
+ 
+ You also may find this article worth reading: 
+ 
+ **The Island of Misfit Cursors**
+
+ 
+ 
+ Using a cursor it is possible to read sequentially through a set of data, programmatically, so it behaves in a similar manner to conventional file access, rather than the set-based behaviour characteristic of SQL. 
+ There are a couple of situations where this may be of use: 
+ 
+ Where it is necessary to simulate file-based record access behaviour - for example, where a relational database is being used as the data storage mechanism for a piece of code that was previously written to use indexed files for data storage. 
+ Where it is necessary to process data sequentially - a simple example might be to calculate a running total balance for a specific customer. (A number of relational databases, such as Oracle and SQLServer, now have analytical extensions to SQL that should greatly reduce the need for this.) 
+ 
+ Inevitably, wikipedia has more:  http://en.wikipedia.org/wiki/Database_cursor 
+ 
+ With cursor you access one row at a time. So it is good to use it when you want manipulate with a lot of rows but with only one at a given time. 
+ I was told at my classes, the reason to use cursor is you want to access more rows than you can fit your memory - so you can't just get all rows into a collection and then loop through it. 
+ 
+ Sometimes a set based logic can get quite complex and opaque. In these cases and if the performance is not an issue a server side cursor can be used to replace the relational logic with a more manageable and familiar (to a non relational thinker) procedural logic resulting in easier maintenance. 
+ 

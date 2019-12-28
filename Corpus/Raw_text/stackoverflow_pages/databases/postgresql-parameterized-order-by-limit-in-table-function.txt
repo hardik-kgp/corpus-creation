@@ -1,0 +1,74 @@
+*** postgresql-parameterized-order-by-limit-in-table-function ***
+
+ I have a sql function that does a simple sql select statement: 
+ 
+ For now I am invoking this function like this: 
+ 
+ What are my options if I need to order and limit the results with   and   clauses? 
+ I guess a query like this: 
+ 
+ would not be very efficient, because all rows from table   will be returned by function   and only then ordered and sliced by limit. 
+ But even if I am right, there is no easy way how to pass the order by argument of an sql language function. Only values can be passed, not parts of sql statement. 
+ Another option is to create the function in   language, where it is possible to construct the query and execute it via  . But this is not a very nice approach either. 
+ So, is there any other method of achieving this?
+Or what option would you choose? Ordering/limiting outside the function, or plpgsql? 
+ I am using postgresql 9.1. 
+ **Edit**
+
+ I modified the CREATE FUNCTION statement like this: 
+ 
+ 
+This throws: 
+ 
+ ERROR:  CASE types character varying and integer cannot be matched
+  ŘÁDKA 13:         WHEN $1 = 'parent' THEN t.parent
+   
+ 
+ The   table looks like this: 
+ 
+ **Edit2**
+
+ I have badly read Dems code. I have corrected it to question. This code is working for me. 
+ 
+ There is nothing wrong with a  **plpgsql function**
+. It is the most elegant and fastest solution for anything a little more complex. The only situation where performance can suffer is when a plpgsql function is nested, because the query planner cannot further optimize the contained code in the context of the outer query which may or may not make it slower. 
+More details in this later answer: 
+ 
+ Difference between language sql and language plpgsql in PostgreSQL functions 
+ 
+ In this case it is much simpler than lots of   clauses in a query: 
+ 
+ Call: 
+ 
+ 
+ 
+ Use   to return the results of query in one go. 
+ Use   for identifiers to safeguard against SQLi.
+Or   for anything more complex. Related:
+
+ 
+ Table name as a PostgreSQL function parameter 
+ 
+ Hand in parameter values with the   clause to avoid casting, quoting and SQLi once again. 
+ Be careful not to create naming conflicts between parameters and column names. I prefixed parameter names with an underscore ( ) in the example. Just my personal preference. 
+ 
+ Your second function after the edit cannot work, because you only return   while the return type is declared  . You can declare  any  return type you like, but actual return values have to match the declaration. You might want to use   for that. 
+ 
+ If your function is  stable  (does not modify the database), the query planner will typically  inline  it. Therefore, doing   will produce the same query plan as if the limit were inside  . 
+ However, you need to tell PG your function is stable by declaring it as such: 
+ 
+ Now doing   should produce the same query plan as writing out the equivalent query would. 
+ The inlining should also work for   clauses outside the function. But if you wanted to parameterize the function to determine the order by, you could do it like this to also control the sort direction: 
+ 
+ As long as   and   are constant within the query, the query planner should be able to simplify the verbose looking query to 
+ 
+ which you can verify using  . 
+ 
+ As to the   you could try something like this: 
+ 
+ You might have to do some data type conversions so that all of the data types in the   result match. Just be careful about converting numerics to strings - you'll have to prepend 0s to make them order correctly. The same goes for date/time values. Order by a format that has year followed by month followed by day, etc. 
+ I've done this in SQL Server, but never in PostgreSQL, and I don't have a copy of PostgreSQL on this machine, so this is untested. 
+ 
+ You can pass limit value as a function argument without any problems. As for ordering you can use ODER BY in combination with CASE statement. This unfortunately won't work for something like  
+ 
+ 

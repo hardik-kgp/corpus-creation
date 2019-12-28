@@ -1,0 +1,61 @@
+*** range-query-for-mongodb-pagination ***
+
+ I want to implement pagination on top of a MongoDB. For my range query, I thought about using ObjectIDs: 
+ 
+ However,  according to the docs , the structure of the ObjectID means that "ObjectId values do not represent a strict insertion order": 
+ 
+ The relationship between the order of ObjectId values and generation time is not strict within a single second.  **If multiple systems, or multiple processes or threads on a single system generate values, within a single second; ObjectId values do not represent a strict insertion order.**
+ Clock skew between clients can also result in non-strict ordering even for values, because client drivers generate ObjectId values, not the mongod process. 
+ 
+ I then thought about querying with a timestamp: 
+ 
+ However, there is no guarantee the date will be unique — it's quite likely that two documents could be created within the same second. This means documents could be missed when paging. 
+ Is there any sort of ranged query that would provide me with more stability? 
+ 
+ It is perfectly fine to use ObjectId() though your syntax for pagination is wrong.  You want: 
+ 
+ This says you want tweets sorted by   value in descending order and you want the most recent 50.  Your problem is the fact that pagination is tricky when the current result set is changing - so rather than using skip for the next page, you want to make note of the smallest   in the result set (the 50th most recent   value and then get the next page with: 
+ 
+ This will give you the next "most recent" tweets, without new incoming tweets messing up your pagination back through time. 
+ There is absolutely no need to worry about whether   value is strictly corresponding to insertion order - it will be 99.999% close enough, and no one actually cares on the sub-second level which tweet came first - you might even notice Twitter frequently displays tweets out of order, it's just not that critical. 
+ If it  is  critical, then you would have to use the same technique but with "tweet date" where that date would have to be a timestamp, rather than just a date. 
+ 
+ Wouldn't a tweet "actual" timestamp (i.e. time tweeted and the criteria you want it sorted by) be different from a tweet "insertion" timestamp (i.e. time added to local collection). This depends on your application, of course, but it's a likely scenario that tweet inserts could be batched or otherwise end up being inserted in the "wrong" order. So, unless you work at Twitter (and have access to collections inserted in correct order), you wouldn't be able to rely  just  on   or   for sorting logic.  
+ Mongo docs suggest   and   for paging : 
+ 
+ There is, however, a performance concern when using skip: 
+ 
+ The   method is often expensive because it requires the server to walk from the beginning of the collection or index to get the offset or skip position before beginning to return result. As offset increases,   will become slower and more CPU intensive. 
+ 
+ This happens because   does not fit into the MapReduce model and is not an operation that would scale well, you have to wait for a sorted collection to become available before it can be "sliced". Now   sounds like an equally poor method as it applies a similar constraint "from the other end"; however with sorting applied, the engine is able to somewhat optimize the process by only keeping in memory   elements per shard as it traverses the collection. 
+ An alternative is to use range based paging. After retrieving the first page of tweets, you know what the   value is for the last tweet, so all you have to do is substitute the original   with this new value: 
+ 
+ Performing a   condition like this can be easily parallellized. But how to deal with pages other than the next one? You don't know the begin date for pages number 5, 10, 20, or even the  previous  page! @SergioTulentsev suggests  creative chaining of methods  but I would advocate pre-calculating first-last ranges of the aggregate field in a separate   collection; these could be re-calculated on update. Furthermore, if you're not happy with   (note the performance remarks) or are concerned about duplicate values, you should consider  compound indexes  on timestamp + account tie (since a user can't tweet twice at the same time), or even an artificial aggregate of the two: 
+ 
+ Using an aggregate field for sorting  will  work "on the fold" (although perhaps there are more kosher ways to deal with the condition). This could be set up as  a unique index  with values corrected at insert time, with a single tweet document looking like 
+ 
+ 
+ The following approach wil work even if there are multiple documents inserted/updated at same millisecond even if from multiple clients (which generates ObjectId). For simiplicity, In following queries I am projecting _id, lastModifiedDate. 
+ 
+ First page, fetch the result Sorted by modifiedTime (Descending), ObjectId (Ascending) for fist page. 
+ 
+ 
+ Note down the ObjectId and lastModifiedDate of the last record fetched in this page. (loid, lmd) 
+ 
+ For sencod page, include query condition to search if (lastModifiedDate = lmd AND oid > loid ) OR (lastModifiedDate < loid) 
+ 
+ 
+ repeat same for subsequent pages. 
+ 
+ ObjectIds should be good enough for pagination if you limit your queries to the previous second (or don't care about the subsecond possibility of weirdness). If that is not good enough for your needs then you will need to implement an ID generation system that works like an auto-increment.  
+ Update: 
+ To query the previous second of ObjectIds you will need to construct an ObjectID manually. 
+ See the specification of ObjectId  http://docs.mongodb.org/manual/reference/object-id/ 
+ Try using this expression to do it from a mongos. 
+ 
+ The 'f''s at the end are to max out the possible random bits that are not associated with a timestamp since you are doing a less than query. 
+ I recommend during the actual ObjectId creation on your application server rather than on the mongos since this type of calculation can slow you down if you have many users. 
+ 
+ I have build a pagination using mongodb _id this way. 
+ 
+ 

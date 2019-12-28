@@ -1,0 +1,54 @@
+*** oracle-lag-between-commit-and-select ***
+
+ We have an Java workflow application that uses an Oracle database to track its steps and interactions with other services.  During a workflow run several insert/update/selects are performed and occasionally the select will not return the updated data, even though the insert/update commit that ran before it completed successfully.  After the workflow errors out (due to the bad data), if we go back and check the database through a 3rd party app the new/updated data will show up.  There seems to be a lag between when our commits go through and when they are visible.  This happens in roughly 2% of all workflow runs and it increases during heavy database usage.   
+ Our database support team suggested to change a parameter max-commit-propagation-delay to 0, as it defaulted to 700.  This appeared to be a possible solution but ultimately did not fix our problem. 
+ The application runs on WebSphere and the Oracle database is configured as a JDBC datasource.  We are using Oracle 10.1g.  The application is written in Java 1.5. 
+ Any help would be appreciated. 
+ edit: sample code 
+ 
+ 
+ By default, the behavior you described should be impossible - changes made in a committed transaction become available immediately to all sessions.  However, there are exceptions: 
+ 
+ Are you using any of the WRITE options in the COMMIT command?  If you are not, confirm the value of your COMMIT_WRITE initialization parameter.  If either is using the "WRITE BATCH" or especially "WRITE BATCH NOWAIT", you could be opening yourself up to concurrency issues.  "WRITE BATCH NOWAIT" would typically be used in cases where the speed of your write transactions is of greater importance than possible concurrency issues.  If your initialization parameter is using the "WRITE" variants, you can override it on a transaction basis by specifying the IMMEDIATE clause in your commits ( see COMMIT ) 
+ Is the transaction that is attempting to read the data invoking SET TRANSACTION prior to the other transaction committing?  Using SET TRANSACTION to specify SERIALIZATION LEVEL READ ONLY or SERIALIZABLE will result in the the transaction seeing no changes that occur from other committed sessions that occurred after the invocation of SET TRANSACTION ( see SET TRANSACTION ) 
+ 
+ edit: I see that you're using a DataSource class.  I'm not familiar with this class - I assume it's a connection sharing resource.  I realize that your current app design may not make it easy to use the same connection object throughout your work flow (the steps may designed to operate independently, and you didn't build in a facility to pass a connection object from one step to the next), but you should verify that connection objects being returned to the DataSource object are "clean", especially with regard to open transactions.  It may be possible that you are not invoking SET TRANSACTION in your code, but another consumer of DataSource elsewhere may be doing so, and returning the connection back to the datasource with the session still in SERIALIZABLE or READ ONLY mode.  When connection sharing, it is imperative that all connections be rolled back before handing them off to a new consumer. 
+ If you have no control or visibility to the behavior of the DataSource class, you may wish to try executing a ROLLBACK on the newly acquired connection to insure it has no lingering transaction already established. 
+ 
+ If the DBA team tried to modify the   parameter, it probably means you are connecting to a RAC instance (i-e: several distinct servers accessing one single database). 
+ In that case, when you're closing and reopening the connection in your java code there is a chance that you will be answered by a different server. The delay parameter means that there is a small time frame when the two instances won't be at exactly the same point in time. The answer you are getting is consistent with a point in time but may not be the most current. 
+ As proposed by KM, the easiest solution would be to keep the connection opened after the commit. 
+ Alternatively, you could also add a delay after having closed the connection if it is practical (if this is a batch job and response time is not critical for example). 
+ 
+ are use using an ORM? it might be selecting from cache and not form the db after the change. 
+ 
+ A possible workaround may be to use JTA transaction.
+It keeps your connection open "behind the scene" over multiple open/close jdbc conns. Maybe it will keep your connection on the same server and avoid this sync' problem. 
+ 
+ 
+ This sounds like an issue with RAC, with connections to two different instances and the SCN is out of sync. 
+ As a workaround, consider not closing the database connection and getting a new one, but reuse the same connection. 
+ If that's not workable, then add a retry to the query that attempts to retrieve the inserted row.  If the row is not returned, then sleep a bit, and retry the query again.  Put that into a loop, after a specified number of retries, you can then fail. 
+ [ADDENDUM] 
+ In his answer, Steve Broberg (+1!) raises interesting ideas.  I hadn't considered: 
+ 
+ the   might be anything other than  
+ the transaction isolation level might be anything other than READ COMMITTED 
+ 
+ I did consider the possibility of flashback query, and dismissed that out of hand without mentioning it, as there's no apparent reason the OP would be using flashback query, and no evidence of such a thing in the code snippet.) 
+ [/ADDENDUM] 
+ 
+ The code snippet didn't actually include the commit. 
+ If you are assuming/relying on the close connection doing the commit, it may not be synchronous (ie the java may report the connection as closed when it tells Oracle to close the connection, which means it may be before the the commit is completed by Oracle). 
+ 
+ I see no commit in your code. They are most important statements in such an app so I would want to have them explicitely written every time, not relying to close() or such. 
+ You may also have autocommit set to true by default on your connection(s) which would exactly explain the behavior (it commits after every insert/update). 
+ Can you check, that you have commits exactly where you want them, e.g. at the end of the transaction and not before? 
+ If there are commits when you are partially through, then you have a race condition between your threads which would also explain why there are more problems when load is bigger. 
+ 
+ "even though the insert/update commit that ran before it completed successfully." 
+ This suggests to me that you are issuing a commit(), and then afterwards expect to read exactly the same data again (that's repeatable read). 
+ This suggests to me that you shouldn't be committing.  As long as you want to make sure that NO OTHER TASK is able to modify ANY of the data that you EXPLICITLY EXPECT to remain stable, you cannot afford to release locks (which is what commit does). 
+ Note that while you keep a lock on some resource, other threads will be stacking up "waiting for that resource to become available".  The likelyhood of that stack being non-empty at the time you release your lock, gets higher as general system load gets higher.  And what your DBMS will conclude when you (finally) issue "commit", is to conclude that, "hey, wow, this guy is finally done with this resource, so now I can go about letting all the other waiting guys try and do their thing with it (AND there is NOTHING to prevent "their thing" from being an update !)". 
+ Maybe there are issues to do with Oracle's snapshot isolation that I'm overlooking.  Apologies if so. 
+ 

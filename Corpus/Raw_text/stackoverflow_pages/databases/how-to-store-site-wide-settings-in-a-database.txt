@@ -1,0 +1,56 @@
+*** how-to-store-site-wide-settings-in-a-database ***
+
+ I'm debating three different approaches to to storing sitewide settings for a web application. 
+ A key/value pair lookup table, each key represents a setting. 
+ 
+ Pros  Simple to implement 
+ Cons  No Constraints on the individual settings 
+ 
+ A single row settings table. 
+ 
+ Pros  Per setting defaults and constraints 
+ Cons  - Lots of settings would mean lots of columns. Not sure if Postgres would have an issue with that 
+ 
+ Just hard code it since the settings won't change that often. 
+ 
+ Pros  Easy to setup and add more settings. 
+ Cons  Much harder to change 
+ 
+ Thoughts on which way to go? 
+ 
+ I've used a key/value pair lookup table much in the way you describe with good results. 
+ 
+ As an added bonus the table had a "configuration name" column which provided a simple way to choose/activate a specific  set  of configuration settings. That meant that  ,  , and   could all live in the same table, though it was up to the application to choose which set to use. In our case a JVM argument made sense. It might make sense to store different "sets" of config settings in the same DB table; then again, it might not. 
+ 
+ If you are thinking about file-based configuration, I like  INI  or  YAML . You could still store it in a database, though you probably won't find an INI or YAML column type (as you might for XML). 
+ 
+ Since your question is tagged with database/sql I presume you'd have no problem accessing an sql table for both lookup and management of settings... Guessing here, but I'd start with a table like: 
+ 
+ If you think about managing a large number of settings, there's more information you need about each one of them than just their current value. 
+ 
+ Go with #1. If you want constraints based on simple types, then rather than having a simple string as a value, add a date and number field as well. The individual properties will "know" what value they want. No reason to get all meta about it. 
+ 
+ I would go with the first option -- key/value pair lookup table. It's the most flexible and scalable solution, in my opinion. If you are worried about the cost of running many queries here and there to retrieve various config values, you could always implement some sort of cache, such as loading the whole table at once into memory. In addition to key and value, you could add columns such as "Description", and "Default Value", etc., and build a generic configuration editor that displays the Descriptions, etc., on-screen to help the user edit the config values. 
+ I've seen some commercial applications with a single-row config table, and while I don't have direct experience doing development work against it, it struck me as much less scalable and harder to read. 
+ 
+ If I had to choose, I'd go with the first option.  It is easy to add/remove rows as you need.  Whereas the single row could end up being a nightmare, and is probably a lot less scalable.  And for option 3: It's possible you will regret hard coding your settings in the future, so you definitely don't want to box yourself in. 
+ Although you didn't list is as an option, is XML available? It is easy to set up, and gives you slightly more options, as you can nest settings within settings. 
+ 
+ I am including using a separate PHP script with just the settings: 
+ 
+ So it's your third variant.  
+ I don't actually see what you find hard on changing these values; in fact, this is  **the easiest way**
+ to administrate these settings. This is not the kind of data you want your users (with different roles) to change via web interface. Products like PHPMyAdmin and  Joomla happily use this approach. 
+ 
+ A mixed approach is best. You have to consider what is best for each setting - which largely boils down to who would change each site-wide setting. 
+ If you have a development server and a live server, adding new application settings can be awkward if they are solely in the db. You either need to update the database before you update the code, or have all your code handle the situation where a setting is unavailable. Obviously one common sitewide setting is the database name, and that can't be stored in the database! 
+ You can easily end up with different settings in your test and live environments. I've taken settings away from the DB and into text files before now. 
+ I would recommend having defaults in a 'hardcoded' file, which may then overridden by a key/value pair lookup table.  
+ You can therefore push up new code without first needing to change the settings stored in the database.  
+ Where there are a varying amount of values, or values that are always changed at the same time, I'd store the values as JSON or other serialised form. 
+ 
+ I have used a mixed approach before in which i had put all the settings (which are not likely to change) into a separate PHP file. The individual settings (which are likely to change) as a key/value pair. That way I could reduce entries from the database thereby reducing my overall query time also this helped my keep the key size small . 
+ 
+ Following Mike's idea, here is a script to create a table to save pairs of key/value. This integrates a mechanism (constraint) to check that the values is ok with respect to min/max/not null, and it also automatically creates a function fn_setting_XXXX() to quickly get the value of the corresponding setting (correctly casted). 
+ 
+ 

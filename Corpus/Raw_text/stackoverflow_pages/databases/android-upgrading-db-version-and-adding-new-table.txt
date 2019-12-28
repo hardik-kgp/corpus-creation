@@ -1,0 +1,83 @@
+*** android-upgrading-db-version-and-adding-new-table ***
+
+ I've already created sqlite tables for my app, but now I want to add a new table to the database. 
+ I changed the DB version as below 
+ 
+ and Added string to create table 
+ 
+  and   as below: 
+ 
+ But for some reason the new table is not being created. What am I doing wrong? 
+ 
+ **1. About onCreate() and onUpgrade()**
+
+  is called whenever the app is freshly installed.    is called whenever the app is upgraded and launched and the  database version  is not the same.   
+ **2. Incrementing the db version**
+
+ You need a constructor like: 
+ 
+ IMPORTANT: Incrementing the app version alone is not enough for   to be called! 
+ **3. Don't forget your new users!**
+
+ Don't forget to add 
+ 
+ to your onCreate() method as well or newly installed apps will lack the table. 
+ **4.  How to deal with multiple database changes over time**
+
+ When you have successive app upgrades, several of which have database upgrades, you want to be sure to check  : 
+ 
+ This way when a user upgrades from version 1 to version 3, they get both updates.  When a user upgrades from version 2 to 3, they just get the revision 3 update...  After all, you can't count on 100% of your user base to upgrade each time you release an update.  Sometimes they skip an update or 12 :) 
+ **5.  Keeping your revision numbers under control while developing**
+
+ And finally... calling  
+ 
+ totally uninstalls the app.  When you install again, you are guaranteed to hit   which keeps you from having to keep incrementing the database version into the stratosphere as you develop... 
+ 
+ Your code looks correct.  My suggestion is that the database already thinks it's upgraded. If you executed the project after incrementing the version number, but before adding the   call, the database on your test device/emulator may already believe it's at version 2. 
+ A quick way to verify this would be to change the version number to 3 -- if it upgrades after that, you know it was just because your device believed it was already upgraded. 
+ 
+ You can use SQLiteOpenHelper's   method. In the onUpgrade method, you get the oldVersion as one of the parameters. 
+ In the   use a   and in each of the  s use the version number to keep track of the current version of database. 
+ It's best that you loop over from   to  , incrementing   by 1 at a time and then upgrade the database step by step. This is very helpful when someone with database version 1 upgrades the app after a long time, to a version using database version 7 and the app starts crashing because of certain incompatible changes. 
+ Then the updates in the database will be done step-wise, covering all possible cases, i.e. incorporating the changes in the database done for each new version and thereby preventing your application from crashing. 
+ For example: 
+ 
+ 
+ @jkschneider's answer is right. However there is a better approach.  
+ Write the needed changes in an sql file for each update as described in the link  https://riggaroo.co.za/android-sqlite-database-use-onupgrade-correctly/ 
+ from_1_to_2.sql 
+ 
+ from_2_to_3.sql 
+ 
+ from_3_to_4.sql 
+ 
+ These .sql files will be executed in onUpgrade() method according to the version of the database. 
+ DatabaseHelper.java 
+ 
+ An example project is provided in the same link also :  https://github.com/riggaroo/AndroidDatabaseUpgrades 
+ 
+ Handling database versions is very important part of application development. I assume that you already have class AppDbHelper extending  . When you extend it you will need to implement   and   method. 
+ 
+ When   and   methods called 
+ 
+  called when app newly installed. 
+  called when app updated.  
+ 
+ Organizing Database versions
+I manage versions in a class methods. Create implementation of interface Migration. E.g. For first version create   class, second version create   (these are my naming convention) 
+ 
+ 
+ Example migration: 
+ 
+ 
+ Using Migration classes 
+ 
+ : Since   will be called when application freshly installed, we also need to execute all migrations(database version updates). So   will looks like this: 
+ 
+ : This method will be called when application is already installed and it is updated to new application version. If application contains any database changes then put all database changes in new Migration class and increment database version.  
+ For example, lets say user has installed application which has database version 1, and now database version is updated to 2(all schema updates kept in  ). Now when application upgraded, we need to upgrade database by applying database schema changes in   like this: 
+ 
+ 
+ Note: All upgrades (mentioned in  ) in to database schema should be executed in  
+ 
+ 

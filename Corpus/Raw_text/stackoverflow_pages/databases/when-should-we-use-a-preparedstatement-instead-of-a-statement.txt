@@ -1,0 +1,103 @@
+*** when-should-we-use-a-preparedstatement-instead-of-a-statement ***
+
+ I know the advantages of using  , which are 
+ 
+ query is rewritten and compiled by the database server 
+ protection against SQL injection 
+ 
+ But I want to know when we use it instead of  ? 
+ 
+ 
+ 
+ Query is rewritten and compiled by the database server 
+ 
+ If you don't use a prepared
+statement, the database server will
+have to parse, and compute an
+execution plan for the statement
+each time you run it. If you find
+that you'll run the same statement
+multiple times (with different
+parameters) then its worth preparing
+the statement once and reusing that
+prepared statement. If you are
+querying the database adhoc then
+there is probably little benefit to
+this. 
+ 
+ Protected against SQL injection 
+ 
+ This is an advantage you almost
+always want hence a good reason to
+use a   everytime.
+Its a consequence of having to
+parameterize the query but it does
+make running it a lot safer. The
+only time I can think of that this
+would not be useful is if you were
+allowing adhoc database queries; You
+might simply use the Statement
+object if you were prototyping the
+application and its quicker for you,
+or if the query contains no
+parameters. 
+ 
+ 
+ Ask Tom's  opinion :
+ The use of a Statement in JDBC should be 100% localized to being used for DDL (ALTER, 
+CREATE, GRANT, etc) as these are the only statement types that cannot accept BIND 
+VARIABLES.
+
+ PreparedStatements or CallableStatements should be used for EVERY OTHER type of statement 
+(DML, Queries).  As these are the statement types that accept bind variables. 
+ This is a fact, a rule, a law -- use prepared statements EVERYWHERE.  Use STATEMENTS 
+almost no where.
+ 
+ He's specifically talking about Oracle but the same principle applies to any database that caches execution plans. 
+ Database apps that scale and prevent SQL injection attacks at the same time? What's the downside? 
+ 
+ I would turn this round: in a publicly distributed app, you should generally  **always**
+ use prepared statements  **unless you have a really compelling reason not to**
+, and you should always supply parameters "properly" to the prepared statement, and not by splicing them into the query string. 
+ Why? Well, basically because of the reasons you gave (or at least, the second one)... 
+ 
+ PreparedStatements should be used very carefully in WHERE clauses. 
+ Suppose that a table is defined as: 
+ 
+ (e.g. "o: object-ID (foreign key), k: attribute-key, v: attribute-value").  
+ Furthermore there is a (non-unique) index on v. 
+ 
+ Suppose that this table contains 200 million rows inserted like: 
+ 
+ ("Thus, every object o has attributes k1=v1 and k2=o") 
+ Then you should not build queries like: 
+ 
+ ("find objects that have two given attributes") 
+ My experience with ORACLE and MSSQL is, that those queries might need  many minutes  to return. This is true even if no row matches the where clause. It depends on wether the SQL-Server decides to lookup tx.v or ty.v first.  
+ One shoud put the values for the columns k and v directy into the statement. I think this is because the SQL-Servers take the values into account when computing the execution plan.  
+ A query look like this returns always after milliseconds: 
+ 
+ ("The SQL-Server will always search first for v='1234' and then for v='v1' ") 
+ Regards 
+Wolfgang 
+ 
+ You can always use PreparedStatement instead of Statment( select, insert , update, delete ). Better performance and protected against SQL injection. 
+ But, don't use it with a dynamic request like a request with   : 
+ 
+ It's counter-productive, you lost performance and memory because you cache every time a new request, and PreparedStatement are not just for SQL injection, it's about performance. In this case, Statement will not be slower. 
+ Your pool have a limit of PreparedStatment ( -1 defaut but you must limit it ), and you will reach this limit ! and if you have no limit or very large limit you have some risk of memory leak, and in extreme case OutofMemory errors. So if it's for your small personnal project used by 3 users it's not dramatic, but you don't want that if you're in a big company and that you're app is used by thousand people and million request. 
+ 
+ Some reading.
+ IBM : Periodical OutOfMemory errors with prepared statement caching 
+ 
+ **Statement**
+: Each time the sql query is running,this sql statement is sent to the DBMS where it is compiled. So, it increases the server loads and decreases the performance. 
+ 
+ **PreparedStatement**
+: Unlike Statement PreparedStatement is given a sql query as a parameter when it is created. 
+ 
+ This sql statement is sent to Database where it is compiled.
+So,in preparedStatement compiled happens only once but in statement compiled happens each time Statement is called. 
+ 
+ Besides preventing SQL injection, formatting portability (which you can't get from  ), performance is the obvious reason. However,   doesn't come without any penalty. For example, it is generally slower than   if running only once, as there is some overhead. So the general idea is   should be used when you are performing the same query many many times. However, how much overhead is very database server implementation-specific, so exactly when to choose   over  , from performance consideration, should really be based on your actual experience/experiments of a specific database server. 
+ 

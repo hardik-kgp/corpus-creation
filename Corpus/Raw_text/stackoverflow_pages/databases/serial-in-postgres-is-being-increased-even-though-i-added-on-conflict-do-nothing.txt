@@ -1,0 +1,50 @@
+*** serial-in-postgres-is-being-increased-even-though-i-added-on-conflict-do-nothing ***
+
+ I'm using Postgres 9.5 and seeing some wired things here. 
+ I've a cron job running ever 5 mins firing a sql statement that is adding a list of records if not existing. 
+ 
+ sometable.customer is a primary key (text) 
+ **sometable structure is:**
+
+id: serial 
+customer: text 
+balance: bigint    
+ Now it seems like everytime this job runs, the id field is silently incremented +1. So next time, I really add a field, it is thousands of numbers above my last value. I thought this query checks for conflicts and if so, do nothing but currently it seems like it tries to insert the record, increased the id and then stops. 
+ Any suggestions? 
+ 
+ The reason this feels weird to you is that you are thinking of the increment on the counter as part of the insert operation, and therefore the "DO NOTHING" ought to mean "don't increment anything". You're picturing this: 
+ 
+ Check values to insert against constraint 
+ If duplicate detected, abort 
+ Increment sequence 
+ Insert data 
+ 
+ But in fact, the increment has to happen  before the insert is attempted . A   column in Postgres is implemented as a   which executes the   function on a bound  . Before the DBMS can do anything with the data, it's got to have a complete set of columns, so the order of operations is like this: 
+ 
+ Resolve default values, including incrementing the sequence 
+ Check values to insert against constraint 
+ If duplicate detected, abort 
+ Insert data 
+ 
+ This can be seen intuitively if the duplicate key is in the autoincrement field itself: 
+ 
+ Clearly, this can't know if there's a conflict without incrementing the sequence, so the "do nothing" has to come  after  that increment. 
+ 
+ As already said by @a_horse_with_no_name and @Serge Ballesta serials are always incremented even if   fails. 
+ You can try to "rollback" serial value to maximum   used by changing the corresponding sequence: 
+ 
+ 
+ As said by @a_horse_with_no_name, that is  by design . Serial type fields are implemented under the hood through sequences, and for evident reasons, once you have gotten a new value from a sequence, you cannot rollback the last value. Imagine the following scenario: 
+ 
+ sequence is at n 
+ A requires a new value : got n+1 
+ in a concurrent transaction B requires a new value: got n+2 
+ for any reason A rollbacks its transaction - would you feel safe to reset sequence? 
+ 
+ That is the reason why sequences (and serial field) just document that in case of rollbacked transactions holes can occur in the returned values. Only unicity is guaranteed. 
+ 
+ Well there is technique that allows you to do stuff like that. They call insert mutex. It is old old old, but it works. 
+ https://www.percona.com/blog/2011/11/29/avoiding-auto-increment-holes-on-innodb-with-insert-ignore/ 
+ Generally idea is that you do   and if your values are duplicating the   does not return any results that of course prevents   and the index is not incremented. Bit of mind boggling, but perfectly valid and performant. 
+ This of course completely ignores   but one gets back control over the index. 
+ 

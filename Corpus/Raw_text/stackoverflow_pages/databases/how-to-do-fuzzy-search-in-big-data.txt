@@ -1,0 +1,33 @@
+*** how-to-do-fuzzy-search-in-big-data ***
+
+ I'm new to that area and I wondering mostly what the state-of-the-art is and where I can read about it. 
+ Let's assume that I just have a key/value store and I have some distance(key1,key2) defined somehow (not sure if it must be a metric, i.e. if the triangle inequality must hold always). 
+ What I want is mostly a search(key) function which returns me all items with keys up to a certain distance to the search-key. Maybe that distance-limit is configureable. Maybe this is also just a lazy iterator. Maybe there can also be a count-limit and an item (key,value) is with some probability P in the returned set where P = 1/distance(key,search-key) or so (i.e., the perfect match would certainly be in the set and close matches at least with high probability). 
+ 
+ One example application is fingerprint matching in  MusicBrainz . They use the  AcoustId  fingerprint and have defined  this compare function . They use the PostgreSQL GIN Index and I guess (although I haven't fully understood/read the acoustid-server code) the  GIN Partial Match Algorithm  but I haven't fully understand wether that is what I asked for and how it works. 
+ 
+ For text, what I have found so far is to use some  phonetic algorithm  to simplify words based on their pronunciation. An example is  here . This is mostly to break the search-space down to a smaller space. However, that has several limitations, e.g. it must still be a perfect match in the smaller space. 
+ But anyway, I am also searching for a more generic solution, if that exists. 
+ 
+ There is no (fast) generic solution, each application will need different approach. 
+ Neither of the two examples actually does traditional nearest neighbor search. AcoustID (I'm the author) is just looking for exact matches, but it searches in a very high number of hashes in hope that some of them will match. The phonetic search example uses metaphone to convert words to their phonetic representation and is also only looking for exact matches. 
+ You will find that if you have a lot of data, exact search using huge hash tables is the only thing you can realistically do. The problem then becomes how to convert your fuzzy matching to exact search. 
+ A common approach is to use  locality-sensitive hashing  (LSH) with a smart hashing method, but as you can see in your two examples, sometimes you can get away with even simpler approach. 
+ Btw, you are looking specifically for text search, the simplest way you can do it split your input to  N-grams  and index those. Depending on how your distance function is defined, that might give you the right candidate matches without too much work. 
+ 
+ I suggest you take a look at FLANN  Fast Approximate Nearest Neighbors . Fuzzy search in big data is also known as approximate nearest neighbors.  
+ This library offers you different metric, e.g Euclidian, Hamming and different methods of clustering: LSH or k-means for instance. 
+ The search is always in 2 phases. First you feed the system with data to train the algorithm, this is potentially time consuming depending on your data.
+I successfully clustered 13 millions data in less than a minute though (using LSH).  
+ Then comes the search phase, which is very fast. You can specify a maximum distance and/or the maximum numbers of neighbors. 
+ As Lukas said, there is no good generic solution, each domain will have its tricks to make it faster or find a better way using the inner property of the data your using. 
+ Shazam uses a special technique with geometrical projections to quickly find your song. In computer vision we often use the BOW: Bag of words, which originally appeared in text retrieval. 
+ If you can see your data as a graph, there are other methods for approximate matching using spectral graph theory for instance. 
+ Let us know. 
+ 
+ Depends on what your key/values are like, the Levenshtein algorithm (also called Edit-Distance) can help. It calculates the least number of edit operations that are necessary to modify one string to obtain another string.  
+ 
+ http://en.wikipedia.org/wiki/Levenshtein_distance 
+ http://www.levenshtein.net/ 
+ 
+ 

@@ -1,0 +1,100 @@
+*** what-are-the-pros-cons-of-and-best-practices-for-using-a-single-database ***
+
+ Here at work (a multi-billion dollar manufaturing company with a 12 person Windows development team) we are about to go to a single master database for all new applications and will have it broken up with schemas for what we normally would have had databases for before. There will also be a few common schemas with stuff like employee directory and branch directory and so on... 
+ I'm still not sure how I feel about this move, but we're about to have a meeting on this in a few hours to discuss pros, cons, best practices, pitfalls and so on... so I'm looking for your thoughts on this... Is it good? Is it bad? What problems are we going to run into a year from now? 
+ Any thoughts, tips, or advice is welcome. Thanks 
+ **EDIT**
+
+In response to a comment on this question, we are using SQL Server 2005 and we are actually talking about moving what would have been seperate databases on the same instance into a single database. The driving issue is the complete lack of referential integrity accross databases as the majority of our applications need access to   common  data such as an employee record, or branch information. 
+ **UPDATE**
+
+Several people requested that I update this question with the results from our meeting so here it is. We debated back and forth the pros and cons of doing this (I even showed them this question using the projector) and by the time we were done we had pretty much covered the pros and cons covered here. About half of us thought we could get it done with the right resources and commitment, and about half thought we couldn't do it (or that it wouldn't work out well). We decided to use some time with Microsoft to get their thoughts and platform specific advice. I will be sure to update this question and  my blog  after we've talked to them. Thanks for all the help and helpful answers. 
+ 
+ Larger database are harder to maintain due to sheer size: backups take longer, disaster recovery is slower which in turn requires more often backups. You can address these by creating filegroups and using  filegroup level backup  in your maintenance plans and on crash recovery you can use the ' piecemeal restore ' strategy to speed things up. 
+ Proper use of filegroups will make most of the 'cons' cited by previous replies go away: they can distribute the I/O, they can sanitize your maintenance plans and backup/restore strategy, they offer availability by taking offline only the damaged portion of the the db in case of crash. So I'd say that while those 'cons' are legit concerns, they have can be mitigated by a proper deployment strategy. Its true though that these mitigation actions require a true, experienced, dba at the helm as they will go beyond the comfort zone of a developer turned dba by need. 
+ Some of the pros I can think of quickly: 
+ 
+ Consistency. You can have a backup-restore so that all data is consistent. Separate dbs don't allow this because you cannot coordinate a consistent set of backups unless you take them all offline, or make them r/o, during the backup. 
+ Dirt cheap high availability: you can deploy  database mirroring  for disaster recoverability and high availability. Multiple databases have problems because one cannot coordinate a simultaneous failover and apps are faced with the dilemma of seeking  each  database current location. 
+ Security. While most other posts see one database harder to secure, I'd say is  **easier**
+ to secure. Multiple databases seem harder to secure properly simply because what everyone does is they make one login and add it to  that  database db_owner group. Having one database will make things harder (unless you end up making everyone dbo, very bad) but once you start doing the right thing (granular access) then one db is not harder than multiple dbs, is actually easier because you won't have to copy/maintain some common groups/rights across multiple dbs. 
+ Control. Will be easier to impose certain policies and good practices on a single db rather than multiple ones (no data access to developers, app data access only through execute rights on the schema to enforce procedures access etc). 
+ 
+ There are also some cons I did not see in other posts: 
+ 
+ This will be much harder to pull off that you think right now 
+ Increase coupling between formerly separated applications will impose development restrictions: you can't simply alter your schema, you will have to coordinate it with the rest of the apps (you can argue that this was also the case before, but was brushed under the carpet by having separate dbs, and you're right) 
+ Log writes that are now distributed across multiple db logs will be consolidated into one single log file. If your writes are significant, this may turn out to be a serious bottleneck and force you to buy some expensive fast drives for the new, consolidated, log file. In general this can be addresses by making the log drive a stripped array across as many stripes as needed to make it fast enough (usually raid 10). 
+ GAM/SGAM/PFS  allocations will also be consolidated, but again this will be alleviated by proper use of file groups. 
+ 
+ 
+ Pros: 
+ 
+ You only need to remember one connection string 
+ When users report that access is slow, you know which DB is causing the trouble 
+ 
+ Cons: 
+ 
+ Backups of The One DB will take a long time and will get progressively longer over time. 
+ Restoring data from a backup will get increasingly difficult. 
+ Performance Tuning (SQL Profiler, Execution Plan estimation) for a feature for one app will slow down every app. 
+ Restricting access to a single application's data is cumbersome if at all possible which will likely mean in practice that all devs and DBAs will be given keys to the ENTIRE kingdom.  
+ New developers/DBAs have a much larger learning curve as they need to navigate a large and mostly useless (to them) database structure which means higher costs for training/ramp up. 
+ When The One database goes down, everyone in your organization plays solitaire until it is restored. 
+ Creating test instances for app development means copying your entire db 
+ 
+ 
+ The only "Pro" I can think of is that all of your systems will be in the one database and therefore a single place to backup, store, etc. However, I would consider this to also be one of the biggest "Cons". 
+ Some other general Cons: 
+ 
+ Much harder to move an application to a different location/server in the future. 
+ Possible locking issues if any applications make use of tempdb. 
+ Possible unrelated performance degredation on one application when another application is being used. 
+ Much harder to implement an application level security model if all tables are in the same database. 
+ 
+ 
+ It sounds to me as though your company is transitioning between two completely distinct motives for using database technology.  The first is application support.  The second is data integration.    If I'm right about this, the process will open up a huge can of worms,  and many of the issues won't even be addressed by putting all the data in one big database. 
+ Consider two of the points you made.  The first is the complete lack of referential integrity across different databases.  The second is the idea that each application will have its own schema.  What this permits to happen is complete lack of referential integrity across schemas,  putting you back in the quicksand you are in now. 
+ Fixing the data so that referential integrity is present,  and fixing the schemas so that referential integrity is enforced, and fixing the applications so that the applications agree with the new schemas will turn out to be a monumental task. 
+ Here's what your company really needs to do:  Have one single CONCEPTUAL database that contains all "enterprise data", and defined in such a way that both referential integrity and entity integrity are enforced.  Revise existing schemas so that they conform to the CONCEPTUAL database except for data that is both purely local to that schema and undocumented in the unified conceptual database. Use constraints wherever needed to guarantee that the data covered by these schemas doesn't lose integrity.  
+ Make the decision about whether these schemas belong in one database or many databases based on database administration, fail soft, security,  and performance requirements and NOT on the need to integrate data.  Whether you use one platform or multiple platforms is a separable decision. 
+ Where necessary,  maintain synchronized copies of the same data in separate databases.  Include the overhead of doing this in your performance considerations above.   
+ Document the conceptual database out the gazoo.  Don't just settle for definitions of the FORM of data.  Insist on definitions of the semantics of the data as well.  
+ Notice that if you use ID fields instead of natural keys to enforce referential integrity,  you will have to generate each ID field in one schema,  and let the association between ID and dependent data propagate by means of synonyms, views, and synchronized replication.   
+ This is not going to be easy. 
+ 
+ If DB is getting bigger, making back-up is getting more difficult because of it's size. 
+ 
+ This could mean a serious scalability problem if you want to add high-traffic applications in the future, since it is much easier to add new database servers which run seperate dbs than it is to parrallelize a single DB. At least in SQL Server. 
+ 
+ Pros: 
+ 
+ The convenience of having everything in one place 
+ Thinking less about good database design 
+ 
+ Cons: 
+ 
+ Even unrelated things are in one place 
+ Less thinking about good database design leading to poorly normalized data 
+ 
+ To me this just sounds like laziness and a belief that all this "fancy ivory tower database stuff" is worthless. 
+ 
+ I can see that being scary, but considering the number of businesses that use Oracle EBS, or SAP, or other systems that are, in essence, this same configuration, I don't see it being a Bad Thing™. It's a big move, and will be  tough  to get correct, but it can really improve integration across the enterprise in the long run. 
+ 
+ I've never heard of this approach and would like to know how the meeting goes. I see no real benefit in combining multiple applications into a single database when the data doesn't relate to each other. 
+ I'm thinking you might have issues if you decide that an application requires it's own database server at one point. 
+ 
+ Ah, the old EggsInOneBasket design pattern. It's not a favourite. 
+ You're just compounding any problems caused by damage to that database. Spread the risk! 
+ 
+ For the referential integrity issue, you can make copies of those shared tables in the subsidiary databases.  You can't use real replication, but what you do is deny everything but select on these to most users. 
+ On the same server, you can either push or pull data from the official repository of the master data and insert any new rows/update any changed rows.  You can even do this with a trigger in the master database (I don't recommend it, though). 
+ If it's different instances or servers, you can use linked servers or SSIS. 
+ You can put the common data into a "core" schema in each database.  Then you can have tools to check that all your core tables in every subsidiary database are consistent.  The worse that can happen is that an application is not seeing a new employee because the core isn't updated.  And keeping your database separate gives you an ability to decouple and gives you maintenance windows.  (You can even decouple and run "standalone" if your master is down for maintenance). 
+ I expect you'll only be seeing a few dozen of these core entity tables in even a largish enterprise. 
+ 
+ There are many other ways to solve the referential integrity (RI) issue. I am not as familiar with SQL Server as other DB's. In Informix you can use synonyms to point to objects in other DB's and use these for your RI. In Oracle you can make a DB links to one or more DB's to accomplish the same thing. 
+These approaches have the issue that if any of the DB's are down the RI will fail causing issues in the dependent DB's. selects would work, but inserts would fail.
+Consolidation can be a good idea, depending upon the size of the schema's, and other issues with scalability. SQL Server has serious scalability issues. Other DB platforms allow horizontal scaling with either a share everything approach (Oracle's RAC, latest Informix release) or a partitioned share nothing approach (DB2's DPF, Informix XPS, Netezza, Teradata) 
+ I am with some of the others here interested to hear the results of your meeting. 
+ 

@@ -1,0 +1,36 @@
+*** what-happens-when-auto-increment-on-integer-column-reaches-the-max-value-in-data ***
+
+ I am implementing a database application and I will use both JavaDB and MySQL as database. I have an ID column in my tables that has integer as type and I use the databases auto_increment-function for the value. 
+ But what happens when I get more than 2 (or 4) billion posts and integer is not enough? Is the integer overflowed and continues or is an exception thrown that I can handle? 
+ Yes, I could change to long as datatype, but how do I check when that is needed? And I think there is problem with getting the last_inserted_id()-functions if I use long as datatype for the ID-column. 
+ 
+ Jim Martin's comment from  §3.6.9. "Using AUTO_INCREMENT"  of the MySQL documentation: 
+ 
+ Just in case there's any question, the AUTO_INCREMENT field /DOES NOT WRAP/. Once you hit the limit for the field size, INSERTs generate an error. (As per Jeremy Cole) 
+ 
+ A quick test with MySQL 5.1.45 results in an error of: 
+ 
+ ERROR 1467 (HY000): Failed to read auto-increment value from storage engine 
+ 
+ You could test for that error on insert and take appropriate action. 
+ 
+ Just to calm the nerves, consider this: 
+ Suppose you have a database that inserts a new value for every time a user executes some sort of transaction on your website. 
+ With a 64 bit integer as an ID then this is the condition for overflow:
+With a world population of 6 billion then if every human on earth executes a transaction once per second every day and every year (without rest) it would take more than 80 years for your id to wrap around. 
+ Ie, only google needs to vaguely consider this problem occasionally during a coffee break. 
+ 
+ You will know when it's going to overflow by looking at the largest ID. You should change it well before any exception even comes close to being thrown. 
+ In fact, you should design with a large enough datatype to begin with. Your database performance is not going to suffer even if you use a 64 bit ID from the beginning. 
+ 
+ The answers here state what happens, but only one answer says how to detect the problem (and then only after the error has happened). Generally, it is helpful to be able to detect these things before they become a production issue, so I wrote a query to detect when an overflow is about to happen:  
+ 
+ Hope this helps someone somewhere.  
+ 
+ For MySQL 5.6 ,  3.6.9 Using AUTO_INCREMENT  in says: 
+ 
+ Use the smallest integer data type for the AUTO_INCREMENT column that is large enough to hold the maximum sequence value you will need. When the column reaches the upper limit of the data type, the next attempt to generate a sequence number fails. 
+ 
+ 
+ I would like to share a personal experience I just had about this. Using Nagios + Check_MK + NDOUtils. NDOUtils stores all the checks in a table called nagios_servicechecks. The primary key is a auto_increment int signed. What happens with MySQL when this limit is ranged? Well, in my case, MySQL delete all the records but the last one. The table is now almost empty. Everytime a new record is inserted the old one is deleted. Don't why this happen, but the fact is that I lost all my records. IDOUtils, used with Icinga (not Nagios), fixed this issue changing int by a bigint. It didn't generate a error. 
+ 

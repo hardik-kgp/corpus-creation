@@ -1,0 +1,111 @@
+*** is-there-a-version-control-system-for-database-structure-changes ***
+
+ I often run into the following problem. 
+ I work on some changes to a project that require new tables or columns in the database. I make the database modifications and continue my work. Usually, I remember to write down the changes so that they can be replicated on the live system. However, I don't always remember what I've changed and I don't always remember to write it down. 
+ So, I make a push to the live system and get a big, obvious error that there is no  , ugh. 
+ Regardless of the fact that this may not be the best practice for this situation, is there a version control system for databases? I don't care about the specific database technology. I just want to know if one exists. If it happens to work with MS SQL Server, then great. 
+ 
+ In Ruby on Rails, there's a concept of a  migration  -- a quick script to change the database. 
+ You generate a migration file, which has rules to increase the db version (such as adding a column) and rules to downgrade the version (such as removing a column). Each migration is numbered, and a table keeps track of your current db version. 
+ To  migrate up , you run a command called "db:migrate" which looks at your version and applies the needed scripts. You can migrate down in a similar way. 
+ The migration scripts themselves are kept in a version control system -- whenever you change the database you check in a new script, and any developer can apply it to bring their local db to the latest version. 
+ 
+ I'm a bit old-school, in that I use source files for creating the database.  There are actually 2 files - project-database.sql and project-updates.sql - the first for the schema and persistant data, and the second for modifications.  Of course, both are under source control. 
+ When the database changes, I first update the main schema in project-database.sql, then copy the relevant info to the project-updates.sql, for instance ALTER TABLE statements.
+I can then apply the updates to the development database, test, iterate until done well.
+Then, check in files, test again, and apply to production. 
+ Also, I usually have a table in the db - Config - such as: 
+ **SQL**
+
+ 
+ Then, I add the following to the update section: 
+ 
+ The   only gets changed when the database is recreated, and the   gives me an indication how far the db is off the baseline. 
+ I could keep the updates in their own separate files, but I chose to mash them all together and use cut&paste to extract relevant sections.  A bit more housekeeping is in order, i.e., remove ':' from $Revision 1.1 $ to freeze them. 
+ 
+ MyBatis  (formerly iBatis) has a  schema migration , tool for use on the command line. It is written in java though can be used with any project. 
+ 
+ To achieve a good database change management practice, we need to identify a few key goals.
+  Thus, the MyBatis Schema Migration System (or MyBatis Migrations for short) seeks to: 
+ 
+ 
+ Work with any database, new or existing 
+ Leverage the source control system (e.g. Subversion) 
+ Enable concurrent developers or teams to work independently 
+ Allow conflicts very visible and easily manageable 
+ Allow for forward and backward migration (evolve, devolve respectively) 
+ Make the current status of the database easily accessible and comprehensible 
+ Enable migrations despite access privileges or bureaucracy 
+ Work with any methodology 
+ Encourages good, consistent practices 
+ 
+ 
+ Redgate has a product called  SQL Source Control . It integrates with TFS, SVN, SourceGear Vault, Vault Pro, Mercurial, Perforce, and Git. 
+ 
+ I highly recommend  SQL delta . I just use it to generate the diff scripts when i'm done coding my feature and check those scripts into my source control tool (Mercurial :)) 
+ They have both an SQL server & Oracle version. 
+ 
+ I wonder that no one mentioned the open source tool  liquibase  which is Java based and should work for nearly every database which supports jdbc. Compared to rails it uses xml instead ruby to perform the schema changes. Although I dislike xml for domain specific languages the very cool advantage of xml is that liquibase knows how to roll back certain operations like  
+ 
+ So you don't need to handle this of your own 
+ Pure sql statements or data imports are also supported. 
+ 
+ Most database engines should support dumping your database into a file. I know MySQL does, anyway. This will just be a text file, so you could submit that to Subversion, or whatever you use. It'd be easy to run a diff on the files too. 
+ 
+ If you're using SQL Server it would be hard to beat Data Dude (aka the Database Edition of Visual Studio).  Once you get the hang of it, doing a schema compare between your source controlled version of the database and the version in production is a breeze. And with a click you can generate your diff DDL. 
+ There's an instructional  video  on MSDN that's very helpful. 
+ I know about DBMS_METADATA and Toad, but if someone could come up with a Data Dude for Oracle then life would be really sweet. 
+ 
+ Have your initial create table statements in version controller, then add alter table statements, but never edit files, just more alter files ideally named sequentially, or even as a "change set", so you can find all the changes for a particular deployment.  
+ The hardiest part that I can see, is tracking dependencies, eg, for a particular deployment table B might need to be updated before table A. 
+ 
+ For Oracle, I use  Toad , which can dump a schema to a number of discrete files (e.g., one file per table).  I have some scripts that manage this collection in Perforce, but I think it should be easily doable in just about any revision control system. 
+ 
+ Take a look at the oracle package DBMS_METADATA.  
+ In particular, the following methods are particularly useful:  
+ 
+ 
+ 
+ 
+ 
+ Once you are familiar with how they work (pretty self explanatory) you can write a simple script to dump the results of those methods into text files that can be put under source control.  Good luck! 
+ Not sure if there is something this simple for MSSQL. 
+ 
+ I write my db release scripts in parallel with coding, and keep the release scripts in a project specific section in SS. If I make a change to the code that requires a db change, then I update the release script at the same time.
+Prior to release, I run the release script on a clean dev db (copied structure wise from production) and do my final testing on it. 
+ 
+ I've done this off and on for years -- managing (or trying to manage) schema versions.  The best approaches depend on the tools you have.  If you can get the Quest Software tool "Schema Manager" you'll be in good shape.  Oracle has its own, inferior tool that is also called "Schema Manager" (confusing much?) that I don't recommend. 
+ Without an automated tool (see other comments here about Data Dude) then you'll be using scripts and DDL files directly.  Pick an approach, document it, and follow it rigorously.  I like having the ability to re-create the database at any given moment, so I prefer to have a full DDL export of the entire database (if I'm the DBA), or of the developer schema (if I'm in product-development mode). 
+ 
+ PLSQL Developer, a tool from All Arround Automations, has a plugin for repositories that works OK ( but not great) with Visual Source Safe. 
+ 
+ From the web:  
+ 
+ The Version Control Plug-In provides a tight integration between the PL/SQL Developer IDE >>and any Version Control System that supports the Microsoft SCC Interface Specification. >>This includes most popular Version Control Systems such as Microsoft Visual SourceSafe, >>Merant PVCS and MKS Source Integrity. 
+ 
+ 
+ http://www.allroundautomations.com/plsvcs.html 
+ 
+ ER Studio  allows you to reverse your database schema into the tool and you can then compare it to live databases.   
+ Example:  Reverse your development schema into ER Studio -- compare it to production and it will list all of the differences.  It can script the changes or just push them through automatically. 
+ Once you have a schema in ER Studio, you can either save the creation script or save it as a proprietary binary and save it in version control.  If you ever want to go back to a past version of the scheme, just check it out and push it to your db platform. 
+ 
+ There's a PHP5 "database migration framework" called Ruckusing. I haven't used it, but the  examples  show the idea, if you use the language to create the database as and when needed, you only have to track source files. 
+ 
+ You can use  Microsoft SQL Server Data Tools  in visual studio to generate scripts for database objects as part of a SQL Server Project. You can then add the scripts to source control using the source control integration that is built into visual studio. Also, SQL Server Projects allow you verify the database objects using a compiler and generate deployment scripts to update an existing database or create a new one. 
+ 
+ We've used  MS Team System Database Edition  with pretty good success.  It integrates with TFS version control and Visual Studio more-or-less seamlessly and allows us to manages stored procs, views, etc., easily.  Conflict resolution can be a pain, but version history is complete once it's done.  Thereafter, migrations to QA and production are extremely simple. 
+ It's fair to say that it's a version 1.0 product, though, and is not without a few issues. 
+ 
+ Schema Compare for Oracle is a tool specifically designed to migrate changes from our Oracle database to another. Please visit the URL below for the download link, where you will be able to use the software for a fully functional trial. 
+ http://www.red-gate.com/Products/schema_compare_for_oracle/index.htm 
+ 
+ In the absence of a VCS for table changes I've been logging them in a wiki. At least then I can see when and why it was changed. It's far from perfect as not everyone is doing it and we have multiple product versions in use, but better than nothing. 
+ 
+ I'd recommend one of two approaches. First, invest in  PowerDesigner  from Sybase. Enterprise Edition. It allows you to design Physical datamodels, and a whole lot more. But it comes with a repository that allows you to check in your models. Each new check in can be a new version, it can compare any version to any other version and even to what is in your database at that time. It will then present a list of every difference and ask which should be migrated… and then it builds the script to do it. It’s not cheap but it’s a bargain at twice the price and it’s ROI is about 6 months. 
+ The other idea is to turn on DDL auditing (works in Oracle). This will create a table with every change you make. If you query the changes from the timestamp you last moved your database changes to prod to right now, you’ll have an ordered list of everything you’ve done. A few where clauses to eliminate zero-sum changes like create table foo; followed by drop table foo; and you can EASILY build a mod script. Why keep the changes in a wiki, that’s double the work. Let the database track them for you. 
+ 
+ Two book recommendations: "Refactoring Databases" by Ambler and Sadalage and "Agile Database Techniques" by Ambler. 
+ Someone mentioned Rails Migrations. I think they work great, even outside of Rails applications. I used them on an ASP application with SQL Server which we were in the process of moving to Rails. You check the migration scripts themselves into the VCS. 
+Here's  a post by Pragmatic Dave Thomas  on the subject. 
+ 

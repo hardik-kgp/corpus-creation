@@ -1,0 +1,74 @@
+*** how-to-rethrow-same-exception-in-sql-server ***
+
+ I want to rethrow same exception in sql server that has been occured in my try block. 
+I am able to throw same message but i want to throw same error. 
+ 
+ 
+ 
+ 
+ This line will show error, but i want functionality something like that.
+This raises error with error number 50000, but i want erron number to be thrown that i am passing  ,  
+ I want to capture this error no at frontend 
+ i.e.  
+ 
+ I want this functionality. which can't be achieved using raiseerror. I dont want to give custom error message at back end. 
+ RAISEERROR should return below mentioned error when i pass ErrorNo to be thrown in catch 
+ 
+ 
+ Line 14
+      Violation of UNIQUE KEY constraint 'UK_DomainCode'. Cannot insert
+  duplicate key in object
+  'Tags.tblDomain'.
+      The statement has been terminated. 
+ 
+ **EDIT:**
+
+ What can be the drawback of not using try catch block if i want exception to be handled at frontend considering stored procedure contains multiple queries that need to be executed 
+ 
+ Here is a fully functional clean code sample to rollback a series of statements if an error occurs and report the error message. 
+ 
+ 
+ SQL 2012 introduces the throw statement: 
+ http://msdn.microsoft.com/en-us/library/ee677615.aspx 
+ 
+ If the THROW statement is specified without parameters, it must appear
+  inside a CATCH block. This causes the caught exception to be raised. 
+ 
+ 
+ 
+ Rethrowing inside the CATCH block (pre-SQL2012 code, use THROW statement for SQL2012 and later): 
+ 
+ 
+ I think your choices are: 
+ 
+ Dont catch the error (let it bubble up) 
+ Raise a custom one 
+ 
+ At some point, SQL will probably introduce a reraise command, or the ability to catch only certain errors. But for now, use a workaround. Sorry. 
+ 
+ You can't: only the engine can throw errors less than 50000. All you can do is throw an exception that  looks  like it... 
+ See my answer here please 
+ The questioner here used client side transactions to do what he wanted which I think is a wee bit silly... 
+ 
+ Ok, this is a workaround...:-) 
+ 
+ If you note the catch block, It is not raising the error but returning the actual error number (and also would rollback the transaction). Now in your .NET code, instead of catching the 
+exception, if you use ExecuteScalar(), you get the actual error number you want and show the appropriate number. 
+ 
+ Hope this helps, 
+ **EDIT :- Just a note, If you want to get the number of records affected and trying to use ExecuteNonQuery, the above solution may not work for you. Otherwise, I think It would suit what you need. Let me know.**
+
+ 
+ The way to stop execution in a stored procedure after an error has occurred and bubble the error back to the calling program is to follow each statement that might throw an error with this code: 
+ 
+ I was surprised myself to find out that execution in a stored procedure can continue after an error - not realizing this can lead to some hard to track down bugs. 
+ This type of error handling parallels (pre .Net) Visual Basic 6. Looking forward to the Throw command in SQL Server 2012. 
+ 
+ Given that you haven't moved to 2012 yet, one way to implement the bubbling up of the original error code is to use the text message part of the exception you are (re)throwing from the catch block. Remember that it can contain some structure, for example, XML text for your caller code to parse in its catch block. 
+ 
+ You can also create a wrapper stored procedure for the those scenarios when you want the SQL statement to be executed within the transaction and feed the error up to your code. 
+ 
+ 
+ From a design point of view, what is the point of throwing exceptions with original error numbers and custom messages? To some extent it breaks the interface contract between applications and the database. 
+If you want to catch original errors and handle them in higher code, don't handle them in the database. Then when you catch an exception you can change the message presented to the user to anything you want. I would not do it though, because it makes your database code hmm 'not right'. As others said you should define a set of your own error codes (above 50000) and throw them instead. Then you can hanle integrity issues ('Duplicate values are not allowed') separately from potential business issues - 'Zip code is invalid', 'No rows were found matching the criteria' and so on. 
+ 

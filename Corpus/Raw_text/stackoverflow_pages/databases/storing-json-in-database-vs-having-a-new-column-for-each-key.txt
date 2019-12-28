@@ -1,0 +1,96 @@
+*** storing-json-in-database-vs-having-a-new-column-for-each-key ***
+
+ I am implementing the following model for storing user related data in my table - I have 2 columns -   (primary key) and a   column which stores other data about the user in JSON format.   
+ 
+ Is this a better way (performance-wise, design-wise) than the one-column-per-property model, where the table will have many columns  like  ,  ,  .  
+ What I like about the first model is, you can add as many fields as possible there is no limitation.  
+ Also, I was wondering, now that I have implemented the first model. How do I perform a query on it, like, I want to fetch all the users who have name like 'foo'? 
+ **Question**
+ - Which is the better way to store user related data (keeping in mind that number of fields is not fixed) in database using - JSON or column-per-field? Also, if the first model is implemented, how to query database as described above? Should I use both the models, by storing all the data which may be searched by a query in a separate row and the other data in JSON (is a different row)?  
+ 
+ **Update**
+
+ Since there won't be too many columns on which I need to perform search, is it wise to use both the models? Key-per-column for the data I need to search and JSON for others (in the same MySQL database)? 
+ 
+ **Updated 4 June 2017**
+
+ Given that this question/answer have gained some popularity, I figured it was worth an update. 
+ When this question was originally posted, MySQL had no support for JSON data types and the support in PostgreSQL was in its infancy. Since 5.7, MySQL  now supports a JSON data type  (in a binary storage format), and PostgreSQL  JSONB  has matured significantly. Both products provide performant JSON types that can store arbitrary documents, including support for indexing specific keys of the JSON object. 
+ However, I still stand by my original statement that your default preference, when using a relational database, should still be column-per-value. Relational databases are still built on the assumption of that the data within them will be fairly well normalized. The query planner has better optimization information when looking at columns than when looking at keys in a JSON document. Foreign keys can be created between columns (but not between keys in JSON documents). Importantly: if the majority of your schema is volatile enough to justify using JSON, you might want to at least consider if a relational database is the right choice. 
+ That said, few applications are perfectly relational or document-oriented. Most applications have some mix of both. Here are some examples where I personally have found JSON useful in a relational database: 
+ 
+ When storing email addresses and phone numbers for a contact, where storing them as values in a JSON array is much easier to manage than multiple separate tables 
+ Saving arbitrary key/value user preferences (where the value can be boolean, textual, or numeric, and you don't want to have separate columns for different data types) 
+ Storing configuration data that has no defined schema (if you're building Zapier, or IFTTT and need to store configuration data for each integration) 
+ 
+ I'm sure there are others as well, but these are just a few quick examples. 
+ **Original Answer**
+
+ If you really want to be able to add as many fields as you want with no limitation (other than an arbitrary document size limit), consider a NoSQL solution such as MongoDB. 
+ For relational databases: use one column per value. Putting a JSON blob in a column makes it virtually impossible to query (and painfully slow when you actually find a query that works). 
+ Relational databases take advantage of data types when indexing, and are intended to be implemented with a  normalized  structure. 
+ As a side note: this isn't to say you should never store JSON in a relational database. If you're adding true metadata, or if your JSON is describing information that  does not need to be queried  and is only used for display, it may be overkill to create a separate column for all of the data points. 
+ 
+ Like most things "it depends".  It's not right or wrong/good or bad in and of itself to store data in columns or JSON.  It depends on what you need to do with it later.  What is your predicted way of accessing this data?  Will you need to cross reference other data?   
+ Other people have answered pretty well what the technical trade-off are. 
+ Not many people have discussed that your app and features evolve over time and how this data storage decision impacts your team.   
+ Because one of the temptations of using JSON is to avoid migrating schema and so if the team is not disciplined, it's very easy to stick yet another key/value pair into a JSON field.  There's no migration for it, no one remembers what it's for.  There is no validation on it.  
+ My team used JSON along side traditional columns in postgres and at first it was the best thing since sliced bread.  JSON was attractive and powerful, until one day we realized that flexibility came at a cost and it's suddenly a real pain point.  Sometimes that point creeps up really quickly and then it becomes hard to change because we've built so many other things on top of this design decision. 
+ Overtime, adding new features, having the data in JSON led to more complicated looking queries than what might have been added if we stuck to traditional columns.  So then we started fishing certain key values back out into columns so that we could make joins and make comparisons between values.  Bad idea.  Now we had duplication.  A new developer would come on board and be confused?  Which is the value I should be saving back into?  The JSON one or the column? 
+ The JSON fields became junk drawers for little pieces of this and that.  No data validation on the database level, no consistency or integrity between documents.  That pushed all that responsibility into the app instead of getting hard type and constraint checking from traditional columns. 
+ Looking back, JSON allowed us to iterate very quickly and get something out the door.  It was great.  However after we reached a certain team size it's flexibility also allowed us to hang ourselves with a long rope of technical debt which then slowed down subsequent feature evolution progress.  Use with caution. 
+ Think long and hard about what the nature of your data is.  It's the foundation of your app.  How will the data be used over time.  And how is it likely TO CHANGE? 
+ 
+ Just tossing it out there, but WordPress has a structure for this kind of stuff (at least WordPress was the first place I observed it, it probably originated elsewhere). 
+ It allows limitless keys, and is faster to search than using a JSON blob, but not as fast as some of the NoSQL solutions. 
+ 
+ **EDIT**
+
+ For storing history/multiple keys 
+ 
+ and query via something like this: 
+ 
+ 
+ the drawback of the approach is exactly what you mentioned : 
+ it makes it VERY slow to find things, since each time you need to perform a text-search on it.  
+ value per column instead matches the whole string. 
+ Your approach (JSON based data) is fine for data you don't need to search by, and just need to display along with your normal data. 
+ **Edit:**
+ Just to clarify, the above goes for classic relational databases. NoSQL use JSON internally, and are probably a better option if that is the desired behavior. 
+ 
+ Basically, the first model you are using is called as document-based storage. You should have a look at popular  **NoSQL document-based database like MongoDB and CouchDB**
+. Basically, in document based db's, you store data in json files and then you can query on these json files. 
+ The Second model is the popular relational database structure.  
+ If you want to use relational database like MySql then i would suggest you to only use second model.  **There is no point in using MySql and storing data as in the first model**
+. 
+ To answer your second question,  **there is no way to query name like 'foo' if you use first model**
+. 
+ 
+ It seems that you're mainly hesitating whether to use a relational model or not. 
+ As it stands, your example would fit a relational model reasonably well, but the problem may come of course when you need to make this model evolve. 
+ If you only have one (or a few pre-determined) levels of attributes for your main entity (user), you could still use an Entity Attribute Value (EAV) model in a relational database. (This also has its pros and cons.) 
+ If you anticipate that you'll get less structured values that you'll want to search using your application, MySQL might not be the best choice here. 
+ If you were using PostgreSQL, you could potentially get the best of both worlds. (This  really  depends on the actual structure of the data here... MySQL isn't necessarily the wrong choice either, and the NoSQL options can be of interest, I'm just suggesting alternatives.) 
+ Indeed, PostgreSQL can build index on (immutable) functions (which MySQL can't as far as I know) and in recent versions, you could  use PLV8 on the JSON data directly  to build indexes on specific JSON elements of interest, which would improve the speed of your queries when searching for that data. 
+ **EDIT:**
+
+ 
+ Since there won't be too many columns on which I need to perform
+  search, is it wise to use both the models? Key-per-column for the data
+  I need to search and JSON for others (in the same MySQL database)? 
+ 
+ Mixing the two models isn't necessarily wrong (assuming the extra space is negligible), but it may cause problems if you don't make sure the two data sets are kept in sync: your application must never change one without also updating the other. 
+ A good way to achieve this would be to have a trigger perform the automatic update, by running a stored procedure within the database server whenever an update or insert is made. As far as I'm aware, the MySQL stored procedure language probably lack support for any sort of JSON processing. Again PostgreSQL with PLV8 support (and possibly other RDBMS with more flexible stored procedure languages) should be more useful (updating your relational column automatically using a trigger is quite similar to updating an index in the same way). 
+ 
+ some time joins on the table will be an overhead. lets say for OLAP. if i have two tables one is ORDERS  table and other one is ORDER_DETAILS. For getting all the order details we have to join two tables this will make the query slower when no of rows in the tables increase lets say in millions or so.. left/right join is too slower than inner join.
+I Think if we add JSON string/Object in the respective ORDERS entry JOIN will be avoided. add report generation will be faster... 
+ 
+ short answer
+you have to mix between them ,
+use json for data that you are not going to make relations with them like contact data , address , products variabls  
+ 
+ You are trying to fit a non-relational model into a relational database, I think you would be better served using a NoSQL database such as  MongoDB . There is no predefined schema which fits in with your requirement of having no limitation to the number of fields (see the typical MongoDB collection example). Check out the MongoDB  documentation  to get an idea of how you'd query your documents, e.g. 
+ 
+ 
+ As others have pointed out queries will be slower. I'd suggest to add at least an '_ID' column to query by that instead. 
+ 

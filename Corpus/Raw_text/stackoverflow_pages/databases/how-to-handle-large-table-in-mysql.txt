@@ -1,0 +1,44 @@
+*** how-to-handle-large-table-in-mysql ***
+
+ I've a database used to store items and properties about these items. The number of properties is extensible, thus there is a join table to store each property associated to an item value. 
+ 
+ This database has two goals : storing (which has first priority and has to be very quick, I would like to perform many inserts (hundreds) in few seconds), retrieving data (selects using item_id and property_id) (this is a second priority, it can be slower but not too much because this would ruin my usage of the DB). 
+ Currently this table hosts 1.6 billions entries and a simple count can take up to 2 minutes... Inserting isn't fast enough to be usable. 
+ I'm using Zend_Db to access my data and would really be happy if you  **don't**
+ suggest me to develop any PHP side element. 
+ 
+ If you can't go for solutions using different database management systems or partitioning over a cluster for some reasons, there are still three main things you can do to  **radically**
+ improve your performance (and they work in combination with clusters too of course): 
+ 
+ Setup the MyISAM-storage engine 
+ Use "LOAD DATA INFILE filename INTO TABLE tablename" 
+ Split your data over several tables 
+ 
+ That's it. Read the rest only if you're interested in the details :) 
+ Still reading? OK then, here goes: MyISAM is the corner stone, since it's the fastest engine by far. Instead of inserting data rows using regular SQL-statements you should batch them up in a file and  insert that file  at regular intervals (as often as you need to, but as seldom as your application allows would be best). That way you can insert in the order of a million rows per minute.  
+ The next thing that will limit you is your keys/indexes. When those cant fit in your memory (because they're simply to big) you'll experience a huge slowdown in both inserts and queries. That's why you split the data over several tables, all with the same schema. Every table should be as big as possible, without filling your memory when loaded one at a time. The exact size depends on your machine and indexes of course, but should be somewhere between 5 and 50 million rows/table. You'll find this if you simply measure the time taken to insert a huge bunch of rows after another, looking for the moment it slows down significantly. When you know the limit, create a new table on the fly every time your last table gets close to that limit.  
+ The consequence of the multitable-solution is that you'll have to query all your tables instead of just a single one when you need some data, which will slow your queries down a bit (but not too much if you "only" have a billion or so rows). Obviously there are optimizations to do here as well. If there's something fundamental you could use to separate the data (like date, client or something) you could split it into different tables using some structured pattern that lets you know where certain types of data are even without querying the tables. Use that knowledge to only query the tables that might contain the requested data etc. 
+ If you need even more tuning, go for  partitioning , as suggested by Eineki and oedo. 
+ Also, so you'll know all of this isn't wild speculation: I'm doing some scalability tests like this on our own data at the moment and this approach is doing wonders for us. We're managing to insert tens of millions of rows every day and queries takes ~100 ms. 
+ 
+ First of all don't use InnoDb as you don't seem to need its principal feature over MyISAM (locking, transaction etc..).
+So do use MyISAM, it will already make some difference.
+Then if that's still not speedy enough, get into some indexing, but you should already see a radical difference. 
+ 
+ wow, that is quite a large table :) 
+ if you need storing to be fast, you could batch up your inserts and insert them with a single multiple INSERT statement. however this would definitely require extra client-side (php) code, sorry! 
+ 
+ also disable any indexes that you don't NEED as indexes slow down the insert commands. 
+ alternatively you could look at partitioning your table :  linky 
+ 
+ Look into memcache to see where it can be applied. Also look into horizontal partitioning to keep table sizes/indexes smaller. 
+ 
+ First: One Table with 1.6 billion entries seems so be a little too big. I work on some pretty heavy load systems where even the logging tables that keep track of all actions don't get this big over years. So if possible, think, if you can find a more optimal storage method. Can't give much more advice since I don't know your DB structure but I'm sure there will be plenty of room for optimization. 1.6 billion entries is just too big. 
+ A few things on performance: 
+ If you don't need referential integrity checks, which is unlikely, you could switch to the MyISAM storage engine. It's a bit faster but lacks integrity ckecks and transactions. 
+ For anything else, more info would be necessary. 
+ 
+ Have you considered the option of  partitioning  the table? 
+ 
+ One important thing to remember is that a default installation of MySQL is not configured for heavy work like this. Make sure that you have  tuned it  for your workload. 
+ 

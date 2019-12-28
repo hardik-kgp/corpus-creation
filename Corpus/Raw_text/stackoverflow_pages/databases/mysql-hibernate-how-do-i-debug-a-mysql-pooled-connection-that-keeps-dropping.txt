@@ -1,0 +1,72 @@
+*** mysql-hibernate-how-do-i-debug-a-mysql-pooled-connection-that-keeps-dropping ***
+
+ For months, my web application ran smoothly, but for the past week or two, it keeps dropping its connection to MySQL server. I'm not a DBA guy and have no idea how to debug this. 
+ Here is what I know: 
+ 
+ The connection seems to drop every few hours. Sometimes during the day, but always during the night. 
+ My lab has a MySQL server that hosts databases for multiple applications. 
+ Currently, we have 46 connections to the MySQL server. 
+ To my knowledge, no other application is experiencing this issue. 
+ My application is using the same stack, configuration, and even code for connecting to the DB as another application—this other application supports around 200 users per day and has been running smoothly since 2013. 
+ Both applications use Hibernate ORM; this is the only configuration that I know of: 
+ 
+ The issue started around the same time as when someone tried to use the application's RESTful API to download our data. This user—actually a collaborator—has a small script iterates over every row in a specific table and requests all the metadata. 
+ The issue also started around the same time that my lab started offering a Coursera Massive Open Online Course. I don't know what the numbers are, but the actual usage on the site must have jumped. 
+ 
+ I'm aware that this is a broad question, but I'm really at a loss as to how to go about debugging this. Any suggestions are appreciated. 
+ **EDIT:**
+
+ Digging around the other application's  , I found this bit of code that my   function does not have: 
+ 
+ It appears to iterate over the stack traces, find the one with the text   and manually stop it. It seems probably that this is related to my issue? 
+ **EDIT 21/9/2015:**
+
+ My application went down this weekend. Here is the stack trace from the error log from yesterday (when I believe it went down): 
+ 
+ Here is are my connection variables from MySQL: 
+ 
+ **EDIT 22/9/2015:**
+
+ Would a   Tomcat error cause the issue? I am seeing an error, unrelated to the database, about parsing a date: 
+ 
+ Attaching JConsole output of heap memory usage: 
+ 
+ JConsole output for thread usage; it started around 24-25 and jumped up to 34 once I started using the site. Even after closing the browser window, it remained there: 
+ 
+ **EDIT 23/9/2015:**
+
+ One thing I changed right before the issue began was how I deal with Hibernate transactions. Previously, I had   disabled (which is the default). Previously, I was using the " open session in view " pattern. It seemed like people didn't like the open session in view pattern, so I enabled  . Thus, I have code like this: 
+ 
+ In retrospect, this seems... problematic. I have no idea when Hibernate "lets go" of the objects. 
+ 
+ From the stack-trace you provided, I can draw a single conclusion: you are simply running out of connections. 
+ This can be caused by long running transactions, possibly due to slow queries or improper application transaction boundaries. 
+ I suggest you start using  FlexyPool , which supports Tomcat DBCP, and get a better understanding of both the connection and the transaction usage.
+ This article  explains the histograms you might be interested in, like connection acquire time and connection lease time. 
+ Just to be on the safe side, check the MySQL driver version too and see if you're running on an outdated library. 
+ 
+ Hibernate errors are a bit abstract and sometimes it can be tricky to find the bug by the stack trace. I think that may be a problem of your application, maybe you're not closing Hibernate connections properly on some cases or your application may have a memory leak. 
+ Have you tried to monitor the application with   from the JDK? 
+ You can set this on your Tomcat configuration console in the Java arguments (I'm assuming you're using Tomcat), to enable the  
+ 
+ Then connect to a remote process for example  
+ 
+ and watch the threads as you go thru the operations that make the application stop. 
+ **Edit**
+
+ If you're not using Tomcat and you're running your application in a Windows environment you can monitorize the threads using for example  Process Explorer  and monitorize your application. 
+ 
+ It seems your connection pool cannot return a free connection to Hibernate within timeout duration. This happens because your application have very long transactions or transaction dead locks. You can try following options to fix the bug. 
+ 
+ change your connection pool size in following line 
+ 
+ 
+ make the pool size about 10 and test. You should keep your eye on the count of connections to your database. If it exceeds the mysql database connection limitations change   of mysql server and keep testing. 
+ 
+ Use an another connection pool. I recommend to use apache commons dbcp2. Maven dependencies of dbcp2 as follows. 
+ 
+ 
+ Add dbcp2 into your POM then config dbcp2 with your application. 
+ If it was the solution your application had only long transactions. Sometimes it may minimize the occurrence, and if it is still happening definitely your application have transaction dead locks. So you have to identify what are the possible problems with your code. 
+ There are other alternative solutions such changing the waiting timeout to a higher value. But it is not good for your application performance and it doesn't make any sense for transaction dead locks. Finally you should remember to care about transaction management and database structure in your further developments for better performance of database. 
+ 

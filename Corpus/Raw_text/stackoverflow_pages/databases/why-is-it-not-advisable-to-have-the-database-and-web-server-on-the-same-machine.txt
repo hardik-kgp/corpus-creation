@@ -1,0 +1,68 @@
+*** why-is-it-not-advisable-to-have-the-database-and-web-server-on-the-same-machine ***
+
+ Listening to Scott Hanselman's interview with the Stack Overflow team ( part 1  and  2 ), he was adamant that the SQL server and application server should be on separate machines.  Is this just to make sure that if one server is compromised, both systems aren't accessible?  Do the security concerns outweigh the complexity of two servers (extra cost, dedicated network connection between the two, more maintenance, etc.), especially for a small application, where neither piece is using too much CPU or memory?  Even with two servers, with one server compromised, an attacker could still do serious damage, either by deleting the database, or messing with the application code.   
+ Why would this be such a big deal if performance isn't an issue? 
+ 
+ 
+ Security. Your web server lives in a DMZ, accessible to the public internet and taking untrusted input from anonymous users. If your web server gets compromised, and you've followed least privilege rules in connecting to your DB, the maximum exposure is what your app can do through the database API. If you have a business tier in between, you have one more step between your attacker and your data. If, on the other hand, your database is on the same server, the attacker now has root access to your data and server. 
+ Scalability. Keeping your web server stateless allows you to scale your web servers horizontally pretty much effortlessly. It is  very  difficult to horizontally scale a database server. 
+ Performance. 2 boxes = 2 times the CPU, 2 times the RAM, and 2 times the spindles for disk access.  
+ 
+ All that being said, I can certainly see reasonable cases that none of those points really matter.  
+ 
+ It doesn't  really  matter (you can quite happily run your site with web/database on the same machine), it's just the easiest step in scaling.. 
+ It's exactly what StackOverflow did - starting with single machine running IIS/SQL Server, then when it started getting heavily loaded, a second server was bought and the SQL server was moved onto that. 
+ If performance is not an issue, do not waste money buying/maintaining two servers. 
+ 
+ On the other hand, referring to a different blogging Scott (Watermasyck, of Telligent) - they found that most users could speed up the websites (using Telligent's Community Server), by putting the database on the same machine as the web site.  However, in their customer's case, usually the db & web server are the only applications on that machine, and the website isn't straining the machine that much.  Then, the efficiency of not having to send data across the network more that made up for the increased strain. 
+ 
+ I would think the big factor would be performance.  Both the web server/app code and SQL Server would cache commonly requested data in memory and you're killing your cache performance by running them in the same memory space. 
+ 
+ Tom is correct on this. Some other reasons are that it isn't cost effective and that there are additional security risks. 
+ Webservers have different hardware requirements than database servers. Database servers fare better with a lot of memory and a really fast disk array while web servers only require enough memory to cache files and frequent DB requests (depending on your setup). Regarding cost effectiveness, the two servers won't necessarily be less expensive, however performance/cost ratio should be higher since you don't have to different applications competing for resources. For this reason, you're probably going to have to spend a lot more for one server which caters to both and offers equivalent performance to 2 specialized ones. 
+ The security concern is that if the single machine is compromised, both webserver and database are vulnerable. With two servers, you have some breathing room as the 2nd server will still be secure (for a while at least). 
+ Also, there are some scalability benefits since you may only have to maintain a few database servers that are used by a bunch of different web applications. This way you have less work to do applying upgrades or patches and doing performance tuning. I believe that there are server management tools for making these tasks easier though (in the single machine case). 
+ 
+ Security is a major concern. Ideally your database server should be sitting behind a firewall with only the ports required to perform data access opened. Your web application should be connecting to the database server with a SQL account that has just enough rights for the application to function and no more. For example you should remove rights that permit dropping of objects and most certainly you shouldn't be connecting using accounts such as 'sa'. 
+ In the event that you lose the web server to a hijack (i.e. a full blown privilege escalation to administrator rights), the worst case scenario is that your application's database may be compromised but not the whole database server (as would be the case if the database server and web server were the same machine). If you've encrypted your database connection strings and the hacker isn't savvy enough to decrypt them then all you've lost is the web server. 
+ 
+ One factor that hasn't been mentioned yet is load balancing.  If you start off thinking of the web server and the database as separate machines, you optimize for fewer network round trips and also it gets easier to add a second web server or a second database engine as needs increase. 
+ 
+ I can speak from first hand experience that it is often a good idea to place the web server and database on different machines.  If you have an application that is resource intensive, it can easily cause the CPU cycles on the machine to peak, essentially bringing the machine to a halt.  However, if your application has limited use of the database, it would probably be no big deal to have them share a server. 
+ 
+ Wow, No one brings up the fact that if you actually buy SQL server at 5k bucks, you might want to use it for more than your web application.  If your using express, maybe you don't care. I see SQL servers run Databases for 20 to 30 applicaitions, so putting it on the webserver would not be smart. 
+ Secondly, depends on whom the server is for. I do work for financial companies and the govt. So we use a crazy pain in the arse approach of using only sprocs and limiting ports from webserver to SQL. So if the web app gets hacked. The only thing the hacker can do is call sprocs as the user account on the webserver is locked down to only see/call sprocs on the DB. So now the hacker has to figure out how to get into the DB. If its on the web server well its kind of easy to get to. 
+ 
+ I agree with Daniel Earwicker - the security question is pretty much flawed. 
+ If you have a single box setup with a webserver and only the database for that webserver on it, if that webserver is compromised you lose both the webserver and only the database for that specific application. 
+ This is exactly the same as what happens if you lose the webserver on a 2-server setup. You lose the web server, and just the database for that specific application. 
+ The argument that 'the rest of the DB server's integrity is maintained' where you have a 2-server setup is irrelevant, because in the first scenario, every other database server relating to every other application (if there are any) remain unaffected as well - being, as they are, hosted elsewhere. 
+ Similarly, to the question posed by Kev 'what about all the other databases residing on the DB server? All you've lost is one database.' 
+ 
+ if you were hosting an application and database on one server, you would only host databases on that server which related to that application. Therefore, you would not lose any additional databases in a single server setup when compared to a multiple server setup.  
+ 
+ By contrast, in a 2 server setup, where the attacker had access to the Web Server, and by proxy, limited rights (in the best case scenario) to the database server, they could put the databases of every other application at risk by carrying out slow, memory intensive queries or maximising the available storage space on the database server. By separating the applications out into their own concerns, very much like virtualisation, you also isolate them for security purposes in a positive way. 
+ 
+ It depends on the application and the purpose. When high availability and performance is not critical, it's not bad to not to separate the DB and web server. Especially considering the performance gains - if the appliation makes a large amount of database queries, a considerable amount of network load can be removed by keeping it all on the same system, keeping the response times low. 
+ 
+ I think its because the two machines usually would need to be optimized in different ways.  Other than that I have no idea, we run all our applications with the server-database on the same machine - granted we're not public facing - but we've had no problems. 
+ I can't imagine that too many people care about one machine being compromised over both since the web application will usually have nearly unrestricted access to at the very least the data if not the schema inside the database. 
+ Interested in what others might say. 
+ 
+ I listened to that podcast, and it was amusing, but the security argument made no sense to me. If you've compromised server A, and that server can access data on server B, then you instantly have access to the data on server B. 
+ 
+ Database licences are not cheep and are often charged per CPU, therefore by separating out your web-servers you can reduce the cost of your database licences. 
+ E.g if you have 1 server doing both web and database that contains 8 CPUs you will have to pay for an 8 cpu licence.   However if you have two servers each with 4 CPUs and runs the database on one server you will only have to pay for a 4 cpu licences 
+ 
+ An additional concern is that databases like to take up all the available memory and hold it in reserve for when it wants to use it. You can force it to limit the memory but this can considerably slow data access. 
+ 
+ Arguing that there is a real performance gain to be had by running a database server on a web server is a flawed argument. 
+ Since Database servers take query strings and return result sets, the data actually flowing from data server to web server is relatively small, but the horsepower required to process the query and generate the result set is relatively large.  Optimizing performance around the data transfer time therefore is optimizing around the wrong thing. 
+ Regarding security, there are advantages to having the data server on a different box than the web server.  Having such a setup is not the be all and end all of security, but it is a step in the right direction. 
+ Regarding scalability, it is easy and relatively cheap to add web servers and put them into cluster to handle increased traffic.  It is not so easy and cheap to add data servers and cluster them.  Also, web servers and data servers have different hardware needs, so multiple boxes help out with scalability. 
+ If you are starting small and have only one box, then a good way would go would be to use virtual machines.  Running the web server and data server in different VMs on one host gives you all the gains of separate boxes at the cost of one large box price. 
+ 
+ Operating system is another consideration. While your database may require larger memory spaces and therefore UNIX, your web server - or more specifically your app server since you mention only two tiers - may be a .Net-based, and therefore require Windows. 
+ 
+ Ok! Here is the thing, it is more Secure to have your DB Server installed on another Machine and your Application on the Web Server. You then connect your application to the DB with a Web Link. Thanks it. 
+ 

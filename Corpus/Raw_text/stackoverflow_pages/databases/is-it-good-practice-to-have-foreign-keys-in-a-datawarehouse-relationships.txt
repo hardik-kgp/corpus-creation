@@ -1,0 +1,41 @@
+*** is-it-good-practice-to-have-foreign-keys-in-a-datawarehouse-relationships ***
+
+ I think the question is clear enough. Some of the columns in my datawarehouse table could have a relationship to a primary key. But is it good practice? It is denormalized, so it should never be deleted again (data in datawarehouse). Hope question is somewhat clear enough. 
+ 
+ I have no idea.  But nobody is answering, so I googled and found  a best practises paper  who seem to say the very helpful "it depends" :-) 
+ 
+ While foreign key constraints help data integrity, they have an associated cost on all insert, update and delete statements. Give careful attention to the use of constraints in your warehouse or ODS when you wish to ensure data integrity and validation 
+ 
+ 
+ I presume that you refer to FKs in fact tables. During DW loading, indexes and any foreign keys are dropped to speed up the loading -- the ETL process takes care of keys. 
+ Foreign key constraint "activates" during inserts and updates (this is when it needs to check that the key value exists in the parent table) and during deletes of primary keys in parent tables. It does not play part during reads. Deleting records in a DW is (should) be a controlled process which scans for any existing relationships before deleting from dimension tables. 
+ So, most DWs do not have foreign keys implemented as constraints. 
+ 
+ FK constraints work well in Kimball dimensional models on SQL Server. 
+ Typically, your ETL will need to lookup into the dimension table (usually on the business key to handle slowly changing dimensions) to determine dimension surrogate IDs, and the dimension surrogate id is usually an identity, and the PK on the dimension is usually the dimension surrogate id, which is already an index (probably clustered). 
+ Having RI at this point is not a huge of overhead with the writes, since it can also help catch ETL defects during development.  Also, having the PK of the fact table being a combination of all the FKs can also help trap potential data modeling problems and double-loading. 
+ It can actually reduce overhead on selects if you like to make general-use flattened views or table-valued functions of your star models.  Because extra inner joins to dimensions are guaranteed to produce one and only one row, so the optimizer can use these constraints very effectively to eliminate the need to look up into the table.  Without FK constraints, these lookups may have to be done to eliminate facts where the dimension does not exist. 
+ 
+ The quesiton is clear, but "good practice" seems the wrong question. 
+ " **Could**
+ have FK's"  ?  
+ Foreign keys are a mechanism to preserve integrity constraints during database modifications.  
+ If your DW is read-only (accumulating data sources without writing back), there is no need for FK's.  
+ If your DW supports writes, integrity constaints typically need to be coordinated across the participating data sources by the ETL (rather, it's Store equivalent). This process may or may not rely on FK's in the database.  
+ So the right question would be: do you  need  them. 
+ (The only other reason I can think of would be documentation of relationship - however, this can be done on paper / in a separate document, too.) 
+ 
+ Using FK-constraints in a DW is like wearing a bicycle helmet. If the ETL is designed correctly, you  technically  don't need them. That said, if I had a million dollars for every time I've seen bug-free ETL, I'd have zero dollars. 
+ Until you're at a point where FK-constraints are causing performance issues, I say leave'em. Cleaning up referential integrity problems can be much harder than adding them from the get-go ;-) 
+ 
+ The reason for using a foreign key constraint in a data warehouse is the same as for any other database: to ensure data integrity. 
+ It is also possible that query performance will benefit because foreign keys permit certain types of query rewrite that are not normally possible without them. Data integrity is still the main reason to use foreign keys however. 
+ 
+ Yes, as a best practice, implement the FK constraints on your fact tables.  In SQL Server, use NOCHECK.  In ORACLE always use RELY DISABLE NOVALIDATE.  This allows the warehouse or mart to know about the relationship, but not check it on INSERT, UPDATE, or DELETE operations.  Star transformations, optimizations, etc. may not rely on the FK constraints to improve queries like they used to, but one never knows what BI or OLAP tools will be used on the front side or your warehouse or mart.  Some of these tools can make use of knowing the relationships are defined. Plus, how many ugly looking warehouses have you seen with little or no external documentation and had to try to reverse engineer them?  Defining the FKs always helps with that. 
+ As designers we NEVER seem to make our data warehouses or marts as self-documenting as we should.  Defining FKs certainly helps with that.  Now, having said this, if star schemas are properly designed without FKs being defined, it is easy to read and understand them anyway. 
+ And for ORACLE fact tables, always define a LOCAL BITMAP index on every FK to a dimension.  Just do it.  The indexing is actually more important than the FK being defined. 
+ 
+ There is a very good reason to create FK constraints in even read-only DW/DM.
+Yes, they are not really required from read-only DW itself point of view, if your ETL is bullet-proof, etc., etc. But guess what - the life doesn't stop at the loading data in DW. Most of the BI analytical/reporting tools are using information about your DW relationships to automatically build their model (for example SSAS Tabular model).
+In my humble opinion this alone outweighs the little overhead on dropping and recreating FK constraints during ETL process. 
+ 

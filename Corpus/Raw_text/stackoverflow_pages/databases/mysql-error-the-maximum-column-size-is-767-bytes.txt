@@ -1,0 +1,56 @@
+*** mysql-error-the-maximum-column-size-is-767-bytes ***
+
+ When I run a program which does something with MySQL, I got this error message: 
+ 
+ 2015-06-10 15:41:12,250 ERROR app.wsutils 419 INCRON: Error: ('HY000',
+  '[HY000] [MySQL][ODBC 5.2(w) Driver][mysqld-5.7.7-rc-log]Index column
+  size too large. The maximum column size is 767 bytes. (1709)
+  (SQLExecDirectW)') 
+ 
+ I Googled a little bit, and found this error might be relating to the   option. However, I am using MySQL 5.7.7 rc, which has already set   to be "ON" (checked in MySQL Workbench), allowing up to 3072 bytes. I am not sure if that is the problem with   or not. 
+ Anyway, does anyone have an idea how to fix this problem? 
+ 
+ With the help of the answer given by BK435, I did the following and solved the problem. 
+ 
+ 
+ Your column that you are trying to index is too large and your settings must not be correct for  . There are a couple  prerequisites  parameters that also have to be set in order for   to work correctly. 
+ You can check to make sure that  innodb_large_prefix  is set by running: 
+ 
+ Here are a couple prerequisites for using innodb_large_prefix: 
+ You need to set your global variable innodb_file_format= BARRACUDA 
+ to check settings run:  
+ At the table level you have to use ROW_FORMAT=DYNAMIC or ROW_FORMAT=COMPRESSED 
+ for  Innodb , rows are stored in COMPACT format (ROW_FORMAT=COMPACT) by default.   
+ 
+ I had the same error despite having   configured correctly. 
+ The issue was in used collation. My db had default collation set to   (you can check it in phpmyadmin "Operations" tab for database). It means it uses 4 bytes per char, while utf8 collation (e.g. utf8_unicode_ci) uses 3 bytes per char. 
+ in this case you can either use different collation e.g. by adding   at the end of the   statement, or limit the index size by using just a part of the column value 
+like  . 
+ See also related question:  #1071 - Specified key was too long; max key length is 767 bytes 
+ 
+ In my case (MySQL version 5.6) the issue was that I was trying to create a table with a column that can have up to 256 characters (the db uses utf8 collation), so 3 bytes per 1 utf8 character = 256*3=768 bytes. The fix was to simply have 255 characters instead of 256.  
+ I could also set innodb_large_prefix, like others suggest, but in my case it was easier to just have fewer symbols. 
+ 
+ I had this problem because I tried to create a String primary key with varchar(254). Easy to overlook sometimes.. So double check your index type and length as well :) 
+ 
+ I was using MariaDB version 10.1.38 and used all of the below given commands but it did not work - 
+ 
+ Because after you restart your MySQL (or MariaDB), these settings will not reflect back using the command at the mysql prompt: show variables like 'innodb%'; 
+ **Then I edited My.ini and added these settings in the file at below location-
+C:\xampp\mysql\bin\my.ini**
+
+ 
+ source: https://www.experts-exchange.com/questions/28675824/Why-am-I-unable-to-turn-innodb-large-prefix-ON-successfully-Every-time-I-reboot-mySql-on-my-Ubuntu-VPS-it-resets-to-OFF.html 
+ 
+ Just add the following options to my.cnf 
+ 
+ Then, restart mysql server the problem will be resolved. 
+ 
+ I had the same error but on a different issue. I got this error while importing a data (data and schema) script. Deleting the Unique Index fixed the issue for me. 
+ Answer taken from  this link 
+ 
+ Set the below system variables: 
+ 
+ Also, make sure when you create your schema you create it as  **Latin1**
+.  That is what finally fixed me. 
+ 

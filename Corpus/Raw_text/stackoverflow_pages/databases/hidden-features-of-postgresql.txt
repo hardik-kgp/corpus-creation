@@ -1,0 +1,250 @@
+*** hidden-features-of-postgresql ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  5 years ago . 
+ 
+ 
+ 
+ I'm surprised this hasn't been posted yet. Any interesting tricks that you know about in Postgres? Obscure config options and scaling/perf tricks are particularly welcome.  
+ I'm sure we can beat the 9 comments on the corresponding  MySQL thread  :) 
+ 
+ Since postgres is a lot more sane than MySQL, there are not that many "tricks" to report on ;-) 
+ The  manual  has some nice  performance  tips. 
+ A few other performance related things to keep in mind: 
+ 
+ Make sure autovacuum is turned on 
+ Make sure you've gone through your postgres.conf (effective cache size, shared buffers, work mem ... lots of options there to tune). 
+ Use pgpool or  pgbouncer  to keep your "real" database connections to a minimum 
+ Learn how  EXPLAIN  and EXPLAIN ANALYZE works.  Learn to read the output. 
+ CLUSTER  sorts data on disk according to an index.  Can dramatically improve performance of large (mostly) read-only tables.  Clustering is a one-time operation: when the table is subsequently updated, the changes are not clustered.  
+ 
+ Here's a few things I've found useful that aren't config or performance related per se. 
+ To see what's currently happening: 
+ 
+ Search misc functions: 
+ 
+ Find size of database: 
+ 
+ Find size of all databases: 
+ 
+ Find size of tables and indexes: 
+ 
+ Or, to list all tables and indexes (probably easier to make a view of this): 
+ 
+ Oh, and you can nest transactions, rollback partial transactions++ 
+ 
+ 
+ The  easiest  trick to let postgresql perform a lot better (apart from setting and using proper indexes of course) is just to give it more RAM to work with (if you have not done so already). On most default installations the value for  **shared_buffers**
+ is way too low (in my opinion). You can set  
+ 
+ shared_buffers 
+ 
+ in postgresql.conf. Divide this number by 128 to get an approximation of the amount of memory (in MB) postgres can claim. If you up it enough this will make postgresql fly. Don't forget to restart postgresql. 
+ On Linux systems, when postgresql won't start again you will probably have hit the kernel.shmmax limit. Set it higher with 
+ 
+ To make this persist between boots, add a kernel.shmmax entry to /etc/sysctl.conf. 
+ **A whole bunch of Postgresql tricks can be found here**
+: 
+ 
+ http://www.postgres.cz/index.php/PostgreSQL_SQL_Tricks 
+ 
+ 
+ Postgres has a very powerful datetime handling facility thanks to its INTERVAL support. 
+ For example: 
+ 
+ You can cast many strings to an INTERVAL type. 
+ 
+ **COPY**
+
+ I'll start. Whenever I switch to Postgres from SQLite, I usually have some really big datasets. The key is to load your tables with COPY FROM rather than doing INSERTS. See documentation:  
+ http://www.postgresql.org/docs/8.1/static/sql-copy.html 
+ The following example copies a table to the client using the vertical bar (|) as the field delimiter: 
+ 
+ To copy data from a file into the country table: 
+ 
+ See also here: 
+ Faster bulk inserts in sqlite3? 
+ 
+ 
+ My by far favorite is  : at last a clean way to generate dummy rowsets. 
+ Ability to use a correlated value in a   clause of a subquery: 
+ 
+ Abitlity to use multiple parameters in custom aggregates (not covered by the documentation): see  **the article in my blog**
+ for an example. 
+ 
+ 
+ One of the things I really like about Postgres is some of the data types supported in columns. For example, there are column types made for storing  Network Addresses  and  Arrays . The corresponding functions ( Network Addresses  /  Arrays ) for these column types let you do a lot of complex operations inside queries that you'd have to do by processing results through code in MySQL or other database engines. 
+ 
+ Arrays are really cool once you get to know 'em. 
+Lets say you would like to store some hyper links between pages. You might start by thinking about creating a Table kinda like this: 
+ 
+ If you needed to index the  tail  column, and you had, say 200,000,000 links-rows (like wikipedia would give you), you would find yourself with a huge Table and a huge Index. 
+ However, with PostgreSQL, you could use this Table format instead: 
+ 
+ To get all heads for a link you could send a command like this (unnest() is standard since 8.4): 
+ 
+ This query is surprisingly fast when it is compared with the first option (unnest() is fast and the Index is way way smaller). Furthermore, your Table and Index will take up much less RAM-memory and HD-space, especially when your Arrays are so long that they are compressed to a Toast Table. Arrays are really powerful. 
+ Note: while unnest() will generate rows out of an Array, array_agg() will aggregate rows into an Array.  
+ 
+ Materialized Views are pretty easy to setup: 
+ 
+ That creates a new table, my_matview, with the columns and values of my_view. Triggers or a cron script can then be setup to keep the data up to date, or if you're lazy: 
+ 
+ 
+ 
+ Inheritance..infact Multiple Inheritance (as in parent-child "inheritance" not 1-to-1 relation inheritance which many web frameworks implement when working with postgres). 
+ PostGIS (spatial extension), a wonderful add-on that offers comprehensive set of geometry functions and coordinates storage out of the box. Widely used in many open-source geo libs (e.g. OpenLayers,MapServer,Mapnik etc) and definitely way better than MySQL's spatial extensions. 
+ Writing procedures in different languages e.g. C, Python,Perl etc (makes your life easir to code if you're a developer and not a db-admin). 
+ Also all procedures can be stored externally (as modules) and can be called or imported   at runtime by specified arguments. That way you can source control the code and debug the code easily. 
+ A huge and comprehensive catalogue on all objects implemented in your database (i.e. tables,constraints,indexes,etc). 
+ I always find it immensely helpful to run few queries and get all meta info e.g. ,constraint names and fields on which they have been implemented on, index names etc. 
+ For me it all becomes extremely handy when I have to load new data or do massive updates in big tables (I would automatically disable triggers and drop indexes) and then recreate them again easily after processing has finished. Someone did an excellent job of writing handful of these queries. 
+ http://www.alberton.info/postgresql_meta_info.html 
+ Multiple schemas under one database, you can use it if your database has large number of tables, you can think of schemas as categories. All tables (regardless of it's schema) have access to all other tables and functions present in parent db. 
+ 
+ 
+ You don't need to learn how to decipher "explain analyze" output, there is a tool:  http://explain.depesz.com 
+ 
+ 
+ 
+ pgcrypto : more cryptographic functions than many programming languages' crypto modules provide, all accessible direct from the database. It makes cryptographic stuff incredibly easy to Just Get Right. 
+ 
+ A database can be copied with: 
+ 
+ createdb -T old_db new_db 
+ 
+ The documentation says: 
+ 
+ this is not (yet) intended as a general-purpose "COPY DATABASE" facility 
+ 
+ but it works well for me and is much faster than 
+ 
+ createdb new_db 
+ pg_dump old_db | psql new_db 
+ 
+ 
+ **Memory storage for throw-away data/global variables**
+
+ You can create a tablespace that lives in the RAM, and tables (possibly unlogged, in 9.1) in that tablespace to store throw-away data/global variables that you'd like to share across sessions. 
+ http://magazine.redhat.com/2007/12/12/tip-from-an-rhce-memory-storage-on-postgresql/ 
+ **Advisory locks**
+
+ These are documented in an obscure area of the manual: 
+ http://www.postgresql.org/docs/9.0/interactive/functions-admin.html 
+ It's occasionally faster than acquiring multitudes of row-level locks, and they can be used to work around cases where FOR UPDATE isn't implemented (such as recursive CTE queries). 
+ 
+ This is my favorites list of lesser know features. 
+ **Transactional DDL**
+
+ Nearly every SQL statement is transactional in Postgres. If you turn off autocommit the following is possible: 
+ 
+ **Range types and exclusion constraint**
+
+ To my knowledge Postgres is the only RDBMS that lets you create a constraint that checks if two ranges overlap. An example is a table that contains product prices with a "valid from" and "valid until" date: 
+ 
+ **NoSQL features**
+
+ The    extension offers a flexible and very fast key/value store that can be used when parts of the database need to be "schema-less". JSON is another option to store data in a schema-less fashion and  
+ 
+ The execution plan for the above on a table with 700.000 rows: 
+ 
+ To avoid inserting rows with overlapping validity ranges a simple (and efficient) unique constraint can be defined: 
+ 
+ **Infinity**
+
+ Instead of requiring a "real" date far in the future Postgres can compare dates to infinity. E.g. when not using a date range you can do the following 
+ 
+ **Writeable common table expressions**
+
+ You can delete, insert and select in a single statement: 
+ 
+ The above will delete all orders older than 10 years, move them to the   table and then display the rows that were moved. 
+ 
+ **1.) When you need append notice to query, you can use nested comment**
+
+ 
+ **2.) Remove Trailing spaces from all the **
+** and **
+** field in a database.**
+
+ 
+ **3.) We can use a window function for very effective removing of duplicate rows:**
+
+ 
+ Some PostgreSQL's optimized version (with ctid): 
+ 
+ **4.) When we need to identify server's state, then we can use a function:**
+
+ 
+ **5.) Get functions's DDL command.**
+
+ 
+ **6.) Safely changing column data type in PostgreSQL**
+
+ 
+ You can see from the above table that I have used the data type – ‘character varying’ for ‘id’ 
+ column. But it was a mistake, because I am always giving integers as id. So using varchar here is a 
+ bad practice. So let’s try to change the column type to integer. 
+ 
+ But it returns: 
+ 
+ ERROR: column “id” cannot be cast automatically to type integer SQL
+   state: 42804 Hint: Specify a USING expression to perform the
+   conversion 
+ 
+ That means we can’t simply change the data type because data is already there in the column. Since the data is of type ‘character varying’ postgres cant expect it as integer though we entered integers only. So now, as postgres suggested we can use the ‘USING’ expression to cast our data into integers. 
+ 
+ It Works. 
+ **7.) Know who is connected to the Database**
+
+    This is more or less a monitoring command. To know which user connected to which database 
+    including their IP and Port use the following SQL: 
+ 
+ **8.) Reloading PostgreSQL Configuration files without Restarting Server**
+
+ PostgreSQL configuration parameters are located in special files like postgresql.conf and pg_hba.conf. Often, you may need to change these parameters. But for some parameters to take effect we often need to reload the configuration file. Of course, restarting server will do it. But in a production environment it is not preferred to restarting the database, which is being used by thousands, just for setting some parameters. In such situations, we can reload the configuration files without restarting the server by using the following function: 
+ 
+ 
+ Remember, this wont work for all the parameters, some parameter
+  changes need a full restart of the server to be take in effect. 
+ 
+ **9.) Getting the data directory path of the current Database cluster**
+
+ It is possible that in a system, multiple instances(cluster) of PostgreSQL is set up, generally, in different ports or so. In such cases, finding which directory(physical storage directory) is used by which  instance is a hectic task. In such cases, we can use the following command in any database in the cluster of our interest to get the directory path: 
+ 
+ The same function can be used to change the data directory of the cluster, but it requires a server restarts: 
+ 
+ **10.) Find a CHAR is DATE or not**
+
+ 
+ Usage: the following will return  True 
+ 
+ **11.) Change the owner in PostgreSQL**
+
+ 
+ **12.) PGADMIN PLPGSQL DEBUGGER**
+
+ Well explained  here   
+ 
+ It's convenient to rename an old database rather than mysql can do. Just using the following command: 
+ 
+ 

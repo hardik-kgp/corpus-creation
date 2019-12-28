@@ -1,0 +1,54 @@
+*** transactions-for-read-only-db-access ***
+
+ There seem to be very different opinions about using transactions for reading from a database. 
+ Quote from the DeveloperWorks article  Transaction strategies: Models and strategies overview : 
+ 
+ Why would you need a transaction if
+  you are only reading data? The answer
+  is that you don't. Starting a
+  transaction to perform a read-only
+  operation adds to the overhead of the
+  processing thread and can cause shared
+  read locks on the database (depending
+  on what type of database you are using
+  and what the isolation level is set
+  to). 
+ 
+ As a contrary opinion there is the following quote from Hibernate documentation  Non-transactional data access and the auto-commit mode 
+ 
+ Our recommendation is to not use the
+  autocommit mode in an application, and
+  to apply read-only transactions only
+  when there is an obvious performance
+  benefit or when future code changes
+  are highly unlikely. Always prefer
+  regular ACID transactions to group
+  your data-access operations,
+  regardless of whether you read or
+  write data. 
+ 
+ There is also a similar debate on the EclipseLink mailing list  here . 
+ So where lies the truth? Are transactions for reading best-practice or not? If both are viable solutions, what are the criteria for using transactions? 
+ As far as I can see it only make a difference if the isolation level is higher than 'read committed'. Is this correct? 
+ What are the experiences and recommendations? 
+ 
+ Steven Devijver provided some good reasons for starting transactions even if the operations are only going read the database: 
+ 
+ Set timeouts or lock modes 
+ Set isolation level 
+ 
+ Standard SQL requires that even a query must start a new transaction if there is no transaction currently in progress.  There are DBMS where that is not what happens - those with an autocommit mode, for example (the statement starts a transaction and commits it immediately the statement completes).  Other DBMS make statements atomic (effectively autocommit) by default, but start an explicit transaction with a statement such as 'BEGIN WORK', cancelling autocommit until the next COMMIT or ROLLBACK (IBM Informix Dynamic Server is one such - when the database is not MODE ANSI). 
+ I'm not sure about the advice never to rollback.  It makes no difference to the read-only transaction, and to the extent it annoys your DBAs, then it is better to avoid ROLLBACK.  But if your program exits without doing a COMMIT, the DBMS should do a ROLLBACK on your incomplete transaction - certainly if it modified the database, and (for simplicity) even if you only selected data. 
+ Overall, if you want to change the default behaviour of a series of operations, use a transaction, even if the transaction is read-only.  If you are satisfied with the default behaviour, then it is not crucial to use a transaction.  If your code is to be portable between DBMS, it is best to assume that you will need a transaction. 
+ 
+ First off, this sounds like a premature optimization.  As Steven pointed out, most sane databases are going to put you into a transaction anyway, and all they're really doing is calling commit after each statement.  So from that perspective, autocommit might be less performant since each statement has to start a new transaction.  Or maybe not.  Only benchmarking will tell and I bet it doesn't make one lick of difference to your application. 
+ One reason why you want to always use a transaction is consistency of protection.  If you start fiddling with manually declaring a transaction only when you "need" then then you're going to forget at a critical time.  Or that supposedly read-only set of operations suddenly isn't, either because a later programmer didn't realize it was supposed to be or because your code calls a function which has a hidden write.  For example, I configure my command line database clients not to autocommit.  This means I can fat finger a delete query and still rollback. 
+ There's the isolation level, as pointed out.  This allows you to do several reads without worrying if some other process has written to your data in between them making your reads effectively atomic.  This will save you from many an hour debugging a race condition. 
+ And, finally, you can often set a transaction to be read-only.  This checks your assumption and will error out if something tries to write. 
+ Here's a nice article summing it all up.   The details are Oracle specific, but the concepts are generic. 
+ 
+ Transaction are required for read-only operations if you want to set a specific timeout for queries other than the default timeout, or if you want to change the isolation level. 
+ Also, every database - don't know about exceptions - will internally start a transaction for each query. It's general considered not done to rollback transactions when that rollback is not required. 
+ DBA's may be monitoring rollback activity, and any default rollback behavior will annoy them in that case. 
+ So, transactions are used anyway whether you start them or not. If you don't need them don't start them, but never do a rollback on read-only operations. 
+ 

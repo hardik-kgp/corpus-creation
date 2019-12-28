@@ -1,0 +1,84 @@
+*** storing-money-in-a-decimal-column-what-precision-and-scale ***
+
+ I'm using a decimal column to store money values on a database, and today I was wondering what precision and scale to use. 
+ Since supposedly char columns of a fixed width are more efficient, I was thinking the same could be true for decimal columns. Is it? 
+ And what precision and scale should I use? I was thinking precision 24/8. Is that overkill, not enough or ok? 
+ 
+ This is what I've decided to do: 
+ 
+ Store the conversion rates (when applicable) in the transaction table itself, as a float 
+ Store the currency in the account table 
+ The transaction amount will be a  
+ All calculations using a conversion rate will be handled by my application so I keep control of rounding issues 
+ 
+ I don't think a float for the conversion rate is an issue, since it's mostly for reference, and I'll be casting it to a decimal anyway. 
+ Thank you all for your valuable input. 
+ 
+ If you are looking for a one-size-fits-all, I'd suggest   is a popular choice (a quick Google bears this out). I think this originates from the old VBA/Access/Jet Currency data type, being the first fixed point decimal type in the language;   only came in 'version 1.0' style (i.e. not fully implemented) in VB6/VBA6/Jet 4.0. 
+ The rule of thumb for  storage  of fixed point decimal values is to store at least one more decimal place than you actually require to allow for rounding. One of the reasons for mapping the old   type in the front end to   type in the back end was that   exhibited bankers' rounding by nature, whereas   rounded by truncation. 
+ An extra decimal place in storage for   allows a custom rounding algorithm to be implemented rather than taking the vendor's default (and bankers' rounding is alarming, to say the least, for a designer expecting all values ending in .5 to round away from zero). 
+ Yes,   sounds like overkill to me. Most currencies are quoted to four or five decimal places. I know of situations where a decimal scale of 8 (or more)  is  required but this is where a 'normal' monetary amount (say four decimal places) has been pro rata'd, implying the decimal precision should be reduced accordingly (also consider a floating point type in such circumstances). And no one has that much money nowadays to require a decimal precision of 24 :) 
+ However, rather than a one-size-fits-all approach, some research may be in order. Ask your designer or domain expert about accounting rules which may be applicable: GAAP, EU, etc. I vaguely recall some EU intra-state transfers with explicit rules for rounding to five decimal places, therefore using   for storage. Accountants generally seem to favour four decimal places. 
+ 
+ PS Avoid SQL Server's   data type because it has serious issues with accuracy when rounding, among other considerations such as portability etc. See  Aaron Bertrand's blog . 
+ 
+ Microsoft and language designers chose banker's rounding because hardware designers chose it [citation?]. It is enshrined in the Institute of Electrical and Electronics Engineers (IEEE) standards, for example. And hardware designers chose it because mathematicians prefer it. See  Wikipedia ; to paraphrase: The 1906 edition of Probability and Theory of Errors called this 'the computer's rule' ("computers" meaning humans who perform computations). 
+ 
+ We recently implemented a system that needs to handle values in multiple currencies and convert between them, and figured out a few things the hard way. 
+ **NEVER USE FLOATING POINT NUMBERS FOR MONEY**
+
+ Floating point arithmetic introduces inaccuracies that may not be noticed until they've screwed something up. All values should be stored as either integers or fixed-decimal types, and if you choose to use a fixed-decimal type then make sure you understand exactly what that type does under the hood (ie, does it internally use an integer or floating point type). 
+ When you do need to do calculations or conversions: 
+ 
+ Convert values to floating point 
+ Calculate new value 
+ Round the number and convert it back to an integer 
+ 
+ When converting a floating point number back to an integer in step 3, don't just cast it - use a math function to round it first. This will usually be  , though in special cases it could be   or  . Know the difference and choose carefully. 
+ **Store the type of a number alongside the value**
+
+ This may not be as important for you if you're only handling one currency, but it was important for us in handling multiple currencies. We used the 3-character code for a currency, such as USD, GBP, JPY, EUR, etc. 
+ Depending on the situation, it may also be helpful to store: 
+ 
+ Whether the number is before or after tax (and what the tax rate was) 
+ Whether the number is the result of a conversion (and what it was converted from) 
+ 
+ **Know the accuracy bounds of the numbers you're dealing with**
+
+ For real values, you want to be as precise as the smallest unit of the currency. This means you have no values smaller than a cent, a penny, a yen, a fen, etc. Don't store values with higher accuracy than that for no reason. 
+ Internally, you may choose to deal with smaller values, in which case that's a  different type of currency value . Make sure your code knows which is which and doesn't get them mixed up. Avoid using floating point values even here. 
+ 
+ Adding all those rules together, we decided on the following rules. In running code, currencies are stored using an integer for the smallest unit. 
+ 
+ In the database, the values are stored as a string in the following format: 
+ 
+ That stores the value of $25.00. We were able to do that only because the code that deals with currencies doesn't need to be within the database layer itself, so all values can be converted into memory first. Other situations will no doubt lend themselves to other solutions. 
+ 
+ And in case I didn't make it clear earlier,  **don't use float!**
+
+ 
+ When handling money in MySQL, use DECIMAL(13,2) if you know the precision of your money values or use DOUBLE if you just want a quick good-enough approximate value.
+So if your application needs to handle money values up to a trillion dollars (or euros or pounds), then this should work: 
+ 
+ Or, if you need to comply with  GAAP  then use: 
+ 
+ 
+ 4 decimal places would give you the accuracy to store the world's smallest currency sub-units. You can take it down further if you need micropayment (nanopayment?!) accuracy. 
+ I too prefer   to DBMS-specific money types, you're safer keeping that kind of logic in the application IMO. Another approach along the same lines is simply to use a [long] integer, with formatting into ¤unit.subunit for human readability (¤ = currency symbol) done at the application level. 
+ 
+ The money datatype on SQL Server has four digits after the decimal. 
+ From SQL Server 2000 Books Online: 
+ Monetary data represents positive or negative amounts of money. In Microsoft® SQL Server™ 2000, monetary data is stored using the money and smallmoney data types. Monetary data can be stored to an accuracy of four decimal places. Use the money data type to store values in the range from -922,337,203,685,477.5808 through +922,337,203,685,477.5807 (requires 8 bytes to store a value). Use the smallmoney data type to store values in the range from -214,748.3648 through 214,748.3647 (requires 4 bytes to store a value). If a greater number of decimal places are required, use the decimal data type instead. 
+ 
+ Sometimes you will need to go to less than a cent and there are international currencies that use very large demoniations.  For example, you might charge your customers 0.088 cents per transaction.  In my Oracle database the columns are defined as NUMBER(20,4) 
+ 
+ If you're going to be doing any sort of arithmetic operations in the DB (multiplying out billing rates and so on), you'll probably want a lot more precision than people here are suggesting, for the same reasons that you'd never want to use anything less than a double-precision floating point value in application code. 
+ 
+ If you were using IBM Informix Dynamic Server, you would have a MONEY type which is a minor variant on the DECIMAL or NUMERIC type.  It is always a fixed-point type (whereas DECIMAL can be a floating point type).  You can specify a scale from 1 to 32, and a precision from 0 to 32 (defaulting to a scale of 16 and a precision of 2).  So, depending on what you need to store, you might use DECIMAL(16,2) - still big enough to hold the US Federal Deficit, to the nearest cent - or you might use a smaller range, or more decimal places. 
+ 
+ I would think that for a large part your or your client's requirements should dictate what precision and scale to use. For example, for the e-commerce website I am working on that deals with money in GBP only, I have been required to keep it to Decimal( 6, 2 ). 
+ 
+ A late answer here, but I've used 
+ 
+ which I'm right in thinking should allow upto 99,999,999,999.99. 
+ 

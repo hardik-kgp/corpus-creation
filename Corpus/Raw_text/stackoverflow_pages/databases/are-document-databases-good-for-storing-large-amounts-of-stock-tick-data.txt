@@ -1,0 +1,75 @@
+*** are-document-databases-good-for-storing-large-amounts-of-stock-tick-data ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  3 years ago . 
+ 
+ 
+ 
+ I was thinking of using a database like mongodb or ravendb to store a lot of stock tick data and wanted to know if this would be viable compared to a standard relational such as Sql Server. 
+ The data would not really be relational and would be a couple of huge tables. I was also thinking that I could sum/min/max rows of data by minute/hour/day/week/month etc for even faster calculations. 
+ Example data:
+500 symbols * 60 min * 60sec * 300 days... (per record we store: date, open, high,low,close, volume, openint - all decimal/float) 
+ So what do you guys think? 
+ 
+ The answer here will depend on scope. 
+ MongoDB is great way to get the data "in" and it's really fast at querying individual pieces. It's also nice as it is built to scale horizontally. 
+ However, what you'll have to remember is that all of your significant "queries" are actually going to result from "batch job output". 
+ As an example, Gilt Groupe has created a system called  Hummingbird  that they use for real-time analytics on their web site. Presentation  here . They're basically dynamically rendering pages based on collected performance data in tight intervals (15 minutes).  
+ In their case, they have a simple cycle: post data to mongo -> run map-reduce -> push data to webs for real-time optimization -> rinse / repeat. 
+ This is honestly pretty close to what you probably want to do. However, there are some limitations here: 
+ 
+ Map-reduce is new to many people. If you're familiar with SQL, you'll have to accept the learning curve of Map-reduce. 
+ If you're pumping in lots of data, your map-reduces are going to be slower on those boxes. You'll probably want to look at slaving / replica pairs if response times are a big deal. 
+ 
+ On the other hand, you'll run into different variants of these problems with SQL. 
+ Of course there are some benefits here: 
+ 
+ Horizontal scalability. If you have lots of boxes then you can shard them and get somewhat linear performance increases on Map/Reduce jobs (that's how they work). Building such a "cluster" with SQL databases is lot more costly and expensive. 
+ Really fast speed and as with point #1, you get the ability to add RAM horizontally to keep up the speed. 
+ 
+ As mentioned by others though, you're going to lose access to ETL and other common analysis tools. You'll definitely be on the hook to write a lot of your own analysis tools. 
+ 
+ Since when this question was asked in 2010, several database engines were released or have developed features that specifically handle time series such as stock tick data: 
+ 
+ InfluxDB - see my other answer 
+ Cassandra 
+ 
+ With MongoDB or other document-oriented databases, if you target performance, the advices is to  contort your schema  to organize ticks in an object keyed by seconds (or an object of minutes, each minute being another object with 60 seconds). With a specialized time series database, you can query data simply with 
+ 
+ 
+ I was also thinking that I could sum/min/max rows of data by minute/hour/day/week/month etc for even faster calculations. 
+ 
+ With InfluxDB, this is very straightforward. Here's how to get the daily minimums and maximums: 
+ 
+ You can group by time intervals which can be in microseconds ( ), seconds ( ), minutes ( ), hours ( ), days ( ) or weeks ( ). 
+ **TL;DR**
+
+ Time-series databases are better choices than document-oriented databases for storing and querying large amounts of stock tick data. 
+ 
+ Here's my reservation with the idea - and I'm going to openly acknowledge that my working knowledge of document databases is weak.  I’m assuming you want all of this data stored so that you can perform some aggregation or trend-based analysis on it. 
+ If you use a document based db to act as your source, the loading and manipulation of each row of data (CRUD operations) is very simple.  Very efficient, very straight forward, basically lovely. 
+ What sucks is that there are very few, if any, options to extract this data and cram it into a structure more suitable for statistical analysis e.g. columnar database or cube.  If you load it into a basic relational database, there are a host of tools, both commercial and open source such as  pentaho  that will accommodate the ETL and analysis very nicely. 
+ Ultimately though, what you want to keep in mind is that every financial firm in the world has a stock analysis/ auto-trader application; they just caused a major U.S. stock market tumble and they are not toys.  :) 
+ 
+ A simple datastore such as a key-value or document database is also beneficial in cases where performing analytics reasonably exceeds a single system's capacity.  (Or it will require an exceptionally large machine to handle the load.)  In these cases, it makes sense to use a simple store since the analytics require batch processing anyway.  I would personally look at finding a horizontally scaling processing method to coming up with the unit/time analytics required. 
+ I would investigate using something built on Hadoop for parallel processing.  Either use the framework natively in Java/C++ or some higher level abstraction: Pig, Wukong, binary executables through the streaming interface, etc.  Amazon offers reasonably cheap processing time and storage if that route is of interest. (I have no personal experience but many do and depend on it for their businesses.) 
+ 

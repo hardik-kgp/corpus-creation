@@ -1,0 +1,52 @@
+*** merging-complicated-tables ***
+
+ I'm trying to merge tables where rows correspond to a many:1 relationship with "real" things. 
+ I'm writing a blackjack simulator that stores game history in a database with a new set of tables generated each run.  The tables are really more like templates, since each game gets its own set of the 3 mutable tables (players, hands, and matches).  Here's the layout, where suff is a user-specified suffix to use for the current run: 
+ 
+ Only one cards table is created because its values are constant. 
+ So after running the simulator twice you might have: 
+ 
+ I want to be able to combine these tables if you used the same AI parameters for both of those runs (i.e. players_firstrun and players_secondrun are exactly the same).  The problem is that the way I'm inserting hands makes this really messy: whichHand can't be a BIGSERIAL because the relationship of hands_suff rows to "actual hands" is many:1.  matches_suff is handled the same way because a blackjack "game" actually consists of a set of games: the set of pairs of each player vs. the dealer.  So for 3 players, you actually have 3 rows for each round. 
+ Currently I select the largest whichHand in the table, add 1 to it, then insert all of the rows for one hand.  I'm worried this "query-and-insert" will be really slow if I'm merging 2 tables that might both be arbitrarily huge. 
+ When I'm merging tables, I feel like I should be able to (entirely in SQL) query the largest values in whichHand and whichGame once then use them combine the tables, incrementing them for each unique whichHand and whichGame in the table being merged. 
+ (I saw  this question , but it doesn't handle using a generated ID in 2 different places).  I'm using Postgres and it's OK if the answer is specific to it. 
+ * sadly postgres doesn't allow parameterized table names so this had to be done by manual string substitution.  Not the end of the world since the program isn't web-facing and no one except me is likely to ever bother with it, but the SQL injection vulnerability does not make me happy. 
+ ** matches_suff(whichPlayersHand) was originally going to reference hands_suff(whichHand) but  foreign keys must reference unique values .  whichHand isn't unique because a hand is made up of multiple rows, with each row "holding" one card.  To query for a hand you select all of those rows with the same value in whichHand.  I couldn't think of a more elegant way to do this without resorting to arrays. 
+ EDIT: 
+ This is what I have now: 
+ 
+ I'd like to combine them to have: 
+ 
+ Each value of "thiscard" represents a playing card in the range [1..104]--52 playing cards with an extra bit representing if it's face up or face down.  I didn't post the actual table for space reasons.
+So player 0 (aka the dealer) had a hand of (Seven of Spades, Queen of Spaces, 3 of Clubs) in the first game. 
+ 
+ I think you're not using PostgreSQL the way it's intended to be used, plus your table design may not be suitable for what you want to achieve. Whilst it was difficult to understand what you want your solution to achieve, I wrote this, which seems to solve everything you want using a handful of tables only, and functions that return recordsets for simulating your requirement for individual runs. I used Enums and complex types to illustrate some of the features that you may wish to harness from the power of PostgreSQL. 
+ Also, I'm not sure what parameterized table names are (I have never seen anything like it in any RDBMS), but PostgreSQL does allow something perfectly suitable: recordset returning functions. 
+ 
+ 
+ Wouldn't using the UNION operator work? 
+ For the hands relation: 
+ 
+ For the matches relation: 
+ 
+ As a more long term solution I'd consider restructuring the DB because it will quickly become unmanageable with this schema. Why not improve normalization by introducing a games table?  
+ In other words  Games  have many  Matches ,  matches  have many  players  for each game and  players  have many hands for each  match . 
+ I'd recommend drawing the UML for the entity relationships on paper ( http://dawgsquad.googlecode.com/hg/docs/database_images/Database_Model_Diagram(Title).png ), then improving the schema so it can be queried using normal SQL operators. 
+ Hope this helps. 
+ **EDIT:**
+
+ In that case you can use a subquery on the union of both tables with the   PG function to represent the row number: 
+ 
+ The same principle would apply to the matches table. Obviously this doesn't scale well to even a small number of tables, so would prioritize normalizing your schema. 
+ Docs on some PG functions:  http://www.postgresql.org/docs/current/interactive/functions-window.html 
+ 
+ to build new table with all rows of two tables, do: 
+ 
+ after that, to insert data of new matche, create sequence with start on current last + 1 
+ 
+ before insert read sequence value, and use it in inserts: 
+ 
+ 
+ Your database structure is not great, and I know for sure it is not scalable approach creating tables on fly. There are performance drawbacks creating physical tables instead of using an existing structure. I suggest you refactor your db structure if can. 
+ You can however use the   operator to merge your data. 
+ 

@@ -1,0 +1,78 @@
+*** database-recommendations-needed-columnar-embedded-if-possible ***
+
+ EDIT: As result of the answers so far I like to add more focus in what I like to zero in on: A database that allows writing in-memory (could be simple C# code) with persistence to storage options in order to access the data from within R. Redis so far looks the most promising. I also consider to actually use something similar to Lockfree++ or ZeroMQ, in order to avoid writing data concurrently to the database, but rather sending all to be persisted data over a message bus/other implementation and to have one "actor" handle all write operations to an in-memory db or other solution. Any more ideas aside Redis (some mentioned SQLite and I will need to still test its performance). Any other suggestions?  
+ I am searching for the ideal database structure/solution that meets most of my below requirements but so far I utterly failed. Can you please help? 
+ My tasks: I run a process in .Net 4.5 (C#) and generate (generally) value types that I want to use for further analysis in other applications and therefore like to either preserve in-memory or persist on disk. More below. The data is generated within different tasks/threads and thus a row based data format does not lend itself well to match this situation (because the data generated in different threads is generated at different times and is thus not aligned). Thus I thought a columnar data structure may be suitable but please correct me if I am wrong. 
+ Example: 
+ Tasks/Thread #1 generates the following data at given time stamps 
+ datetime.ticks / value of output data 
+ 1000000001 233.23 
+ 1000000002 233.34 
+ 1000000006 234.23
+... 
+ Taks/Thread #2 generates the following data at given time stamps 
+ datetime.ticks / value of output data 
+ 1000000002 33.32 
+ 1000000005 34.34 
+ 1000000015 54.32
+... 
+ I do not need to align the time stamps at the .Net run-time, I am first and foremost after preserving the data and to process the data within R or Python at a later point. 
+ My requirements: 
+ 
+ Fast writes, fast writes, fast writes: It can happen that I generate 100,000- 1,000,000 data points per second and need to persist (worst case) or retain in memory the data. Its ok to run the writes on its own thread so this process can lag the data generation process but limitation is 16gb RAM (64bit code), more below. 
+ Preference is for columnar db format as it lends itself well to how I want to query the data later but I am open to any other structure if it makes sense in regards to the examples above (document/key-value also ok if all other requirements are met, especially in terms of write speed).  
+ API that can be referenced from within .Net. Example: HDF5 may be considered capable by some but I find their .Net port horrible.Something that supports .Net a little better would be a plus but if all other requirements are met then I can deal with something similar to the HDF5 .Net port.   
+ Concurrent writes if possible: As described earlier I like to write data concurrently from different tasks/threads. 
+ I am constrained by 16gb memory (run .Net process in 64bit) and thus I probably look for something that is not purely in-memory as I may sometimes generate more data than that. Something in-memory which persists at times or a pure persistence model is probably preferable.  
+ Preference for embedded but if a server in a client/server solution can run as a windows service then no issue.  
+ In terms of data access I have strong preference for a db solution for which interfaces from R and Python already exist because I like to use the Panda library within Python for time series alignments and other analysis and run analyses within R. 
+ If the API/library supports in addition SQL/SQL-like/Linq/ like queries that would be terrific but generally I just need the absolute bare bones such as load columnar data in between start and end date (given the "key"/index is in such format) because I analyze and run queries within R/Python. 
+ If it comes with a management console or data visualizer that would be a plus but not a must.  
+ Should be open source or priced within "reach" (no, KDB does not qualify in that regards ;-) 
+ 
+ OK, here is what I have so far, and again its all I got because most db solution simply fail already on the write performance requirement: 
+ 
+ Infobright and Db4o. I like what I read so far but I admit I have not checked into any performance stats 
+ Something done myself. I can easily store value types in binary format and index the data by datetime.ticks , I just would need to somehow write scripts to load/deserialize the data in Python/R. But it would be a massive tasks if I wanted to add concurrency, a query engine, and other goodies. Thus I look for something already out there.  
+ 
+ 
+ I can't comment -- low rep (I'm new here) -- so you get a full answer instead... 
+ First, are you sure you need a database at all?  If fast write speed and portability to R is your biggest concern then have you just considered a flat file mechanism?  According to your comments you're willing to batch writes out but you need persistence; if those were my requirements I'd write a straight-to-disck buffering system that was lightning fast then build a separate task that periodically took the disk files and moved them into a data store for R, and that's only if R reading the flat files wasn't sufficient in the first place. 
+ If you can do alignment after-the-fact, then you could write the threads to separate files in your main parallel loop, cutting each file off every so often, and leave the alignment and database loading to the subprocess. 
+ So (in crappy pseudo_code), build a thread process that you'd call with backgroundworker or some such and include a threadname string uniquely identifying each worker and thus each filestream (task/thread): 
+ 
+ Efficient and speedy file I/O and buffering is  a straightforward and common problem .  Nothing is going to be faster than this.  Then you can just write another process to do the database loads and not sweat the performance there: 
+ 
+ And I wouldn't write that part in C#, I'd batch script it and use the database's native loader which is going to be as fast as anything you can build from scratch. 
+ You'll have to make sure the two loops don't interfere much if you're running on the same hardware.  That is, run the task threads at a higher priority, or build in some mutex or performance limiters so that the database load doesn't hog resources while the threads are running.  I'd definitely segregate the database server and hardware so that file I/O to the flat files isn't compromised. 
+ FIFO queues would work if you're on Unix, but you're not.  :-) 
+ Also, hardware is going to have more of a performance impact for you than the database engine, I'd imagine. If you're on a budget I'm guessing you're on COTS hardware, so springing for a solid state drive may up performance fairly cheaply.  As I said, separating the DB storage from the flat file storage would help, and the CPU/RAM for R, the Database, and your Threads should all be segregated ideally. 
+ What I'm saying is that choice of DB vendor probably isn't your biggest issue, unless you have a lot of money to spend.  You'll be hardware bound most of the time otherwise.  Database tuning is an art, and while you can eek out minor performance gains at the top end, having a good database administrator will keep most databases in the same ballpark for performance.  I'd look at what R and Python support well and that you're comfortable with.  If you think in columnar fashion then look at R and C#'s support for Cassandra (my vote), Hana, Lucid, HBase, Infobright, Vertica and others and pick one based on price and support.  For traditional databases on a single commodity machine, I haven't seen anything that MySQL can't handle. 
+ 
+ This is not to answer my own question but to keep track of all data bases which I tested so far and why they have not met my requirements (yet): each time I attempted to write 1 million single objects (1 long, 2 floats) to the database. For ooDBs, I stuck the objects into a collection and wrote the collection itself, similar story for key/value such as Redis but also attempted to write simple ints (1mil) to columnar dbs such as InfoBright.  
+ 
+ Db4o, awefully slow writes: 1mil objects within a collection took about 45 seconds. I later optimized the collection structure and also wrote each object individually, not much love here.  
+ InfoBright: Same thing, very slow in terms of write speed, which surprised me quite a bit as it organizes data in columnar format but I think the "knowledge tree" only kicks in when querying data rather than when saving flat data structures/tables-like structures. 
+ Redis (through BookSleeve): Great API for .Net: Full Redis functionality (though couple drawbacks to run the server on Windows machines vs. a Linux or Unix box). Performance was very fast...North of 1 million items per second. I serialized all objects using Protocol Buffers (protobuf-net, both written by Marc Gravell), still need to play a lot more with the library but R and Python both have full access to the Redis DB, which is a big plus. Love it so far. The Async framework that Marc wrote around the Redis base functions is awesome, really neat and it works so far. I wanna spend a little more time to experiment with the Redis Lists/Collection types as well, as I so far only serialized to byte arrays.  
+ SqLite: I ran purely in-memory and managed to write 1 million value type elements in around 3 seconds. Not bad for a pure RDBMS, obviously the in-memory option really speeds things up. I only created one connection, one transaction, created one command, one parameter, and simply adjusted the value of the parameter within a loop and ran the ExecuteNonQuery on each iteration. The transaction commit was then run outside the loop.  
+ HDF5: Though there is a .Net port and there also exists a library to somehow work with HDF5 files out of R, I strongly discourage anyone to do so. Its a pure nightmare. The .Net port is very badly written, heck, the whole HDF5 concept is more than questionable. Its a very old and in my opinion outgrown solution to store vectorized/columnar data. This is 2012 not 1995. If one cannot completely delete datasets and vectors out of the file in which they were stored before then I do not call that an annoyance but a major design flaw. The API in general (not just .Net) is very badly designed and written imho, there are tons of class objects that nobody, without having spent hours and hours of studying the file structure, understands how to use. I think that is somewhat evidenced by the very sparse amount of documentation and example code that is out there. Furthermore, the h5r R library is a drama, an absolute nightmare. Its badly written as well (often the file upon writing is not correctly close due to a faulty flush and it corrupts files), the library has issues to even be properly installed on 32 bit OSs...and it goes on and on. I write the most about HDF5 because I spent the most of my time on this piece of .... and ended up with the most frustration. The idea to have a fast columnar file storage system, accessible from R and .Net was enticing but it just does not deliver what it promised in terms of API integration and usability or lack thereof.  
+ 
+ Update: I ditched testing velocityDB simply because there does not seem any adapter to access the db from within R available. I currently contemplate writing my own GUI with charting library which would access the generated data either from a written binary file or have it sent over a broker-less message bus (zeroMQ) or sent through LockFree++ to an "actor" (my gui). I could then call R from within C# and have results returned to my GUI. That would possibly allow me the most flexibility and freedom, but would obviously also be the most tedious to code. I am running into more and more limitations during my tests that with each db test I befriend this idea more and more.  
+ **RESULT: Thanks for the participation. In the end I awarded the bounty points to Chipmonkey because he suggested partly what I considered important points to the solution to my problem (though I chose my own, different solution in the end). 
+I ended up with a hybrid between Redis in memory storage and direct calls out of .Net to the R.dll. Redis allows access to its data stored in memory by different processes. This makes it a convenient solution to quickly store the data as key/value in Redis and to then access the same data out of R. Additionally I directly send data and invoke functions in R through its .dll and the excellent R.Net library. Passing a collection of 1 million value types to R takes about 2.3 seconds on my machine which is fast enough given that I get the convenience to just pass in the data, invoke computational functions within R out of the .Net environment and getting the results back sync or async.**
+
+ 
+ Just a note: I once had a similar problem posted by a fellow in a delphi forum. I could help him with a simple ID-key-value database backend I wrote at that time (kind of a NoSQL engine). Basically, it uses a B-Tree to store triplets (32bit ObjectID, 32bit PropertyKey, 64bit Value). I could manage to save about 500k/sec Values in real time (about 5 years ago). Of course, the data was indexed on all three values (ID, property-ID and value). You could optimize this by ignoring the value index. 
+ The source I still have is in Delphi, but I would think about implementing something like that using C#. I cannot tell you whether it will meet your needs for performance, but if all else fails, give it a try. Using a buffered write should also drastically improve performance. 
+ 
+ I would go with way combining persistence storage (I personally prefer db4o, but you can use files as well as mentioned above) and storing objects into memory this way: 
+ use BlockingCollection<T> to store objects in memory (I believe you will achieve better performance then 1000000/s to store objects in memory), and than have one or more processing threads which will consume the objects and store them into persistent database 
+ 
+ BlockingCollection pretty much solves Producer-Consumer workflow, and in case you will use multiple instance of them and use AddToAny/TakeFromAny you can reach any kind of multithreaded performance 
+ each consuming thread could have different db4o session (file) to reach desired performance (db4o is singlethreaded). 
+ 
+ Since you want to use ZeroMQ why not use memcache over Redis? 
+ZeroMQ offers no persistence as far as I know. Memcache also offers no persistence and is a bit faster than Redis. 
+Or perhaps the other way, if you use Redis why not use beanstalk MQ? 
+If you want to use Redis (for the persistence) you might want to switch from ZeroMQ to beanstalk MQ (also a fast in memory queue, but also has persistence via logging). Beanstalk also has C# libs. 
+ 

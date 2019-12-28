@@ -1,0 +1,61 @@
+*** specific-mysql-bulk-insertion-performance-tuning ***
+
+ I know this question has been asked over and over. However, this is a very specific question for a very specific scenario. Hopefully you will be able to help me. 
+ I run a logging database, with about 10 tables. The main table which stores the actual log entries has some 30 fields, of which 5 are searchable. I'd say the database has recently become moderately sized, as we're reaching 200 million entries in that table. Other tables store common data, of which the largest one has 4 fields, all searchable, with almost 1 million entries. All other tables contain less than 100 thousand records each. 
+ Inserts come in spikes. I get the logs from the previous day in (quite poorly formatted) csv files every day at 2 AM, and I have until 8 AM to insert them (around 20 files, 100 thousand lines each) into the database. Then I get very few selects (maybe some 1000 a day) during the working day. Then rinse and repeat. 
+ The SELECT queries are quite simple, as they mostly consist of one or two joins with one or two GROUP BY statements. The people who search this database want immediate results, so I have 5 multi-column indexes in the main table, which help on the precise searches I have, and currently, SELECT performance is quite good. No query has taken more than 0.1 seconds so far. There are some reports, but these take around 10 seconds to generate, and that's acceptable. 
+ Currently I have a C program I wrote to read the data from the CSV files, clean it, and insert it in batches of 1000 rows per INSERT query. These INSERTs are not entirely dumb, because I need to get the common data, see if it is already on the other tables, insert it if it's not, and cache it if it is. It also gives me performance data in the form of how many records it's inserting per second. This program is quite fast, and without sending the data into the database, I get around 100 thousand rows per second. Of course, this program and the database lie on the same physical computer. 
+ Now, the data I get every day is growing linearily, and the performance of the INSERTs is decreasing logarithmically. Yesterday's data took 5 hours and a half to insert, at around 400 row insertions per second. 
+ I got some benchmark data by inserting the first 1 million rows with different configurations into an empty database, and this is pretty much what I got: 
+ MyISAM tables: starts at 1500 rows per second, decreases logarithmically down to around 700 rows per second by the time it inserts the 1 millionth row
+InnoDB tables: same as MyISAM, only around 100 rows per second faster
+InnoDB with all indexes disabled on the main table: starts at 2100 rows per second, decreases down to 1000 rows per second.
+InnoDB With indexes, with the filesystem mounted with data writeback (ext3): same as InnoDB, just slightly but almost unnoticeably faster. 
+ innodb_buffer_pool_size is set to 1000MB 
+ Avoiding index creation is not an option, but it is obvious that it has a large impact in performance. However, I need much faster inserts. As the data shows, inserts will take longer as the database grows, so as the data I get is larger every day, I need a huge leap in insert performance. If I could get it to 10000 inserts per second or more, it would be really great. 
+ The system monitor tells me my main resource consumption is disk I/O, which goes almost to 100% when inserting. Because of that, I need an ultra fast way to insert data. My theoretical limit is that of the SATA bus, but that's still quite far away. Memory usage doesn't seem to be that high at some 20% (or MySQL isn't using memory correctly) 
+ To achieve this, it is acceptable to recreate the database over the course of several days, and then hot swap from the reader application, it is acceptable to change any setting in the OS and MySQL, it is acceptable to add memory if required. It is even acceptable to change the database structure, if necessary. 
+ So I'm really open to ideas here. Anybody knows of anything which could help me? 
+ Edit: I'm currently considering inserting the new rows in a MEMORY table, and then do a SELECT INTO the real table. Hopefully, it will only update and flush the index once after all the rows were inserted. I'll try this on Monday. Has anybody tried something like this before? 
+ 
+ 2 million rows in 6,5 hours? 
+How large is the data set you are storing? 
+ I use the following back-of-the-envelope calculation to arrive at a somewhat useful figure: 
+Assuming   single crappy disk that swallows   mb per sec, you should be able to write (35 * 6,5 * 3600) = ~  in that time frame. Calculating backwards (800 gb / 2 mrows), gives an average row size of   kb. 
+ If those numbers seem about right, you need to beef up your hardware to increase speed. If they are completely off, there is likely some other problem. 
+ Also, have a look at  comparisons of disk i/o for a dedicated MySQL server  on ServerFault, for a way of measuring I/O. 
+ Here are some random suggestions (in case you suspect some other problem) 
+ 
+ Make sure you eliminate  **all**
+ row-by-row operations in your loading process 
+ If most of the csv data end up being stored, consider  bulk loading  into intermediate tables and process the data inside the database using set-based processing. 
+ If most of the data is discarded, consider moving/caching your reference tables outside of the database to be able to filter the csv data in your C-code 
+ MySQL don't have hash joins, but rely on indexed loops. Make sure those other tables have approproate indexes 
+ Try pre-sorting the data outside of the database to match the index of some other table used in the process (to increase the likelyhood the relevant data doesn't get flushed out of cache) 
+ Read up on  partitioning , and see if you can replace some of your indexes with a smart partitioning scheme instead of maintaining all those indexes. 
+ 
+ **Edited**
+
+Corrected calculation (400kb) 
+ 
+ After an entire day of doing lots of small things, I built a huge thing. The bottom line is that I improved my insertion performance around 8-fold, to almost 10000 records per second. 
+ Here are the things I did: 
+ 
+ Rewrite the loading program. I said it was in C, but it was actually in C++. Changing string to char*, fstream with mmap, and other things like that, I almost doubled the performance. (And lots of people still claim C++ is as fast, or faster than C. I wouldn't even want to try this in C#/Java) 
+ I found this page:
+ http://kevin.vanzonneveld.net/techblog/article/improve_mysql_insert_performance/ 
+This is a great resource (I'm not affiliated with them), that explains pretty much everything I was going to try, with all the various results. Pretty much, the only thing that can ultraboost insertion performance is using LOAD DATA INFILE. Tweaking my table structures so I could insert like this almost quadrupled! the performance of my insertions. 
+ I rewrote insertions that cannot be performed with LOAD DATA INFILE, to mass inserts (several rows per insert command) using complex expressions inside the ON DUPLICATE KEY UPDATE, instead of doing SELECT/INSERT for every row. This also gave a very good performance boost. This also required some modifications to the table structures. 
+ When recreating the database, which already went over 2 billion rows, create the tables which get the LOAD DATA INFILE insertions without indexes, and recreate them when finished. All my benchmarks showed that the time to insert without indexes, plus the time to create them is shorter than the time to insert into tables with indexes. The difference is not huge, but it's noticeable (around 1.2 times faster). I assume the B-trees will also be better balanced this way. 
+ Use MyISAM. My previous benchmarks weren't that conclusive, but when using LOAD DATA INFILE, InnoDB loses every time. Testing locally, I got around 16000 records/s in MyISAM/no indexes, 12000 records/s in MyISAM/indexes, 9000 records/s in InnoDB/no indexes, and around 7500 in InnoDB/indexes. The MySQL version is 5.1.47. 
+ For the files for LOAD DATA INFILE, create them in a tmpfs mounted partition. This is also a huge performance boost, especially since you need to write the write a file and flush it to disk, so MySQL can then read it. If this tmpfs is not possible, it should be possible to do this using named pipes. 
+ 
+ Lesson learned: When MySQL is slow, it is most likely you can do more by changing your code, than by getting more powerful hardware. 
+ Good luck, and thank you all for your help. 
+ 
+ You hit it when mentioning disk I/O. If your disk is maxed with inserts, you're not going to get any faster unless you upgrade. You didn't mention if it was acceptable to do disk upgrades but I would look at using SCSI or flash based disks. Even though you're not hitting SATA's bus limit, your disk is definitely bottlenecking. 
+ 
+ I'd try to increase the innodb buffer pool size, and see what happens. For Innodb, I'd also disable permanent flushing with innodb_flush_log_at_trx_commit=0 (or =2). Default setting is 1  which is a bottleneck for write-intensive workloads. 0 or 2 will give you 1 second delay between flushes.  You can also do bigger batches using transactions (if you do not explicitely use transactions, then every insert is its own transaction). 
+ As already mentioned, pre-sorting input (by primary key) could help to reduce amount of data in the bufferpool by eliminating randomness in page loads. 
+ All of the above is is innodb-related. 
+ 

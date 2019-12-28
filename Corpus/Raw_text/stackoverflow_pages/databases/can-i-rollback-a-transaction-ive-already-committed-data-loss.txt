@@ -1,0 +1,38 @@
+*** can-i-rollback-a-transaction-ive-already-committed-data-loss ***
+
+ I committed an incorrect   statement and have lost some data. 
+ Is it possible to rollback now, after I've already committed? 
+ Any help? 
+ 
+ says  . 
+ 
+ No, you can't undo, rollback or reverse a commit. 
+ **STOP THE DATABASE!**
+
+ (Note: if you deleted the data directory off the filesystem, do NOT stop the database. The following advice applies to an accidental commit of a   or similar, not an   scenario). 
+ If this data was important,  **STOP YOUR DATABASE NOW**
+ and do not restart it. Use   so that no checkpoint is run on shutdown. 
+ You cannot roll back a transaction once it has commited. You will need to restore the data from backups, or use  point-in-time recovery , which must have been set up  before  the accident happened. 
+ If you didn't have any PITR / WAL archiving set up and don't have backups, you're in real trouble. 
+ **Urgent mitigation**
+
+ Once your database is stopped, you should make a file system level of the whole data directory - the folder that contains  ,  , etc. Copy  all of it  to a new location. Do not do anything to the copy in the new location, it is your only hope of recovering your data if you do not have backups. Make another copy on some removable storage if you can, and then unplug that storage from the computer. Remember, you need  absolutely every part  of the data directory, including   etc. No part is unimportant.  
+ Exactly how to make the copy depends on which operating system you're running. Where the data dir is depends on which OS you're running and how you installed PostgreSQL. 
+ **Ways some data could've survived**
+
+ If you stop your DB quickly enough you might have a hope of recovering some data from the tables. That's because PostgreSQL uses  multi-version concurrency control (MVCC)  to manage concurrent access to its storage. Sometimes it will write  new versions  of the rows you update to the table, leaving the old ones in place but marked as "deleted". After a while  autovaccum  comes along and marks the rows as free space, so they can be overwritten by a later   or  . Thus, the old versions of the  d rows might still be lying around, present but inaccessible. 
+ Additionally, Pg writes in two phases. First data is written to the write-ahead log (WAL). Only once it's been written to the WAL and hit disk, it's then copied to the "heap" (the main tables), possibly overwriting old data that was there. The WAL content is copied to the main heap by the   and by periodic checkpoints. By default checkpoints happen every 5 minutes. If you manage to stop the database before a checkpoint has happened and stopped it by hard-killing it, pulling the plug on the machine, or using   in   mode you might've captured the data from before the checkpoint happened, so your old data is more likely to still be in the heap. 
+ Now that you have made a complete file-system-level copy of the data dir you can start your database back up if you really need to; the data will still be gone, but you've done what you can to give yourself some hope of maybe recovering it. Given the choice I'd probably keep the DB shut down just to be safe. 
+ **Recovery**
+
+ You may now need to  hire an expert in PostgreSQL's innards  to assist you in a data recovery attempt. Be prepared to pay a professional for their time, possibly quite a bit of time. 
+ I posted about this on the Pg mailing list, and  Виктор Егоров linked to   depesz's post on pg_dirtyread , which looks like just what you want, though it doesn't recover  ed data so it's of limited utility. Give it a try, if you're lucky it might work. 
+ See:  pg_dirtyread on GitHub . 
+ I've removed what I'd written in this section as it's obsoleted by that tool. 
+ See also  PostgreSQL row storage fundamentals 
+ **Prevention**
+
+ See my blog entry  Preventing PostgreSQL database corruption . 
+ 
+ On a semi-related side-note, if you were using  two phase commit  you could   for a transction that was prepared for commit but not fully commited. That's about the closest you get to rolling back an already-committed transaction, and does not apply to your situation. 
+ 

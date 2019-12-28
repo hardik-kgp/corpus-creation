@@ -1,0 +1,27 @@
+*** nchar-vs-nvarchar-performance ***
+
+ How do you decided whether to use   or   ? 
+ For instance I have noticed that the default membership database created by sqlmembership provider declares the Email column to be type nvarchar(256) 
+ To me that seems like an unnecessarily large maximum value for an email column. I would suspect in normal circumstances emails longer than 40 or 50 characters would be pretty rare. 
+ But as data such as email addresses vary in length should they always be stored as a nvarchar so as to eliminate redundant space? 
+ If using nvarchar for an email column. In the event of an email address being changed, if the new email is longer than the previous email will this cause many page splits and therefor much of a performance cost? 
+ Would you ever consider using nchar(40) for an email address and compromising loss of storage space in return for no page split performance costs? 
+ Or would using nchar(40) significantly increase database size thereby cause other performance hits on query speed? 
+ Would 'only use nchar when you know the size of data to fill the column' be a reasonable rule to follow? 
+ 
+ 
+ emails longer than 40 or 50 characters would be pretty rare 
+ 
+ It only takes one to ruin your model... 
+ 
+ if the new email is longer than the previous email will this cause many page splits 
+ 
+ No. But even if it did, that's not how you design you data model. Lets say, for the sake of argument, that every time an email is update it would cause a page split. Would you optimize for  that ? No, because pre-allocating a large fixed size (ie. using a NCHAR(256)) is far worse, it does indeed eliminate the potential page split on update (again, if such a page split  would  occur) but at the far worse cost of increasing the table size, which translates to IO bandwith and memoy consumption, see  Disk space is cheap...THAT'S NOT THE POINT!!! .  
+ Why do I say that variable length updates do no cause page splits? Because page splits are forced when the row image no longer fits in the page. An update to a variable length column will likely cause row-overflow and leave the row at the same size as before, or even smaller. There are cases when the row will increase in size after the overflow, but there several condition for this to actually trigger a page split:  
+ 
+ the value update has to trigger a row size increase, this can only happen when updating from a value of fewer than the 24-byte pointer described in  Table and Index Organization  to a value larger than this pointer size. 
+ the increase in row size (which by definition is at most 24 bytes increase for each variable column being updated, including updates from NULL to non-NULL) have to result in a row that does not fit in the page. 
+ there should be no possible space reclaim in row from pushing  other  fields off-row (ie. all variable length fields are already pushed off-row) 
+ 
+ I really don't buy that you have such a strange and esoteric workload as the conditions above to be  the  major factor in driving your design. Use a NVARCHAR of convenient length to accommodate for any value you'll encounter. 
+ 

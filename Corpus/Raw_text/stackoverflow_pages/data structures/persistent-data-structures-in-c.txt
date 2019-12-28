@@ -1,0 +1,33 @@
+*** persistent-data-structures-in-c ***
+
+ Are there any persistent data structures implementations in c++ similar to those in clojure? 
+ 
+ I rolled my own but there's the   library  as a fairly comprehensive example and it is specifically inspired by clojure. I got all excited and rolled my own a few years back after listening to a speech by John Carmack where he was jumping all over the functional programming bandwagon. He seemed to be able to imagine a game engine revolving around immutable data structures. While he didn't get into specifics and while it just seemed like a hazy idea in his head, the fact that he was seriously considering it and didn't seem to think the overhead would cut steeply into frame rates was enough to get me excited about exploring that idea. 
+ I actually use it as somewhat of an optimization detail which might seem paradoxical (there is overhead to immutability), but I mean in a specific context. If I absolutely want to do this: 
+ 
+ ... and I absolutely don't want the function to cause side effects so that it can be thread-safe and never prone to misuse, then I have no choice but to copy the huge data structure (which might span a gigabyte). 
+ And there I find having a small library of immutable data structures immensely helpful in such a context, since it makes the above scenario relatively cheap by just shallow copying and referencing unchanged parts. That said, I mostly just use one immutable data structure which is basically a random-access sequence, like so: 
+ 
+ And as others mentioned, it did require some care and tuning and comprehensive testing and many VTune sessions to make it thread-safe and efficient, but after I put in the elbow grease, it definitely made things a whole, whole lot easier. 
+ On top of automatic thread safety whenever we use these structures to write functions to be free of side effects, you also get things like non-destructive editing, trivial undo systems, trivial exception-safety (no need to roll back side effects through scope guards in a function which causes none in exceptional paths), and letting users copy and paste data and instance it without taking much memory until/unless they modify what they paste as a bonus. I actually found these bonuses to be even more useful on a daily basis than the thread safety. 
+ I use 'transients' (aka 'builders') as a way to express changes to the data structure, like so: 
+ 
+ I even have an immutable image library which I use for image editing to trivialize non-destructing editing. It uses a similar strategy to the above structure by treating images as tiles like so: 
+ 
+ When a transient is modified and we get a new immutable, only the changed parts are made unique. The rest of the tiles are shallow copied (just 32-bit indices): 
+ 
+ I do use these in fairly performance-critical areas like mesh and video processing. There was a bit of fine-tuning as to how much data each block should store (too much and we waste processing and memory deep copying too much data, too little and we waste processing and memory shallow copying too many pointers with more frequent thread locks). 
+ I don't use these for raytracing since that's one of the most extreme performance-critical areas imaginable and the tiniest bit of overhead is noticeable to users (they actually benchmark and notice performance differences in the range of 2%), but most of the time, they're efficient enough, and it's a pretty awesome benefit when you can copy these huge data structures around as a whole left and right to simplify thread safety, undo systems, non-destructive editing, etc, without worrying about explosive memory usage and noticeable delays spent deep copying everything. 
+ 
+ The main difficulty to get a persistent data-structure is indeed the lack of garbage collection. 
+ If you don't have a proper garbage collection scheme, then you can get a poor one (namely reference counting), but this mean that you need to take extra care NOT to create cyclic references. 
+ It changes the very core of the structure. For example, think binary tree. If you create a new version of a node, then you need a new version of its parent to access it (etc...). Now, if the relation is two-way (child <-> parent) then you will in fact duplicate the whole structure. This means that you will either have a parent -> child relation, or the opposite (less common). 
+ I can think of implementing a binary tree, or a B-Tree. I hardly see how to get a proper array for example. 
+ On the other hand, I agree it would be great to have efficient ones in multi-threaded environments. 
+ 
+ If I understand the question correctly, what you seek is the ability to duplicate an object without actually paying for the duplication when it is done, only when it is needed. Changes to either object can be done without damaging the other one.
+This is known as "copy on write". 
+ If this is what you are looking for, this can fairly easily be implemented in C++ using shared pointers (see shared_ptr from Boost, as one implementation).
+Initially the copy would share everything with the source, but once changes are made the relevant parts of the object shared pointers are replaced by other shared pointers pointing to newly created, deep-copied objects.
+(I realize that this explanation is vague - if this is indeed what you mean, the answer can be elaborated). 
+ 

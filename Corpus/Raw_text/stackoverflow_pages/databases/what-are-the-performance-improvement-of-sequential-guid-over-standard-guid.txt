@@ -1,0 +1,157 @@
+*** what-are-the-performance-improvement-of-sequential-guid-over-standard-guid ***
+
+ Has someone ever measured performance of Sequential Guid vs. Standard Guid when used as Primary Keys inside a database? 
+ 
+ **GUID vs.Sequential GUID**
+
+ 
+A typical pattern it's to use Guid as PK for tables, but, as referred in other discussions (see  Advantages and disadvantages of GUID / UUID database keys )
+there are some performance issues.
+ 
+This is a typical Guid sequence 
+ 
+ f3818d69-2552-40b7-a403-01a6db4552f7 
+    7ce31615-fafb-42c4-b317-40d21a6a3c60 
+    94732fc7-768e-4cf2-9107-f0953f6795a5 
+ 
+Problems of this kind of data are:< 
+    -  
+ 
+ Wide distributions of values 
+ Almost randomically ones 
+ Index usage is very, very, very bad 
+ A lot of leaf moving  
+ Almost every PK need to be at least
+on a non clustered index 
+ Problem happens both on Oracle and
+SQL Server 
+ 
+ 
+A possible solution is using Sequential Guid, that are generated as follows: 
+ 
+    cc6466f7-1066-11dd-acb6-005056c00008 
+    cc6466f8-1066-11dd-acb6-005056c00008 
+    cc6466f9-1066-11dd-acb6-005056c00008 
+   
+ How to generate them From C# code: 
+ 
+ 
+Benefits 
+ 
+ Better usage of index 
+ Allow usage of clustered keys (to be
+verified in NLB scenarios) 
+ Less disk usage 
+ 20-25% of performance increase at a
+minimum cost 
+ 
+ 
+ **Real life measurement:**
+
+Scenario: 
+ 
+ Guid stored as UniqueIdentifier
+types on SQL Server 
+ Guid stored as CHAR(36) on Oracle 
+ Lot of insert operations, batched
+together in a single transaction 
+ From 1 to 100s of inserts depending
+on table 
+ Some tables > 10 millions rows 
+ 
+ 
+Laboratory Test – SQL Server 
+ VS2008 test, 10 concurrent users, no think time, benchmark process with 600 inserts in batch for leaf table
+ Standard Guid 
+ Avg. Process duration:  **10.5**
+ sec
+ Avg. Request for second:  **54.6**
+
+ Avg. Resp. Time:  **0.26**
+
+ Sequential Guid 
+ Avg. Process duration:  **4.6**
+ sec
+ Avg. Request for second:  **87.1**
+
+ Avg. Resp. Time:  **0.12**
+
+ 
+ Results on Oracle  (sorry, different tool used for test) 1.327.613 insert on a table with a Guid PK 
+ Standard Guid ,  **0.02**
+ sec. elapsed time for each insert,  **2.861**
+ sec. of CPU time, total of  **31.049**
+ sec. elapsed
+ Sequential Guid ,  **0.00**
+ sec. elapsed time for each insert,  **1.142**
+ sec. of CPU time, total of  **3.667**
+ sec. elapsed
+ The DB file sequential read wait time passed from  **6.4**
+ millions wait events for  **62.415**
+ seconds to  **1.2**
+ million wait events for  **11.063**
+ seconds.
+ 
+It's important to see that all the sequential guid can be guessed, so it's not a good idea to use them if security is a concern, still using standard guid. 
+To make it short... if you use Guid as PK use sequential guid every time they are not passed back and forward from a UI, they will speed up operation and do not cost anything to implement. 
+ 
+ I may be missing something here (feel free to correct me if I am), but I can see very little benefit in using sequential GUID/UUIDs for primary keys. 
+ The  **point**
+ of using GUIDs or UUIDs over autoincrementing integers is: 
+ 
+ They can be created anywhere  **without**
+ contacting the database 
+ They are identifiers that are entirely unique within your application (and in the case of UUIDs, universally unique) 
+ Given one identifier, there is no way to guess the next or previous (or even  any  other valid identifiers) outside of brute-forcing a  huge  keyspace. 
+ 
+ Unfortunately, using your suggestion, you lose  all  those things. 
+ So, yes. You've made GUIDs better. But in the process, you've thrown away almost all of the reasons to use them in the first place. 
+ If you  **really**
+ want to improve performance, use a standard autoincrementing integer primary key. That provides all the benefits you described (and more) while being better than a 'sequential guid' in almost every way.  
+ This will most likely get downmodded into oblivion as it doesn't specifically answer your question (which is apparently carefully-crafted so you could answer it yourself immediately), but I feel it's a far more important point to raise. 
+ 
+ As massimogentilini already said, Performance can be improved when using UuidCreateSequential (when generating the guids in code). But a fact seems to be missing: The SQL Server (at least Microsoft SQL 2005 / 2008) uses the same functionality, BUT: the comparison/ordering of Guids differ in .NET and on the SQL Server, which would still cause more IO, because the guids will not be ordered correctly.
+In order to generate the guids ordered correctly for sql server (ordering), you have to do the following (see  comparison  details): 
+ 
+ or  this link  or  this link . 
+ 
+ If you  need  to use sequential GUIds, SQL Server 2005 can generate them for you with the   function. 
+ **However**
+ since the basic usage of GUIds is to generate keys (or alternate keys) that cannot be guessed (for example to avoid people passing guessed keys on GETs), I don't see how applicable they are because they are so easily guessed. 
+ From  MSDN : 
+ 
+ **Important:**
+
+  If privacy is a concern, do not use this function. It
+  is possible to guess the value of the
+  next generated GUID and, therefore,
+  access data associated with that GUID. 
+ 
+ 
+ See This article:
+( http://www.shirmanov.com/2010/05/generating-newsequentialid-compatible.html ) 
+ Even though MSSql uses this same function to generate NewSequencialIds
+(  UuidCreateSequential(out Guid guid)  ), MSSQL reverses the 3rd and 4th byte patterns which does not give you the same result that you would get when using this function in your code. Shirmanov shows how to get the exact same results that MSSQL would create. 
+ 
+ Check out  COMBs  by Jimmy Nilsson: a type of GUID where a number of bits have been replaced with a timestamp-like value. This means that the COMBs can be ordered, and when used as a primary key result in less index page splits when inserting new values. 
+ Is it OK to use a uniqueidentifier (GUID) as a Primary Key? 
+ 
+ OK, I finally got to this point in design and production myself. 
+ I generate a COMB_GUID where the upper 32 bits are based on the bits 33 through 1 of Unix time in milliseconds. So, there are 93 bits of randomness every 2 milliseconds and the rollover on the upper bits happens every 106 years. The actual physical representation of the COMB_GUID (or type 4 UUID) is a base64 encoded version of the 128 bits, which is a 22 char string. 
+ When inserting in postgres the ratio of speed between a fully random UUID and a COMB _GUID holds as beneficial for the COMB_GUID.
+The COMB_GUID is  **2X**
+ faster on my hardware over multiple tests, for a one million record test. The records contain the id(22 chars), a string field (110 chars), a double precision, and an INT. 
+ In ElasticSearch, there is NO discernible difference between the two for indexing. I'm still going to use COMB_GUIDS in case content goes to BTREE indexes anywhere in the chain as the content is fed time related, or can be presorted on the id field so that it  **IS**
+ time related and partially sequential, it will speed up. 
+ Pretty interesting.
+The Java code to make a COMB_GUID is below. 
+ 
+ } 
+ 
+ I messured difference between Guid (clustered and non clustered), Sequential Guid and int (Identity/autoincrement) using Entity Framework. The Sequential Guid was surprisingly fast compared to the int with identity.  Results and code of the Sequential Guid here . 
+ 
+ I do not see the need for unique keys to be guessable or not, passing them from a web UI or in some other part seems a bad practice by itself and I do not see, if you have security concerns, how using a guid can improve things (if this is the matter use a real random number generator using the proper crypto functions of the framework). 
+The other items are covered by my approach, a sequential guid can be generated from code without need for DB access (also if only for Windows) and it's unique in time and space. 
+And yes, question was posed with the intent of answering it, to give people that have choosen Guids for their PK a way to improve database usage (in my case has allowed the customers to sustain a much higher workload without having to change servers). 
+It seems that security concerns are a lot, in this case do not use Sequential Guid or, better still, use standard Guid for PK that are passed back and forward from your UI and sequential guid for everything else. As always there is no absolute truth, I've edited also main answer to reflect this. 
+ 

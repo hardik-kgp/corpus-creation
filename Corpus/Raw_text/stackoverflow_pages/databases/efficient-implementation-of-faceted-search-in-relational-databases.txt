@@ -1,0 +1,34 @@
+*** efficient-implementation-of-faceted-search-in-relational-databases ***
+
+ I am trying to implement a  Faceted search  or tagging with multiple-tag filtering. In the faceted navigation, only not-empty categories are displayed and the number of items in the category that are also matching already applied criteria is presented in parenthesis.  
+ I can get all items having assigned categories using INNER JOINs  and  get number of items in all category using COUNT and GROUP BY , however I'm not sure how it will scale to millions of objects and thousands of tags. Especially the counting.  
+ I know that there are some not-relational solutions like  Lucene + SOLR , but I've found also some closed-source RDBMS-based implementations that are said to be entreprise-strength like  FacetMap.com  or  Endeca  software, so there must be an efficient way to perform faceted search in relational databases. 
+ Does anybody have experience in faceted search and could give some tips?  
+ Cache the counts for each category set? Maybe use some smart incremental technique that will update the counters?  
+ Edit: 
+ An example of faceted navigation can be found here:  Flamenco . 
+ Currently I have the standard 3-table scheme (items, tags and items_tags like described here:  http://www.pui.ch/phred/archives/2005/04/tags-database-schemas.html#toxi  ) plus a table for facets. Each tag has assigned a facet. 
+ 
+ I can only confirm what Nils says. RDBMS are not good for multi-dimensional searching. I have worked with some smart solutions, caching counters, using triggers, and so on. But in the end, external dedicated indexer always wins. 
+ MAYBE, if you transform your data into dimensional model and feed it to some OLAP [I mean MDX engine] - it will perform well. But it seems a bit too heavy solution, and it will be definitely NOT real-time. 
+ On the contrary, solution with dedicated indexing engine (think Lucene, think  Sphinx ) can be made near-real time with incremental index updates. 
+ 
+ IMO, relational databases aren't that good at searching. You would get better performance from a dedicated search engine (like Solr/Lucene). 
+ 
+ Faceted Search is an analytic problem, which means dimensional design is a good bet. Aka, the thing you search against must be in tabular form.  
+ Include all columns of interest in your analytic table.  
+ Put continuous values into buckets.  
+ Use boolean columns for "many" items like categories or tags, example if there are three tags "foo", "bar", and "baz", you would have three boolean columns. 
+ Use a materialized view to create your analytic table. 
+ Index the crap out of it. Some databases support indexes for this type of application.  
+ Only filter once. 
+ Union your results. 
+ Build pre-aggregated materialized views for common queries. 
+ This article might help you too:  https://blog.jooq.org/2017/04/20/how-to-calculate-multiple-aggregate-functions-in-a-single-query/ 
+ 
+ 100,000 records with 5 facets in ~ 150 ms 
+ 
+ Regarding the counts, why pull them via SQL? You'll have to iterate through the result set in your code anyway, so why not make your count there?  
+ I'm currently using this approach in a faceted search app I'm developing and it's working fine. The only tricky part is to setup your code to not output the facet until it reaches a new facet. At that time, output the facet and the number of rows you found for it.  
+ This approach assumes you're pulling back a list of all matching items, and thus, multiple rows with the same facet. When you order this result by facet it's easy to get the count in your code instead. 
+ 

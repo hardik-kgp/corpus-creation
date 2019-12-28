@@ -1,0 +1,90 @@
+*** how-to-generate-a-random-unique-alphanumeric-id-of-length-n-in-postgres-9-6 ***
+
+ I've seen a bunch of  different solutions  on StackOverflow that span many years and many Postgres versions, but with some of the newer features like   I want to ask again to see if there is a simpler solution in newer versions. 
+ Given IDs which contain  , and vary in size depending on where they're used, like... 
+ 
+ (Like the  IDs that Stripe uses .)  
+ How can you generate them randomly and safely (as far as reducing collisions and reducing predictability goes) with an easy way to specify different lengths for different use cases, in Postgres 9.6+? 
+ I'm thinking that ideally the solution has a signature similar to: 
+ 
+ Where   is customizable depending on your own tradeoffs for lowering the chance of collisions vs. reducing the string size for usability. 
+ From what I can tell, it must use   instead of   for true randomness, to reduce the chance that they can be guessed. 
+ Thanks! 
+ 
+ I know there's   for UUIDs, but I don't want to use them in this case. I'm looking for something that gives me IDs similar to what Stripe (or others) use, that look like:   that are as short as possible while still containing only alphanumeric characters. 
+ This requirement is also why   isn't quite right for this case, since it reduces the character set and thus forces me to increase the length of the strings to avoid collisions. 
+ I'm currently doing this in the application layer, but I'm looking to move it into the database layer to reduce interdependencies. Here's what the Node.js code for doing it in the application layer might look like: 
+ 
+ 
+ Review, 
+ 
+ 26 characters in  
+ 26 characters in  
+ 10 characters in  
+ 62 characters in   (base62) 
+ The function   looks useful. 
+ 
+ So it looks something like this. First we demonstrate that we can take the random-range and pull from it. 
+ 
+ Now we need a range between   and  
+ 
+ This gets us there.. Now we just have to join the two.. 
+ 
+ Then we wrap it in an   constructor (because this is fast) 
+ 
+ And, we call   to get a text. 
+ 
+ From here we can even turn it into a function.. 
+ 
+ and then 
+ 
+ 
+ Figured this out, here's a function that does it: 
+ 
+ And then to run it simply do: 
+ 
+ 
+ **Warning**
+
+ When doing this you need to be sure that the length of the IDs you are creating is sufficient to avoid collisions over time as the number of objects you've created grows, which can be counter-intuitive because of the  Birthday Paradox .  So you will likely want a length greater (or much greater) than   for any reasonably commonly created object, I just used   as a simple example. 
+ 
+ **Usage**
+
+ With the function defined, you can use it in a table definition, like so: 
+ 
+ And then when inserting data, like so: 
+ 
+ It will automatically generate the   values: 
+ 
+ 
+ **Usage with a Prefix**
+
+ Or maybe you want to add a prefix for convenience when looking at a single ID in the logs or in your debugger (similar to  how Stripe does it ), like so: 
+ 
+ 
+ This query generate required string. Just change second parasmeter of generate_series to choose length of random string. 
+ 
+ 
+ 
+ I'm looking for something that gives me "shortcodes" (similar to what Youtube uses for video IDs) that are as short as possible while still containing only alphanumeric characters. 
+ 
+ This is a fundamentally different question from what you first asked. What you want here then is to put a   type on the table, and to use  hashids.org code for PostgreSQL .  
+ 
+ This returns 1:1 with the unique number (serial) 
+ Never repeats or has a chance of collision. 
+ Also base62  
+ 
+ Code looks like this, 
+ 
+ This module also supports salts. 
+ 
+ Thanks to Evan Carroll answer, I took a look on hashids.org.
+For Postgres you have to compile the  extension  or run some TSQL  functions .
+But for my needs, I created something simpler based on hashids ideas (short, unguessable, unique, custom alphabet, avoid curse words). 
+ Shuffle alphabet: 
+ 
+ The main function: 
+ 
+ How-to use examples: 
+ 
+ 

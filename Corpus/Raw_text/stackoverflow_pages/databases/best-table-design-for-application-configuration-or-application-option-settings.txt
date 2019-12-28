@@ -1,0 +1,88 @@
+*** best-table-design-for-application-configuration-or-application-option-settings ***
+
+ I need to store a series of configuration values in a database. 
+A couple ways I thought of to store them are: a table with 2 colums(name,value) and a row for each pair, or a table with a column for each config parameter and 1 row?
+With the first I only need to add another row to add a config value, with the second I need to add a column to the table. Are there any issues with either I should take in to consideration? Is one more efficient than the other?  
+ 
+ For config data, I'd use the key/value structure with a row per configuration entry. You're likely to read this data once and cache it, so performance isn't an issue. As you point out, adding columns each time the set of config keys changes requires a lot more maintenance. 
+ SQL excels at modeling and manipulating arbitrarily large sets of similarly (if not the same) structured data. A set of configuration information really isn't that -- you've got a single row of data OR you've got multiple rows of completely unrelated data. That says you're just using this as a data store. I say skip the SQL data model and go simple. 
+ 
+ One more consideration : with a column for each config parameter, you can easily have versions. Each row represents a version. 
+ 
+ The first issue you should consider is this: stop thinking about the efficiency of retrieving the information. first and foremost, figure out how to  effectively  and  correctly  model the data and then (and only then) figure out how to do it  efficiently . 
+ So it depends on the nature of the config data you're storing. If separate (name,value) pairs are basically unrelated then store it as one per row. If they are related then you may want to consider a scheme that has multiple columns. 
+ What do I mean by related? Consider some cache config. Each cache has several attributes: 
+ 
+ eviction policy; 
+ expiry time; 
+ maximum size. 
+ 
+ Assume each cache has a name. You could store this data as three rows: 
+ 
+ 
+ 
+ 
+ 
+ but this data is  related  and you may often need to retrieve them all at once. In that case it may make sense to have a cache_config table with five columns: id, name, eviction, expiry, max_size. 
+ That's what I mean by related data. 
+ 
+ One disadvantage of using a separate row for each (application) configuration setting (or application option) is that you can't store the setting values in a column with an appropriate data type. Can users enter data with an invalid  type ? Is that pertinent to your application? 
+ One benefit of using separate columns is that any code in your DB itself (e.g. stored procedures, functions, etc.) can use a value of the appropriate data-type without first needing to check for invalid values and then convert to the appropriate data type. 
+ If you're manually deploying changes to your application DB, then yes if you're using an EAV design it is  very  slightly easier to deploy new configuration settings, but really what's the savings for: 
+ 
+ versus: 
+ 
+ 
+ I think the 2-column (name, value) design is much better. As you said, if you need to add a new property, all you need to do is to " " a new row.  While in the other design (single-row), you'll need to change the table schema to add a column for the new property. 
+ This, however, depends on whether your list of properties are going to change in the future. 
+ 
+ Here I blog about when we  moved our AppSettings to a Database Table. 
+The performance isn't an issue because it is pull only once at the start of the application and stored in a dictionary for easy lookup. 
+ Not sure about your application, but the important reason why we did this is now it is impossible to be using the Production values if you are in Dev, Test, etc. 
+ 
+ I DESPISE putting non-string values in a string-column (aka, incorrect-data-types).  (As @Kenny Evitt discusses above) 
+ So I'm come up with the below  **alternative**
+ that goes vertical AND deals with correct datatypes. 
+ I don't actually use money and smallmoney. But I included them for completeness.
+Note, there are a few other datatypes out there  
+ see 
+ https://msdn.microsoft.com/en-us/library/ms187752.aspx?f=255&MSPPError=-2147217396 
+ But the below covers most things. 
+ to be honest, I only use string (varchar(1024)), int, smallint and bit  ...  99% of the time. 
+ It isn't perfect.  Aka, you have alot of null tuples.  But since you only grab these once (and cache), the mapping to a settings object (in c# in my world) isn't difficult. 
+ 
+ )    
+ Now, if that is too much, and you're determined to use "strings" for all the values, then here is some DDL. 
+ 
+ Now, taking it a big farther, you can still create strongly typed dotnet objects with the correct datatypes, and then convert your datareader/dataset into the strong object as seen below. 
+ 
+ You can still do the C# classes (or whatever language)........and use the SettingDataType method above.  The "mapping" code just needs a little extra work. 
+ When not outvoted, I use the SettingDataType and the C# classes as seen above. 
+ 
+ You can save configuration efficiently using XML. Some Database support Pure XML feature in which you can save value as xml data type and you can run XQUERY on that particular column. 
+ Create a table with two column name and configuration. name with string datatype and configuration with xml data type so no need to worry about insertion and deletion of new configuration parameters, you will just a new tag in xml. And if database does not support XML then just save it as a string but in XML format so you can parse that configuration manually or using some API efficiently. 
+ I think this would be better way instead of storing complete configuration as a string.  
+ 
+ 
+ The best way. Adding a column to a table usually sucks, and what's the point of a table with one row? 
+ Not sure this is appropriate for SQL, but alas...question answered. 
+ 
+ "Best" depends entirely on context - how will this data be used?  
+ If all you need to do is store and retrieve a single set of configuration settings, I'd question the use of a relational database in the first place - it adds no obvious benefit over config files on the file system. You can't easily use version control for you configuration files, and managing environmental differences (e.g. "DEV", "TEST" and "PRODUCTION" environments) now requires a GUI to modify the database (oh, and how do you connect to the database in the first place?). 
+ If your application needs to "reason" about the configuration as a whole - e.g. if you have a multi-tenant solution and need to dynamically configure the application based on the current system - I'd suggest storing the configuration files as a text document in your database, with the metadata that allows the application to store/retrieve the document. Different database engines have different solutions for storing text documents. For instance, in a multi-tenancy system you might have: 
+ 
+ This would allow you to retrieve the file for client 1, that was valid after 3 March, and do whatever the application needs. 
+ If your application needs to reason about the content of the configuration, not the configuration as an entity in its own right, you have a different problem. The "name/value" solution you propose is also known as Entity/Attribute/Value (EAV), and there are  lots   of   SO   questions  discussing benefits and drawbacks. TL;DR: it's hard to convert even simple questions to SQL when using EAV.  
+ It's much easier to query the data if each configuration setting is a column, with the appropriate data type. But this does mean that you end up with a very "wide" table (most applications have dozens or even hundreds of config values), and every time you want to add a configuration setting, you end up modifying your database schema, which isn't practical. 
+ The alternative, then, is to store the configuration values as a structured document - XML and JSON are widely supported. These formats can be queried by the database engine, but do not require a fixed schema. 
+ 
+ I have used both methods and I prefer the 2 column method.  The draw back to the a new column for each configuration is that you need to change code to add new settings. 
+ I do prefer to use the One column per setting method (when I am accessing the value).  This is because the configuration settings are more explicitly set.  But that that preference does not out weigh the difficulty of adding a new configuration to the table. 
+ I would recommend the 2 column method.  Then setup an accessor function/sproc to get at the values. 
+ 
+ depends. 
+ If you have less than say 15 values, I'd make a column for each. 
+ If you change the number of settings regularly, or if you often don't use all of the settings, I'd consider making a row per setting. 
+ Beyond that, it's probably a tossup. Depends on your usage patterns. If you always need to grab all the settings, it's probably quickest to have them in one row. 
+ Adding columns isn't too hard, and if you program sensibly, you usually don't have to update any of your other code. 
+ 

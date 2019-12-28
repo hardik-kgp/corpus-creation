@@ -1,0 +1,47 @@
+*** how-to-properly-handle-two-threads-updating-the-same-row-in-a-database ***
+
+ I have a thread called   for reading a flat file and parsing it. I need to create a new thread called   for parsing some part of this file and later this   thread would need to update the status of the original entity, which is also being parsed and updated by the original thread  .How can I handle this situation? 
+ I receive a flat file having the below sample records: 
+ 
+ First this file is saved in database in   status. Now all the records starting with   or with   need to be processed in a separate thread. Once it's successfully parsed, both threads will try to update the status of this file object in a database to  . In some cases, I get  .  Edit: And the work done by any thread before the exception is lost. We are using optimistic locking.  What is the best way of avoiding this problem? 
+ Possible hibernate exceptions when two threads update the same Object? 
+ The above post helps to understand some part of it, but it does not help to resolve my problem. 
+ 
+ **Part 1 - Your problem**
+  
+ The main reason for you receiving this exception is that you are using Hibernate with  **optimistic locking**
+. This basically tells you that either thread T1 or thread T2 have already updated the state to  PARSED  and now the other thread is holding old version of the row with smaller version than the one held in the database and trying to update the state to  PARSED  as well. 
+ The question here is " **Are the two threads trying to preserve the same data**
+?". If the answer is yes then even if the last update succeed there shouldn't be any problem, because eventually they are updating the row to the same state. In that case you don't need Optimistic locking because your data will, in any case be in sync. 
+ The main problem comes if after the state is set to  RECIEVED  if the two threads T1 and T2 actually depending on one another when reseting to the next status. In that case you need to ensure that if T1 has executed first(or vice versa) T2 needs to refresh the data for the updated row and re-apply its changes based on the changes already pushed by T1. In this case the solution is the following. If you encounter staleObjectException you basically need to refresh your data from the database and restart your operation. 
+ **Part 2 analysis on the link posted**
+  Possible hibernate exceptions when two threads update the same Object? 
+ **Approach 1**
+, this is more or less the  **last to update Wins**
+ situation. It more or less avoids the optimistic locking (the version counting). In case you don't have dependency from T1 to T2 or reverse in order to set status  PARSED . This should be good. 
+ **Aproach 2 Optimistic Locking**
+ This is what you have now. The solution is to refresh the data and restart your operation. 
+ **Aproach 3 Row level DB lock**
+ The solution here is more or less the same as for approach 2 with the small correction that the Pessimistic lock dure. The main difference is that in this case it may be a READ lock and you might not be even able to read the data from the database in order to refresh it if it is PESSIMISTIC READ. 
+ **Aproach 4 application level synchronization**
+ There are many different ways to do synchronization. One example would be to actually arrange all your updates in a BlockingQueue or JMS queue(if you want it to be persistent) and push all updates from a single thread. To visualize it a bit T1 and T2 will put elements on the Queue and there will be a single T3 thread reading operations and pushing them to the Database server. 
+ If you use application level synchronization you should be aware that no all structures can be distributes in a multi-server deployment. 
+ Well I can't think of anything else for now :) 
+ 
+ I'm not certain I understand the question, but it seems it would constitute a logic error for a thread T1 which is only processing, for example, records beginning with AA to mark the entire file as "Parsed"? What happens if, for example, your application crashes after T1 updates but while T2 is still processing BB records? Some BB records are likely to be lost, correct? 
+ Anyhow, the crux of the issue is you have a race condition with two threads updating the same object. The stale object exception just means one of your threads lost the race. A better solution avoids a race entirely. 
+ (I am assuming here that the individual record processing is idempotent, if that's not the case I think you have bigger problems as some failure modes will result in re-processing of records. If record processing has to happen once and only once, then you have a harder problem for which a message queue would probably be a better solution.) 
+ I would leverage the functionality of java.util.concurrent to dispatch records out to threaded workers, and have the thread interacting with hibernate block until all records have been processed, at which point that thread can mark the file as "Parsed". 
+ For example, 
+ 
+ then as you process the file, you dispatch each record as follows, building up a list of futures corresponding to the status of the queued tasks. Let's assume successfully processing a record returns a boolean "true": 
+ 
+ Now wait for all tasks to complete successfully - there are more elegant ways to do this, especially with Guava. Note you also need to deal with ExecutionException here if your task failed with an exception, I'm glossing over that here. 
+ 
+ 
+ Assuming that each thread T1,T2 will parse different parts of the file, means no one override the other thread parsing. the best thing is to  **decouple**
+ your parsing process from the DB commit. 
+ T1, T2 will do the parsing T3 or Main Thread will do the commit after both T1,T2 has finished. and i think in this approach its more correct to change the file status to   only when both threads has finished. 
+ you can think of T3 as CommitService class which wait till T1,T2 finsih and then commit to DB  
+ CountDownLatch  is a helpful tool to do it. and here is an  Example 
+ 

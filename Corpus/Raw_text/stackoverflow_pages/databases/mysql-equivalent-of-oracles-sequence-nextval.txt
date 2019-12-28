@@ -1,0 +1,80 @@
+*** mysql-equivalent-of-oracles-sequence-nextval ***
+
+ I need to be able to generate run a query that will return the next value of ID on the following table: 
+ 
+ In Oracle you can call NEXTVAL on a sequence and it gives you the next sequence (note: without having to do an insert on the table).  
+ After googling around I found that you can find the current value of auto_increment by using the following query: 
+ 
+ The problem is I would like the value to be increment every time the value is queried. In Oracle, when you call nextval, the value of the sequence is incremented even if you don't insert a row into a table.  
+ Is there any way I can modify the above query so that the value returned will always be different from the last time the query was called? i.e. Auto_increment is incremented every time it is checked and when used on a query it would use a new value.  
+ I am using Spring JDBCTemplate so if it can be done in one query the better.  
+ 
+ This example with InnoDB demonstrates a way to implement your own counter using interlocked queries: 
+ http://dev.mysql.com/doc/refman/5.0/en/innodb-locking-reads.html 
+ What do you need to create a gap for? To reserve IDs?
+I'd rather "fix" the design at all costs and update the other modules instead of touching a sequence. 
+ Instead of just incrementing the sequence explicitly, I'd imply it by inserting a default row (marked invalid) for each id to allocate and return the id. This approach is consistent and portable.
+Later, instead of forcing inserts using an explicit sequence value, you can update these default rows by their matching sequence values.
+This requires more memory but no locks. Garbage collection on expired rows can help here. 'insert or update' statements can recreate garbage collected rows, I wouldn't do this though. 
+ 
+ http://docs.oracle.com/cd/E17952_01/refman-5.5-en/example-auto-increment.html 
+ **3.6.9. Using AUTO_INCREMENT**
+
+ The AUTO_INCREMENT attribute can be used to generate a unique identity for new rows: 
+ 
+ 
+ 
+ No value was specified for the AUTO_INCREMENT column, so MySQL assigned sequence numbers automatically. You can also explicitly assign NULL or 0 to the column to generate sequence numbers. 
+ You can retrieve the most recent AUTO_INCREMENT value with the LAST_INSERT_ID() SQL function or the mysql_insert_id() C API function. These functions are connection-specific, so their return values are not affected by another connection which is also performing inserts. 
+ Use the smallest integer data type for the AUTO_INCREMENT column that is large enough to hold the maximum sequence value you will need. When the column reaches the upper limit of the data type, the next attempt to generate a sequence number fails. Use the UNSIGNED attribute if possible to allow a greater range. For example, if you use TINYINT, the maximum permissible sequence number is 127. For TINYINT UNSIGNED, the maximum is 255. See Section 11.2.1, “Integer Types (Exact Value) - INTEGER, INT, SMALLINT, TINYINT, MEDIUMINT, BIGINT” for the ranges of all the integer types. 
+ Note
+For a multiple-row insert, LAST_INSERT_ID() and mysql_insert_id() actually return the AUTO_INCREMENT key from the first of the inserted rows. This enables multiple-row inserts to be reproduced correctly on other servers in a replication setup. 
+ If the AUTO_INCREMENT column is part of multiple indexes, MySQL generates sequence values using the index that begins with the AUTO_INCREMENT column, if there is one. For example, if the animals table contained indexes PRIMARY KEY (grp, id) and INDEX (id), MySQL would ignore the PRIMARY KEY for generating sequence values. As a result, the table would contain a single sequence, not a sequence per grp value. 
+ To start with an AUTO_INCREMENT value other than 1, set that value with CREATE TABLE or ALTER TABLE, like this: 
+ mysql> ALTER TABLE tbl AUTO_INCREMENT = 100;
+InnoDB Notes 
+ For InnoDB tables, be careful if you modify the column containing the auto-increment value in the middle of a sequence of INSERT statements. For example, if you use an UPDATE statement to put a new, larger value in the auto-increment column, a subsequent INSERT could encounter a “Duplicate entry” error. The test whether an auto-increment value is already present occurs if you do a DELETE followed by more INSERT statements, or when you COMMIT the transaction, but not after an UPDATE statement. 
+ MyISAM Notes 
+ For MyISAM tables, you can specify AUTO_INCREMENT on a secondary column in a multiple-column index. In this case, the generated value for the AUTO_INCREMENT column is calculated as MAX(auto_increment_column) + 1 WHERE prefix=given-prefix. This is useful when you want to put data into ordered groups. 
+ 
+ 
+ 
+ In this case (when the AUTO_INCREMENT column is part of a multiple-column index), AUTO_INCREMENT values are reused if you delete the row with the biggest AUTO_INCREMENT value in any group. This happens even for MyISAM tables, for which AUTO_INCREMENT values normally are not reused. 
+ Further Reading 
+ More information about AUTO_INCREMENT is available here: 
+ How to assign the AUTO_INCREMENT attribute to a column: Section 13.1.17, “CREATE TABLE Syntax”, and Section 13.1.7, “ALTER TABLE Syntax”. 
+ How AUTO_INCREMENT behaves depending on the NO_AUTO_VALUE_ON_ZERO SQL mode: Section 5.1.7, “Server SQL Modes”. 
+ How to use the LAST_INSERT_ID() function to find the row that contains the most recent AUTO_INCREMENT value: Section 12.14, “Information Functions”. 
+ Setting the AUTO_INCREMENT value to be used: Section 5.1.4, “Server System Variables”. 
+ AUTO_INCREMENT and replication: Section 16.4.1.1, “Replication and AUTO_INCREMENT”. 
+ Server-system variables related to AUTO_INCREMENT (auto_increment_increment and auto_increment_offset) that can be used for replication: Section 5.1.4, “Server System Variables”. 
+ http://search.oracle.com/search/search?q=auto_increment&group=Documentation&x=0&y=0 
+ 
+ You could add your own MySQL function - as demonstrated at  http://www.microshell.com/database/mysql/emulating-nextval-function-to-get-sequence-in-mysql/  - allowing you to do something like this: 
+ 
+ 
+ MySQL uses   which serves the purposes. But there are below differences: 
+ MySQL   to Oracle   Differences 
+ 
+ AUTO_INCREMENT is limited to one column per table 
+ AUTO_INCREMENT must be assigned to a specific table.column (not allowing multi table use) 
+ AUTO_INCREMENT is INSERTed as a not specified column, or a value of NULL 
+ 
+ if you would like to see a SEQUENCE implementation with MySQL , can do with SP. 
+ Refer below link explained everything you want. 
+ http://ronaldbradford.com/blog/sequences-in-mysql-2006-01-26/ 
+ 
+ You want the next value on THAT table so that you can make rows which aren't yet inserted without disturbing other processes which are using the auto-increment? 
+ Some options: 
+ Go ahead and just insert the rows to "use up the sequence", mark them as pending and then update them later. 
+ Insert in a transaction and abort the transaction - the auto-number sequence should get used up and make a "gap" in the table normally - that number is now free for you to use. 
+ With Oracle, the sequence is completely independent of table, so processes can use the sequence or not (and they can also use the same sequence for different tables).  In that vein, you could implement a sequence-only table which you access through some kind of function, and for the other processes which need to rely on the auto-increment, remove the auto-increment and use a trigger which assigns from the same sequence function if no id is provided. 
+ 
+ Have a look at MariaDBs   Engine. With it you can generate sequences as easy as 
+ 
+ Details  here: https://mariadb.com/kb/en/mariadb/sequence/ 
+ With this you should be able to do something like 
+ 
+ 
+ 
+ 

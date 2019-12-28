@@ -1,0 +1,59 @@
+*** does-allowing-a-category-to-have-multiple-parents-make-sense-are-there-alternat ***
+
+ **Short question:**
+ How should product categories that appear under multiple categories be managed? Is it a bad practice to do so at all? 
+ **Background info:**
+
+We have a product database with categories likes this: 
+ 
+ **Note that glue and paper clips are assigned to both categories.**
+ And although they appear in two different spots in this category tree,  **they have the same category ID in the database**
+. Why? Two reasons: 
+ 
+ Categories are assigned attributes - for example, a paper clip could have a weight, a material, a color, etc.  
+ Products assigned to the glue category are displayed under arts and crafts and Office Supplies. Which is to be expected - they're the same actual category ID in the database. 
+ 
+ This allows us to manage a single category and it's attributes and assigned products, but place it at multiple places within the category tree. 
+ We are using the  nested set model , so the db structure we use to support this is: 
+ 
+ So there's a 1:M between Category and CategoryTree because there can be multiple instances of a given category within the category tree. 
+ Is there a simpler way to model this that would allow a product category to display under multiple categories? 
+ 
+ I don't see anything wrong with this as long as it is true that  **all**
+ Glue is appropriate for both Office Supplies  **and**
+ craft supplies. 
+ 
+ What you have is a good way, though why not simplify the 2nd table like so: 
+ **Category**
+
+ ID
+Name 
+ **SubCategory**
+
+ ID
+CategoryID
+SubCategoryID 
+ Though for the future I would beware of sharing child categories between the two root categories. Sometimes it is better to create a unique categorization of products for consistency, which is easier to manage for you and potentially easier to navigate for the customer. Otherwise, you have the issue that if you're on the Glue page coming from office supplies, then do you show the other path as well? If not, you will have two identical pages, except for the path, which is an issue for SEO. If you do, then the user may get confused. 
+ 
+ The most famous example of this is Google Mail, where the classification is done this way. Google is famous for the usability of their products ... 
+ I believe other words are preferable to the "parent" word, that actually suggest only XToOne relationship... 
+ Maybe you could say that a   as many  , so the relationship would be ManyToMany. And only the display would starts with Categories to reach the Products...  
+ 
+ This would highlight a problem : if you don't limit the number of categories, and you display the categories with sub-categories and so on, you could end up with: 
+ 
+ a huge categories and product list, with many many duplications 
+ a big depth (probably unreadable) 
+ 
+ The interesting part is highlighting the problem, then to imagine a solution that is fine for the end-user. 
+ 
+ It may well be necessary for a category to have multiple parents.  However, no matter what parent you found a category under, its subcategories should remain the same. 
+ I've seen real systems that implemented precisely this logic and worked fine. 
+ edit 
+ To answer your question, I don't think the model I'm suggesting is as restrictive as you imagine.  Basically, a given branch of the tree may be found under more than one parent branch, but wherever it is found, it has the same children.  Nothing about this prevents you from cherry-picking some children of one branch and also making them children of another. 
+ So, for example, you could include the glues category under both office supplies and hobby supplies, and if you added "Crazy Glue (Suppository Edition)" under glues, it would show up in both.  If you have items that might be grouped together logically but need to be separated by their use, you can still do that.  You might put mucilage and paste under the category of hobby adhesives, which goes under the hobby root, but not under the office root.  Or you could do that and simultaneously have a combined category that's used internally by your buyers.  What you can't do is forget to include that new type of glue in all of the relevant categories once you've added it wherever it belongs in your business model ontology. 
+ In short, you lose very little with this restriction, but gain a bit of structure to help avoid the problem of having to manage each item individually. 
+ edit 
+ Assuming I've made a convincing case for the model itself, there's still the issue of implementation.  There are lots of options, but here's one way to go: 
+ There is a CatalogItem table containing a synthetic primary key, the label, optional description/detail text, and an optional SKU (or equivalent).  You then have a many-to-many CatalogItemJoin with child and parent ID's, both sides constrained to CatalogItemTable. 
+ An item that appears as a parent is a category, so it should not have a SKU.  An item that appears only as a child is a product, so it should have a SKU.  It's fine for any item to have more than one parent; that just means that it's in multiple categories.  Likewise, there's no problem with multiple children per parent; that would be the typical case of a category with a few products in it.  However, given a category's ID, its children will be the same regardless of what parent category led you there.  The other constraint is that you'll want to avoid loops. 
+ 

@@ -1,0 +1,138 @@
+*** storing-time-series-data-relational-or-non ***
+
+ I am creating a system which polls devices for data on varying metrics such as CPU utilisation, disk utilisation, temperature etc. at (probably) 5 minute intervals using SNMP. The ultimate goal is to provide visualisations to a user of the system in the form of time-series graphs. 
+ I have looked at using RRDTool in the past, but rejected it as storing the captured data indefinitely is important to my project, and I want higher level and more flexible access to the captured data. So my question is really: 
+ What is better, a relational database (such as MySQL or PostgreSQL) or a non-relational or NoSQL database (such as MongoDB or Redis) with regard to performance when querying data for graphing. 
+ **Relational**
+
+ Given a relational database, I would use a   table, in which would be stored every instance of data captured for every metric being measured for all devices, with the following fields: 
+ Fields:          
+ When I want to draw a graph for a particular metric on a particular device, I must query this singular table  filtering out  the other devices, and the other metrics being analysed for this device: 
+ 
+ The number of rows in this table would be: 
+ 
+ where   is the number of  **devices**
+,   is the accumulative  **number of metrics**
+ being recorded for all devices,   is the  **frequency**
+ at which data is polled for and   is the total amount of  **time**
+ the system has been collecting data. 
+ For a user recording 10 metrics for 3 devices every 5 minutes for a year, we would have just under  **5 million**
+ records.  
+ **Indexes**
+
+ Without indexes on   and   scanning this continuously expanding table would take too much time. So indexing the aforementioned fields and also   (for creating graphs with localised periods) is a requirement. 
+ **Non-Relational (NoSQL)**
+
+ MongoDB has the concept of a  collection , unlike tables these can be created programmatically without setup. With these I could partition the storage of data for each device, or even each metric recorded for each device. 
+ I have no experience with NoSQL and do not know if they provide any query performance enhancing features such as indexing, however the previous paragraph proposes doing most of the traditional relational query work in the structure by which the data is stored under NoSQL. 
+ **Undecided**
+
+ Would a relational solution with correct indexing reduce to a crawl within the year? Or does the collection based structure of NoSQL approaches (which matches my mental model of the stored data) provide a noticeable benefit? 
+ 
+ Definitely Relational.  Unlimited flexibility and expansion. 
+ Two corrections, both in concept and application, followed by an elevation. 
+ Correction 
+ 
+ It is not "filtering out the un-needed data"; it is  **selecting only**
+ the needed data.  Yes, of course, if you have an Index to support the columns identified in the WHERE clause, it is very fast, and the query does not depend on the size of the table (grabbing 1,000 rows from a 16 billion row table is instantaneous). 
+ Your table has one serious impediment.  Given your description, the actual PK is (Device, Metric, DateTime).  (Please don't call it TimeStamp, that means something else, but that is a minor issue.)  The uniqueness of the  **row**
+ is identified by: 
+ 
+ 
+ The   column does nothing, it is totally and completely redundant.   
+ 
+ An   column is never a Key (duplicate rows, which are prohibited in a Relational database, must be prevented by other means).   
+ The   column requires an additional Index, which obviously impedes the speed of  , and adds to the disk space used.  
+ You can get rid of it.  Please. 
+ 
+ 
+ 
+ Elevation 
+ 
+ Now that you have removed the impediment, you may not have recognised it, but your table is in Sixth Normal Form.  Very high speed, with just one Index on the PK. For understanding, read  **this answer**
+ from the  **What is Sixth Normal Form ?**
+ heading onwards. 
+ 
+ (I have one index only, not three; on the Non-SQLs you may need three indices).   
+ I have the exact same table (without the   "key", of course). I have an additional column  . I support multiple customers remotely.   
+ 
+ 
+ The table can be used to Pivot the data (ie.   across the top and   down the side, or pivoted) using exactly the same SQL code (yes, switch the cells).  I use the table to erect an unlimited variety of graphs and charts for customers re their server performance.   
+ 
+ **Monitor Statistics Data Model**
+. 
+(Too large for inline; some browsers cannot load inline; click the link.  Also that is the obsolete demo version, for obvious reasons, I cannot show you commercial product DM.) 
+ It allows me to produce  **Charts Like This**
+, six keystrokes after receiving a raw monitoring stats file from the customer, using a  **single SELECT command**
+. Notice the mix-and-match; OS and server on the same chart; a variety of Pivots.  Of course, there is no limit to the number of stats matrices, and thus the charts. (Used with the customer's kind permission.) 
+ Readers who are unfamiliar with the Standard for Modelling Relational Databases may find the  **IDEF1X Notation**
+ helpful. 
+ 
+ 
+ **One More Thing**
+
+ Last but not least, SQL is a IEC/ISO/ANSI Standard.  The freeware is actually Non-SQL; it is fraudulent to use the term SQL if they do not provide the Standard.   They may provide "extras", but they are absent the basics. 
+ 
+ Found very interesting the above answers.
+Trying to add a couple more considerations here. 
+ 1) Data aging 
+ Time-series management usually need to create aging policies. A typical scenario (e.g. monitoring server CPU) requires to store: 
+ 
+ 1-sec  raw samples for a short period (e.g. for 24 hours)   
+ 5-min  detail aggregate samples for a medium period (e.g. 1 week) 
+ 1-hour  detail over that (e.g. up to 1 year) 
+ 
+ Although relational models make it possible for sure (my company implemented massive centralized databases for some large customers with tens of thousands of data series) to manage it appropriately, the new breed of data stores add interesting functionalities to be explored like: 
+ 
+ automated data purging (see Redis' EXPIRE command) 
+ multidimensional aggregations (e.g. map-reduce jobs a-la-Splunk) 
+ 
+ 2) Real-time collection 
+ Even more importantly some non-relational data stores are inherently distributed and allow for a much more efficient real-time (or near-real time) data collection that could be a problem with RDBMS because of the creation of hotspots (managing indexing while inserting in a single table). This problem in the RDBMS space is typically solved reverting to batch import procedures (we managed it this way in the past) while no-sql technologies have succeeded in massive real-time collection and aggregation (see Splunk for example, mentioned in previous replies). 
+ 
+ You table has data in single table. So relational vs non relational is not the question. Basically you need to read a lot of sequential data. Now if you have enough RAM to store a years worth data then nothing like using Redis/MongoDB etc. 
+ Mostly NoSQL databases will store your data on same location on disk and in compressed form to avoid multiple disk access. 
+ NoSQL does the same thing as creating the index on device id and metric id, but in its own way. With database even if you do this the index and data may be at different places and there would be a lot of disk IO. 
+ Tools like Splunk are using NoSQL backends to store time series data and then using map reduce to create aggregates (which might be what you want later). So in my opinion to use NoSQL is an option as people have already tried it for similar use cases. But will a million rows bring the database to crawl (maybe not , with decent hardware and proper configurations).   
+ 
+ Create a file, name it 1_2.data. weired idea? what you get: 
+ 
+ You save up to 50% of space because you don't need to repeat the fk_to_device and fk_to_metric value for every data point. 
+ You save up even more space because you don't need any indices. 
+ Save pairs of (timestamp,metric_value) to the file by appending the data so you get a order by timestamp for free. (assuming that your sources don't send out of order data for a device)  
+ 
+ => Queries by timestamp run amazingly fast because you can use binary search to find the right place in the file to read from. 
+ if you like it even more optimized start thinking about splitting your files like that; 
+ 
+ 1_2_january2014.data 
+ 1_2_february2014.data 
+ 1_2_march2014.data 
+ 
+ or use kdb+ from  http://kx.com  because they do all this for you:) column-oriented is what may help you. 
+ There is a cloud-based column-oriented solution popping up, so you may want to have a look at:  http://timeseries.guru 
+ 
+ If you are looking at GPL packages,  RRDTool  is a good one to look at.
+It is a good tool for storing, extracting and graphing times-series data.
+Your use-case looks exactly like time-series data. 
+ 
+ This is a problem we've had to solve at ApiAxle. We  wrote up a blog post  on how we did it using Redis. It hasn't been out there for very long but it's proving to be effective. 
+ I've also used  RRDTool  for another project which was excellent. 
+ 
+ I think that the answer for this kind of question should mainly revolve about the way your Database utilize storage.
+Some Database servers use RAM and Disk, some use RAM only (optionally Disk for persistency), etc.
+Most common SQL Database solutions are using memory+disk storage and writes the data in a Row based layout (every inserted raw is written in the same physical location). 
+For timeseries stores, in most cases the workload is something like: Relatively-low interval of massive amount of inserts, while reads are column based (in most cases you want to read a range of data from a specific column, representing a metric) 
+ I have found Columnar Databases (google it, you'll find MonetDB, InfoBright, parAccel, etc) are doing terrific job for time series.  
+ As for your question, which personally I think is somewhat invalid (as all discussions using the fault term NoSQL - IMO): 
+You can use a Database server that can talk SQL on one hand, making your life very easy as everyone knows SQL for many years and this language has been perfected over and over again for data queries; but still utilize RAM, CPU Cache and Disk in a Columnar oriented way, making your solution best fit Time Series  
+ 
+ 5 Millions of rows is nothing for today's torrential data. Expect data to be in the TB or PB in just a few months. At this point RDBMS do not scale to the task and we need the linear scalability of NoSql databases. Performance would be achieved for the columnar partition used to store the data, adding more columns and less rows kind of concept to boost performance. Leverage the Open TSDB work done on top of HBASE or MapR_DB, etc.  
+ 
+ I face similar requirements regularly, and have recently started using Zabbix to gather and store this type of data.  Zabbix has its own graphing capability, but it's easy enough to extract the data out of Zabbix's database and process it however you like.  If you haven't already checked Zabbix out, you might find it worth your time to do so. 
+ 
+ You should look into  Time series database . It was created for this purpose. 
+ 
+ A time series database (TSDB) is a software system that is optimized for handling time series data, arrays of numbers indexed by time (a datetime or a datetime range). 
+ 
+ Popular example of time-series database  InfluxDB 
+ 

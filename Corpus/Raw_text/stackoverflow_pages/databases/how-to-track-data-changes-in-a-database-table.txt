@@ -1,0 +1,62 @@
+*** how-to-track-data-changes-in-a-database-table ***
+
+ What is the best way to track changes in a database table? 
+ Imagine you got an application in which users (in the context of the application not DB users ) are able to change data which are store in some database table. What's the best way to track a history of all changes, so that you can show which user at what time change which data how? 
+ 
+ In general, if your application is structured into layers, have the data access tier call a stored procedure on your database server to write a log of the database changes. 
+ In languages that support such a thing  aspect-oriented programming  can be a good technique to use for this kind of application. Auditing database table changes is the kind of operation that you'll typically want to log for all operations, so AOP can work very nicely. 
+ Bear in mind that logging database changes will create lots of data and will slow the system down. It may be sensible to use a message-queue solution and a separate database to perform the audit log, depending on the size of the application. 
+ It's also perfectly feasible to use stored procedures to handle this, although there may be a bit of work involved passing user credentials through to the database itself. 
+ 
+ One method I've seen quite often is to have audit tables. Then you can show just what's changed, what's changed and what it changed from, or whatever you heart desires :)  Then you could write up a trigger to do the actual logging.  Not too painful if done properly... 
+ No matter how you do it, though, it kind of depends on how your users connect to the database.  Are they using a single application user via a security context within the app, are they connecting using their own accounts on the domain, or does the app just have everyone connecting with a generic sql-account? 
+ If you aren't able to get the user info from the database connection, it's a little more of a pain.  And then you might look at doing the logging within the app, so if you have a process called "CreateOrder" or whatever, you can log to the Order_Audit table or whatever. 
+ Doing it all within the app opens yourself up a little more to changes made from outside of the app, but if you have multiple apps all using the same data and you just wanted to see what changes were made by yours, maybe that's what you wanted... < shrug > 
+ Good luck to you, though! 
+ --Kevin 
+ 
+ You've got a few issues here that don't relate well to each other. 
+ At the basic database level you can track changes by having a separate table that gets an entry added to it via triggers on INSERT/UPDATE/DELETE statements. Thats the general way of tracking changes to a database table. 
+ The other thing you want is to know which  user  made the change. Generally your triggers wouldn't know this. I'm assuming that if you want to know which user changed a piece of data then its possible that multiple users could change the same data. 
+ There is no right way to do this, you'll probably want to have a separate table that your application code will insert a record into whenever a user updates some data in the other table, including user, timestamp and id of the changed record. 
+ Make sure to use a transaction so you don't end up with cases where update gets done without the insert, or if you do the opposite order you don't end up with insert without the update. 
+ 
+ In researching this same question, I found a discussion  here  very useful. It suggests having a parallel table set for tracking changes, where each change-tracking table has the same columns as what it's tracking, plus columns for who changed it, when, and if it's been deleted. (It should be possible to generate the schema for this more-or-less automatically by using a regexed-up version of your pre-existing scripts.)  
+ 
+ Suppose I have a Person Table with 10 columns which include PersonSid and UpdateDate. Now, I want to keep track of any updates in Person Table.
+Here is the simple technique I used: 
+ 
+ Create a person_log table 
+ create table person_log(date datetime2, sid int); 
+ Create a trigger on Person table that will insert a row into person_log table whenever Person table gets updated: 
+ create trigger tr on dbo.Person 
+for update 
+as 
+insert into person_log(date, sid) select updatedDTTM, PersonSID from inserted 
+ 
+ After any updates, query person_log table and you will be able to see personSid that got updated.
+Same you can do for Insert, delete. 
+ Above example is for SQL, let me know in case of any queries or use this link :
+ http://www.4guysfromrolla.com/webtech/042507-1.shtml   
+ 
+ A trace log in a separate table (with an ID column, possibly with timestamps)?  
+ Are you going to want to undo the changes as well - perhaps pre-create the undo statement (a DELETE for every INSERT, an (un-) UPDATE for every normal UPDATE) and save that in the trace?  
+ 
+ Let's try with this open source component: 
+ https://tabledependency.codeplex.com/ 
+ TableDependency is a generic C# component used to receive notifications when the content of a specified database table change.  
+ 
+ If all changes from php. You may use  class  to log evry INSERT/UPDATE/DELETE before query. It will be save  **action**
+,  **table**
+,  **column**
+,  **newValue**
+,  **oldValue**
+,  **date**
+,  **system**
+(if need),  **ip**
+,  **UserAgent**
+,  **clumnReference**
+,  **operatorReference**
+,  **valueReference**
+. All tables/columns/actions that need to log are configurable.  
+ 

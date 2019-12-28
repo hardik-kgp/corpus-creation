@@ -1,0 +1,146 @@
+*** solutions-for-insert-or-update-on-sql-server ***
+
+ Assume a table structure of  . 
+ Often I want to either update an existing record, or insert a new record if it doesn't exist. 
+ Essentially: 
+ 
+ What's the best performing way to write this? 
+ 
+ don't forget about transactions. Performance is good, but simple (IF EXISTS..) approach is very dangerous. 
+When multiple threads will try to perform Insert-or-update you can easily 
+get primary key violation. 
+ Solutions provided by @Beau Crawford & @Esteban show general idea but error-prone. 
+ To avoid deadlocks and PK violations you can use something like this:   
+ 
+ or 
+ 
+ 
+ See my  detailed answer to a very similar previous question 
+ @Beau Crawford's  is a good way in SQL 2005 and below, though if you're granting rep it should go to the  first guy to SO it . The only problem is that for inserts it's still two IO operations. 
+ MS Sql2008 introduces   from the SQL:2003 standard: 
+ 
+ Now it's really just one IO operation, but awful code :-( 
+ 
+ Do an UPSERT: 
+ 
+UPDATE MyTable SET FieldA=@FieldA WHERE Key=@Key
+
+IF @@ROWCOUNT = 0
+   INSERT INTO MyTable (FieldA) VALUES (@FieldA)
+ 
+ http://en.wikipedia.org/wiki/Upsert 
+ 
+ Many people will suggest you use  , but I caution you against it. By default, it doesn't protect you from concurrency and race conditions any more than multiple statements, but it does introduce other dangers: 
+ http://www.mssqltips.com/sqlservertip/3074/use-caution-with-sql-servers-merge-statement/ 
+ Even with this "simpler" syntax available, I still prefer this approach (error handling omitted for brevity): 
+ 
+ A lot of folks will suggest this way: 
+ 
+ But all this accomplishes is ensuring you may need to read the table twice to locate the row(s) to be updated. In the first sample, you will only ever need to locate the row(s) once. (In both cases, if no rows are found from the initial read, an insert occurs.) 
+ Others will suggest this way: 
+ 
+ However, this is problematic if for no other reason than letting SQL Server catch exceptions that you could have prevented in the first place is much more expensive, except in the rare scenario where almost every insert fails. I prove as much here: 
+ 
+ http://www.mssqltips.com/sqlservertip/2632/checking-for-potential-constraint-violations-before-entering-sql-server-try-and-catch-logic/ 
+ http://www.sqlperformance.com/2012/08/t-sql-queries/error-handling 
+ 
+ 
+ 
+ **Edit:**
+  
+ Alas, even to my own detriment, I must admit the solutions that do this without a select seem to be better since they accomplish the task with one less step. 
+ 
+ If you want to UPSERT more than one record at a time you can use the ANSI SQL:2003 DML statement MERGE. 
+ 
+ Check out  Mimicking MERGE Statement in SQL Server 2005 . 
+ 
+ Although its pretty late to comment on this I want to add a more complete example using MERGE. 
+ Such Insert+Update statements are usually called "Upsert" statements and can be implemented using MERGE in SQL Server. 
+ A very good example is given here:
+ http://weblogs.sqlteam.com/dang/archive/2009/01/31/UPSERT-Race-Condition-With-MERGE.aspx 
+ The above explains locking and concurrency scenarios as well. 
+ I will be quoting the same for reference: 
+ 
+ 
+ 
+ Replace table and field names by whatever you need.
+Take care of the  using ON  condition.
+Then set the appropriate value (and type) for the variables on the DECLARE line. 
+ Cheers. 
+ 
+ You can use   Statement, This statement is used to insert data if not exist or update if does exist. 
+ 
+ 
+ If going the UPDATE if-no-rows-updated then INSERT route, consider doing the INSERT first to prevent a race condition (assuming no intervening DELETE) 
+ 
+ Apart from avoiding a race condition, if in most cases the record will already exist then this will cause the INSERT to fail, wasting CPU. 
+ Using MERGE probably preferable for SQL2008 onwards.   
+ 
+ That depends on the usage pattern. One has to look at the usage big picture without getting lost in the details. For example, if the usage pattern is 99% updates after the record has been created, then the 'UPSERT' is the best solution. 
+ After the first insert (hit), it will be all single statement updates, no ifs or buts. The 'where' condition on the insert is necessary otherwise it will insert duplicates, and you don't want to deal with locking. 
+ 
+ 
+ MS SQL Server 2008 introduces the MERGE statement, which I believe is part of the SQL:2003 standard.  As many have shown it is not a big deal to handle one row cases, but when dealing with large datasets, one needs a cursor, with all the performance problems that come along.  The MERGE statement will be much welcomed addition when dealing with large datasets. 
+ 
+ In SQL Server 2008 you can use the MERGE statement 
+ 
+ Before everyone jumps to HOLDLOCK-s out of fear from these nafarious users running your sprocs directly :-) let me point out that  **you have to guarantee uniqueness of new PK-s by design**
+ (identity keys, sequence generators in Oracle, unique indexes for external ID-s, queries covered by indexes). That's the alpha and omega of the issue. If you don't have that, no HOLDLOCK-s of the universe are going to save you and if you do have that then you don't need anything beyond UPDLOCK on the first select (or to use update first). 
+ Sprocs normally run under very controlled conditions and with the assumption of a trusted caller (mid tier). Meaning that if a simple upsert pattern (update+insert or merge) ever sees duplicate PK that means a bug in your mid-tier or table design and it's good that SQL will yell a fault in such case and reject the record. Placing a HOLDLOCK in this case equals eating exceptions and taking in potentially faulty data, besides reducing your perf. 
+ Having said that, Using MERGE, or UPDATE then INSERT is easier on your server and less error prone since you don't have to remember to add (UPDLOCK) to first select. Also, if you are doing inserts/updates in small batches you need to know your data in order to decide whether a transaction is appropriate or not. It it's just a collection of unrelated records then additional "enveloping" transaction will be detrimental. 
+ 
+ Does the race conditions really matter if you first try an update followed by an insert? 
+Lets say you have two threads that want to set a value for key  **key**
+: 
+ Thread 1: value = 1 
+Thread 2: value = 2   
+ Example race condition scenario 
+ 
+ **key**
+ is not defined 
+ Thread 1 fails with update 
+ Thread 2 fails with update 
+ Exactly one of thread 1 or thread 2 succeeds with insert. E.g. thread 1 
+ The other thread fails with insert (with error duplicate key) - thread 2. 
+ 
+ Result: The "first" of the two treads to insert, decides value. 
+ Wanted result: The last of the 2 threads to write data (update or insert) should decide value 
+ 
+ 
+ But; in a multithreaded environment, the OS scheduler decides on the order of the thread execution - in the above scenario, where we have this race condition, it was the OS that decided on the sequence of execution. Ie: It is wrong to say that "thread 1" or "thread 2" was "first" from a system viewpoint. 
+ When the time of execution is so close for thread 1 and thread 2, the outcome of the race condition doesn't matter. The only requirement should be that one of the threads should define the resulting value. 
+ For the implementation: If update followed by insert results in error "duplicate key", this should be treated as success.  
+ Also, one should of course never assume that value in the database is the same as the value you wrote last. 
+ 
+ I had tried below solution and it works for me, when concurrent request for insert statement occurs. 
+ 
+ 
+ You can use this query. Work in all SQL Server editions. It's simple, and clear. But you need use 2 queries. You can use if you can't use MERGE 
+ 
+ NOTE: Please explain answer negatives 
+ 
+ If you use ADO.NET, the DataAdapter handles this. 
+ If you want to handle it yourself, this is the way: 
+ Make sure there is a primary key constraint on your key column. 
+ Then you: 
+ 
+ Do the update 
+ If the update fails because a record with the key already exists, do the insert. If the update does not fail, you are finished. 
+ 
+ You can also do it the other way round, i.e. do the insert first, and do the update if the insert fails. Normally the first way is better, because updates are done more often than inserts. 
+ 
+ Doing an if exists ... else ... involves doing two requests minimum (one to check, one to take action). The following approach requires only one where the record exists, two if an insert is required: 
+ 
+ 
+ I usually do what several of the other posters have said with regard to checking for it existing first and then doing whatever the correct path is.  One thing you should remember when doing this is that the execution plan cached by sql could be nonoptimal for one path or the other.  I believe the best way to do this is to call two different stored procedures. 
+ 
+FirstSP:
+If Exists
+   Call SecondSP (UpdateProc)
+Else
+   Call ThirdSP (InsertProc)
+ 
+ Now, I don't follow my own advice very often, so take it with a grain of salt. 
+ 
+ Do a select, if you get a result, update it, if not, create it. 
+ 

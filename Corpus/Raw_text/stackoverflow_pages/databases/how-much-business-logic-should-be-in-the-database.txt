@@ -1,0 +1,63 @@
+*** how-much-business-logic-should-be-in-the-database ***
+
+ I'm developing a multi-user application which uses a (postgresql-)database to store its data. I wonder how much logic I should shift into the database?  
+ e.g. When a user is going to save some data he just entered. Should the application just send the data to the database and the database decides if the data is valid? Or should the application be the smart part in the line and check if the data is OK? 
+ In the last (commercial) project I worked on, the database was very dump. No constraits, no views etc, everything was ruled by the application. I think that's very bad, because every time a certain table was accesed in the code, there was the same code to check if the access is valid repeated over and over again. 
+ By shifting the logic into the database (with functions, trigers and constraints), I think we can save a lot of code in the application (and a lot of potential errors). But I'm afraid of putting to much of the business-logic into the database will be a boomerang and someday it will be impossible to maintain. 
+ Are there some real-life-approved guidelines to follow? 
+ 
+ If you don't need massive distributed scalability (think companies with as much traffic as Amazon or Facebook etc.) then the relational database model is probably going to be sufficient for your performance needs. In which case, using a relational model with primary keys, foreign keys, constraints plus transactions makes it much easier to maintain data integrity, and reduces the amount of reconciliation that needs to be done (and trust me, as soon as you stop using any of these things, you will need reconciliation -- even with them you likely will due to bugs). 
+ However, most validation code is much easier to write in languages like C#, Java, Python etc. than it is in languages like SQL because that's the type of thing they're designed for. This includes things like validating the formats of strings, dependencies between fields, etc. So I'd tend to do that in 'normal' code rather than the database. 
+ Which means that the pragmatic solution (and certainly the one we use) is to write the code where it makes sense. Let the database handle data integrity because that's what it's good at, and let the 'normal' code handle data validity because that's what it's good at. You'll find a whole load of cases where this doesn't hold true, and where it makes sense to do things in different places, so just be pragmatic and weigh it up on a case by case basis. 
+ 
+ I find that you need to validate in both the front end (either the GUI client, if you have one, or the server)  and  the database. 
+ The database can easily assert for nulls, foreign key constraints etc. i.e. that the data is the right shape and linked up correctly. Transactions will enforce atomic writes of this. It's the database's responsibility to contain/return data in the right  shape . 
+ The server can perform more complex validations (e.g. does this look like an email, does this look like a postcode etc.) and then re-structure the input for insertion into the database (e.g. normalise it and create the appropriate entities for insertion into the tables). 
+ Where you put the emphasis on validation depends to some degree on your application. e.g. it's useful to validate a (say) postcode in a GUI client and immediately provide feedback, but if your database is used by other applications (e.g. an application to bulkload addresses) then your layer surrounding the database needs to validate as well. Sometimes you end up providing validation in two different implementations (e.g. in the above, perhaps a Javascript front-end and a Java DAO backend). I've never found a good strategic solution to this. 
+ 
+ Two cents: if you choose smart, remember not to go in the "too smart" field. The database should not deal with inconsistencies that are inappropriate for its level of understanding of the data. 
+ Example: suppose you want to insert a valid (checked with a confirmation mail) email address in a field. The database could check if the email actually conforms to a given regular expression, but asking the database to check if the email address is valid (e.g. checking if the domain exists, sending the email and handling the response) it's a bit too much.  
+ It's not meant to be a real case example. Just to illustrate you that a smart database has limits in its smartness anyway, and if an unexistent email address gets into it, the data is still not valid, but for the database is fine. As in the OSI model, everything should handle data at its level of understanding. ethernet does not care if it's transporting ICMP, TCP, if they are valid or not.  
+ 
+ Using the common features of relational databases, like primary and foreign key constraints, datatype declarations, etc. is good sense. If you're not going to use them they why bother with a relational db?   
+ That said,  **all**
+ data should be validated for both type and business rules before it hits the db. Type validation is just defensive programming- assume users are out to hack you and then you'll get fewer unpleasant surprises.  Business rules are what your application is all about. If you make them part of the structure of your db they become much more tightly bound to how your app works.  If you put them in the application layer, it's easier to change them if business requirements change. 
+ As a secondary consideration: clients often have less choice about which db they use (postgresql, mysql, Oracle, etc) than which application language they have available.  So if there is a good chance that your application will be installed on many different systems, your best bet is to make sure that your SQL is as standard as possible. This may will mean that constructing language agnostic db features like triggers, etc. will be more trouble than putting that same logic in your application layer. 
+ 
+ It depends on the application :) 
+ For some applications the dumb database is the best. For example Google's applications run on a big dumb database that can't even do joins because the need amazing scalability to be able to serve millions of users. 
+ On the other hand, for some internal enterprise app it can be beneficial to go with very smart database as those are often used in more than just application and therefore you want a single point of control - think of employees database. 
+ That said if your new application is similar to the previous one, I would go with dumb database. In order to eliminate all the manual checks and database access code I would suggest using an  **ORM**
+ library such as  **Hibernate**
+ for Java. It will essentially automate your data access layer but will leave all the logic to your application. 
+ Regarding validation it must be done on all levels. See other answers for more details. 
+ 
+ One other item of consideration is deployment.  We have an application where the deployment of database changes is actually much  easier  for remote installations than the actual code base is.   For this reason, we've put a lot of application code in stored procedures and database functions.   
+ Deployment is not your #1 consideration but it can play an important role in deciding b/t various choices 
+ 
+ This is as much a people question as it is a technology question. If your application is the only application that's ever going to manipulate the data (which is rarely the case, even if you think that's the plan), and you've only got application coders to hand, then by all means keep all the logic in the application. 
+ On the other hand, if you've got DBAs who can handle it, or you know that more than one app will need to have its access validated, then managing data actually in the database makes a lot of sense. 
+ Remember, though, that the best things for the database to be validating are a) the types of the data and b) relational constraints, which anything calling itself an RDBMS should have a handle on anyway. 
+ If you've got any transactions in your application code, it's also worthwhile asking yourself whether they should be pushed to the database as a stored procedure so that it's impossible for them to be incorrectly reimplemented elsewhere. 
+ I do know of shops where the only access allowed to the database is via stored procedures, so the DBAs have full resposibility for both the data storage semantics and access restrictions, and anyone else has to go through their gateways. There are obvious advantages to this, especially if more than one application has to have access to the data. Whether you go quite that far is up to you, but it's a perfectly valid approach. 
+ 
+ While I believe that most data should be validated from the user interface (why send known bad stuff across the network tying up resources?), I also believe it is irresponsible not to put constraints on the database as the user interface is unlikely to be the only way that data ever gets into the database. Data also comes in from imports, other applications, quick script fixes for problems run at the query window, mass updates run (to update all prices by 10% for example).   I want all bad records rejected no matter what their source and the database is the only place where you can be assured that will happen. To skip the database integrity checks because the user interface does it is to guarantee that you will most likely eventually have data integrity issues and then all of your data become meaningless and useless. 
+ 
+ 
+ e.g. When a user is going to save some
+  data he just entered. Should the
+  application just send the data to the
+  database and the database decides if
+  the data is valid? Or should the
+  application be the smart part in the
+  line and check if the data is OK? 
+ 
+ Its better to have the validation in the front end as well as the server side. So if the data is invalid the user will be notified immediately. Otherwise he will have to wait for the DB to respond after a post back. 
+ When security is concerned its better to validate at both the ends. Front end as well as DB. Or how  can the DB trust all the data that is sent by the application ;-) 
+ 
+ Validation should be done on the client-side and server side and once it valid then it should be stored.  
+ The only work that the database should do is any querying logic. So update rows, inserting rows, selects and everything else should be handled by the server side logic since thats where the real meat of the application lives. 
+ Structuring your insert properly will handle any foreign Key constraints. Getting your business logic to call a sproc will insert data in the correct format. I don't really consider this validation but some people might. 
+ 
+ My decision is : never use stored procedure in database. Stored procedure is not portable. 
+ 

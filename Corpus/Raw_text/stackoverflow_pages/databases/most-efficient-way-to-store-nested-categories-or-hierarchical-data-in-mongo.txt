@@ -1,0 +1,35 @@
+*** most-efficient-way-to-store-nested-categories-or-hierarchical-data-in-mongo ***
+
+ We have nested categories for several products (e.g.,  **Sports -> Basketball -> Men's**
+,  **Sports -> Tennis -> Women's**
+ ) and are using Mongo instead of MySQL. 
+ We know how to store nested categories in a SQL database like MySQL, but would appreciate any advice on what to do for Mongo. The operation we need to optimize for is quickly finding all products in one category or subcategory, which could be nested several layers below a root category (e.g., all products in the  **Men's Basketball**
+ category or all products in the  **Women's Tennis**
+ category). 
+ This Mongo doc  suggests one approach, but it says it doesn't work well when operations are needed for subtrees, which we need (since categories can reach multiple levels). 
+ Any suggestions on the best way to efficiently store and search nested categories of arbitrary depth? 
+ 
+ The first thing you want to decide is exactly what kind of tree you will use. 
+ The big thing to consider is your data and access patterns. You have already stated that 90% of all your work will be querying and by the sounds of it (e-commerce) updates will only be run by administrators, most likely rarely. 
+ So you want a schema that gives you the power of querying quickly on child through a path, i.e.: Sports -> Basketball -> Men's, Sports -> Tennis -> Women's, and doesn't really need to truly scale to updates. 
+ As you so rightly pointed out MongoDB does have a good documentation page for this:  https://docs.mongodb.com/manual/applications/data-models-tree-structures/  whereby 10gen actually state different models and schema methods for trees and describes the main ups and downs of them. 
+ The one that should catch the eye if you are looking to query easily is materialised paths:  https://docs.mongodb.com/manual/tutorial/model-tree-structures-with-materialized-paths/ 
+ This is a very interesting method to build up trees since to query on the example you gave above into "Womens" in "Tennis" you could simply do a pre-fixed regex (which can use the index:  http://docs.mongodb.org/manual/reference/operator/regex/  ) like so: 
+ 
+ to find all products listed under a certain path of your tree. 
+ Unfortunately this model is really bad at updating, if you move a category or change its name you have to update all products and there could be thousands of products under one category. 
+ A better method would be to house a   on the product and then separate the categories into a separate collection with the schema: 
+ 
+ So now your queries only involve the categories collection which should make them much smaller and more performant. The exception to this is when you delete a category, the products will still need touching. 
+ So an example of changing "Tennis" to "Badmin": 
+ 
+ Unfortunately MongoDB provides no in-query document reflection at the moment so you do have to pull them out client side which is a little annoying, however hopefully it shouldn't result in too many categories being brought back. 
+ And this is basically how it works really. It is a bit of a pain to update but the power of being able to query instantly on any path using an index is more fitting for your scenario I believe. 
+ Of course the added benefit is that this schema is compatible with nested set models:  http://en.wikipedia.org/wiki/Nested_set_model  which I have found time and time again are just awesome for e-commerce sites, for example, Tennis might be under both "Sports" and "Leisure" and you want multiple paths depending on where the user came from. 
+ The schema for materialised paths easily supports this by just adding another  , that simple. 
+ Hope it makes sense, quite a long one there. 
+ 
+ If all categories are distinct then think of them as tags. The hierarchy isn't necessary to encode in the items because you don't need them when you query for items. The hierarchy is a presentational thing. Tag each item with all the categories in it's path, so "Sport > Baseball > Shoes" could be saved as  . If you want all items in the "Sport" category, search for  , if you want just the shoes, search for  . 
+ This doesn't capture the hierarchy, but if you think about it that doesn't matter. If the categories are distinct, the hierarchy doesn't help you when you query for items. There will be no other "baseball", so when you search for that you will only get things below the "baseball" level in the hierarchy. 
+ My suggestion relies on categories being distinct, and I guess they aren't in your current model. However, there's no reason why you can't make them distinct. You've probably chosen to use the strings you display on the page as category names in the database. If you instead use symbolic names like "sport" or "womens_shoes" and use a lookup table to find the string to display on the page (this will also save you hours of work if the name of a category ever changes -- and it will make translating the site easier, if you would ever need to do that) you can easily make sure that they are distinct because they don't have anything to do with what is displayed on the page. So if you have two "Shoes" in the hierarchy (for example "Tennis > Women's > Shoes" and "Tennis > Men's > Shoes") you can just add a qualifier to make them distinct (for example "womens_shoes" and "mens_shoes", or "tennis_womens_shoes") The symbolic names are arbitrary and can be anything, you could even use numbers and just use the next number in the sequence every time you add a category. 
+ 

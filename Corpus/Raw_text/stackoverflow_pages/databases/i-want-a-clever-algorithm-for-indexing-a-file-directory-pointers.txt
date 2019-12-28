@@ -1,0 +1,80 @@
+*** i-want-a-clever-algorithm-for-indexing-a-file-directory-pointers ***
+
+ I have a directory of music on Ubuntu (.mp3, .wav, etc) files. This directory can have as many sub directories as it needs, no limits. I want to be able to make a music library out of it - that is, return list of songs based on filters of: 
+ 1) membership to playlist
+2) artist name
+3) string search
+4) name of song
+etc, etc 
+ However, if file names are changed, moved, or even added to my Music directory, I need to be able to reflect this is in my music organization engine - quickly!  
+ I originally thought to just monitor my directory with pyinotify, incron, or inotify. Unfortunately my directory is a Samba share and so monitoring file events  failed . So my next guess was to simply recursively search the directory in python, and populate a SQL database. Then when updating, I would just look to see if anything has changed (scanning each subfolder to see if each song's name is in the database already, and if not adding it), and make UPDATEs accordingly. Unfortunately, this seems to be a terrible   implementation - awful for a multi-terabyte music collection.  
+ A slightly better one might involve creating a tree structure in SQL, thus narrowing the possible candidates to search for a match at any given subfolder step to the size of that subfolder. Still seems inelegant.  
+ What design paradigms/packages can I use to help myself out? Obviously will involve lots of clever hash tables. I'm just looking for some pointers in the right direction for how to approach the problem. (Also I'm a complete junkie for optimization.) 
+ 
+ The hard part of this is the scanning of the directory, just because it can be expensive. 
+ But that's a cruel reality since you can't use inotify et al. 
+ In your database, simply create a node type record: 
+ 
+ That's your node structure. 
+ You can use the full path column to quickly find anything by the absolute path. 
+ When a file moves, simply recalculate the path. 
+ Finally, scan you music files. In unix, you can do something like: 
+ find . -type f | sort > sortedListOfFiles 
+ Next, simply suck all of the path names out of the database. 
+ select fullPathName from node where nodeType != 'd' order by fullPathName 
+ Now you have two sorted list of files. 
+ Run them through DIFF (or comm), and you'll have a list of deleted and new files. You won't have a list of "moved" files. If you want to do some heuristic where you compare new and old files and they have the same endings (i.e. ..../album/song) to try and detect "moves" vs new and old, then fine, no big deal. Worth a shot. 
+ But diff will give you your differential in a heartbeat. 
+ If you have zillions of files, then, sorry, this it going to take some time -- but you already know that when you lose the inotify capability. If you had that it would just be incremental maintenance. 
+ When a file moves, it's trivial to find its new absolute path, because you can ask its parent for its path and simply append your name to it. After that, you're not crawling a tree or anything, unless you want to. Works both ways. 
+ Addenda: 
+ If you want to track actual name changes, you can get a little more information. 
+ You can do this: 
+ 
+ The -print0 and -0 are used to work with files with spaces in them. Quotes in the file names will wreck this however. You might be better off running the raw list through python and fstat to get the inode. Different things you can do here. 
+ What this does is rather than just having names, you also get the inode of the file. The inode is the "real" file, a directory links names to inodes. This is how you can have multiple names (hard links) in a unix file system to a single file, all of the names point to the same inode. 
+ When a file is renamed, the inode will remain the same. In unix, there's a single command used for renaming, and moving files, mv. When mv renames or moves the file, the inode stays the same AS LONG AS THE FILE IS ON THE SAME FILE SYSTEM. 
+ So, using the inode as well as the file name will let you capture some more interesting information, like file moves. 
+ It won't help if they delete the file and add a new file. But you WILL (likely) be able to tell that it happened, since it is unlikely that an old inode will be reused for the new inode. 
+ So if you have a list of files (sorted by file name): 
+ 
+ and someone removes and adds back song 2, you'll have something like 
+ 
+ But if you do this: 
+ 
+ You'll get: 
+ 
+ The other caveat is that if you lose the drive and restore it from backup, likely all of the inodes will change, forcing effectively a rebuild of your index. 
+ If you're real adventurous you can try playing with extended file system attributes and assign other interesting meta data to files. Haven't done much with that, but it's got possibilities as well, and there are likely unseen dangers, but... 
+ 
+ my   program reads an extended sha1sum.txt format file produced by the  digup  program. this lets me locate a file based on its sha1sum. the digup program stores the mtime size hash and pathname in its output. by default it skips hashing a file if the mtime and size match. the index produced by my aggregate_digup is used by my modifed version of the open uri context menu gedit plugin allowing one to option click on   and it'll list the copies of the file it knows about so you can pick one and open it. 
+ how this relates to the problem is that there are two parts: one the playlists and two the files. 
+ if we can assume that nothing the player does changes the files, then the hash and sizes of the files are constant. so we should be able to use the size and hash of a file as a unique identifier. 
+ for example the key for the file mentioned:  
+ i've found that in practice this has no collisions in any natural collection. 
+ (this does mean that the ID3 metadata which is appended or prepended to the mp3 data can't change unless you choose to skip that metadata while hashing) 
+ so the playlist database would be something this: 
+ 
+ to update the files table: 
+ 
+ 
+ The reality is, this is a  **hard**
+ problem. You're starting from a disadvantage as well: Python and mySQL aren't the fastest tools to use for this purpose. 
+ Even iTunes is complained about because of the time it takes to import libraries and index new files. Can you imagine the man hours that went into making iTunes as good as it is? 
+ Your best bet is to look at the code of major open source music players such as  
+ 
+ Miro,  http://www.getmiro.com/ , 
+ Banshee,  http://banshee.fm/ , and 
+ Songbird,  http://getsongbird.com/ 
+ 
+ And try an adapt their algorithms to your purpose and to Python idioms. 
+ 
+ 
+ your other code here that initially sets up a dictonary containing which files you already have in your library (I called the dictionary archived_music) 
+ 
+ You can use this code as a little function or whatever and call it on whatever time resolution you would like.  It will use the find command and find every newly created file within the last day.  It will then check whether it is of type music_type, if it is it will check the filename against whatever current database you have set up and you can continue processing from there.  This should be able to get your started for updating newly added music or whatnot. 
+ 
+ I've done something similar in the past, but ended up utilizing Amarok w/ MySQL. Amarok will create a mysql database for you and index all your files quite nicely - after that interfacing with the database should be relatively straightforward from python.  
+ It was quite a time saver for me :) 
+ HTH 
+ 

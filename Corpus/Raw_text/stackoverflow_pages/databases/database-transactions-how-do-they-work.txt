@@ -1,0 +1,160 @@
+*** database-transactions-how-do-they-work ***
+
+ I'm trying to learn more about database transactions, I found the ACID rule of thumb for writing transactions and thought of a few questions. 
+ 
+ The ACID rule of thumb: 
+ A transaction must be: 
+ 
+ Atomic - it is one unit of work and does not dependent on previous and
+  following transactions. 
+ Consistent - data is either committed or roll back, no
+  “in-between” case where something has
+  been updated and something hasn’t. 
+ Isolated - no transaction sees the intermediate results of the current
+  transaction. 
+ Durable - the values persist if the data had been committed even if
+  the system crashes right after. 
+ 
+ 
+ I was wondering how they work under the hood, so I can better understand the factors that need to be considered when writing such a transaction. I guess the specific details will vary between the database implementations that are avaliable, but certain rules will always be in place. 
+ 
+ How does the database handle concurrent transactions whilst still supporting the Atomic rule?
+
+ 
+ Is there a queue of transactions that is processed in order? 
+ How is a lengthy transaction that is holding up all others handled? 
+ 
+ Are updates to tables done in memory so if a crash does occur before commit, there is no alteration to the database?
+
+ 
+ Or are there some intermediate tables that are updated to survive such a crash? 
+ 
+ Whilst a transaction is in progress, is all read and write access to the affected tables prevented?
+
+ 
+ Or would the database allow writes but the transaction would overwrite all changes upon commit? 
+ 
+ 
+ 
+ 
+ There are many different ways, including transaction queueing, optimistic concurrency control etc. This is actually a very complex question, there are books written about it: 
+ http://www.amazon.co.uk/Databases-Transaction-Processing-Application-Oriented-Approach/dp/0201708728/ref=sr_1_3?ie=UTF8&s=books&qid=1281609705&sr=8-3 
+ It depends on the level of logging in the database. If strict write-ahead logs are kept then in the case of a system crash, the database can be wound back to a consistent state. 
+ It depends on the type of concurrency. Optimistic concurrency involves no locks, but if the state of the db has changed once the transaction has finished, it is abandoned and restarted. This can speed up dbs where collisions are rare. There are also different levels of locking: row,table, or even the entire db. 
+ 
+ These are very complex questions, I'd advise buying a book, or attending a concurrent systems lecture series if you want to be able to fully answer them :-) 
+ 
+ A few nitpickings on your definitions: 
+ 
+ Atomic - it is one unit of work and does not dependent on previous and following transactions. 
+ 
+ A more correct definition of atomicity would not mention any "previous or following" transactions.  Atomicity is a property of a single transaction taken by itself, namely that in the final countdown, either all of its actions persist, or none at all.  In other words, it shall not be the case that "only half a transaction" is allowed to persist. 
+ The concept is, however, blurred by concepts such as nested transactions, savepoints, and the ability for the user to request explicit rollbacks up to a taken savepoint.  These do allow, in a certain sense, that "only half the actions of a transaction" persist, allbeit at the explicit user's request. 
+ 
+ Consistent - data is either committed or roll back, no “in-between” case where something has been updated and something hasn’t. 
+ 
+ This interpretation is totally wrong.  Consistent means that the transaction processor (in this case, a DBMS engine) cannot leave the system (the database) in a state of violation of any declared constraint that it (the transaction processor) is aware of.  See, for example, "Introduction to database systems", Chpt 16. 
+ 
+ Isolated - no transaction sees the intermediate results of the current transaction. 
+ 
+ Nitpicking : no transaction  other than the current  is allowed to see intermediate states (states, not really results).  Note furtermore that the "Isolation levels" of transaction processing engines typically define the degree to which the I property can be violated ! 
+ 
+ Durable - the values persist if the data had been committed even if the system crashes right after. 
+ 
+ But this property too is blurred a bit by the possibility of nested transactions.  Even if an inner transaction has committed and completed, the containing transaction can still undo that commit by itself rolling back completely. 
+ 
+ The actual details would probably depend somewhat on which DB server it is, but this article might be of interest to you:  Transaction Processing Cheat Sheet   
+ 
+ In terms of implementation, there are unbalanced efforts to guarantee each of  **ACID**
+ properties. I can summarize it in my simplified thoughts: 
+ 
+ **A**
+tomicity eventually relies on locking or other atomic operations to swap data modified within transaction (created in  **I**
+solation) with original data in shared view. 
+ 
+ How does the database handle concurrent transactions whilst still supporting the Atomic rule? 
+ 
+ See  **I**
+solation. 
+ **C**
+oncistency relies on more fundamental  **A**
+tomicity and  **I**
+solation properties and extends more into application layer rather than intrinsically belongs to database service. 
+ Ensuring rules (when  **A**
+tomicity and  **I**
+solation is in place) is rather straightforward by executing them on the modified data. 
+ This may spark philosophical debates. But in my opinion, in its non-trivial cases, verification of all conditions across related data before it is finally committed can be implemented in application logic entirely or in application-specific procedures in database layer which does not make them database-specific. The bare minimum what database service must ensure is to be able to read previously written data without errors. 
+ 
+ Are updates to tables done in memory so if a crash does occur before commit, there is no alteration to the database? 
+ 
+ See  **I**
+solation. 
+ Note that  **C**
+onsistency in  **ACID**
+ is purely logical, static and has no data propagation-related levels or grades suggested later by  **CAP theorem**
+. 
+ **I**
+solation is universally achieved by modifying copies of original data first (before committing changes to shared view). 
+ 
+ Whilst a transaction is in progress, is all read and write access to the affected tables prevented? 
+ 
+ Generally, if only copy of data is modified in one transaction, others trivially won't see these changes. However, isolation levels may be different. 
+ It's the only  **ACID**
+ property which is allowed to have some levels and degrees without being simply black and white. 
+ Ultimately,  **I**
+solation is the deepest in its implementation and possible trade-offs among all  **ACID**
+ properties. And  **going in details**
+ about this property is the first most important topic about what database service guarantees (even in context of  **CAP theorem**
+ where tradeoffs again evolve around consistency of isolated views on distributed data). 
+ **D**
+urability is actually rather an  **SLA**
+. 
+ What kind of durability ("written to corruptible disk" or "redundantly distributed across RAM of plutonium powered servers") is usually negotiated outside of normal transaction logic. 
+ Implementation is also rather trivial and boils down to confirmation of successful transaction only after all possible buffers are flushed. 
+ 
+ Two implementation aspects crucial for performance (which  **ACID**
+ does not explicitly care about): 
+ 
+ **Conflict detection**
+
+ There should be a way to (efficiently) detect conflicting changes done concurrently in another transaction. 
+ One extreme point is to lock everything which requires no conflict detection (no possible concurrency). 
+ Another extreme point is optimistic concurrency (at least partially). Then there is a need to know whether there were concurrent changes at all. This may be implemented via running counters (version numbers) or checksums per various objects in database. Then, this becomes tightly related to implementation of  **I**
+solation. 
+ **Rollback procedure**
+
+ This requires maintaining data structures of original values and their modified copies (transaction logs) to undo changes. Again, this is very much related how  **I**
+solation is implemented. 
+ 
+ Some additional short info: 
+ 
+ **concise explanation**
+ of transaction implementation in databases. 
+ **answer**
+ to avoid dealing with non-transactional resources in transactions. 
+ **answer**
+ how implement rollback-able methods within application. 
+ 
+ 
+ 
+ Consistent - data is either committed
+  or roll back, no “in-between” case
+  where something has been updated and
+  something hasn’t. 
+ 
+ I disagree with Erwin Smout's view of what Consistent means - your interpretation is closer to the money. By my interpretation of  Ramakrishnan and Gehrke , a  **consistent state**
+ goes beyond the declared constraints of the system.  
+ In the case of transferring money between two accounts by debiting one account and crediting another, the system could be in several states: 
+ 
+ Both accounts hold their initial balances; 
+ Amount is deducted from one account balance but not added to other; 
+ Amount is added from to one account balance but not deducted from other; 
+ Both accounts hold their final balances. 
+ 
+ In all four states the integrity constraints of the system can hold. But the second and third do not match a reasonable view of the system - the money  should be somewhere . So these are not consistent states, while the initial and final states are consistent. 
+ Transactions don't automatically make a system consistent - they enable a user to write them to be so. A badly written transaction could have a bug that forgot to credit the second account. The transaction would run fine and integrity constraints would hold.  
+ But a correctly written procedure takes the system from a consistent state, makes some changes that are temporarily inconsistent (e.g., money not in either account), and then brings the system back to a consistent state. By placing these steps in a transaction you are guaranteed that the system either reaches the final consistent state (when it commits) or returns to its initial consistent state (if it rolls back). Either way, consistency is retained. 
+ 
+ "What is the verdict on nested transactions" 
+ There is no verdict.  Nested transactions exist.  ACID properties exist.  They're forced to co-exist.  There are no absolutes.  Certainly not to ACID. 
+ 

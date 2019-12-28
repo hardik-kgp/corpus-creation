@@ -1,0 +1,123 @@
+*** primary-key-or-unique-index ***
+
+ At work we have a big database with unique indexes instead of primary keys and all works fine. 
+ I'm designing new database for a new project and I have a dilemma: 
+ In DB theory, primary key is fundamental element, that's OK, but in REAL projects what are advantages and disadvantages of both? 
+ What do you use in projects? 
+ **EDIT:**
+ ...and what about primary keys and replication on MS SQL server? 
+ 
+ **What is a unique index?**
+
+ A unique index on a column is an index on that column that also enforces the constraint that you cannot have two equal values in that column in two different rows. Example: 
+ 
+CREATE TABLE table1 (foo int, bar int);
+CREATE UNIQUE INDEX ux_table1_foo ON table1(foo);  -- Create unique index on foo.
+
+INSERT INTO table1 (foo, bar) VALUES (1, 2); -- OK
+INSERT INTO table1 (foo, bar) VALUES (2, 2); -- OK
+INSERT INTO table1 (foo, bar) VALUES (3, 1); -- OK
+INSERT INTO table1 (foo, bar) VALUES (1, 4); -- Fails!
+
+Duplicate entry '1' for key 'ux_table1_foo'
+ 
+ The last insert fails because it violates the unique index on column   when it tries to insert the value 1 into this column for a second time. 
+ In MySQL a unique constraint allows multiple NULLs. 
+ It is possible to make a unique index on mutiple columns. 
+ **Primary key versus unique index**
+
+ Things that are the same: 
+ 
+ A primary key implies a unique index. 
+ 
+ Things that are different: 
+ 
+ A primary key also implies NOT NULL, but a unique index can be nullable. 
+ There can be only one primary key, but there can be multiple unique indexes. 
+ If there is no clustered index defined then the primary key will be the clustered index. 
+ 
+ 
+ You can see it like this: 
+ **A Primary Key IS Unique**
+
+ **A Unique value doesn't have to be the Representaion of the Element**
+
+ Meaning?; Well a primary key is used to identify the element, if you have a "Person" you would like to have a Personal Identification Number ( SSN or such ) which is Primary to your Person. 
+ On the other hand, the person might have an e-mail which is unique, but doensn't identify the person. 
+ I always have Primary Keys, even in relationship tables ( the mid-table / connection table ) I might have them. Why? Well I like to follow a standard when coding, if the "Person" has an identifier, the Car has an identifier, well, then the Person -> Car should have an identifier as well! 
+ 
+ Foreign keys work with unique constraints as well as primary keys. From Books Online: 
+ 
+ A FOREIGN KEY constraint does not have
+  to be linked only to a PRIMARY KEY
+  constraint in another table; it can
+  also be defined to reference the
+  columns of a UNIQUE constraint in
+  another table 
+ 
+ For transactional replication, you need the primary key. From Books Online: 
+ 
+ Tables published for transactional
+  replication must have a primary key.
+  If a table is in a transactional
+  replication publication, you cannot
+  disable any indexes that are
+  associated with primary key columns.
+  These indexes are required by
+  replication. To disable an index, you
+  must first drop the table from the
+  publication. 
+ 
+ Both answers are for SQL Server 2005. 
+ 
+ The choice of when to use a surrogate primary key as opposed to a natural key is tricky.  Answers such as, always or never, are rarely useful.  I find that it depends on the situation. 
+ As an example, I have the following tables: 
+ 
+ We have two entity tables (  and  ) and a transaction table ( ).  The   table uses a surrogate key because it has no natural attribute that is not guaranteed to change (the name can easily be changed).  The   table uses a natural primary key because it has a non-changing unique identifier ( ).  The   transaction table uses a surrogate key for easy identification, but also has a unique constraint on the attributes that are guaranteed to be unique at the time the record is inserted. 
+ http://database-programmer.blogspot.com  has some great articles on this particular subject. 
+ 
+ There are no disadvantages of primary keys. 
+ To add just some information to @MrWiggles and @Peter Parker answers, when table doesn't have primary key for example you won't be able to edit data in some applications (they will end up saying sth like cannot edit / delete data without primary key). Postgresql allows multiple NULL values to be in UNIQUE column, PRIMARY KEY doesn't allow NULLs. Also some ORM that generate code may have some problems with tables without primary keys. 
+ UPDATE: 
+ As far as I know it is not possible to replicate tables without primary keys in MSSQL, at least without problems ( details ). 
+ 
+ If something is a primary key, depending on your DB engine, the entire table gets sorted by the primary key. This means that lookups are much faster on the primary key because it doesn't have to do any dereferencing as it has to do with any other kind of index. Besides that, it's just theory. 
+ 
+ In addition to what the other answers have said, some databases and systems may  require  a primary to be present.  One situation comes to mind; when using enterprise replication with Informix a PK must be present for a table to participate in replication. 
+ 
+ As long as you do not allow NULL for a value, they should be handled the same, but the value NULL is handled differently on databases(AFAIK MS-SQL do not allow more than one(1) NULL value, mySQL and Oracle allow this, if a column is UNIQUE)
+So you  **must**
+ define this column NOT NULL UNIQUE INDEX 
+ 
+ There is no such thing as a primary key in relational data theory, so your question has to be answered on the practical level. 
+ Unique indexes are not part of the SQL standard.  The particular implementation of a DBMS will determine what are the consequences of declaring a unique index.   
+ In Oracle, declaring a primary key will result in a unique index being created on your behalf, so the question is almost moot.  I can't tell you about other DBMS products.   
+ I favor declaring a primary key.  This has the effect of forbidding NULLs in the key column(s) as well as forbidding duplicates.  I also favor declaring REFERENCES constraints to enforce entity integrity.  In many cases,  declaring an index on the coulmn(s) of a foreign key will speed up joins.  This kind of index should in general not be unique. 
+ 
+ There are some disadvantages of CLUSTERED INDEXES vs UNIQUE INDEXES. 
+ As already stated, a CLUSTERED INDEX physically orders the data in the table.  
+ This mean that when you have a lot if inserts or deletes on a table containing a clustered index,  everytime (well, almost, depending on your fill factor) you change the data, the physical table needs to be updated to stay sorted.  
+ In relative small tables, this is fine, but when getting to tables that have GB's worth of data, and insertrs/deletes affect the sorting, you will run into problems. 
+ 
+ I almost never create a table without a numeric primary key. If there is also a natural key that should be unique, I also put a unique index on it.  Joins are faster on integers than multicolumn natural keys, data only needs to change in one place (natural keys tend to need to be updated which is a bad thing when it is in primary key - foreign key relationships). If you are going to need replication use a GUID instead of an integer, but for the most part I prefer a key that is user readable especially if they need to see it to distinguish between John Smith and John Smith.  
+ The few times I don't create a surrogate key are when I have a joining table that is involved in a many-to-many relationship. In this case I declare both fields as the primary key.  
+ 
+ My understanding is that a primary key and a unique index with a not‑null constraint, are the same (*); and I suppose one choose one or the other depending on what the specification explicitly states or implies (a matter of what you want to express and explicitly enforce). If it requires uniqueness and not‑null, then make it a primary key. If it just happens all parts of a unique index are not‑null without any requirement for that, then just make it a unique index. 
+ The sole remaining difference is, you may have multiple not‑null unique indexes, while you can't have multiple primary keys. 
+ (*) Excepting a practical difference: a primary key can be the default unique key for some operations, like defining a foreign key. Ex. if one define a foreign key referencing a table and does not provide the column name, if the referenced table has a primary key, then the primary key will be the referenced column. Otherwise, the the referenced column will have to be named explicitly. 
+ Others here have mentioned DB replication, but I don't know about it. 
+ 
+ Unique Index can have one NULL value. It creates NON-CLUSTERED INDEX.
+Primary Key cannot contain NULL value. It creates CLUSTERED INDEX. 
+ 
+ In MSSQL, Primary keys should be monotonically increasing for best performance on the clustered index.  Therefore an integer with identity insert is better than any natural key that might not be monotonically increasing.  
+ 
+ If it were up to me... 
+ You need to satisfy the requirements of the database and of your applications. 
+ Adding an auto-incrementing integer or long id column to every table to serve as the primary key takes care of the database requirements. 
+ You would then add at least one other unique index to the table for use by your application.  This would be the index on employee_id, or account_id, or customer_id, etc.  If possible, this index should not be a composite index. 
+ I would favor indices on several fields individually over composite indices.  The database will use the single field indices whenever the where clause includes those fields, but it will only use a composite when you provide the fields in exactly the correct order - meaning it can't use the second field in a composite index unless you provide both the first and second in your where clause. 
+ I am all for using calculated or Function type indices - and would recommend using them over composite indices.  It makes it very easy to use the function index by using the same function in your where clause. 
+ This takes care of your application requirements. 
+ It is highly likely that other non-primary indices are actually mappings of that indexes key value to a primary key value, not rowid()'s.  This allows for physical sorting operations and deletes to occur without having to recreate these indices. 
+ 

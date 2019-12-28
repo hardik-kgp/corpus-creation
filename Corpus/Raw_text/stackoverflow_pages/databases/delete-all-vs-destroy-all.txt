@@ -1,0 +1,34 @@
+*** delete-all-vs-destroy-all ***
+
+ I am looking for the best approach to delete records from a table. For instance, I have a user whose user ID is across many tables. I want to delete this user and every record that has his ID in all tables. 
+ 
+ This works and removes all references of the user from all tables, but I heard that   was very process heavy, so I tried  . It only removes the user from his own user table and the   from all the other tables are made null, but leaves the records intact in them. Can someone share what the correct process is for performing a task like this?  
+ I see that   calls the   function on all associated objects but I just want to confirm the correct approach. 
+ 
+ You are right. If you want to delete the User and all associated objects ->  
+However, if you just want to delete the User without suppressing all associated objects ->  
+ According to this post :  Rails :dependent => :destroy VS :dependent => :delete_all 
+ 
+  /  : The associated objects are destroyed alongside this object by calling their destroy method 
+  /  : All associated objects are destroyed immediately without calling their :destroy method 
+ 
+ 
+ delete_all is a single SQL DELETE statement and nothing more. destroy_all calls destroy() on all matching results of :conditions (if you have one) which could be at least NUM_OF_RESULTS SQL statements.   
+ If you have to do something drastic such as destroy_all() on large dataset, I would probably not do it from the app and handle it manually with care.  If the dataset is small enough, you wouldn't hurt as much.    
+ 
+ To avoid the fact that   instantiates all the records and destroys them one at a time, you can use it directly from the model class. 
+ So instead of : 
+ 
+ You can do : 
+ 
+ The result is one query to destroy all the associated records 
+ 
+ I’ve made a  small gem  that can alleviate the need to manually delete associated records in some circumstances. 
+ 
+ This gem adds a new option for ActiveRecord associations: 
+ dependent: :delete_recursively 
+ When you destroy a record, all records that are associated using this option will be deleted recursively (i.e. across models), without instantiating any of them. 
+ Note that, just like dependent: :delete or dependent: :delete_all, this new option does not trigger the around/before/after_destroy callbacks of the dependent records. 
+ However, it is possible to have dependent: :destroy associations anywhere within a chain of models that are otherwise associated with dependent: :delete_recursively. The :destroy option will work normally anywhere up or down the line, instantiating and destroying all relevant records and thus also triggering their callbacks. 
+ 
+ 

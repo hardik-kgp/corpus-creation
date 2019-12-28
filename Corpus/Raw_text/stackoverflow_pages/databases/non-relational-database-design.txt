@@ -1,0 +1,136 @@
+*** non-relational-database-design ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  4 years ago . 
+ 
+ 
+ 
+ I'm interested in hearing about design strategies you have used with  **non-relational "nosql" databases**
+ - that is, the (mostly new) class of data stores that don't use traditional relational design or SQL (such as Hypertable, CouchDB, SimpleDB, Google App Engine datastore, Voldemort, Cassandra, SQL Data Services, etc.). They're also often referred to as "key/value stores", and at base they act like giant distributed persistent hash tables. 
+ Specifically, I want to learn about the differences in  conceptual data design  with these new databases. What's easier, what's harder, what can't be done at all? 
+ 
+ Have you come up with alternate designs that work much better in the non-relational world? 
+ Have you hit your head against anything that seems impossible?  
+ Have you bridged the gap with any design patterns, e.g. to translate from one to the other?  
+ Do you even do explicit data models at all now (e.g. in UML) or have you chucked them entirely in favor of semi-structured / document-oriented data blobs? 
+ Do you miss any of the major extra services that RDBMSes provide, like relational integrity, arbitrarily complex transaction support, triggers, etc? 
+ 
+ I come from a SQL relational DB background, so normalization is in my blood. That said, I get the advantages of non-relational databases for simplicity and scaling, and my gut tells me that there has to be a richer overlap of design capabilities. What have you done? 
+ FYI, there have been StackOverflow discussions on similar topics here:  
+ 
+ the next generation of databases 
+ changing schemas to work with Google App Engine 
+ choosing a document-oriented database 
+ 
+ 
+ I think you have to consider that the non-relational DBMS differ a lot regarding their data model and therefore the conceptual data design will also differ a lot. In the thread  Data Design in Non-Relational Databases  of the  NOSQL Google group  the different paradigms are categorized like this: 
+ 
+ Bigtable-like systems (HBase,
+Hypertable, etc) 
+ Key-value stores (Tokyo, Voldemort,
+etc) 
+ Document databases (CouchDB,
+MongoDB, etc) 
+ Graph databases (AllegroGraph,
+Neo4j, Sesame, etc) 
+ 
+ I'm mostly into  graph databases , and the elegance of data design using this paradigm was what brought me there, tired of the shortcomings of  RDBMS . I have put a few examples of data design using a graph database on this  wiki page  and there's an  example of how to model  the basic  IMDB  movie/actor/role data too. 
+ The presentation slides (slideshare)  Graph Databases and the Future of Large-Scale Knowledge Management  by  Marko Rodriguez  contains a very nice introduction to data design using a graph database as well. 
+ Answering the specific questions from a graphdb point of view: 
+ Alternate design: adding relationships between many different kinds of entities without any worries or a need to predefine which entities can get connected. 
+ Bridging the gap: I tend to do this different for every case, based on the domain itself, as I don't want a "table-oriented graph" and the like. However,  here's  some information on automatic translation from RDBMS to graphdb. 
+ Explicit data models: I do these all the time (whiteboard style), and then use the model as it is in the DB as well. 
+ Miss from RDBMS world: easy ways to create reports. Update: maybe it's not  that  hard to create reports from a graph database, see  Creating a Report for a Neo4J Sample Database . 
+ 
+ I've only just started with non-relational DBs, and I am still trying to wrap my head around it and figure out what the best model would be. And I can only speak for CouchDB. 
+ Still, I have some preliminary conclusions: 
+ **Have you come up with alternate designs that work much better in the non-relational world?**
+
+ The design focus shifts: The design of the document model (corresponding to DB tables) becomes almost irrelevant, while everything hinges on designing the views (corresponding to queries). 
+ The document DB sort of swaps the complexities: SQL has inflexible data and flexible queries, document DBs are the other way around. 
+ The CouchDB model is a collection of "JSON documents" (basically nested hash tables). Each document has a unique ID, and can be trivially retrieved by ID. For any other query, you write "views", which are named sets of map/reduce functions. The views return a result set as a list of key/value pairs. 
+ The trick is that you don't query the database in the sense you query an SQL database: The results of running the view functions are stored in an index, and only the index can be queried. (As "get everything", "get key" or "get key range".) 
+ The closest analogy in the SQL world would be if you could only query the DB using stored procedures - every query you want to support must be predefined.  
+ The design of the documents is enormously flexible. I have found only two constrains: 
+ 
+ Keep related data together in the same document, since there is nothing corresponding to a join. 
+ Don't make the documents so big that they are updated too frequently (like putting all company sales for the year in the same document), since every document update triggers a re-indexing. 
+ 
+ But everything hinges on designing the views. 
+ The alternate designs I have found that work orders of magnitude better with CouchDB than any SQL database are at the system level rather than the storage level. If you have some data and want to serve them to a web page, the complexity of the total system is reduced by at least 50%: 
+ 
+ no designing DB tables  (minor issue) 
+ no ODBC/JDBC intermediate layer, all queries and transactions over http  (moderate issue) 
+ simple DB-to-object mapping from JSON, which is almost trivial compared to the same in SQL  (important!) 
+ you can potentially skip the entire application server, as you can design your documents to be retrieved directly by the browser using AJAX and add a little bit of JavaScript polishing before they are displayed as HTML.  (HUGE!!) 
+ 
+ For normal webapps, document/JSON-based DBs are a massive win, and the drawbacks of less flexible queries and some extra code for data validation seems a small price to pay. 
+ **Have you hit your head against anything that seems impossible?**
+
+ Not yet. Map/reduce as a means of querying a database is unfamiliar, and requires a lot more thinking than writing SQL. There is a fairly small number of primitives, so getting the results you need is primarily a question of being creative with how you specify the keys.  
+ There is a limitation in that queries cannot look at two or more documents at the same time - no joins or other kinds of multi-document relationships, but nothing so far has been insurmountable.  
+ As an example limitation, counts and sums are easy but averages cannot be calculated by a CouchDB view/query. Fix: Return sum and count separately and compute the average on the client. 
+ **Have you bridged the gap with any design patterns, e.g. to translate from one to the other?**
+
+ I'm not sure that's feasible. It's more of a complete redesign, like translating a functional style program to an object-oriented style. In general, there are far fewer document types than there are SQL tables and more data in each document. 
+ One way to think of it is to look at your SQL for inserts and common queries: Which tables and columns are updated when a customer places an order, for instance? And which ones for monthly sales reports? That info should probably go in the same document.  
+ That is: One document for Order, containing customer ID and product IDs, with replicated fields as necessary to simplify the queries. Anything within a document can be queried easily, anything that requires cross-referencing between say Order and Customer has to be done by the client. So if you want a report on sales by region, you should probably put a region code into the order. 
+ **Do you even do explicit data models at all now (e.g. in UML)?**
+
+ Sorry, never did much UML before document DBs either :)  
+ But you need some sort of model saying which fields belong in which documents and what kinds of values they contain. Both for your own reference later and to make sure that everybod using the DB knows the conventions. Since you no longer get an error if you store a date in a text field, for example, and anyone can add or remove any field they feel like, you need both validation code and conventions to pick up the slack. Especially if you work with external resources. 
+ **Do you miss any of the major extra services that RDBMSes provide?**
+
+ Nope. But my background is web application developer, we deal with databases only to the extent that we must :)  
+ A company I used to work for made a product (a webapp) that was designed to run across SQL databases from multiple vendors, and the "extra services" are so different from DB to DB that they had to be implemented separately for each DB. So it was less work for us to move the functionality out of the RDBMS. This even extended to fulltext search. 
+ So whatever I am giving up is something I never really had in the first place. Obviously, your experience may differ. 
+ 
+ A caveat: What I am working on now is a webapp for financial data, stock quotes and the like. This is a very good match for a document DB, from my point of view I get all the benefits of a DB (persistence and queries) without any of the hassle.  
+ But these data are fairly independent of each other, there are no complex relational queries. Get latest quotes by ticker, get quotes by ticker and date range, get company meta-info, that's pretty much all of it. Another example I saw was a blog application, and blogs are not characterized by massively complicated database schemas either. 
+ What I am trying to say is that all the successful applications of document DBs I know of have been with data that didn't have much interrelations in the first place: Documents (as in Google search), blog posts, news articles, financial data. 
+ I expect that there are datasets that map better to SQL than to the document model, so I imagine SQL will survive.  
+ But for those of us that just want a simple way to store and retrieve data - and I suspect that there are many of us - document databases (as in CouchDB) are a godsend. 
+ 
+ I'm answering this with CouchDB in the back of my mind, but I would presume most would be true for other DBs also. We looked at using CouchDB, but finally decided against it since our data access is not known beforehand and scalability is not the issue. 
+ Harder: 
+ 
+ Takes rethinking on conceptual level so it's 'harder' since it is just different. Since you have to know your data access patterns in advance, no automatic translation can be applied. You would need to add the access pattern at least. 
+ Consistency is not handled by the database but must be dealt with in the application. Less guarantees means easier migration, fail-over and better scalability at the cost of a more complicated application. An application has to deal with conflicts and inconsistencies. 
+ Links which cross documents (or key/value) have to be dealt with on application level also. 
+ SQL type of databases have IDEs which are much more mature. You get a lot of support libraries (although the layering of those libraries make things much more complex than needed for SQL). 
+ 
+ Easier: 
+ 
+ Faster if you know your data access patterns. 
+ Migration / Fail-over is easier for the database since no promises are made to you as an application programmer. Although you get eventual consistency. Probably. Finally. Some time. 
+ One key / value is much easier to understand than one row from a table. All the (tree) relations are already in, and complete objects can be recognized. 
+ 
+ The modeling should be about the same but you have to be careful about what you put in one document: UML can also be used for both OO modeling as well as DB modeling, which are two different beasts already. 
+ I would have liked to see a good open OO database nicely integrated with C# / Silverlight. Just to make the choice even more difficult. :) 
+ 
+ Flat files have long been considered arcane and impractical for a data set of any size. However, faster computers with more memory make it possible to load a file into memory and sort it in real time, at least for reasonably small n and local, single-user applications. 
+ For example, you can usually read a file of 10,000 records AND sort it on a field in less than half a second, an acceptable response time. 
+ Of course, there are reasons to use a database instead of a flat file -- relational operations, data integrity, multiuser capability, remote acccess, larger capacity, standardization, etc., but increased computer speed and memory capacity have made in-memory manipulation of data more practical in some cases. 
+ 
+ The relational databases I see in real life tend to be not very well normalized at all, contrary to your claim. When asked, the designers tell me that is mostly because of performance. RDBMs are not good at joining, so tables tend to be much too wide from a normalization point of view. Object oriented databases tend to be much better at this. 
+ Another point where RDBMs have problems is handling history/time-dependent keys. 
+ 

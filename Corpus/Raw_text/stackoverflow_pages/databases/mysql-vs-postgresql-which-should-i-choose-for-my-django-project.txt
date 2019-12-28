@@ -1,0 +1,111 @@
+*** mysql-vs-postgresql-which-should-i-choose-for-my-django-project ***
+
+ My Django project is going to be backed by a large database with several hundred thousand entries, and will need to support searching (I'll probably end up using djangosearch or a similar project.) 
+ Which database backend is best suited to my project and why? Can you recommend any good resources for further reading? 
+ 
+ As someone who recently switched a project from MySQL to Postgresql I don't regret the switch. 
+ The main difference, from a Django point of view, is more rigorous constraint checking in Postgresql, which is a good thing, and also it's a bit more tedious to do manual schema changes (aka migrations). 
+ There are probably 6 or so Django database migration applications out there and at least one doesn't support Postgresql.  I don't consider this a disadvantage though because you can use one of the others or do them manually (which is what I prefer atm). 
+ Full text search  might  be better supported for MySQL.  MySQL has built-in full text search supported from within Django but it's pretty useless (no word stemming, phrase searching, etc.).  I've used  django-sphinx  as a better option for full text searching in MySQL. 
+ Full text searching is built-in with Postgresql 8.3 (earlier versions need TSearch module). Here's a good instructional blog post:  Full-text searching in Django with PostgreSQL and tsearch2 
+ 
+ For whatever it's worth the the creators of Django recommend PostgreSQL. 
+ 
+ If you're not tied to any legacy
+  system and have the freedom to choose
+  a database back-end, we recommend
+  PostgreSQL, which achives a fine
+  balance between cost, features, speed
+  and stability. ( The Definitive Guide to Django , p. 15) 
+ 
+ 
+ 
+ large database with several hundred
+  thousand entries, 
+ 
+ This is not large database, it's very small one. 
+ I'd choose PostgreSQL, because it has a lot more features. Most significant it this case: in PostgreSQL you can use Python as procedural language. 
+ 
+ Go with whichever you're more familiar with. MySQL vs PostgreSQL is an endless war. Both of them are excellent database engines and both are being used by major sites. It really doesn't matter in practice. 
+ 
+ Even if Postgresql looks better, I find it has some performances issues with Django: 
+ Postgresql is made to handle "long connections" (connection pooling, persistant connections, etc.) 
+ MySQL is made to handle "short connections" (connect, do your queries, disconnect,  has some performances issues with a lot of open connections ) 
+ The problem is that Django does not support connection pooling or persistant connection, it has to connect/disconnect to the database at each view call. 
+ It will works with Postgresql, but connecting to a Postgresql cost a LOT more than connecting to a MySQL database (On Postgresql, each connection has it own process, it's a lot slower than just popping a new thread in MySQL). 
+ Then you get some features like the Query Cache that can be really useful on some cases. (But you lost the superb text search of PostgreSQL) 
+ 
+ All the answers bring interesting information to the table, but some are a little outdated, so here's my grain of salt.  
+ As of 1.7,  migrations  are now an integral feature of Django. So they documented the main differences that Django developers might want to know beforehand. 
+ 
+ Backend Support 
+ Migrations are supported on all backends that Django ships with, as
+  well as any third-party backends if they have programmed in support
+  for schema alteration (done via the  SchemaEditor  class). 
+ However, some databases are more capable than others when it comes to
+  schema migrations; some of the caveats are covered below. 
+ **PostgreSQL**
+
+ PostgreSQL is the most capable of all the databases here in terms of
+  schema support; the only caveat is that adding columns with default
+  values will cause a full rewrite of the table, for a time proportional
+  to its size. 
+ For this reason, it’s recommended you always create new columns with
+  null=True, as this way they will be added immediately. 
+ **MySQL**
+
+ MySQL lacks support for transactions around schema alteration
+  operations, meaning that if a migration fails to apply you will have
+  to manually unpick the changes in order to try again (it’s impossible
+  to roll back to an earlier point). 
+ In addition, MySQL will fully rewrite tables for almost every schema
+  operation and generally takes a time proportional to the number of
+  rows in the table to add or remove columns. On slower hardware this
+  can be worse than a minute per million rows - adding a few columns to
+  a table with just a few million rows could lock your site up for over
+  ten minutes. 
+ Finally, MySQL has reasonably small limits on name lengths for
+  columns, tables and indexes, as well as a limit on the combined size
+  of all columns an index covers. This means that indexes that are
+  possible on other backends will fail to be created under MySQL. 
+ **SQLite**
+
+ SQLite has very little built-in schema alteration support, and so
+  Django attempts to emulate it by: 
+ 
+ Creating a new table with the new schema 
+ Copying the data across 
+ Dropping the old table 
+ Renaming the new table to match the original name 
+ 
+ This process generally works well, but it can be slow and occasionally
+  buggy. It is not recommended that you run and migrate SQLite in a
+  production environment unless you are very aware of the risks and its
+  limitations; the support Django ships with is designed to allow
+  developers to use SQLite on their local machines to develop less
+  complex Django projects without the need for a full database. 
+ 
+ 
+ When a migration fails in django-south, the developers encourage you not to use MySQL: 
+ 
+ 
+ To add to previous answers : 
+ 
+ "Full text search might be better supported for MySQL" 
+ 
+ The FULLTEXT index in MySQL is a joke.  
+ 
+ It only works with MyISAM tables, so you lose ACID, Transactions, Constraints, Relations, Durability, Concurrency, etc.  
+ INSERT/UPDATE/DELETE to a largish TEXT column (like a forum post) will a rebuild a large part of the index. If it does not fit in myisam_key_buffer, then large IO will occur. I've seen a single forum post insertion trigger 100MB or more of IO ... meanwhile the posts table is exclusiely locked ! 
+ I did some benchmarking (3 years ago, may be stale...) which showed that on large datasets, basically postgres fulltext is 10-100x faster than mysql, and Xapian 10-100x faster than postgres (but not integrated). 
+ 
+ Other reasons not mentioned are the extremely smart query optimizer, large choice of join types (merge, hash, etc), hash aggregation, gist indexes on arrays, spatial search, etc which can result in extremely fast plans on very complicated queries. 
+ 
+ Will this application be hosted on your own servers or by a hosting company? Make sure that if you are using a hosting company, they support the database of choice. 
+ 
+ There is a major licensing difference between the two db that will affect you if you ever intend to distribute code using the db. MySQL's client libraries are GPL and PostegreSQL's is under a BSD like license which might be easier to work with.  
+ 
+ Having gone down the road of MySQL because I was familiar with it (and strugglign to find a proper installer and a quick test of the slow web "workbench" interface of postgreSQL put me off), at the end of the project, after a few months after deployment, while looking into back up options, I see you have to pay for MySQL's enterprise back features. Gotcha right at the very end.  
+ I have had to write some ugly monster raw SQL queries in Django because no select distinct per group for retrieving the latest per group query. Also looking at postgreSQL's full-text search and wishing I had used postgresSQL. 
+ I recommend PostgreSQL even if you are familiar with MySQL, but your mileage may vary. 
+ 

@@ -1,0 +1,69 @@
+*** leaderboard-ranking-with-firebase ***
+
+ I have project that I need to display a leaderboard of the top 20, and if the user not in the leaderboard they will appear in the 21st place with their current ranking. 
+ Is there efficient way to this? 
+ I am using Cloud Firestore as a database. I believe it was mistake to choose it instead of MongoDB but I am in the middle of the project so I must do it with Cloud Firestore. 
+ The app will be use by 30K users. Is there any way to do it without getting all the 30k users? 
+ 
+ This is code I did to get the top 20 but what will be the best practice for getting current logged in user rank if they are not in the top 20? 
+ 
+ Finding an arbitrary player's rank in leaderboard, in a manner that scales is a common hard problem with databases. 
+ There are a few factors that will drive the solution you'll need to pick, such as:  
+ 
+ Total Number players 
+ Rate that individual players add scores 
+ Rate that new scores are added (concurrent players * above) 
+ Score range: Bounded or Unbounded 
+ Score distribution (uniform, or are their 'hot scores') 
+ 
+ Simplistic approach 
+ The typical simplistic approach is to count all players with a higher score, eg  . 
+ This method works at low scale, but as your player base grows, it quickly becomes both slow and resource expensive (both in MongoDB and Cloud Firestore). 
+ Cloud Firestore doesn't natively support   as it's a non-scalable operation. You'll need to implement it on the client-side by simply counting the returned documents. Alternatively, you could use Cloud Functions for Firebase to do the aggregation on the server-side to avoid the extra bandwidth of returning documents. 
+ Periodic Update 
+ Rather than giving them a live ranking, change it to only updating every so often, such as every hour. For example, if you look at Stack Overflow's rankings, they are only updated daily. 
+ For this approach, you could  schedule a function , or  schedule App Engine  if it takes longer than 540 seconds to run. The function would write out the player list as in a   collection with a new   field populated with the players rank. When a player views the ladder now, you can easily get the top X + the players own rank in O(X) time. 
+ Better yet, you could further optimize and explicitly write out the top X as a single document as well, so to retrieve the ladder you only need to read 2 documents, top-X & player, saving on money and making it faster. 
+ This approach would really work for any number of players and any write rate since it's done out of band. You might need to adjust the frequency though as you grow depending on your willingness to pay. 30K players each hour would be $0.072 per hour($1.73 per day) unless you did optimizations (e.g, ignore all 0 score players since you know they are tied last). 
+ Inverted Index 
+ In this method, we'll create somewhat of an inverted index. This method  works if there is a bounded score range that is significantly smaller want the number of players (e.g, 0-999 scores vs 30K players). It could also work for an unbounded score range where the number of unique scores was still significantly smaller than the number of players. 
+ Using a separate collection called 'scores', you have a document for each individual score (non-existent if no-one has that score) with a field called  . 
+ When a player gets a new total score, you'll do 1-2 writes in the   collection. One write is to +1 to   for their new score and if it isn't their first time -1 to their old score. This approach works for both "Your latest score is your current score" and "Your highest score is your current score" style ladders. 
+ Finding out a player's exact rank is as easy as something like  . 
+ Since Cloud Firestore doesn't support  , you'd do the above but sum on the client side. The +1 is because the sum is the number of players above you, so adding 1 gives you that player's rank. 
+ Using this approach, you'll need to read a maximum of 999 documents, averaging 500ish to get a players rank, although in practice this will be less if you delete scores that have zero players. 
+ Write rate of new scores is important to understand as you'll only be able to update an individual score once every 2 seconds* on average, which for a perfectly distributed score range from 0-999 would mean 500 new scores/second**. You can increase this by using  distributed counters  for each score. 
+ * Only 1 new score per 2 seconds since each score generates 2 writes 
+** Assuming average game time of 2 minute, 500 new scores/second could support 60000 concurrent players without distributed counters. If you're using a "Highest score is your current score" this will be much higher in practice. 
+ Sharded N-ary Tree 
+ This is by far the hardest approach, but could allow you to have both faster and real-time ranking positions for all players. It can be thought of as a read-optimized version of of the Inverted Index approach above, whereas the Inverted Index approach above is a write optimized version of this. 
+ You can follow this related article for  'Fast and Reliable Ranking in Datastore'  on a general approach that is applicable. For this approach, you'll want to have a bounded score (it's possible with unbounded, but will require changes from the below). 
+ I wouldn't recommend this approach as you'll need to do distributed counters for the top level nodes for any ladder with semi-frequent updates, which would likely negate the read-time benefits. 
+ 
+ Final thoughts 
+ Depending on how often you display the leaderboard for players, you could combine approaches to optimize this a lot more. 
+ Combining 'Inverted Index' with 'Periodic Update' at a shorter time frame can give you O(1) ranking access for all players. 
+ As long as over all players the leaderboard is viewed > 4 times over the duration of the 'Periodic Update' you'll save money and have a faster leaderboard. 
+ Essentially each period, say 5-15 minutes you read all documents from   in descending order. Using this, keep a running total of  . Re-write each score into a new collection called   with a new field  . This new field contains the running total excluding the current scores  . 
+ To get a player's rank, all you need to do now is read the document of the player's score from   -> Their rank is   + 1. 
+ 
+ One solution not mentioned here which I'm about to implement in my online game and may be usable in your use case, is to estimate the user's rank if they're not in any visible leaderboard because frankly the user isn't going to know (or care?) whether they're ranked 22,882nd or 22,838th.  
+ If 20th place has a score of 250 points and there are 32,000 players total, then each point below 250 is worth on average 127 places, though you may want to use some sort of curve so as they move up a point toward bottom of the visible leaderboard they don't jump exactly 127 places each time - most of the jumps in rank should be closer to zero points. 
+ It's up to you whether you want to identify this estimated ranking as an estimation or not, and you could add some a random salt to the number so it looks authentic: 
+ 
+ I'll be doing the latter. 
+ 
+ A solution that hasn't been mentioned by Dan is the use of security rules combined with Google Cloud Functions. 
+ Create the highscore's map. Example: 
+ 
+ highScores (top20) 
+ 
+ Then: 
+ 
+ Give the users write/read access to highScores. 
+ Give the document/map highScores the smallest score in a property. 
+ Let the users only write to highScores if his score > smallest score. 
+ Create a write trigger in Google Cloud Functions that will activate when a new highScore is written. In that function, delete the smallest score. 
+ 
+ This looks to me the easiest option. It is realtime as well. 
+ 

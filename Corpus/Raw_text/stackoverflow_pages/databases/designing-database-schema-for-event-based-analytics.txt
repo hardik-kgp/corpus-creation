@@ -1,0 +1,54 @@
+*** designing-database-schema-for-event-based-analytics ***
+
+ I'm trying to figure out the best way to model the schema for this event-based analytics system I'm writing. My main concern is writing this in a way that makes queries simple and fast. I'm going to be using MySQL as well. I'll go over some of the requirements and present an outline of a possible (but I think poor) schema.  
+ Requirements 
+ 
+ Track events (e.g. track occurrences of the "APP_LAUNCH" event) 
+ Define custom events 
+ Ability to segment events on >1 custom properties (e.g. get occurrences of "APP_LAUNCH" segmented on the "APP_VERSION" property)  
+ Track sessions 
+ Perform queries based on timestamp range 
+ 
+ Possible Modeling 
+ The main problem that I'm having is how to model segmentation and the queries to perform to get the overall counts of an event.  
+ My original idea was to define an EVENTS table with an id, int count, timestamp, property (?), and a foreign key to an EVENTTYPE. An EVENTTYPE has an id, name, and additional information belonging to a generic event type.  
+ For example, the "APP_LAUNCH" event would have an entry in the EVENTS table with unique id, count representing the number of times the event happened, the timestamp (unsure about what this is stamped on), and a property or list of properties (e.g. "APP_VERSION", "COUNTRY", etc.) and a foreign key to an EVENTTYPE with name "APP_LAUNCH".  
+ Comments and Questions 
+ I'm pretty sure this isn't a good way to model this for the following reasons. It makes it difficult to do timestamp ranged queries ("Number of APP_LAUNCHES between time x and y"). The EVENTTYPE table doesn't really serve a purpose. Finally, I'm unsure as to how I would even perform queries for different segmentations. The last one is the one I'm most worried about.  
+ I would appreciate any help in helping to correctly model this or in pointing me to resources that would help.  
+ A final question (which is probably dumb): Is it bad to insert a row for every event? For example, say my client-side library makes the following call to my API:  
+ 
+ How would I actually store this in the table (this is closely related to the schema design obviously)? Is it bad to simply insert a row for each one of these calls, of which there may be a significant amount? My gut reaction is that I'm really interested mainly in the overall aggregated counts. I don't have enough experience with SQL to know how these queries perform over possibly hundreds of thousands of these entries. Would an aggregate table or a in-memory cache help to alleviate problems when I want the client to actually get the analytics?  
+ I realize there are lots of questions here, but I would really appreciate any and all help. Thanks!  
+ 
+ I think most of your concerns are unnecessary. Taking one of your questions after another: 
+ **1)**
+ The biggest issue are the custom attributes, different for each event. For this, you have to use  **EAV (entity-attribute-value)**
+ design. The important question is - what types can these attributes have? If more than one - e.g. string and integer, then it is more complicated. There are in general two types of such design: 
+ 
+ use one table and one column for values of all type - and convert everything to string (not scalable solution) 
+ have separate tables for each data type (very scalable, I'd go for this) 
+ 
+ So, the tables would look like: 
+ 
+ **2)**
+ What do you mean by segmentation? Querying various parameters of the event? In the EAV design mentioned above, you can do this: 
+ 
+ This will select all events of APP_LAUNCH type where APPVERSION is > 4 and APP_NAME contains "Office". 
+ **3)**
+ The EVENTTYPE table could serve the purpose of consistency, i.e. you could: 
+ 
+ Or, you could use ID as number and have event name in the EVENTTYPE table - this saves space and allows for renaming of the events easily, but you will need to join this table in every query (resulting in a bit slower queries). Depends on priority of saving storage space vs lower query time / simplicity. 
+ **4)**
+ timestamp ranged queries are actually very simple in your design: 
+ 
+ **5)**
+  "Is it bad to insert a row for every event?" 
+ This totally depends on you! If you need the timestamp and/or different parameters of every such event, then probably you should have a row for every event. If there is a huge amount of events of the same type and parameters, you can probably do what most loging systems do: aggregate the events which occur in one row. If you have such a gut feeling, then it's probably a way to go. 
+ **6)**
+  " I don't have enough experience with SQL to know how these queries perform over possibly hundreds of thousands of these entries" 
+ Hundreds or thousands such entries will be handled without problems. When you reach a milion, you will have to think much more on the efficiency. 
+ **7)**
+  "Would an aggregate table or a in-memory cache help to alleviate problems when I want the client to actually get the analytics?"   
+ Of course, this is also a solution, if the queries get slow and you need to respond fast. But then you must introduce some mechanism to refresh the cache periodically. It is overly more complicated; maybe better to consider aggregating the events on the input, see 5). 
+ 

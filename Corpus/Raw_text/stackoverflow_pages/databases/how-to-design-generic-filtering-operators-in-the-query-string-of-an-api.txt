@@ -1,0 +1,146 @@
+*** how-to-design-generic-filtering-operators-in-the-query-string-of-an-api ***
+
+ I'm building a generic API with content and a schema that can be user-defined. I want to add filtering logic to API responses, so that users can query for specific objects they've stored in the API. For example, if a user is storing event objects, they could do things like filter on: 
+ 
+ **Array contains**
+: Whether   contains  
+ **Grater than**
+: Whether   is older than  
+ **Not equal**
+: Whether   is not  
+ **Equal**
+: Whether   is  
+ etc. 
+ 
+ I'm trying to design filtering into the query string of API responses, and coming up with a few options, but I'm not sure which syntax for it is best... 
+ 
+ **1. Operator as Nested Key**
+
+ 
+ This example is uses just a nested object to specific the operators (like   as shown). This is nice in that it is very simple, and easy to read. 
+ But in cases where the properties of an event can be defined by the user, it runs into an issue where there is a potential clash between a property named   using a normal equal operator, and a property named   using a not equal operator. 
+ Example:  Stripe's API 
+ 
+ **2. Operator as Key Suffix**
+
+ 
+ This example is similar to the first one, except it uses a   delimiter (which is equivalent to a space) for operations, instead of   so that there is no confusion, since keys in my domain can't contain spaces. 
+ One downside is that it is slightly harder to read, although that's arguable since it might be construed as more clear. Another might be that it is slightly harder to parse, but not that much. 
+ 
+ **3. Operator as Value Prefix**
+
+ 
+ This example is very similar to the previous one, except that it moves the operator syntax into the value of the parameter instead of the key. This has the benefit of eliminating a bit of the complexity in parsing the query string. 
+ But this comes at the cost of no longer being able to differentiate between an equal operator checking for the literal string   and a not equal operator checking for the string  . 
+ Example:  Sparkpay's API 
+ 
+ **4. Custom Filter Parameter**
+
+ 
+ This example uses a single top-level query paramter,  , to namespace all of the filtering logic under. This is nice in that you never have to worry about the top-level namespace colliding. (Although in my case, everything custom is nested under   so this isn't an issue in the first place.) 
+ But this comes at a cost of having a harder query string to type out when you want to do basic equality filtering, which will probably result in having to check the documentation most of the time. And relying on symbols for the operators might lead to confusion for non-obvious operations like "near" or "within" or "contains". 
+ Example:  Google Analytics's API 
+ 
+ **5. Custom Verbose Filter Parameter**
+
+ 
+ This example uses a similar top-level   parameter as the previous one, but it spells out the operators with word instead of defining them with symbols, and has spaces between them. This might be slightly more readable. 
+ But this comes at a cost of having a longer URL, and a lot of spaces that will need to be encoded? 
+ Example:  OData's API 
+ 
+ **6. Object Filter Parameter**
+
+ 
+ This example also uses a top-level   parameter, but instead of creating a completely custom syntax for it that mimics programming, it instead builds up an object definition of filters using a more standard query string syntax. This has the benefit of bring slightly more "standard". 
+ But it comes at the cost of being very verbose to type and hard to parse. 
+ Example  Magento's API 
+ 
+ Given all of those examples, or a different approach, which syntax is best? Ideally it would be easy to construct the query parameter, so that playing around in the URL bar is doable, but also not pose problems for future interoperability. 
+ I'm leaning towards  **#2**
+ since it seems like it is legible, but also doesn't have some of the downsides of other schemes. 
+ 
+ I might not answer the "which one is best" question, but I can at least give you some insights and other examples to consider. 
+ First, you are talking about "generic API with content and a schema that can be user-defined". 
+ That sound a lot like  solr  /  elasticsearch  which are both hi level wrappers over  Apache Lucene  which basically indexes and aggregates documents. 
+ Those two took totally different approaches to their rest API, I happened to work with both of them. 
+ **Elasticsearch :**
+
+ They made entire JSON based Query DSL, which currently looks like this : 
+ 
+ Taken from their current  doc . I was surprised that you can actually put data in  **GET**
+...
+It actually looks better now, in earlier versions it was much more  hierarchical . 
+ From my personal experience, this DSL was powerful, but rather hard to learn and use fluently (especially older versions). And to actually get some result you need more than just play with URL. Starting with the fact that many clients don't even support data in  **GET**
+ request. 
+ **SOLR :**
+
+ They put everything into query params, which basically looks like this (taken from the  doc ) : 
+ 
+ Working with that was more straightforward. But that's just my personal taste. 
+ 
+ Now about my experiences. We were implementing another layer above those two and we took approach number  **#4.**
+ Actually, I think  **#4**
+ and  **#5**
+ should be supported at the same time. Why? Because whatever you pick people will be complaining, and since you will be having your own "micro-DSL" anyway, you might as well support few more aliases for your keywords. 
+ Why not  **#2**
+? Having single filter param and query inside gives you total control over DSL. Half a year after we made our resource, we got "simple" feature request - logical   and parenthesis  . Query parameters are basically a list of   operations and logical   like   don't really fit  there. On the other hand parenthesis introduced nesting into DSL structure, which would also be a problem in flat query string structure. 
+ Well, those were the problems we stumbled upon, your case might be different. But it is still worth to consider, what future expectations from this API will be. 
+ 
+ #4 
+ I like how  **Google Analytics**
+ filter API looks like, easy to use and easy to understand from a client's point of view. 
+ They use a URL encoded form, for example: 
+ 
+ 
+ **Equals**
+:  **%3D%3D**
+  
+ **Not equals**
+:  **!%3D**
+  
+ 
+ 
+ Although you need to check documentation but it still has its own advantages. IF you think that the users can get accustomed to this then go for it. 
+ 
+ #2 
+ Using operators as key suffixes also seems like a good idea (according to your requirements). 
+ However I would recommend to encode the   sign so that it isn't parsed as a  . Also it might be slightly harder to parse as mentioned but I think you can write a custom parser for this one. I stumbled across  this  gist by  jlong  some time back. Perhaps you'll find it useful to write your parser. 
+ 
+ You could also try  Spring Expression Language (SpEL) 
+ All you need to do is to stick to the said format in the document, the SpEL engine would take care of parsing the query and executing it on a given object. Similar to your requirement of filtering a list of objects, you could write the query as: 
+ 
+ It supports all kind of relational and logical operators that you would need. The rest api could just take this query as the filter string and pass it to SpEL engine to run on an object. 
+ Benefits: it's readable, easy to write, and execution is well taken care of. 
+ So, the URL would look like: 
+ 
+ Sample code using org.springframework:spring-core:4.3.4.RELEASE : 
+ The main function of interest: 
+ 
+ Complete example with helper classes and other non-interesting code: 
+ 
+ 
+ I know this is old school, but how about a sort of operator overloading?  
+ It would make the query parsing a lot harder (and not standard CGI), but would resemble the contents of an SQL WHERE clause. 
+ /events?properties.name=Harry&properties.address.city+neq=Washington 
+ would become 
+ /events?properties.name=='Harry'&&properties.address.city!='Washington'||properties.name=='Jack'&&properties.address.city!=('Paris','New Orleans') 
+ paranthesis would start a list. Keeping strings in quotes would simplify parsing.  
+ So the above query would be for events for Harry's not in Washington or for Jacks not in Paris or in New Orleans.  
+ It would be a ton of work to implement... and the database optimization to run those queries would be a nightmare, but if you're looking for a simple and powerful query language, just imitate SQL :) 
+ -k 
+ 
+ I decided to compare the approaches  **#1/#2**
+ (1) and  **#3**
+ (2) and concluded that (1) is preferred (at least, for Java server side). 
+ Assume, some parameter   must be equal 10 or 20. Our URL query in this case must look like   for (1) and   for (2). In Java   will return the next values:   for (1) and   for (2). Later we must convert returned maps, for example, to SQL   clause. And we should get:   for both (1) and (2). Briefly, it looks something like that: 
+ 
+ So, we got the next rule:  **when we pass through URL query two parameters with the same name we must use **
+** operand in SQL**
+. 
+ But let's assume another case. The parameter   must be greater than 10 and less than 
+20. Applying the rule above we will have the next conversion: 
+ 
+ As you can see, in (1) we have two parameters with  **different**
+ names:   and  . This means our SQL query will have   operand. But for (2) we still have the same names and it must be converted to the SQL with   operand! 
+ This means that for (2) instead of using   we must directly parse the URL query and analyze repeated parameter names. 
+ 

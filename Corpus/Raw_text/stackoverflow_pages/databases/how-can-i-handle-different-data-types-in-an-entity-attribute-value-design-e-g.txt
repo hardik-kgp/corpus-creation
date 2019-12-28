@@ -1,0 +1,56 @@
+*** how-can-i-handle-different-data-types-in-an-entity-attribute-value-design-e-g ***
+
+ I want to create a patient/sample metadata table using an entity-attribute-value (EAV) approach. 
+ **Question**
+: How should I handle the varying column type of the  value  (e.g. string, numeric, or foreign key to dictionary table) based on the  attribute ? 
+ Note:  **I am not asking whether or not to use an EAV approach**
+. I have looked at  other SO questions  and  references  and believe this is the best approach for my use-case (e.g. I don't want to create a seperate column or table for each  attribute  - which can number in the hundreds). However, I will certainly reconsider other designs given a comprehensive example. 
+ **Representative Data**
+
+ A patient/sample ( entity ) can have multiple metadata  attributes  (e.g. lab location, survival, tumor type) each with a different  value  type (e.g.  ,  ,  *, respectively). 
+ *  means that this  value  type is a foreign key ID ( ) to a dictionary table of  values  (e.g. a list of the 10 possible tumor types). So lab location can be   since I don't care about normalizing those values. But tumor type should have some degree of validation. 
+ My table layout may look something like this: 
+ 
+ I believe need a  value  type identifying column (attribute_value_type) in the metadata_attributes table to know which column/table to look to. 
+ **Possible Approaches**
+
+ Here are two possible approaches I can think of. 
+ **Approach 1: Single EAV table with multiple columns**
+
+ Create three different columns to the patient_metadata table - one for each  value  type. 
+ 
+ **Approach 2: Multiple EAV tables**
+
+ Create three different patient_metadata tables - one for each  value  type. 
+ 
+ **Other Approaches?**
+
+ Are there other approaches out there? 
+ In short, I want to respect relational integrity as much as possible and allow the database to know the  value  type so that it can perform basic validation. However, I believe both of the above approaches will require some type of manual integrity checks (approach 1 requires a check that only one attribute_value column is populated, etc.). 
+ The types of queries that I will perform will be typical (e.g. retrieve a list of  values  for a given metadata  attribute , retrieve a list of  values  for a given patient ( entity ) and metadata  attribute , etc.). I believe I'll need to query for the  value  type in most cases in order to know which column or table to query. Any other way around this? 
+ **What are the pros and cons for all approaches (performance, query structure, etc.)?**
+
+ First time poster, so thanks in advance and please feel free to comment on formatting or further clarification! 
+ 
+ This is a well known problem. The problem with the approach you mentioned is that you need to know the type of the attribute before you query for it. it's not the end of the world because you manage metadata but still...  
+ Two possiable solutions might be  
+ 
+ using a   datatype to represent all data types in a known
+format. Numbers and chars are no problem, date values can be written
+in a predefined manner (it's like implementing   in any OO
+design). 
+ use the
+ 
+data type. i personally played around with it but decided not to use
+it. 
+ 
+ 
+ The easiest, most performant, etc is to convert all values in the database to Strings. Problems such as those indicated will usually be obvious, and even well typed columns suffer exactly the same kind of issues, which usually express as performance problems. 
+ With a little care, you can maintain collation order, if that matters (e.g. by formatting dates as year/month/day), and validation of types should not be done by the database anyway as it is too late. Negative numbers are a pain, as are floats, but it is highly unusual to index by a number that can be negative or a float, and in-memory sorts are generally fast. 
+ Where the type of the data is not obvious, or needs to be known by a downstream processor, then add a type column. 
+ Generally, all integrity constraints against column values can be checked before the record is written, either in code (good), or in triggers (not so good). Trying to use the native features with varying types will only take you so far, and is probably not so useful anyway as values often have many business specific constraints anyway e.g. birth-date needs to be non-null and after 1900. 
+ For performance, use compound indexes including the entity and attribute as prefixes. Indexes may be partitioned by the entity-attribute prefix, reducing any impact of the extra depth of the index, and they compress really well (the prefix will compress to one or two bytes), so the size difference is minimal. 
+ Querying from EAV tables is often best done in views which will unpack the entities for you so that the structure can be returned to something like you would expect, though this may be irrelevant if you are dealing with varying columns e.g. in patient forms which are characterized by a large number of varying elements depending on the history. Then it is probably easier to process in your business logic. 
+ Finally, nowadays this kind of data is simply not stored in column oriented relational database style. It is usually stored as a XML (or JSON) document (XML types in Oracle), and most databases provide some native XML processing capability in order to search and manipulate such data. This is okay for normal form storage and retrieval, but tends to make arbitrary queries such as "give me all patients over 60 who have had pneumonia in the last year" rather slow, or a bit more involved as tagged reverse indexing is needed. Nevertheless it is worth seeing if a document orientated/text oriented approach is a better solution. 
+ Good luck! 
+ 

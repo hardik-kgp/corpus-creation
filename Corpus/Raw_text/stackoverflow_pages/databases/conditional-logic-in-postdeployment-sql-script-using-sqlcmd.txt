@@ -1,0 +1,81 @@
+*** conditional-logic-in-postdeployment-sql-script-using-sqlcmd ***
+
+ I am using a SQL 2008 database project (in visual studio) to manage the schema and initial test data for my project. The atabase project uses a post deployment which includes a number of other scripts using SQLCMD's ":r " syntax. 
+ I would like to be able to conditionally include certain files based on a SQLCMD variable. This will allow me to run the project several times with our nightly build to setup various version of the database with different configurations of the data (for a multi-tenant system). 
+ I have tried the following: 
+ 
+ But I get a compilation error: 
+ **SQL01260: A fatal parser error occurred: Script.PostDeployment.sql**
+
+ Has anyone seen this error or managed to configure their postdeployment script to be flexible in this way? Or am I going about this in the wrong way completely? 
+ Thanks,
+Rob 
+ P.S. I've also tried changing this around so that the path to the file is a variable,  similar to this post . But this gives me an error saying that the path is incorrect. 
+ 
+ **UPDATE**
+
+ I've now discovered that the if/else syntax above doesn't work for me because some of my linked scripts require a GO statement. Essentially the :r just imports the scripts inline, so this becomes invalid sytax. 
+ If you need a GO statement in the linked scripts (as I do) then there isn't any easy way around this, I ended up creating several post deployment scripts and then changing my project to overwrite the main post depeployment script at build time depending on the build configuration. This is now doing what I need, but it seems like there should be an easier way! 
+ For anyone needing the same thing -  I found this post useful   
+ So in my project I have the following post deployment files: 
+ 
+ Script.PostDeployment.sql (empty file which will be replaced) 
+ Default.Script.PostDeployment.sql (links to scripts needed for standard data config) 
+ Configuration1.Script.PostDeployment.sql (links to scripts needed for a specific data config) 
+ 
+ I then added the following to the end of the project file (right click to unload and then right click edit): 
+ 
+ Finally, you will need to setup matching build configurations in the solution. 
+ Also, for anyone trying other work arounds, I also tried the following without any luck: 
+ 
+ Creating a post build event to copy the files instead of having to hack the project file XML. i couldn't get this to work because I couldn't form the correct path to the post deployment script file.  This connect issue describes the problem 
+ Using variables for the script path to pass to the :r command. But I came across several errors with this approach.  
+ 
+ 
+ I managed to work around the problem using the  noexec method . 
+ So, instead of this: 
+ 
+ I reversed the conditional and set  **NOEXEC ON**
+ to skip over the imported statement(s) thusly: 
+ 
+ Make sure you turn it back off if you want to execute any subsequent statements. 
+ 
+ Here's how I am handling conditional deployment within the post deployment process to deploy test data for the Debug but not Release configuration. 
+ First, in solution explorer, open the project properties folder, and right-click to add a new SqlCmd.variables file. 
+ Name the file  . 
+ Within the file, add your custom variables, and then add a final variable called  , and set the value to Debug. 
+ Repeat the process to create a Release.sqlcmdvars, setting the   to Release. 
+ Now, configure your configurations:
+Open up the project properties page to the Deploy tab.
+On the top dropdown, set the configuration to be Debug.
+On the bottom dropdown, (Sql command variables), set the file to Properties\Debug.sqlcmdvars. 
+ Repeat for Release as:
+On the top dropdown, set the configuration to be Release.
+On the bottom dropdown, (Sql command variables), set the file to Properties\Release.sqlcmdvars. 
+ Now, within your Script.PostDeployment.sql file, you can specify conditional logic such as: 
+ 
+ In solution explorer, right click on the top level solution and open Configuration Manager.  You can specify which configuration is active for your build.
+You can also specify the configuration on the MSBUILD.EXE command line. 
+ There you go- now your developer builds have test data, but not your release build! 
+ 
+ As Rob worked out, GO statements aren't allowed in the linked SQL scripts as this would nest it within the BEGIN/END statements. 
+ However, I have a different solution to his - if possible, remove any GO statements from the referenced scripts, and put a single one after the END statement: 
+ 
+ Note that I've also created a new variable in my  sqlcmdvars  file called $(DeployTestData) which allows me to turn on/off test script deployment. 
+ 
+ I found a  hack from an MSDN blog  which worked fairly well. The trick is to write the commands to a temp script file and then execute that script instead. Basically the equivalent of dynamic SQL for SQLCMD. 
+ 
+ The   file will then contain either: 
+ 
+ or 
+ 
+ depending on the value of   and there will be no problems with   statements etc. when it is executed. 
+ 
+ I was inspired by Rob Bird's solution. However, I am simply using the Build Events to replace the post deployment scripts based on the selected build configuration. 
+ 
+ I have one empty "dummy" post deployment script. 
+ I set up a pre-build event to replace this "dummy" file based on the selected build configuration (see attached picture). 
+ I set up a post-build event to place the "dummy" file back after the build has finished (see attached picture). The reason is that I do not want to generate changes in the change control after the build. 
+ 
+ 
+ 

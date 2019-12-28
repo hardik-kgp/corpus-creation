@@ -1,0 +1,69 @@
+*** foreign-key-constraints-when-to-use-on-update-and-on-delete ***
+
+ I'm designing my database schema using MySQL Workbench, which is pretty cool because you can do diagrams and it converts them :P 
+ Anyways, I've decided to use InnoDB because of it's Foreign Key support. One thing I noticed though is that it allows you to set On Update and on Delete options for foreign keys. Can someone explain where "Restrict", "Cascade" and set null could be used in a simple example? 
+ For example, say I have a   table which includes a  . And say I have a message table   which is a many-to-many which has 2 foreign keys (which reference the same primary key,   in the   table). Is setting the On Update and On Delete options any useful in this case? If so, which one do I choose? If this isn't a good example, could you please come up with a good example to illustrate how these could be useful? 
+ Thanks 
+ 
+ Do not hesitate to put constraints on the database. You'll be sure to have a consistent database, and that's one of the good reasons to use a database. Especially if you have several applications requesting it (or just one application but with a direct mode and a batch mode using different sources). 
+ With MySQL you do not have advanced constraints like you would have in postgreSQL but at least the foreign key constraints are quite advanced. 
+ We'll take an example, a company table with a user table containing people from theses company 
+ 
+ Let's look at the  **ON UPDATE**
+ clause: 
+ 
+ **ON UPDATE RESTRICT**
+ :  the default  : if you try to update a company_id in table COMPANY the engine will reject the operation if one USER at least links on this company. 
+ **ON UPDATE NO ACTION**
+ : same as RESTRICT. 
+ **ON UPDATE CASCADE**
+ :  the best one usually  : if you update a company_id in a row of table COMPANY the engine will update it accordingly on all USER rows referencing this COMPANY (but no triggers activated on USER table, warning). The engine will track the changes for you, it's good. 
+ **ON UPDATE SET NULL**
+ : if you update a company_id in a row of table COMPANY the engine will set related USERs company_id to NULL (should be available in USER company_id field). I cannot see any interesting thing to do with that on an update, but I may be wrong. 
+ 
+ And now on the  **ON DELETE**
+ side: 
+ 
+ **ON DELETE RESTRICT**
+ :  the default  : if you try to delete a company_id Id in table COMPANY the engine will reject the operation if one USER at least links on this company, can save your life. 
+ **ON DELETE NO ACTION**
+ : same as RESTRICT 
+ **ON DELETE CASCADE**
+ :  dangerous  : if you delete a company row in table COMPANY the engine will delete as well the related USERs. This is dangerous but can be used to make automatic cleanups on secondary tables (so it can be something you want, but quite certainly not for a COMPANY<->USER example) 
+ **ON DELETE SET NULL**
+ :  handful  : if you delete a COMPANY row the related USERs will automatically have the relationship to NULL. If Null is your value for users with no company this can be a good behavior, for example maybe you need to keep the users in your application, as authors of some content, but removing the company is not a problem for you. 
+ 
+ usually my default is:  **ON DELETE RESTRICT ON UPDATE CASCADE**
+. with some   for track tables (logs--not all logs--, things like that) and   when the master table is a 'simple attribute' for the table containing the foreign key, like a JOB table for the USER table. 
+ **Edit**
+
+ It's been a long time since I wrote that. Now I think I should add one important warning. MySQL has one big documented limitation with cascades.  **Cascades are not firing triggers**
+.  So if you were over confident enough in that engine to use triggers you should avoid cascades constraints. 
+ 
+ http://dev.mysql.com/doc/refman/5.6/en/triggers.html   
+ 
+ 
+ MySQL triggers activate only for changes made to tables by SQL statements. They do not activate for changes in views, nor by changes to tables made by APIs that do not transmit SQL statements to the MySQL Server 
+ 
+ 
+ http://dev.mysql.com/doc/refman/5.6/en/stored-program-restrictions.html#stored-routines-trigger-restrictions 
+ 
+ **==> See below the last edit, things are moving on this domain**
+
+ 
+ Triggers are not activated by foreign key actions. 
+ 
+ And I do not think this will get fixed one day. Foreign key constraints are managed by the InnoDb storage and Triggers are managed by the MySQL SQL engine. Both are separated. Innodb is the only storage with constraint management, maybe they'll add triggers directly in the storage engine one day, maybe not. 
+ But I have my own opinion on which element you should choose between the poor trigger implementation and the very useful foreign keys constraints support. And once you'll get used to database consistency you'll love PostgreSQL. 
+ **12/2017-Updating this Edit about MySQL:**
+
+ as stated by @IstiaqueAhmed in the comments, the situation has changed on this subject. So follow the link and check the real up-to-date situation (which may change again in the future). 
+ 
+ Addition to @MarkR answer - one thing to note would be that many PHP frameworks with ORMs would not recognize or use advanced DB setup (foreign keys, cascading delete, unique constraints), and this may result in unexpected behaviour. 
+ For example if you delete a record using ORM, and your   will delete records in related tables, ORM's attempt to delete these related records (often automatic) will result in error. 
+ 
+ You'll need to consider this in context of the application. In general, you should design an application, not a database (the database simply being part of the application). 
+ Consider how your application should respond to various cases. 
+ The default action is to restrict (i.e. not permit) the operation, which is normally what you want as it prevents stupid programming errors. However, on DELETE CASCADE can also be useful. It really depends on your application and how you intend to delete particular objects. 
+ Personally, I'd use InnoDB because it doesn't trash your data (c.f. MyISAM, which does), rather than because it has FK constraints. 
+ 

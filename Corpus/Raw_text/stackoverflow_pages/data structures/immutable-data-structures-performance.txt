@@ -1,0 +1,40 @@
+*** immutable-data-structures-performance ***
+
+ I don't get how can something as a Set be immutable and still have an acceptable performance.  
+ From what I've read in F# Sets internally use Red Black Trees as their implementation. If each time we want to add something new to a Red Black Tree we have to basically recreate it, how can it have ever good performance? What am I missing here? 
+ Although I am asking this for F#'s Sets, I think this is as relevant in any other language which has or uses immutable data structures. 
+ Thanks 
+ 
+ Almost all immutable collections are some form of balanced tree.  To create a new tree, you have to reallocate nodes on the path from the change (insert, remove, "update") to the root.  As long as the tree is balanced this takes logarithmic time.  If you have something like a 2-3-4 tree (similar to red-black trees) with expected outdegree three, you can handle a million elements using only 10 allocations.   
+ And in languages where data structures are expected to be pure, they make sure allocation is fast.  Allocating a four-element node is going to cost a compare, an increment, and four stores.  And in many cases you can amortize the cost of a compare over several allocations. 
+ If you want to know more about how these structures work, an excellent source is  Purely  Functional Data Structures  by Chris Okasaki. 
+ 
+ You do not have to recreate the whole tree. Many of the branches will stay the same and can be 'reused'. As a simple example, if the new node needs to be added to a leaf in the current tree, then only the parents of that node needs to be cloned and given new branches. 
+ 
+ As others pointed out, you don't have to re-create the whole data structure. You just have to re-create parts that have changed and reference existing sub-trees that stayed the same. Thanks to the immutability of the data structure, you can reuse sub-trees, so copying everything is almost never needed. In fact, if you needed to clone a mutable data structure rarely, it could have much higher impact. 
+ In particular, for a ballanced trees (such as red-black trees) this gives you: 
+ 
+ O(log N)  time of adding/removing elements from the set (same as mutable implementation) 
+ O(log N)  space (new allocations) when adding/removing elements (mutable would have O(1)) 
+ 
+ This may be - of course - too much overhead for some applications, but it actually isn't all that bad. Moreover, allocation in .NET garbage collector is very fast (I think, essentially  O(1) ), so this isn't really a problem. More allocation means that GC needs to run more frequently, but this also isn't as critical as it may sound - computers have quite a lot of memory these days. The .NET 4.0 actually helps in many cases (see also Jon Harrop's  answer here ) 
+ 
+ As others have stated an immutable data structure doesn't have to be completely recreated since it can reuse old parts of itself.  You can do this because the old parts are immutable and the data is guaranteed not to change. 
+ I have a real world example of immutable performance.  I did some testing with an  immutable Red Black tree  I made in F# and it only performs 3 times slower than std::sort in c++.  Which I think is really fast considering it wasn't designed specifically for sorting. 
+ 
+ The limitations of language semantics only applies to the source code in the language. The implementation (compiler, interpreter, runtime environment, etc.) is free to do whatever it wants for the best performance as long as it keeps the same behavior. This is true for most languages. 
+ Edit: 
+ Several optimizations can be made including data sharing (precisely because the data are immutable), using mutability behind the scenes, optimizing tail calls (since FP uses a lot of recursion), and others. 
+ 
+ See  
+ functional programming: immutable data structure efficiency 
+ (especially my answer that points to Rich Hickey's talk) for the 'general' convincing evidence that yes, immutable structures can also be very efficient. 
+ As to how well this is true in the specific case of F#  , well, perhaps only moderately so today.  It would be great to use a more efficient underlying structure (in pragmatic terms; in theoretical terms, of course everything is O(logN) (which in practical terms is  O(1)) ). 
+ 
+ Quite simply a Set is a node based storage entity.  In the case of a Set you can implement it as a tree wherein you are not recreating all the edges and the nodes when you "add" an element to the next version of the Set, instead you're just creating a new set of edges.  You can do this because the nodes themselves will never change, nor will the objects held within them. 
+ The real benefit it's found within single threaded applications but rather in multi-threaded applications.  Immutable data structures remove the need for locking mechanisms.  If they're never going to change, you don't have to worry about state. 
+ 
+ not sure how this is implemented in the language, but the data structures could be perceived to be immutable to the programmer, but be optimized behind the scenes. 
+ for instance, I have a list a=[1,2,3,4,5].  I append 6. b=[a [6]] and they can both be immutable.  You don't lose any performance by doing this, and it's faster than copying the values. 
+ So, let me ask you, because I don't know, why would it be slower to do things as immutable?  In the case of the tree, I kind of see your point.  You'd have to recreate nodes above the current node I guess, but not below (assuming we have children pointers and not parent pointers). 
+ 

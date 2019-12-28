@@ -1,0 +1,59 @@
+*** two-phase-commit ***
+
+ I believe most of people know what 2PC (two-phase commit protocol) is and how to use it in Java or most of modern languages. Basically, it is used to make sure the transactions are in sync when you have 2 or more DBs. 
+ Assume I've two DBs (A and B) using 2PC in two different locations. Before A and B are ready to commit a transaction, both DBs will report back to the transaction manager saying they are ready to commit. So, when the transaction manager is acknowledged, it will send a signal back to A and B telling them to go ahead. 
+ Here is my question: let's say A received the signal and commited the transaction. Once everything is completed, B is about to do the same but someone unplugs the power cable, causing the whole server shutdown. When B is back online, what will B do? And how does B do it? 
+ Remember, A is committed but B is not, and we are using 2PC (so, the design of 2PC stops working, does not it?) 
+ 
+ **On Two-Phase Commit**
+
+ Two phase commit does not guarantee that a distributed transaction can't fail, but it does guarantee that it can't fail silently without the TM being aware of it. 
+ In order for B to report the transaction as being ready to commit, B must have the transaction in persistent storage (i.e. B must be able to guarantee that the transaction can commit in all circumstances).  In this situation, B has persisted the transaction but the transaction manager has not yet received a message from B confirming that B has completed the commit. 
+ The transaction manager will poll B again when B comes back online and ask it to commit the transaction.  If B has already committed the transaction it will report the transaction as committed.  If B has not yet committed the transaction it will then commit as it has already persisted it and is thus still in a position to commit the transaction. 
+ In order for B to fail in this situation, it would have to undergo a catastrophic failure that lost data or log entries.  The transaction manager would still be aware that B had not reported a successful commit. 1   
+ In practice, if B can no longer commit the transaction, it would imply that the disaster that took B out had caused data loss, and B would report an error when the TM asked it to commit a TxID that it wasn't aware of or didn't think was in a commitable state. 
+ Thus, two phase commit does not prevent a catastrophic failure from occuring, but it does prevent the failure from going unnoticed.  In this scenario the transaction manager will report an error back to the application if B cannot commit.   
+ The application still has to be able to recover from the error, but the transaction cannot fail silently without the application being made aware of the inconsistent state. 
+ **Semantics**
+
+ 
+ If a resource manager or network goes down in phase 1, the
+transaction manager will detect a fatal error (can't connect to
+resource manager) and mark the sub-transaction as failed.  When the
+network comes back up it will abort the transaction on all of the
+participating resource managers. 
+ If a resource manager or network goes down in phase 2, the
+transaction manager will continue to poll the resource manager until
+it comes back up.  When it re-connects back to the resource manager
+it will tell the RM to commit the transaction.  If the RM returns an
+error along the lines of 'Unknown TxID' the TM will be aware that
+there is a data loss issue in the RM. 
+ If the TM goes down in phase 1 then the client will block until the
+TM comes back up, unless it times out or receives an error due to the
+broken network connection.  In this case the client is made aware of
+the error and can either re-try or initiate the abort itself. 
+ If the TM goes down in phase 2 then it will block the client until
+the TM comes back up.  It has already reported the transaction as
+committable and no fatal error should be presented to the client,
+although it may block until the TM comes back up.  The TM will still
+have the transaction in an uncommitted state and will poll the RMs
+to commit when it comes back up. 
+ 
+ Post-commit data loss events in the resource managers are not handled by the transaction manager and are a function of the resilience of the RMs.   
+ Two-phase commit does not guarantee fault tolerance - see  Paxos  for an example of a protocol that does address fault tolerance - but it does guarantee that partial failure of a distributed transaction cannot go un-noticed. 
+ 
+ Note that this sort of failure could also lose data from previously committed transactions.  Two phase commit does not guarantee that the resource managers can't lose or corrupt data or that DR procedures don't screw up. 
+ 
+ 
+ I believe three phase commit is a much better approach. Unfortunately I haven't found anyone implementing such a technology. 
+ http://the-paper-trail.org/blog/consensus-protocols-three-phase-commit/ 
+ Here are the essential parts of the above article : 
+ The fundamental difficulty with 2PC is that, once the decision to commit has been made by the co-ordinator and communicated to some replicas, the replicas go right ahead and act upon the commit statement without checking to see if every other replica got the message. Then, if a replica that committed crashes along with the co-ordinator, the system has no way of telling what the result of the transaction was (since only the co-ordinator and the replica that got the message know for sure). Since the transaction might already have been committed at the crashed replica, the protocol cannot pessimistically abort – as the transaction might have had side-effects that are impossible to undo. Similarly, the protocol cannot optimistically force the transaction to commit, as the original vote might have been to abort. 
+ This problem is – mostly – circumvented by the addition of an extra phase to 2PC, unsurprisingly giving us a three-phase commit protocol. The idea is very simple. We break the second phase of 2PC – ‘commit’ – into two sub-phases. The first is the ‘prepare to commit’ phase. The co-ordinator sends this message to all replicas when it has received unanimous ‘yes’ votes in the first phase. On receipt of this messages, replicas get into a state where they are able to commit the transaction – by taking necessary locks and so forth – but crucially do not do any work that they cannot later undo. They then reply to the co-ordinator telling it that the ‘prepare to commit’ message was received. 
+ The purpose of this phase is to communicate the result of the vote to every replica so that the state of the protocol can be recovered no matter which replica dies. 
+ The last phase of the protocol does almost exactly the same thing as the original ‘commit or abort’ phase in 2PC. If the co-ordinator receives confirmation of the delivery of the ‘prepare to commit’ message from all replicas, it is then safe to go ahead with committing the transaction. However, if delivery is not confirmed, the co-ordinator cannot guarantee that the protocol state will be recovered should it crash (if you are tolerating a fixed number f of failures, the co-ordinator can go ahead once it has received f+1 confirmations). In this case, the co-ordinator will abort the transaction. 
+ If the co-ordinator should crash at any point, a recovery node can take over the transaction and query the state from any remaining replicas. If a replica that has committed the transaction has crashed, we know that every other replica has received a ‘prepare to commit’ message (otherwise the co-ordinator wouldn’t have moved to the commit phase), and therefore the recovery node will be able to determine that the transaction was able to be committed, and safely shepherd the protocol to its conclusion. If any replica reports to the recovery node that it has not received ‘prepare to commit’, the recovery node will know that the transaction has not been committed at any replica, and will therefore be able either to pessimistically abort or re-run the protocol from the beginning. 
+ So does 3PC fix all our problems? Not quite, but it comes close. In the case of a network partition, the wheels rather come off – imagine that all the replicas that received ‘prepare to commit’ are on one side of the partition, and those that did not are on the other. Then both partitions will continue with recovery nodes that respectively commit or abort the transaction, and when the network merges the system will have an inconsistent state. So 3PC has potentially unsafe runs, as does 2PC, but will always make progress and therefore satisfies its liveness properties. The fact that 3PC will not block on single node failures makes it much more appealing for services where high availability is more important than low latencies. 
+ 
+ Your scenario is not the only one where things can ultimately go wrong despite all effort.  Suppose A and B have both reported "ready to commit" to TM, and then someone unplugs the line between TM and, say, B.  B is waiting for the go-ahead (or no-go) from TM, but it certainly won't keep waiting forever until TM reconnects (its own resources involved in the transaction must stay locked/inaccessible throughout the entire wait time for obvious reasons).  So when B is kept waiting too long for its own taste, it will take what is called "heuristic decisions".  That is, it will decide to commit or rollback independently from TM, based on, well, I don't really know what, but that doesn't really matter.  It should be obvious that any such heuristic decisions can deviate from the actual commit decision taken by TM. 
+ 

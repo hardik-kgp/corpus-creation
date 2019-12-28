@@ -1,0 +1,87 @@
+*** object-oriented-like-structures-in-relational-databases ***
+
+ Folks,  
+ For the n-th time in a row, i'm hitting the same old problem again. It's about "how do I map OOP structures to database tables in a painless way." 
+ Here's a scenario: I have several types of "actors" in my system - workers, employers, contacts. They have certain pieces of functionality in common; other pieces are vastly different. The entities that all actors deal with are "communications", "notes" (admins like to leave notes on customers), and a few more. There are tons of types of other entities that each actor type deals with, while the others don't.  
+ Currently, my database schema includes tables for: 
+ Actors: 
+ 
+ worker 
+ employer 
+ contact 
+ 
+ Entities: 
+ 
+ communication 
+ notes 
+ etc. 
+ 
+ Association tables between entities and actors: 
+ 
+ worker-communication-assn 
+ employer-communication-assn 
+ worker-notes-assn 
+ etc, you get the drill.  
+ 
+ This feels like a "code smell" to me. Whenever a customer changes their role (i.e. promoted from "contact" to "employer"), a bunch of crazy scripts need to be run. Yuck... On the other hand, if i was operating in a purely OOP-driven world, this would be much easier - have a base class for all entities with common properties, and be done with it... 
+ In the DB world, that option seems theoretically possible, but sounds very messy... I.e. if I understand this right, I'd have a new base_actor table, and each other actor would have a base_actor_id, and then the associations would be between base_actor and the entities... But then, how do I do reverse-association queries? I.e. "show me all communications with just actors of type worker"? 
+ Any advice? Any general thoughts on the subject of "mapping OOP structures to relational DB"?  
+ 
+ Here's a solution I came up with about 10 years ago. The system that uses this design is still running, so it worked well enough to survive longer than most of my code. ;) Today I may use one of the ORM packages that Scott mentions, but there's really no huge problems just using SQL directly. 
+ 
+ Model all of your inheritance relations as joins between tables. Each table in your system will hold the attributes of a specific class. 
+ Use a synthetic object id (oid) as your primary key for all objects. A sequence generator or autoincrement column is necessary to generate oid values. 
+ All inherited classes must use the same oid type as their parent. Define the oid as a foreign key with cascaded delete. The parent table gets the autoincrement oid column and the children get plain oid columns. 
+ Queries on final classes are made on the corresponding table. You can either join all the parent class tables into the query or just lazy load the attributes you need. If your inheritance hierarchy is deep and you have many classes, an ORM package can really simplify your code. My system had less than 50 classes with a maximum inheritance depth of 3. 
+ Queries across child classes (i.e. queries on a parent class) can either lazy load the child attributes on a per-instance basis, or you can repeat the query for each child class joined with base classes. Lazy loading child attributes based on a parent class query requires you know the type of the object. You may have enough information in the parent classes already, but if not you'll need to add type information. Again, this is where an ORM package can help. 
+ 
+ Virtual classes without member attributes can be skipped in the table structure, but you won't be able to query based on those classes. 
+ Here's what "show me all communications with just actors of type worker" looks like. 
+ 
+ If you have sub-classes of communication, and you want to immediately load all the child class attributes (perhaps your system does not allow partial construction), the easiest solution is to eager join on all the possible classes. 
+ 
+ One last thing. Make sure you have a good database and correct indexes. Performance can be a serious problem if you database can't optimize these joins. 
+ 
+ 
+ .. It's about "how do I map OOP structures to database tables in a painless way." 
+ 
+ You don't. 
+ Object oriented and relational algebra are two fundamentally different paradigms. You can't transition between them without a subjective interpretation. This is called an impedance mismatch, and has been dubbed the  The Vietnam of Computer Science . 
+ 
+ It's called  ORM or Object Relational Mapping . There are dozens of products that purport to help you map OO structures to relational tables. Ruby on Rails, for example, offers Active Record to help bridge the divide. For PHP you have  Propel  and  Doctrine  and  Porte  and many others. 
+ 
+ What you are looking for is  Disjoint-subtypes  ... ORM is a hack. 
+ 
+ The apporach you suggest seems justified to me. You can add a actortype column to your actor-base table for differentiating between different types of actors. The PK of each specific actor table would be a FK to the actorbase table to avoid 'hairy' queries and to emulate the inheritance-like 'is-a' relationship. 
+ 
+ the best answer I've ever seen for this has been:
+ http://en.wikipedia.org/wiki/The_Third_Manifesto 
+ Unfortunately it's not something that fits in the space of a single answer here on stackoverflow. I will attempt to abbreviate it here, but I warn you that such an abbreviation will not be an accurate reflection of the third manifesto. Please redirect all criticisms of this solution to actually reading the damn thing, instead of assuming that you understand it fully from reading the abbreviation. Okay, here it goes. 
+ define three new column types named worker, employer, and contact. Store objects of each of these types, in columns of their respective types. Follow the standard rules of normalization for the rest of your data model. 
+ My feeling is that current popular database technology doesn't actually support the "correct" way to do these things, (specifically, many database systems don't allow the definition of new types). so it doesn't matter what you do, you'll always be forced into a compromise situation. But after reading the third manifesto, at least you'll know what you're compromising on. 
+ ORM is currently the overwhelmingly popular solution to the problem at the moment, but I do not believe it is the correct solution.  
+ 
+ It's probably worth your time getting familiar with Object Role Modeling as discussed in  this question . The biggest problem I see is that there is no existing accepted methodology for having a conceptual design discussion about relational data. The best you can do is logical modeling (ERMs usually). Object Role Modeling provides the basis for that discussion. I hope you'll see recognizable artifacts from a similar OOP design discussion you might have. 
+ 
+ Many RDBMS offer a table-inheritance feature, which links parent tables to child tables in much the same way as class inheritance.  the implementation varies a bit from vendor to vendor, but it can take some of the pain out of implementing similar concepts.   
+ Also, most RDBMSs have some combination of triggers, stored views and stored procedures that can separate behavior from implementation.  In many cases, such as PostgreSQL's rules (a generalization of views) offer very sophisticated encapsulation and are quite easy to use. 
+ 
+ A couple people have noted the object-relational impedance mismatch.  The best solution is to simply forgo the  RDBMS  in favor of the  OODBMS , which has recently regained popularity. 
+ That said, there aren't any object databases with APIs in pure PHP, as far as I know.  A quick search produced  this result  but it hasn't been updated in years.  On the other hand, I've heard of plenty of object databases for other languages, including  Hibernate ,  db4o , and  ZODB . 
+ 
+ I suggest you use LINQ for PHP. I do know about .Net LINQ, but I guess PHPLinq is worth a try. 
+ http://phplinq.codeplex.com/ 
+ 
+ To me it just looks like your data model is missing a level.  I would set it up more like this: 
+ **People**
+ Table - (Just information about the actual people) 
+ **Roles**
+ Table - (The types of roles people can have i.e. Worker, Employer, Contact - and information specific to that role) 
+ **PeopleRoles**
+ Table - (people_id, role_id, maybe start / modify dates etc.) 
+ **Entities**
+ Table - (Define the different types of Entities) 
+ **RoleEntities**
+ Table - (role_id, entity_id, etc.) 
+ Then changing a Person from one Role to another (or allowing them to have multiple roles) is a simple update. 
+ 

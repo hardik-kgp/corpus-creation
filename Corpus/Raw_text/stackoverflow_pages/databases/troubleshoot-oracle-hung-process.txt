@@ -1,0 +1,28 @@
+*** troubleshoot-oracle-hung-process ***
+
+ I'm trying to understand a problem we're having with a Java process that is hanging.  This process has been running in production for about 4 months and earlier this week it started hanging.  When I look at a thread dump of the process all of the relevant threads (3) have stacks like the following: 
+ 
+ There are no threads waiting for locks so the process isn't deadlocked.  These 3 threads that are doing the work are just blocked waiting for a response from Oracle, at least that is what it looks like to me. 
+ Looking at Oracle, when I query v$session, it looks like  one of the connections associated with these threads is currently executing a query, although I can't see the sql. 
+ 
+ My questions are: 
+ 
+ Am I correct in my analysis that the process is simply blocked waiting for a response from Oracle? 
+ What should I be looking for in Oracle to understand why this process is blocking? 
+ 
+ Updated: 
+ Based on the comment regarding looking in DBA_WAITERS and DBA_LOCKS 
+ 
+ There were 98 rows in dba_locks but since all are 'Not Blocking' I don't think it is a locking issue?  The process in question has been in this state for over 3 hours so any deadlock would have been detected by now. 
+ I'm of the theory that the Oracle instance is not "healthy", but I'm at a loss as to what to look at.  I have a request in to reboot the Oracle server, but that hasn't been done yet. 
+ Follow-up question:  Is it normal for the v$session to contain a sql_id that doesn't exist in v$sql and if so, under what conditions? 
+ 
+ The problem was solved and the answer was right in the v$session table.  Apparently Oracle sessions can block for reasons other than just locking. Notice the column FINAL_BLOCKING_SESSION - it identifies the session that is the root cause of the blocking.
+We investigated session 845 and found that the client process (identified by MACHINE and PORT) no longer existed.  The DBA killed session 845 and all returned to normal. 
+ 
+ 
+ I also encountered this problem recently, and used this query find locking/locked sessions in Oracle: 
+ 
+ Source:
+ http://www.dba-oracle.com/t_final_blocking_session_final_blocking_instance.htm 
+ 

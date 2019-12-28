@@ -1,0 +1,42 @@
+*** microservices-and-database-joins ***
+
+ For people that are splitting up monolithic applications into microservices how are you handling the connundrum of breaking apart the database.  Typical applications that I've worked on do a lot of database integration for performance and simplicity reasons. 
+ If you have two tables that are logically distinct (bounded contexts if you will) but you often do aggregate processing on a large volumes of that data then in the monolith you're more than likely to eschew object orientation and are instead using your database's standard JOIN feature to process the data on the database prior to return the aggregated view back to your app tier. 
+ How do you justify splitting up such data into microservices where presumably you will be required to 'join' the data through an API rather than at the database. 
+ I've read Sam Newman's Microservices book and in the chapter on splitting the Monolith he gives an example of "Breaking Foreign Key Relationships" where he acknowledges that doing a join across an API is going to be slower - but he goes on to say if your application is fast enough anyway, does it matter that it is slower than before? 
+ This seems a bit glib?  What are people's experiences?  What techniques did you use to make the API joins perform acceptably? 
+ 
+ 
+ When performance or latency doesn't matter too much (yes, we don't
+always need them) it's perfectly fine to just use simple RESTful APIs
+for querying additional data you need. If you need to do multiple
+calls to different microservices and return one result you can use
+ API Gateway  pattern. 
+ It's perfectly fine to have redundancy in  Polyglot persistence  environments. For example, you can use messaging queue for your microservices and send "update" events every time you change something. Other microservices will listen to required events and save data locally. So instead of querying you keep all required data in appropriate storage for specific microservice. 
+ Also, don't forget about caching :) You can use tools like  Redis  or  Memcached  to avoid querying other databases too often.    
+ 
+ 
+ It's OK for services to have read-only replicated copies of certain reference data from other services. 
+ Given that, when trying to refactor a monolithic database into microservices (as opposed to rewrite) I would  
+ 
+ create a db schema for the service 
+ create versioned* views** in that schema to expose data from that schema to other services 
+ do joins against these readonly views 
+ 
+ This will let you independently modify table data/strucutre without breaking other applications. 
+ Rather than use views, I might also consider using triggers to replicate data from one schema to another. 
+ This would be incremental progress in the right direction, establishing the seams of your components, and a move to REST can be done later. 
+ *the views can be extended. If a breaking change is required, create a v2 of the same view and remove the old version when it is no longer required.
+**or Table-Valued-Functions, or Sprocs. 
+ 
+ CQRS---Command Query Aggregation Pattern is the answer to thi as per Chris Richardson.
+   Let each microservice update its own data Model and generates the events which will update the materialized view having the required join data from earlier microservices.This MV could be any NoSql DB or Redis or elasticsearch which is query optimized. This techniques leads to Eventual consistency which is definitely not bad and avoids the real time application side joins.
+   Hope this answers. 
+ 
+ I would separate the solutions for the area of use, on let’s say operational and reporting. 
+ For the microservices that operate to provide data for single forms that need data from other microservices (this is the operational case) I think using API joins is the way to go. You will not go for big amounts of data, you can do data integration in the service. 
+ The other case is when you need to do big queries on large amount of data to do aggregations etc. (the reporting case). For this need I would think about maintaining a shared database – similar to your original scheme and updating it with events from your microservice databases. On this shared database you could continue to use your stored procedures which would save your effort and support the database optimizations. 
+ 
+ In Microservices you create diff. read models, so for eg: if you have two diff. bounded context and somebody wants to search on both the data then somebody needs to listen to events from both bounded context and create a view specific for the application. 
+ In this case there will be more space needed, but no joins will be needed and no joins. 
+ 

@@ -1,0 +1,79 @@
+*** oracle-jdbc-retrieving-timestamp-with-time-zone-value-in-iso-8601-format ***
+
+ A lot have been said (and written on SO) on parts of the subject, but not in a comprehensive, complete way, so we can have one "ultimate, covering-it-all" solution for everyone to use. 
+ I have an Oracle DB where I store date+time+timezone of global events, so original TZ must be preserved, and delivered to the client side upon request. Ideally, it could work nicely by using standard ISO 8601 "T" format which can be nicely stored in Oracle using "TIMESTAMP WITH TIME ZONE" column type ("TSTZ"). 
+ Something like  '2013-01-02T03:04:05.060708+09:00' 
+ All I need to do is to retrieve the above value from DB and send it to client without any manipulations. 
+ The problem is that Java lacks support of ISO 8601 (or any other date+time+nano+tz data type) and the situation is even worse, because Oracle JDBC driver (ojdbc6.jar) has even less support of TSTZ (as opposed to Oracle DB itself where it's well supported). 
+ Specifically, here's what I shouldn't or cannot do: 
+ 
+ Any mapping from TSTZ to java Date, Time, Timestamp (e.g. via JDBC getTimestamp() calls) won't work because I lose TZ. 
+ Oracle JDBC driver doesn't provide any method to map TSTZ to java Calendar object (this could be a solution, but it isn't there) 
+ JDBC getString() could work, but Oracle JDBC driver returns string in format  '2013-01-02 03:04:05.060708 +9:00', which is not compliant with ISO 8601 (no "T", no trailing 0 in TZ, etc.). Moreover, this format is hard-coded (!) inside Oracle JDBC driver implementation, which also ignores JVM locale settings and Oracle session formatting settings (i.e. it ignores NLS_TIMESTAMP_TZ_FORMAT session variable). 
+ JDBC getObject(), or getTIMESTAMPTZ(), both return Oracle's TIMESTAMPTZ object, which is practically useless, because it doesn't have any conversion to Calendar (only Date, Time and Timestamp), so again, we lose TZ information. 
+ 
+ So, here are the options I'm left with: 
+ 
+ Use JDBC getString(), and string-manipulate it to fix and make ISO 8601 compliant. This is easy to do, but there's a danger to die if Oracle changes internal hard-coded getString() formatting. Also, by looking at the getString() source code, seems like using getString() would also result in some performance penalty. 
+ Use Oracle DB "toString" conversion: "SELECT TO_CHAR(tstz...) EVENT_TIME ...". This works fine, but has 2 major disadvatages: 
+ 
+ Each SELECT now has to include TO_CHAR call which is a headache to remember and write 
+ Each SELECT now has to add EVENT_TIME column "alias" (needed e.g. to serialize the result to Json automatically)
+ . 
+ 
+ Use Oracle's TIMESTAMPTZ java class and extract relevant value manually from its internal (documented) byte array structure (i.e. implement my own toString() method which Oracle forgot to implement there). This is risky if Oracle changes internal structure (unlikely) and demands relatively complicated function to implement and maintain. 
+ I hope there's 4th, great option, but from looking all over the web and SO - I can't see any. 
+ 
+ Ideas? Opinions? 
+ **UPDATE**
+
+ A lot of ideas have been given below, but it looks like there is no proper way to do it. Personally, I think using  **method #1**
+ is the shortest and the most readable way (and maintains decent performance,  without losing sub-milliseconds or SQL time-based query capabilities ). 
+ This is what I eventually decided to use: 
+ 
+ Thanks for good answers everyone, 
+  B. 
+ 
+ A slight improvement to #2: 
+ 
+ The in SQL this becomes: 
+ 
+ It's more readable. 
+If you ever need to change it, it's 1 place. 
+The downside is it is an extra function call. 
+ 
+ 
+ JDBC getObject(), or getTIMESTAMPTZ(), both return Oracle's TIMESTAMPTZ object, which is practically useless, because it doesn't have any conversion to Calendar (only Date, Time and Timestamp), so again, we lose TZ information. 
+ 
+ That would be my recommendation as the only reliable way to get the information you seek. 
+ If you are on Java SE 8 and have ojdbc8 then you can use  ). Be aware that when you use  ) you may be affected by  bug 25792016 . 
+ 
+ Use Oracle's TIMESTAMPTZ java class and extract relevant value manually from its internal (documented) byte array structure (i.e. implement my own toString() method which Oracle forgot to implement there). This is risky if Oracle changes internal structure (unlikely) and demands relatively complicated function to implement and maintain. 
+ 
+ This is what we  ultimately went with  until bug free JSR-310 support is available in the Oracle JDBC driver. We determined this was the only reliable way to get the information we want. 
+ 
+ you need two values: time utc in millis since 1970 and timezone offset fom utc. 
+So store them as a pair and forward them as a pair. 
+ 
+ A Date is a pair of numbers. It is not a String. So a machine interface should not contain a date represented by a iso string, although that is handy to debug.
+If even java cannot parse that iso date, how do you think that your clients can do? 
+ If you design an interface to your clients, think how they can parse that. And in advance write a code that shows that. 
+ 
+ This is untested, but seems like it ought to be a workable approach.  I'm not sure about parsing the TZ name out, but just treating the two parts of the TZTZ object as separate inputs to Calendar seems like the was to go. 
+ I'm not sure whether longValue() will return the value in local or GMT/UCT.  If it's not GMT, you should be able to load a calendar as UTC and ask it for a Calendar converted to local TZ. 
+ 
+ 
+ Do you really care about sub-millisecond precision?  If not converting from a UTC millisecond + timezone-offset to your required string is a one-liner using joda-time: 
+ 
+ Prints, for example (current time in +9:00): 
+ 
+ Regarding the database:  Two columns, one for the offset, one for the date.  The date column could be an actual date type (thus making many, timezone-independent anyway, db date functions available).  For time-zone dependent queries (such as the mentioned global hourly histogram) perhaps a view could expose columns: local_hour_of_day, local_minute_of_hour, etc. 
+ This is likely how one would have to do it if no TSTZ datatype was available--which, considering Oralce's poor support, is the nearly the case for practical purposes.  Who wants to use an Oracle specific features anyway!  :-) 
+ 
+ Since it looks like there's no magical way of doing this right, the simplest and the shortest method would be #1. Specifically, this is all the code needed: 
+ 
+ it seems that just adding 'T' is enough, although a perfectionist would probably put more cosmetics (regex can optimized, of course), e.g.: rs.getString(col).replaceFirst(" ", "T").replaceAll(" ", "").replaceFirst("\+([0-9])\:", "+0$1:"); 
+ B. 
+ 
+ The solution with oracle is SELECT SYSTIMESTAMP FROM DUAL 
+ 

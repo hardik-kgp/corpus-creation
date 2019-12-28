@@ -1,0 +1,39 @@
+*** what-is-a-good-tool-for-the-investigation-of-database-connection-usage-in-java ***
+
+ What is a good tool for the investigation of Database Connection usage in Java? 
+ A developer is supporting a complex Java program which is ocassionally exhausting the number of Database connections available. Since the problem is sporadic it would be useful to know which thread has opened multiple connections to the database to focus the effort in this area. 
+ In the end, the correct fix seems to be to rewrite the program to reuse connections and not open multiple connections per thread. 
+ I am asking, what tools should the developer have in his tool box to be able to investigate the resources i.e. Database Connections that have been allocated by a thread. 
+ 
+ Not a specific tool, but rather a debugging technique for tracking down which code is responsible for open connections or other resources. 
+ I am assuming you are using a consistent method on the java side to get a db connection (pooled or not doesn't matter). 
+ The idea is to create a very light wrapper class around your connection factory/pool or whatever it is.  The wrapper will implement whatever jdbc interface makes sense so you can swap it in for your normal connection object but most methods will just transparently call/return the underlying connection. 
+ If you are using some sort of IoC framework (e.g. spring) you should be able to easily swap out the connection/factory class at a config level.  Now all your java code will be using your new db connection wrapper. 
+ If you are using a pool, then calling   usually just returns the object to the pool instead of destroying the connection.  So this technique works for normal connection leak or just "not returned to pool (pool exhausted)" leak. 
+ Now we just need to log the interesting bits and set a trap for leaked connections. 
+ Stack trace to identify creator 
+ In the constructor or factory method for your connection wrapper create a new   object and store it as a local variable within your wrapper for later.  We use a   because it is faster/cheaper than using  . 
+ Set the "trap" 
+ Implement the   method in your wrapper class.  This is a cleanup method called by the GC when the object is being destroyed because it is no longer used. 
+ The   method should check "am I closed?".  If already closed, then everything is fine... however if the connection is being GCed and it hasn't been closed... then this is a "leaked" connection.  
+ Now the   comes back into play.  We can grab the   and output a nice log message saying something like:  "I'm a leaked connection and here is a stack trace implicating my creator." 
+ Expanding the idea 
+ This method can be adapted for a variety of situations.  You can of course keep other types of data in your wrapper for troubleshooting your specific issue.  For instance creation time.  Then you can poll for long-lived connections and again implicate the creator.  Or you can poll existing connections and parse the   stack traces to get data on which code is using how many connections over time. 
+ There is probably an off-the-shelf tool that can also do these types of things, but the amount of code required to apply this technique is very minimal in most cases (assuming you have an easy way to swap our your db connection factory without search-replacing your whole codebase). 
+ 
+ Have a look at  log4jdbc . It enables you to have a look at all stuff going over your jdbc, including opening/closing connections as well as connection number information. 
+ 
+ Someone showed me  ConnLeakFinder  recently, "a simple tool to pinpoint jdbc connection leaks in java code". I haven't tested it myself so far but it should allow you  To see who did not close the connection after use . See  Connection+Leak+How+To+Find.htm . 
+ But indeed, you should conslder using a connection pool (for example  c3p0 ). 
+ 
+ Connection pools can give you some diagnostics. For example check out debugUnreturnedConnectionStackTraces property for C3P0 connection pool: 
+ http://www.mchange.com/projects/c3p0/index.html#debugUnreturnedConnectionStackTraces 
+ 
+ P6Spy   is an open source framework to support applications that intercept and optionally modify database statements. 
+ From  http://www.p6spy.com/about.html 
+The P6Spy distribution includes the following modules: 
+ 
+ P6Log. P6Log intercepts and logs the database statements of any application that uses JDBC. This application is particularly useful for developers to monitor the SQL statements produced by EJB servers, enabling the developer to write code that achieves maximum efficiency on the server.  P6Spy is designed to be installed in minutes and requires no code changes. 
+ P6Outage. P6Outage detects long-running statements that may be indicative of a database outage proble and will log any statement that surpasses the configurable time boundary during its execution. P6Outage was designed to minimize any logging performance penalty by logging only long running statements. 
+ 
+ 

@@ -1,0 +1,64 @@
+*** should-i-use-null-or-an-empty-string-to-represent-no-data-in-table-column ***
+
+ Null or empty string -- is one better than the other to represent no data in a table column? (I specifically use MySQL, but I'm thinking this is system-independent.) Are there major advantages/disadvantages to using one over the other, or is it simply programmer preference? 
+ 
+ I strongly disagree with everyone who says to unconditionally use NULL.  Allowing a column to be NULL introduces an additional state that you wouldn't have if you set the column up as NOT NULL.  Do not do this if you don't need the additional state.  That is, if you can't come up with a difference between the meaning of empty string and the meaning of null, then set the column up as NOT NULL and use empty string to represent empty.  Representing the same thing in two different ways is a bad idea. 
+ Most of the people who told you to use NULL also gave an example where NULL would mean something different than empty string.  And in those examples, they are right. 
+ Most of the time, however, NULL is a needless extra state that just forces programmers to have to handle more cases.  As others have mentioned, Oracle does not allow this extra state to exist because it treats NULL and empty string as the same thing (it is impossible to store an empty string in a column that does not allow null in Oracle). 
+ 
+ Null.  An empty string isn't "no data", it's data that happens to be empty. 
+ 
+ Null is better "" actually represents data and it wont register the same in your code 
+ 
+ In the context of the relational database model, null indicates "no value" or "unknown value".  It exists for exactly the purpose you describe. 
+ UPDATE: Sorry, I forgot to add that while most (all?) RDMBSs use this same definition for null, there are nuanced differences in how null is handled.  For example, MySQL and Oracle allow multiple nulls in a UNIQUE column (or set of columns), because null is not a value, and cannot be considered unique (null != null).  But the last time I used MS SQL Server, it only allowed a single null.  So you might need to consider the RDBMS behavior, and whether the column in question will be constrained or indexed. 
+ 
+ Neither. Represent absence of data as absence of tuples in a relation. 
+ For performance reasons you might want to avoid joins in some RDBMS' but try to design the model so that the information that can be missing is in a seperate relation. 
+ 
+ Here are a couple links from the MySQL site: 
+ http://dev.mysql.com/doc/refman/5.0/en/problems-with-null.html 
+ http://dev.mysql.com/doc/refman/5.0/en/working-with-null.html 
+ I did read once, that a   value is 2 bits, where as an empty string is only 1 bit. 99% of the time this won't make any difference, but in a very large table when it doesn't matter if   or  , then it might be better to use   if this is true. 
+ 
+ Always use NULL.  Consider the difference between "I don't know what this person's phone number is" (NULL) and "this person left it blank" (blank). 
+ 
+ Use the right tool for the job.  NULL can signify that no value was provided (yet) or it can signify that no value is applicable. 
+ But an empty string is information too.  It can signify that a value is applicable, and was given, but it happens to be an empty string. 
+ Allowing a column to contain both NULL and '' gives you the opportunity to distinguish between these cases.  In any case, it's not good to use one to signify the other. 
+ Be aware that in string concatenation, anything combined with NULL yields NULL.  For example: CONCAT(NULL, 'foo') yields NULL.  Learn to use the COALESCE() function if you want to convert NULL to some default value in an SQL expression. 
+ 
+ Most of the time null is better.  There are probably some situations where it makes little difference, but they are few.  Just remember when you query that   is not the same as   (in MySQL, at least). 
+ 
+ As far as I can tell, Oracle doesn't distinguish a difference. 
+ 
+ 
+ Consider why there is no data in the column.  Does it mean the table design is sloppy?  Despite not liking nulls, there are occasions when they are appropriate (or, appropriate enough), and the system won't usually die.  Just never allow nulls in anything that is a candidate key (primary or alternative key). 
+ 
+ Create a separate table for just the nullable column and a foreign key to the main table. If a record doesn't have data for that column then it won't have a record in the second table. This is the cleanest solution and you don't have to worry about handling nulls or giving special meaning to empty strings. 
+ 
+ NULL is a non-value that should be relegated to the dark ages from where it sprung. I have found that there is a non-trivial amount of programming required to handle special NULL cases that could easily be handled with a default value. 
+ Set the default for your column to be an empty string.
+Force the column to not allow null, which would most likely never happen once you assign a default value.
+Write your code blissfully ignoring the case where the column value is null. 
+ One huge issue I have always had with NULL is that "SELECT * from tbl WHERE column = NULL" will always return an empty result set.  NULL can never be equal to anything, including NULL. The speical keyword "column is null" is the only way to check for something being null.  If you back away from null, then the comparison will succeed: "column = ''" 7 rows returned. 
+ I've done two major DB implementations from scratch where in the end I've regretted using NULL. Next time, no NULLs for me! 
+ 
+ There is one important exception.  Bill Karwin stated "CONCAT(NULL, 'foo') yields NULL" which is true for most RDBMSs but NOT for Oracle. 
+ As suggested by James Curran above, Oracle chose this rather critical juncture to depart from standard SQL by treating NULLs and empty strings exactly the same.  Worse than just treating them the same, however, it can actually corrupt the meaning of a NULL value by returning something other than NULL when concatenating. 
+ Specifically, in oracle CONCAT(NULL, 'foo') yields 'foo'.  Thanks Oracle, I've now lost my nulls which may not matter to you but sure makes a difference when the data is passed to other RDBMSs for further processing. 
+ 
+ A "no data" value in a column should be represented by a default value.  Remember that NULL signifies an unknown value, that is, the column can have a value or not but you don't know it as of this time.   
+ In a loan application system for example, a NULL value on the Driver's License Number field means that the applicant or the loan processor didn't input the driver's license number.  The NULL value doesn't automatically mean the applicant doesn't have a license. He may or may not have a license, you just don't know it, that's why it's NULL.   
+ The ambiguity lies for string columns. A numeric column obviously contains a zero if there is no value. How can you represent a no value string? In the example above, for applicants with no driver's license, you can assign an arbitrary default value such as "none" or better yet an empty string. Just ensure that you use the default empty value in your other tables for consistency. 
+ On the issue of not using NULLs as a principle, there are instances where they are in fact essential. As someone who works with statistics extensively, it is common for data providers to give you data sets with incomplete data. For example, in a data set of GDP per country, you can find missing GDP figures in the earlier and later years.  One reason is that there is no official data for those years from the country's government. It will be incorrect to conclude that their GDP is zero (DUH!) and show a zero value in the extracted data or a graph.  The correct value is NULL, meaning you don't have the data yet. The end user correctly interprets the missing datapoints in the extracted data and graphs as NOT zero. Furthermore, it won't cause errors in your computations especially when you do averages.   
+ Some "rules" that make sense theoretically would in fact be a poor or incorrect solution in your case.   
+ 
+ I find NULL values to be helpful for referential integrity. In the case of MySQL if a field is set to NOT NULL, then an insert requires the data to be set; otherwise, NULL is a possible value and Foreign Key constraint is not enforced. 
+ 
+ id: primary key  
+ product_id: FOREIGN KEY NOT NULL  
+ ref_id: (NULLABLE) 
+ 
+ id and product_id area always required. ref_id can be set to NULL. However, if any other value is used it must satisfy the FOREIGN KEY constraint. 
+ 

@@ -1,0 +1,181 @@
+*** how-to-move-a-model-between-two-django-apps-django-1-7 ***
+
+ So about a year ago I started a project and like all new developers I didn't really focus too much on the structure, however now I am further along with Django it has started to appear that my project layout mainly my models are horrible in structure. 
+ I have models mainly held in a single app and really most of these models should be in their own individual apps, I did try and resolve this and move them with south however I found it tricky and really difficult due to foreign keys ect. 
+ However due to Django 1.7 and built in support for migrations is there a better way to do this now? 
+ 
+ I am removing the old answer as may result in data loss. As  ozan mentioned , we can create 2 migrations one in each app. 
+ First migration to remove model from 1st app. 
+ 
+ Edit migration file to include these operations. 
+ 
+ Second migration which depends on first migration and create the new table in 2nd app. After moving model code to 2nd app 
+ 
+ and edit migration file to something like this. 
+ 
+ 
+ This can be done fairly easily using  . Basically, we use a database operation to rename the table concurrently with two state operations to remove the model from one app's history and create it in another's. 
+ **Remove from old app**
+
+ 
+ In the migration: 
+ 
+ **Add to new app**
+
+ First, copy the model to the new app's model.py, then: 
+ 
+ This will generate a migration with a naive   operation as the sole operation. Wrap that in a   operation such that we don't try to recreate the table. Also include the prior migration as a dependency: 
+ 
+ 
+ I encountered the same problem.
+ Ozan's answer  helped me a lot but unfortunately was not enough. Indeed I had several ForeignKey linking to the model I wanted to move. After some headache I found the solution so decided to post it to solve people time. 
+ You need 2 more steps: 
+ 
+ Before doing anything, change all your   linking to   into  . Then run  
+ After doing Ozan's steps, re-convert your foreign keys: put back  instead of  . Then make the migrations again ( ). You can then migrate and it should work ( ) 
+ 
+ Hope it helps. Of course test it in local before trying in production to avoid bad suprises :) 
+ 
+ How I did it (tested on Django==1.8, with postgres, so probably also 1.7) 
+ Situation 
+ **app1.YourModel**
+
+ but you want it to go to:
+ **app2.YourModel**
+
+ 
+ Copy YourModel (the code) from app1 to app2. 
+ add this to app2.YourModel: 
+ 
+ $ python manage.py makemigrations app2 
+ A new migration (e.g. 0009_auto_something.py) is made in app2 with a migrations.CreateModel() statement, move this statement to the initial migration of app2 (e.g. 0001_initial.py) (it will be just like it always have been there). And now remove the created migration = 0009_auto_something.py 
+ Just as you act, like app2.YourModel always has been there, now remove the existence of app1.YourModel from your migrations. Meaning: comment out the CreateModel statements, and every adjustment or datamigration you used after that. 
+ And of course, every reference to app1.YourModel has to be changed to app2.YourModel through your project. Also, don't forget that all possible foreign keys to app1.YourModel in migrations have to be changed to app2.YourModel 
+ Now if you do $ python manage.py migrate, nothing has changed, also when you do $ python manage.py makemigrations, nothing new has been detected. 
+ Now the finishing touch: remove the Class Meta from app2.YourModel and do $ python manage.py makemigrations app2 && python manage.py migrate app2 (if you look into this migration you'll see something like this:) 
+ 
+ 
+ table=None, means it will take the default table-name, which in this case will be app2_yourmodel. 
+ 
+ DONE, with data saved. 
+ 
+ P.S during the migration it will see that that content_type app1.yourmodel has been removed and can be deleted. You can say yes to that but only if you don't use it. In case you heavily depend on it to have FKs to that content-type be intact, don't answer yes or no yet, but go into the db that time manually, and remove the contentype app2.yourmodel, and rename the contenttype app1.yourmodel to app2.yourmodel, and then continue by answering no. 
+ 
+ I get nervous hand-coding migrations (as is required by  Ozan's  answer) so the following combines Ozan's and  Michael's  strategies to minimize the amount of hand-coding required: 
+ 
+ Before moving any models, make sure you're working with a clean baseline by running  . 
+ Move the code for the Model from   to  
+ As recommended by @Michael, we point the new model to the old database table using the   Meta option on the "new" model: 
+ 
+ Run  .  This will generate   in   and   in  .  Technically, these migrations refer to the exact same table and would remove (including all data) and re-create the table. 
+ In reality, we don't want (or need) to do anything to the table.  We just need Django to believe that the change has been made.  Per @Ozan's answer, the   flag in   does this.  So we wrap all of the   entries  **IN BOTH MIGRATIONS FILES**
+ with  .  For example, 
+ 
+ becomes 
+ 
+ **EDIT**
+:  You also need to make sure the new "virtual"   migration depends on any migration that  **actually created or altered the original table**
+.  For example, if your new migrations are   (for the  ) and   (for the  ), the simplest thing to do is: 
+ 
+ Open   and copy its   dependency (e.g.   ).  This is the "immediately prior" migration in   and should include dependencies on all of the actual model building logic. 
+ Open    and add the dependency you just copied to its   list. 
+ 
+ 
+ **EDIT**
+:  If you have   relationship(s) to the model you're moving, the above may not work.  This happens because: 
+ 
+ Dependencies are not automatically created for the   changes 
+ We do not want to wrap the   changes in   so we need to ensure they are separate from the table operations. 
+ 
+ The "minimum" set of operations differ depending on the situation, but the following procedure should work for most/all   migrations: 
+ 
+ **COPY**
+ the model from   to  , set  , but DON'T change any FK references. 
+ Run   and wrap all   migration in   (see above)
+
+ 
+ As above, add a dependency in the     to the latest   migration 
+ 
+ Point all of the FK references to the new model.  If you aren't using string references, move the old model to the bottom of   (DON'T remove it) so it doesn't compete with the imported class. 
+ Run   but DON'T wrap anything in   (the FK changes should actually happen).  Add a dependency in all the   migrations (i.e.  ) to the   migration in   (you'll need this list for the next step so keep track of them).  For example: 
+ 
+ Find the migration that includes the   e.g.   and copy the name of that migration. 
+ Find all migrations that have a ForeignKey to that model (e.g. by searching   to find migrations like: 
+ 
+ Add the   migration as as a dependency: 
+ 
+ 
+ Remove the models from  
+ Run   and wrap the   migration in  .
+
+ 
+ Add a dependency to all of the   migrations (i.e.  ) from the previous step (may include migrations in   and  ). 
+ When I built these migrations, the   already depended on the   migrations so I didn't need to manually enforce it (i.e.   before  ). 
+ 
+ 
+ At this point, Django is good to go.  The new model points to the old table and Django's migrations have convinced it that everything has been relocated appropriately.  The big caveat (from @Michael's answer) is that a new   is created for the new model.  If you link (e.g. by  ) to content types, you'll need to create a migration to update the   table. 
+ I wanted to cleanup after myself (Meta options and table names) so I used the following procedure (from @Michael): 
+ 
+ Remove the   Meta entry 
+ Run   again to generate the database rename 
+ Edit this last migration and make sure it depends on the   migration.  It doesn't seem like it should be necessary as the   should be purely logical, but I've run into errors (e.g.   doesn't exist) if I don't. 
+ 
+ 
+ Another hacky alternative if the data is not big or too complicated, but still important to maintain, is to: 
+ 
+ Get data fixtures using  manage.py dumpdata 
+ Proceed to model changes and migrations properly, without relating the changes 
+ Global replace the fixtures from the old model and app names to the new 
+ Load data using  manage.py loaddata 
+ 
+ 
+ **This is tested roughly, so do not forget to backup your DB!!!**
+  
+ For example, there are two apps:   and  , we want to move model   from   to  . 
+ Create empty migrations for both apps: 
+ 
+ Let's assume, that new migrations are   and  , previuos top migrations are   and  . 
+ Add an operation that renames table for   model and renames its app_label in ProjectState to  . Do not forget to add dependency on   migration. The resulting   migration is: 
+ 
+ Add dependency on   to  .   is no-op migration that is needed to make sure that future   migrations will be executed after  . 
+ Move   from   to  . Then run: 
+ 
+ That's all! 
+ 
+ You can try the following (untested): 
+ 
+ move the model from   to  
+ migrate  ; make sure the schema migration depends on the latest   migration ( https://docs.djangoproject.com/en/dev/topics/migrations/#migration-files ) 
+ add a data migration to  , that copies all data from  
+ migrate  ; make sure the schema migration depends on the latest (data) migration of   -- that is: the migration of step 3 
+ 
+ Note that you will be  copying  the whole table, instead of  moving  it, but that way both apps don't have to touch a table that belongs to the other app, which I think is more important. 
+ 
+ Lets say you are moving model TheModel from app_a to app_b. 
+ An alternate solution is to alter the existing migrations by hand. The idea is that each time you see an operation altering TheModel in app_a's migrations, you copy that operation to the end of app_b's initial migration. And each time you see a reference 'app_a.TheModel' in app_a's migrations, you change it to 'app_b.TheModel'. 
+ I just did this for an existing project, where I wanted to extract a certain model to an reusable app. The procedure went smoothly. I guess things would be much harder if there were references from app_b to app_a. Also, I had a manually defined Meta.db_table for my model which might have helped. 
+ Notably you will end up with altered migration history. This doesn't matter, even if you have a database with the original migrations applied. If both the original and the rewritten migrations end up with the same database schema, then such rewrite should be OK. 
+ 
+ 
+ change the names of old models to ‘model_name_old’ 
+ makemigrations 
+ make new models named ‘model_name_new’ with identical relationships on the related models
+(eg. user model now has user.blog_old and user.blog_new) 
+ makemigrations 
+ write a custom migration that migrates all the data to the new model tables 
+ test the hell out of these migrations by comparing backups with new db copies before and after running the migrations 
+ when all is satisfactory, delete the old models 
+ makemigrations 
+ change the new models to the correct name ‘model_name_new’ -> ‘model_name’ 
+ test the whole slew of migrations on a staging server 
+ take your production site down for a few minutes in order to run all migrations without users interfering 
+ 
+ Do this individually for each model that needs to be moved.
+I wouldn’t suggest doing what the other answer says by changing to integers and back to foreign keys
+There is a chance that new foreign keys will be different and rows may have different IDs after the migrations and I didn’t want to run any risk of mismatching ids when switching back to foreign keys. 
+ 
+ Copied from my answer at  https://stackoverflow.com/a/47392970/8971048 
+ In case you need to move the model and you don't have access to the app anymore (or you don't want the access), you can create a new Operation and consider to create a new model only if the migrated model does not exist. 
+ In this example I am passing 'MyModel' from old_app to myapp.  
+ 
+ 

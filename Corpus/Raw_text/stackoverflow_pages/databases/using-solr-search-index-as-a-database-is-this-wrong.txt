@@ -1,0 +1,42 @@
+*** using-solr-search-index-as-a-database-is-this-wrong ***
+
+ My team is working with a third party CMS that uses Solr as a search index.  I've noticed that it seems like the authors are using Solr as a database of sorts in that each document returned contains two fields: 
+ 
+ The Solr document ID (basically a classname and database id) 
+ An XML representation of the entire object 
+ 
+ So basically it runs a search against Solr, download the XML representation of the object, and then instantiate the object from the XML rather than looking it up in the database using the id. 
+ My gut feeling tells me this is a bad practice.  Solr is a search index, not a database... so it makes more sense to me to execute our complex searches against Solr, get the document ids, and then pull the corresponding rows out of the database. 
+ Is the current implementation perfectly sound, or is there data to support the idea that this is ripe for refactoring? 
+ **EDIT:**
+ When I say "XML representation" - I mean one stored field that contains an XML string of all of the object's properties, not multiple stored fields. 
+ 
+ Yes, you can use SOLR as a database but there are some really serious caveats :  
+ 
+ SOLR's most common access pattern, which is over http doesnt respond particularly well to batch querying.  Furthermore, SOLR does NOT stream data --- so you can't lazily iterate through millions of records at a time.   **This means you have to be very thoughtful when you design large scale data access patterns with SOLR.**
+
+ Although SOLR performance scales horizontally (more machines, more cores, etc..) as well as vertically (more RAM, better machines, etc),  **its querying capabilities are severely limited compared to those of a mature RDBMS**
+.  That said, there are some excellent functions, like the field stats queries, which are quite convenient.   
+ Developers who are used to using relational databases will often run into problems when they use the same DAO design patterns in a SOLR paradigm, because of the way SOLR uses filters in queries.   **There will be a learning curve for developing the right approach to building an application that uses SOLR for part of its large queries or statefull modifications**
+. 
+ The "enterprisy" tools that allow for  **advanced session management and statefull entities that many advanced web-frameworks (Ruby, Hibernate, ...) offer will have to be thrown completely out the window**
+.   
+ Relational databases are meant to deal with complex data and relationships - and they are thus accompanied by state of the art metrics and automated analysis tools.   **In SOLR, I've found myself writing such tools and manually stress-testing alot, which can be a time sink**
+.   
+ Joining : this is the big killer.  Relational databases support methods for building and optimizing views and queries that join tuples based on simple predicates.   **In SOLR, there aren't any robust methods for joining data across indices.**
+  
+ Resiliency : For high availability, SolrCloud uses a distributed file system underneath (i.e. HCFS).  This model is quite different then that of a relational database, which usually does resiliency using slaves and masters, or RAID, and so on.  So you have to be ready to provide the resiliency infrastructure SOLR requires if you want it to be cloud scalable and resistent.   
+ 
+ That said - there are plenty of obvious advantages to SOLR for certain tasks : (see  http://wiki.apache.org/solr/WhyUseSolr ) -- loose queries are much easier to run and return meaningful results.  Indexing is done as a matter of default, so most arbitrary queries run pretty effectively (unlike a RDBMS, where you often have to optimize and de-normalize after the fact).   
+ **Conclusion:**
+ Even though you CAN use SOLR as an RDBMS, you may find (as I have) that there is ultimately "no free lunch" - and the cost savings of super-cool lucene text-searches and high-performance, in-memory indexing, are often paid for by less flexibility and adoption of new data access workflows. 
+ 
+ It's perfectly reasonable to use Solr as a database, depending on  your  application. In fact, that's pretty much what  guardian.co.uk is doing . 
+ It's definitely  not  bad practice per se. It's only bad if you use it the wrong way, just like any other tool at any level, even GOTOs. 
+ When you say "An XML representation..." I assume you're talking about having multiple stored Solr fields and retrieving this using Solr's XML format, and not just one big XML-content field (which would be a terrible use of Solr). The fact that Solr uses XML as default response format is largely irrelevant, you can also use a  binary protocol , so it's quite comparable to traditional relational databases in that regard. 
+ Ultimately, it's up to your application's needs. Solr  is  primarily a text search engine, but can also act as a NoSQL database for many applications. 
+ 
+ This was probably done for performance reasons, if it doesn't cause any problems I would leave it alone. There is a big grey area of what should be in a traditional database vs a solr index. Ive seem people do similar things  to this (usually key value pairs or json instead of xml) for UI presentation and only get the real object from the database if needed for updates/deletes. But all reads just go to Solr. 
+ 
+ I've seen similar things done because it allows for very fast lookup.  We're moving data out of our Lucene indexes into a fast key-value store to follow DRY principles and also decrease the size of the index.  There's not a hard-and-fast rule for this sort of thing. 
+ 

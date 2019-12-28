@@ -1,0 +1,110 @@
+*** are-soft-deletes-a-good-idea ***
+
+ 
+ 
+ 
+ 
+ 
+ This question already has answers here :
+                            
+                         
+ 
+ 
+ 
+ Physical vs. logical / soft delete of database record? 
+ 
+                                    (24 answers)
+                                 
+ 
+ Closed  6 years ago . 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Locked . This question and its answers are  locked  because the question is off-topic but has historical significance. It is not currently accepting new answers or interactions.
+                            
+                         
+ 
+ 
+ 
+ 
+ Are soft deletes a good idea or a bad idea? 
+ Instead of actually deleting a record in your database, you would just flag it as  , and upon recovery of the record you could just flag it as  . 
+ Is this a good idea? 
+ Is it a better idea to physically delete the record, then move it to an archive database, and if the user wants the record back, then software will look for the record in the archive and recreate it? 
+ 
+ I say it's a bad idea, generally (with some exceptions, perhaps).   
+ First, your database should be backed up regularly, so you should never be in a situation where you would lose data permanently because of a DELETE (unless it's a deletion of just-added data, of course). 
+ Second, a soft delete like this means you now have to include a   clause in every query on this table (and so much worse if you're JOINing these tables).  A mistake here would be caught as soon as a user or tester noticed a deleted record showing up again, which might take some time.  Also, it would be easy for a developer to omit the WHERE clause from COUNT(*) queries, which might take even longer to discover (I worked on one project where this had been happening for years; not many records were ever "deleted", so the totals were close to what was expected and no one noticed). 
+ Finally, a soft delete will work on a table with artificial keys, but potentially won't work on a table with a natural primary key (e.g. you "delete" someone from a table keyed by Social Security Number - what do you do when you need to add him back?  Please don't say "include IsDeleted in a compound primary key".). 
+ In a design review, I would expect the developer to demonstrate an awareness of the costs and benefits and to present an  excellent  reason for doing soft deletes in this manner.  "Why  not  do it?" is not an excellent reason. 
+ 
+ It's never a bad idea to avoid potential data loss. 
+ I always soft-delete.  In cases where the database needs to be scrubbed of one or more records, I generally employ either a two-step process of soft deletion and then emptying a "recycle bin" of records, or a document-management-style approach where document records can be aged away, and then go through an approval process prior to hard deletion. 
+ 
+ It depends on the circumstances. I could see situations where you are legally required to truly delete something. Maybe someone has requested that their social security number be permanently removed from your system. Or maybe you have a duplicate record that you want to consolidate into a single record. Keeping the duplicate hanging around with a deleted flag might not be advantageous. 
+ There is also one technical disadvantage: You can't do cascading deletions, which automatically clear out any references to the deleted data to prevent foreign key violations. This isn't necessarily a big issue, but it's something to keep in mind. 
+ Otherwise, I think it's a good idea. 
+ 
+ If you're going to use soft deletion, it's a good idea to have a deleted_date field, instead of an is_deleted field. You get a nice piece of extra data instead of just the bit field. 
+ 
+ One of the major problem for soft delete is those unwanted data will potentially affects the db performance. Several years ago one of my Client requested me to do soft delete on all database items, my solution to that is to move all "deleted" items to a backup table, instead of leaving it to the current running tables.  
+ 
+ It's a good idea when and if an invalid delete is absolutely catastrophic and recovery should be simple. It's also a good idea if you want to keep track of everything that has ever been and "delete" really only means "hide." Meaning, it's up to the situation. 
+ 
+ I will not try to be "politically correct about it". If you are advocating soft-delete then you need to go for a brain checkup.  
+ 1)
+First, what exactly are you achieving by not deleting the rows in table? Just the fact that sometime in future you can access those rows, right? So why not just create an archive Table and move the rows there? what is wrong with that? 
+ 2)
+With soft-delete you are creating unnecessary query on is_active or query on some time-stamp column. That is just waste when you would be writing simpler queries. Yes, it will work with a view but are views not an extra appendage? Every view is an extra SQL, extra performance cost, down under in any commercial RDBMS everything is a table only. There is nothing magical about views apart from the fact that you do not know how to write queries on top of tables. 
+ 3) Yes, it will work with a View or MV. But then I have seen queries in production doing FTS and everything still works! The wonders of modern hardware and solid software. But then that does not make it right either. So by same logic, just because it works does not mean it is  **RIGHT**
+
+ 4) The complexities of soft delete never ever stops at a simple select.  
+ A) Suppose you had a UNIQUE constraint. Now you soft-delete a row but the column with UNIQUE constraint is still there. When you want to add the same data back in, you cannot do that without additional "tricks".  
+ B) You may have associations going from Table A to Table B and when you soft delete something from Table A, you need to ensure that independent queries on Table B take care of that fact. Suppose a typical detail page was working on some detail_id.  
+ Now a master_id is soft deleted but you still have permalinks with  detail_id of that master_id everywhere. When you do hard  delete on master_id, those details simply do not exist. Now with soft delete they still exists and they have to be aware of the fact that their master_id is in soft-delete mode.  
+ it will not stop at a simple Table_A.is_active = 0 or 1 stage.  
+ 5) Doing hard deletes is simple and right.  
+ A) No one has to add anything extra or worried about anything anywhere.  
+ 
+ Your application logic is simpler   
+ Your database is smaller   
+ Your queries are faster 
+ 
+ Just archive the data + related pieces and you should be good. 
+ 
+ Soft deletes would also allow you to  revoke    privileges from the database account used by the  application. 
+ 
+ Some times soft deletes are necessary. For example, say you have an Invoice table that references a Products table. Once you have created an Invoice with a specific Product you could then never delete that Product (and if your RI is set up correctly it won't let you). 
+ This specific scenario assumes that you'll never want to delete the Invoices, which in a real company you probably wouldn't want to delete historical financial data. 
+ Though there are many other cases where you would not be able to delete some data as a side effect of a dependency up the chain not being deletable for reasons business or other. 
+ 
+ It depends on the data. Some data cannot be deleted due to legal/audit requirements. 
+ Social networking sites on the other hand  **should**
+ provide an option to delete an account with all associated data, including contact info, photos, messages, etc. It's a real annoyance if they don't, e.g. Facebook. 
+ 
+ in oracle, if you add the primary key to a recycle_bin table you make up, then add a row level security policy, you can suppress the values from all queries when the row is in the recycle bin, removing the pk from the recycle bin will automatically restore all data.  no need to change your other queries to accomodate the logic. 
+ 
+ It comes with a cost, though, because you need to update your queries and indexes to be able to exclude the deleted rows. 
+ Maybe instead of toggling a flag, move it to another "trash can" table. 
+ Also, one could say that is only a partial solution, because it covers only deletes, but when you update a row, you are still overwriting the old value.  
+ In general, I'd say never delete anything unless you really have to. Disk space is cheap these days. Of course, there are limits, there is data that you are legally bound to erase, there is data that is really not all that important, and maybe you do not need to keep the old data online and in the same table (an archive somewhere would also work). 
+ 
+ Just to add a cent. I always soft-delete; though it does cost the performance, but very slightly. Think about the cost, when your customer complains regarding your software that stopped functioning after she performed certain actions that even she can't remember. Well, this may be a fat example, but you would never know what went wrong, who did what, what was before and what was inserted afterwards. In that case this would come handy. This functionality comes handy for auditing purpose, and many a customer requests for auditing reports of this sort. 
+ Also, in most workflow based applications, it comes as a software feature/requirement that customer is interested in the "actions" performed on a work item; what values were assigned and who processed it, etc. 
+ 
+ I am a fan of soft-deletes.  Primarily to prevent cascading deletes.  However, it takes additional code so that if you are SELECTing a child object, it joins to the parent (and all parent!) objects to make sure none of them are deleted.  Alternatively you can cascade the soft-delete, but if you want to restore them later you may not know which children had already been deleted and which were deleted due to the cascade. 
+ Additionally, I keep a revision date time and revision username on each object, so that I know who modified (or soft-deleted) it last.  Then for an audit trail, I create a *History (like CustomerHistory) table that is inserted after every UPDATE to the original table.  This way after an object is modified or soft-deleted, I have a record of who performed the action as well as the last known state of the object. 
+ 
+ I encountered soft-deletes for the following broad scenarios:   
+ CASE 1: remove the record from being user/code visible, but have the record at the DB level since the business is interested in knowing it had that records. 
+These requirements are mostly driven by the business & usually at the core is perhaps a legal requirement (like @joshperry & @armandino scenarios) to have the previous record in the database & create a new record for every change made. At this point, I would look at CASE 2 & evaluate if it satifys the requirements before having an IsDeleted flag 
+ CASE 2: audit trails to keep track of the evolution of a record - there are tons of decent articles online for keeping audit trails of records in a database 
+ HTH. 
+ 

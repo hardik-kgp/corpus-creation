@@ -1,0 +1,38 @@
+*** how-can-i-measure-the-cost-of-a-database-index ***
+
+ Is there a good method for judging whether the costs of creating a database index in Postgres (slower  , time to build an index, time to re-index) are worth the performance gains (faster  )? 
+ 
+ I am actually going to disagree with Hexist.  PostgreSQL's planner is pretty good, and it supports good sequential access to table files based on physical order scans, so indexes are not necessarily going to help.  Additionally there are many cases where the planner has to pick an index.  Additionally you are already creating primary keys for unique constraints and primary keys. 
+ I think one of the good default positions with PostgreSQL (MySQL btw is totally different!) is to wait until you need an index to add one and then only add the indexes you most clearly need.  This is, however, just a starting point and it assumes either a lack of  a general lack of experience in looking at query plans or a lack of understanding of where the application is likely to go.  Having experience in these areas matters. 
+ In general, where you have tables likely to span more than 10 pages (that's 40kb of data and headers), it's a good idea to foreign keys.  These can be assumed tob e clearly needed.  Small lookup tables spanning 1 page should  never  have non-unique indexes because these indexes are never going to be used for selects (no query plan beats a sequential scan over a single page). 
+ Beyond that point you also need to look at data distribution.  Indexing boolean columns is usually a bad idea and there are better ways to index things relating to boolean searches (partial indexes being a good example).  Similarly indexing commonly used function output may seem like a good idea sometimes, but that isn't always the case.  Consider: 
+ 
+ This will not do much.  However an index on transdate might be useful if paired with a sparse index scan via a recursive CTE. 
+ Once the basic indexes are in place, then the question becomes what other indexes do you need to add.  This is often better left to later use case review than it is designed in at first.  It isn't uncommon for people to find that performance significantly benefits from having fewer indexes on PostgreSQL. 
+ Another major thing to consider is what sort of indexes you create and these are often use-case specific.  A b-tree index on an array record for example might make sense if ordinality is important to the domain, and if you are frequently searching based on initial elements, but if ordinality is unimportant, I would recommend a GIN index, because a btree will do very little good (of course that is an atomicity red flag, but sometimes that makes sense in Pg).  Even when ordinality is important, sometimes you need GIN indexes anyway because you need to be able to do commutitive scans as if ordinality was not.  This is true if using ip4r for example to store cidr blocks and using an EXCLUDE constraint to ensure that no block contains any other block (the actual scan requires using an overlap operator rather than a contain operator since you don't know which side of the operator the violation will be found on). 
+ Again this is somewhat database-specific.  On MySQL, Hexist's recommendations would be correct, for example.  On PostgreSQL, though, it's good to watch for problems. 
+ As far as measuring, the best tool is  
+ 
+ Generally speaking, unless you have a log or archive table where you wont be doing selects on very frequently (or it's ok if they take awhile to run), you should index on anything your select/update/deelete statements will be using in a where clause. 
+ This however is not always as simple as it seems, as just because a column is used in a where clause and is indexed, doesn't mean the sql engine will be able to use the index. Using the   and   capabilities of postgresql you can examine what indexes were used in selects and help you figure out if having an index on a column will even help you. 
+ This is generally true because without an index your select speed goes down from some O(log n) looking operation down to O(n), while your insert speed only improves from cO(log n) to dO(log n) where d is usually less than c, ie you may speed up your inserts a little by not having an index, but you're going to kill your select speed if they're not indexed, so it's almost always worth it to have an index on your data if you're going to be selecting against it. 
+ Now, if you have some small table that you do a lot of inserts and updates on, and frequently remove all the entries, and only periodically do some selects, it could turn out to be faster to not have any indexes.. however that would be a fairly special case scenario, so you'd have to do some benchmarking and decide if it made sense in your specific case. 
+ 
+ Nice question. I'd like to add a bit more what @hexist had already mentioned and to the info provided by @ypercube's link. 
+ By design, database don't know in which part of the table it will find data that satisfies provided  predicates . Therefore, DB will perform a full or sequential scan of all table's data, filtering needed rows. 
+ Index is a special data structure, that for a given   can precisely specify in which rows of the table  such  values will be found. The main difference when index is involved: 
+ 
+ there is a cost for the index scan itself, i.e. DB has to find a value in the index first; 
+ there's an extra cost of reading specific data from the table itself. 
+ 
+ Working with index will lead to a random IO pattern, compared to a sequential one used in the full scan. You can google for the comparison figures of random and sequential disk access, but it might differ up to an order of magnitude (random being slower of course). 
+ Still, it's clear that in some cases Index access will be cheaper and in others Full scan should be preferred. This depends on how many rows (out of all) will be returned by the specified predicate, or it's selectivity: 
+ 
+ if predicate will return a relatively small number of rows, say, less then 10% of total, then it seems valuable to pick those directly via Index. This is a typical case for Primary/Unique keys or queries like:  ; 
+ if predicate has no big impact on the selectivity, i.e. if 30% (or more) rows are returned, then it's cheaper to do a Full scan, 'cos sequential disk access will beat random and data will be delivered faster. All reports, covering big areas (like a month, or all customers) fall here; 
+ if there's a need to obtain an ordered list of values and there's an index, then doing Index scan is the fastest option. This is a special case of #2, when you need report data ordered by some column; 
+ if number of  distinct  values in the column is relatively small compared to a total number of values, then Index will be a good choice. This is a case called  Loose Index Scan , and typical queries will be like:  . 
+ 
+ How DB decides what to do, Index or Full scan? This is a runtime decision and it is based on the statistics, so make sure to keep those up to date. In fact, numbers provided above have no real life value, you have to evaluate each query independently. 
+ All this is a very rough description of what happens. I would very much recommended to look into  How PostgreSQL Planner Uses Statistics , this best what I've seen on the subject. 
+ 

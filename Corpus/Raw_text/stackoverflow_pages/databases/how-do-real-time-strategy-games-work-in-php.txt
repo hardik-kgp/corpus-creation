@@ -1,0 +1,30 @@
+*** how-do-real-time-strategy-games-work-in-php ***
+
+ Some MMO Real Time Strategy games such as Travian or oGame are coded in PHP. 
+ Could you briefly explain how such a game works behind the scenes ? How does the game make real time DB updates without player requests ? 
+ Also, what kind of server load / bandwidth would one have to expect when running a RTS game such as Travian with 1000 active players ? 
+ 
+ Even though this topic is rather old, I do think I still have a 'better' (if I may say so myself) answer to your question then the vague "the updates are done by cronjobs" answer. 
+ Travian i.e. gives you the illusion of it being real-time through the use of javascript. What actually happens in the back is the following: 
+ Player A sends an attack to player B. In the MySQL database this is recorded with a timestamp of arrival. Every time player A changes or refreshes a page a script gets launched (by using includes) that checks for any activity in regards to this player (reinforcements arriving, attacks arriving at targets etc.). The script obviously checks the current time and looks at all activities with a timestamp that is less than the current one. This means the action should have taken place. Right at that moment the action actually gets processed. 
+ This also means that if neither player A nor player B ever log in again that the attack will never be calculated, unless someone else also attacks player B - then all activities for player B and the attacking player will be processed. 
+ 
+ Usually there are two parts: The web interface and a background daemon (often called the "event handler"). 
+ The webinterface does all the readonly stuff and harmless things where race conditions are not a problem at all - password changes, renaming things, etc. 
+ More important things such as building units or fighting other players are submitted to the event handler where they'll be checked, validated and then stored until the execution time has been reached. Performing checks at this place instead of in the webinterface has the advantage that you completely remove the risk of race conditions (such as launching ships containing all units on a planet while at the same time building something expensive which would basically result in duplicating the available units of the player) as long as you ensure only one action/event runs at a given time (e.g. no multithreading, multiprocessing etc.). 
+ If yours is not fully realtime but uses "ticks" (e.g. actions only happen every x minutes), you can of course use a cronjob instead of a background daemon - but then you need to use some other way to avoid race conditions. 
+ 
+ In my own game I have a background daemon which has a RPC-like interface so in the webinterface I simply call a function   which will then connect to the background daemon via a socket and execute the given function, returning whatever that function returns. 
+ However, if I wrote a new game nowadays, I'd certainly go with an asynchronous solution such as node.js or one of the async python frameworks. It removes the need of having two different parts - but for some parts you'll have to take care about locking since whenever you return from one of your functions called by node itself, a callback from another event might be executed. 
+ 
+ The updates are done by cron jobs most likely or another possibility is that they do it at login/any page change. Bandwidth may vary a lot, based on how active users are, how much possibilities there are, etc. I think you should measure it on localhost/test hist with example requests because it depends very much on the project. 
+ Also, if there'll be considerable amount of players, etc., I'd think of not coding it in PHP+MySQL but in Python&PostgreSQL, maybe even Java, or another systems. 
+ 
+ Well as user1842120 said: Travian realtime is a illusion.. 
+ Ill simply explain how 'realtime' works in Web Games... 
+ Imagine there are 3 players, 2 of them are online.., P1 attacks P3, When reloading the page or changing page the script will be activated and P3 will be attacked.. 
+ P3 is offline, He can't see the attack but it's happening., When P3 comes online P3 sees that his/her village is being attacked, Simply: 
+ You only 1 need one client (Online user / Browser on page) to run the game....  
+ 
+ I think that I would ouse iframes and javascript to update them. So like 1 info iFrame that's hidden and qui/output iFrames who's url refers to php and which are updating all the time.  
+ 

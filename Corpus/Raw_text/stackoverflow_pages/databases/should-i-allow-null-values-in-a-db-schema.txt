@@ -1,0 +1,80 @@
+*** should-i-allow-null-values-in-a-db-schema ***
+
+ I know that logically, there are some cases where NULL values make sense in a DB schema, for example if some values plain haven't been specified. That said, working around DBNull in code tends to be a royal pain. For example, if I'm rendering a view, and I want to see a string, I would expect no value to be a blank string, not "Null", and I hate having to code around that scenario.  
+ Additionally, it makes querying easier. Admittedly, you can do "foo is not null" very easily, but for junior SQL devs, it's counter intuitive to not be able to use "foo != null" (and yes, I know about options to turn off ANSI nulls, etc, but that's definitely NOT simpler, and I don't like working away from the standard). 
+ What good reason is there for having/allowing nulls in a database schema? 
+ 
+ The most significant reason for allowing NULLS is that there is no reasonable alternative.  Logically, a NULL value represents "undefined".  For lack of NULLS, you'll end up trying to specify a "dummy" value wherever the result is undefined, and then you'll have to account for said "dummy" value in ALL of your application logic. 
+ I wrote a blog article on the reasons for including NULL values in your database.  You can find it  here .  In short, I DO believe that NULL values are an integral part of database design, and should be used  where appropriate . 
+ 
+ C.J. Date in his book "SQL and Relational Theory" (2009:  O'Reilly; ISBN 978-0-596-52306-0) takes a very strong stand against NULLs.  He demonstrates that the presence of NULLs in SQL gives wrong answers to certain queries.  (The argument does not apply to the relational model itself because the relational model does not allow NULLs.) 
+ I'll try to summarize his example in words.  He presents a table S with attributes SNO (Supplier Number) and City (City where supplier is located) and one row:  (S1, London).  Also a table P with attributes PNO (Part Number) and City (City where part is produced) and one row:  (P1, NULL).  Now he does the query "Get (SNO,PNO) pairs where either the supplier and part cities are different or the part city isn't Paris (or both)." 
+ In the real world, P1 is produced in a city that either is or is not Paris, so the query should return (S1, P1) because the part city either is Paris or is not Paris.  (The mere presence of P1 in table P means that the part has a city associated with it, even if unknown.)  If it is Paris, then supplier and part cities are different.  If it is not Paris, then the part city is not Paris.  However, by the rules of three-valued logic, ('London' <> NULL) evaluates to UNKNOWN, (NULL <> 'Paris') evaluates to UNKNOWN, and UNKNOWN OR UNKNOWN reduces to UNKNOWN, which is not TRUE (and not FALSE either), and so the row isn't returned.  The result of the query "SELECT S.SNO, P.PNO FROM S, P WHERE S.CITY <> P.CITY OR P.CITY <> 'Paris'" is an empty table, which is the wrong answer. 
+ I'm not an expert and not currently equipped to take the pro or con here.  I do consider C.J. Date to be one of the foremost authorities on relational theory.   
+ P.S. It is also true that you can use SQL as something other than a relational database.  It can do many things. 
+ 
+ 
+ What good reason is there for having/allowing nulls in a database schema? 
+ 
+ From the theory's point of view, having a   means that the value is not defined for a column. 
+ Use it wherever you need to say " I don't know / I don't care " to answer the question " What is the value of this column? " 
+ And here are some tips from performance's point of view: 
+ 
+ In  ,  's are not indexed. You can save the index space and speed up the queries by using  's for the values you don't need to index. 
+ In  , trailing  's occupy no space. 
+ Unlike zeroes,  's can be safely divided by. 
+ 's do contribute into  , but don't contribute into  
+ 
+ 
+ Nulls are good when your column can really have an unknown value which has no default.
+We can't answer if your column applies to that rule. 
+ for example if you have and end date you might be tempted to put in datetime.maxvalue in as the default isntead of null. it completely valid but you have to take into account reporting being done on that and stuff like that. 
+ 
+ In theory, there is no difference between theory and practice.  In practice, there is. 
+ In theory, you can design a database that never needs a NULL in it, because it's fully normalized.  Whenever a value is to be omitted, the entire row containing it can be omitted, so there's no need for any NULL. 
+ However, the extent of table decomposition you have to go through in order to get this result is just simply not worth the gain from the aspect of theoretical esthetics.  It's often best to let some columns contain NULLS.  
+ Good candidates for nullable columns are ones where, in addition to the data being optional,  you are never using the column in a comparison condition in a WHERE or HAVING clause.   Believe it or not, foreign keys often work OK with NULLS in them, to indicate an instance of a relationship that is not present.  INNER JOINS will drop the NULLS out along with the rows that contain them.  
+ When a value is often used in boolean conditions,  it's best to design so that NULLS won't happen. Otherwise you are apt to end up with the mysterious result that, in SQL,  the value of "NOT UNKNOWN" is "UNKNOWN".  This has caused bugs for a number of people before you. 
+ 
+ Generally, if you allow NULL for a column in a database, that NULL value has some separate  meaning  with regards to the structure of the database itself.  For example, in the  StackOverflow database schema , NULL for the ParentId or Tags column in the Post table indicates whether the post is a question or an answer.  Just make sure that in each case, the meaning is well documented. 
+ Now your particular complaint is about handling these values in client code.  There are two ways to mitigate the issue: 
+ 
+ Most cases with a meaning like the one described above should never come back to the client in the first place.  Use the NULL in your queries to gather the correct results, but don't return the NULL column itself. 
+ For the remaining cases, you can generally use functions like COALESCE() or ISNULL() functions to return something that's easier to process. 
+ 
+ 
+ A null is useful whenever you need to specify that there is no value at all. 
+ You could use a magic number instead, but it's more intuitive to handle nulls than to handle magic values, and it's easier to remember which value to handle. (Hm... was it -1 or 99999 or 999999 that was the magic value...?) 
+ Also, magic values doesn't have any real magic, there is no fail safe to keep you from using the value anyway. The computer doesn't know that you can't multiply 42 with -1 because -1 happens to be an unreasonable value in this situation, but it knows that you can't multiply 42 with null. 
+ For a textual value an empty string can work as "no value", but there are some drawbacks even there. If you for example have three spaces in a field it's not always possible to visually distinguish from the empty string, but they are different values. 
+ 
+ Nulls should and must be used anytime the information may not be available at the time the original data is entered (Example, ship date on an order). 
+ Certainly there are situations where nulls may indicate the need to redesign (a table consisting of mostly null entries in most fields is probably not properly normalized, a filed that contains all null values is probably not needed.) 
+ To not use nulls because your jr developers don't properly understand them indicates that you have a bigger problem than the nulls. Any developer who doesn't understand how to access data that includes nulls, needs to be given basic training in SQL. This is as silly as not using triggers to enforce data integrity rules because the devs forget to look at them when there is a problem or not using joins because the devs don't understand them or using select * because the devs are too lazy to add the field names. 
+ 
+ In addition to the great reasons mentioned in other answers NULL can be very important for new releases of existing products.  
+ Adding a new Nullable column to an already existing table has relatively low impact. Adding a new non-Nullable column is a much more involved process because of data migration. If you or your customers have lots of data the time and complexity of the migration can become a significant problem. 
+ 
+ Reasons for having nulls 
+ 
+ It's an accepted practice, and everyone who does database work knows how nulls function. 
+ It clearly shows that there is an absence of a value. 
+ 
+ 
+ For what it's worth, SQL-99 defines a predicate   which returns true or false, even if the operands are NULL. 
+ 
+ Is equivalent to: 
+ 
+ PostgreSQL, IBM DB2, and Firebird support  .  
+ Oracle and Microsoft SQL Server don't (yet).   
+ MySQL has their own operator  , which works like  . 
+ 
+ A database is corrupt to the extent that it contains null. 
+ 
+ There is NEVER a case where NULL makes sense logically. NULL is not a part of the relational model, and relational theory does not have such a concept as NULL. 
+ NULL is "useful", in the sense that crappy DBMS's leave you no other choice but to use it, at the PHYSICAL level, which those very same crappy DBMS's themselves gravely confuse with the logical level, and more or less force their users to do the same. 
+ 
+ I agree with most of the answers on here, but to phase it a different way, "you can't have a value that means two things".  It's just confusing.  Does 0 actually mean 0? or does it mean we don't know yet?  etc.   
+ 
+ When there is an entity that has no value for its attribute, then we use a null value. A null value is not 0, but it is nothing value. One example is most Korean names have no middle name. If there is a name attribute with first name, middle and last name, a special value null should be given. 
+ 

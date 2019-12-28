@@ -1,0 +1,146 @@
+*** insert-of-10-million-queries-under-10-minutes-in-oracle ***
+
+ I am working on a file loader program. 
+ The purpose of this program is to take an input file, do some conversions on its data and then upload the data into the database of Oracle. 
+ The problem that I am facing is that I need to optimize the insertion of very large input data on Oracle. 
+ I am uploading data into the table, lets say ABC. 
+ I am using the OCI library provided by Oracle in my C++ Program.
+In specific, I am using OCI Connection Pool for multi-threading and loading into ORACLE. ( http://docs.oracle.com/cd/B28359_01/appdev.111/b28395/oci09adv.htm  ) 
+ The following are the DDL statements that have been used to create the table ABC – 
+ 
+ I am currently using the following Query pattern to upload the data into the database. I am sending data in batches of 500 queries via various threads of OCI connection pool. 
+ Sample of SQL insert query used -  
+ 
+ EXECUTION PLAN by Oracle for the above query - 
+ 
+ The Run times of the program loading 1 million lines -  
+ 
+ I need to optimize and reduce this time further. The problem that I am facing is when I put 10 million rows for uploading. 
+ The average run time for  **10 million**
+ came out to be  =  **21 minutes**
+
+ **(My target is to reduce this time to below 10 minutes)**
+
+ So I tried the following steps as well - 
+ [1]
+Did the partitioning of the table ABC on the basis of  **seq_no**
+.
+Used  **30 partitions**
+.
+Tested with  **1 million rows**
+ - The performance was very poor. almost  **4 times more than the unpartitioned table.**
+
+ [2]
+Another partitioning of the table ABC on the basis of  **last_chg_date**
+.
+Used  **30 partitions**
+. 
+ 2.a) Tested with 1 million rows -  **The performance was almost equal to the unpartitioned table.**
+ Very little difference was there so it was not considered. 
+ 2.b) Again  **tested the same with 10 million rows. The performance was almost equal**
+ to the unpartitioned table. No noticable difference. 
+ The following was the DDL commands were used to achieve partitioning - 
+ 
+ CODE that I am using in the thread function (written in C++), using OCI -  
+ 
+ While the post was being answered, I was suggested several methods to optimize my  **INSERT QUERY**
+.
+I have chosen and used  **QUERY I**
+ in my program for the following reasons that I discovered while testing the various INSERT Queries.
+On running the SQL Queries that were suggested to me - 
+ **QUERY I -**
+
+ 
+ **EXECUTION PLAN by Oracle for Query I -**
+
+ 
+ **QUERY II -**
+
+ 
+ **EXECUTION PLAN by Oracle for Query II -**
+
+ 
+ As per the experiments the  **Query I is faster**
+. 
+ Here I tested on both Oracle SQL Developer , as well as I sent insert queries by my C++ program (FILELOADER) as well. 
+ On Further reading about it, I found out that the cost shown by the Execution Plan is the number of CPU the query will use to process itself.
+ **That tells that Oracle will use more CPU to process the first query and that is why its cost goes on to be = 8.**
+
+ Even by using the same insert pattern via my application, I found out that its performance it almost 1.5 times better. 
+ I need some insight on how I can improve the performance even further..?
+All the things that I have tried, I have summarized them in my question.
+If I find or discover anything relevant, I will add to this question. 
+ My target in to bring the  **upload time of 10 million queries under 10 minutes**
+. 
+ 
+ I know others have mentioned this and you don't want to hear it but use  SQL*Loader  or  external tables . My average load time for tables of approximately the same width is 12.57  seconds  for just over 10m rows. These utilities have been explicitly designed to load data into the database quickly and are pretty good at it. This may incur some additional time penalties depending on the format of your input file, but there are quite a few options and I've rarely had to change files prior to loading. 
+ If you're unwilling to do this then you don't have to upgrade your hardware yet; you need to remove every possible impediment to loading this quickly. To enumerate them, remove: 
+ 
+ The index 
+ The trigger 
+ The sequence 
+ The partition 
+ 
+ With all of these you're obliging the database to perform more work and because you're doing this transactionally, you're not using the database to its full potential. 
+ Load the data into a separate table, say  . After the data has been completely loaded perform a  single  INSERT statement into ABC. 
+ 
+ When you do this (and even if you don't) ensure that the sequence cache size is correct;  to quote : 
+ 
+ When an application accesses a sequence in the sequence cache, the
+  sequence numbers are read quickly. However, if an application accesses
+  a sequence that is not in the cache, then the sequence must be read
+  from disk to the cache before the sequence numbers are used. 
+ If your applications use many sequences concurrently, then your
+  sequence cache might not be large enough to hold all the sequences. In
+  this case, access to sequence numbers might often require disk reads.
+  For fast access to all sequences, be sure your cache has enough
+  entries to hold all the sequences used concurrently by your
+  applications. 
+ 
+ This means that if you have 10 threads concurrently writing 500 records each using this sequence then you need a cache size of 5,000. The  ALTER SEQUENCE  document states how to change this: 
+ 
+ If you follow my suggestion I'd up the cache size to something around 10.5m. 
+ Look into using the  APPEND hint   (see also Oracle Base) ; this instructs Oracle to use a direct-path insert, which appends data directly to the end of the table rather than looking for space to put it. You won't be able to use this if your table has indexes but you could use it in  
+ 
+ If you use the APPEND hint; I'd add  TRUNCATE    after you've inserted into   otherwise this table will grow indefinitely. This should be safe as you will have finished using the table by then. 
+ You don't mention what version or edition or Oracle you're using. There are a number of extra little tricks you can use: 
+ 
+ **Oracle 12c**
+
+ This version supports  identity columns ; you could get rid of the sequence completely. 
+ 
+ **Oracle 11g r2**
+
+ If you keep the trigger; you can assign the sequence value directly. 
+ 
+ **Oracle Enterprise Edition**
+
+ If you're using Oracle Enterprise you can speed up the INSERT from   by using the  PARALLEL hint : 
+ 
+ This can cause it's own problems (too many parallel processes etc), so test. It  might  help for the smaller batch inserts but it's less likely as you'll lose time computing what thread should process what. 
+ 
+ 
+ **tl;dr**
+
+ Use the utilities that come with the database.  
+ If you can't use them then get rid of everything that might slow the insert down and do it in bulk, 'cause that's what the database is good at. 
+ 
+ If you have a text file you should try  SQL LOADER  with direct path. It is really fast and it is designed for this kind of massive data loads. Have a look at this  options  that can improve the performance.  
+ As a secondary advantage for ETL, your file in clear text will be smaller and easier to audit than 10^7 inserts.  
+ If you need to make some transformation you can do it afterwards with oracle.  
+ 
+ You should try bulk insert your data. For that purpose, you can use  OCI*ML . The discussion of it  is here . Noteable article  is here .
+Or you may try Oracle SQL Bulk Loader   itself to increase your upload speed. To do that, serialize the data into csv file and call SQLLDR passing csv as an argument. 
+ Another possible optimization is transaction strategy. Try insert all data in 1 transaction per thread/connection. 
+ Another approach is to use  MULTIPLE INSERT : 
+ 
+ instead  . 
+ Your sample data looks interindependent, that leads to inserting 1 significant row, then extending it into 4 rows with post-insert sql query. 
+ Also, turn off all indexes before insert batch (or delete them and re-create on bulk done). Table Index reduces insert perfomance while you dont actually use it at that time (it calculates some id over every inserted row and performs corresponding operations). 
+ Using prepared statement syntax should speed up upload routine due server would have an already parsed cached statement. 
+ Then, optimize your C++ code:
+  move ops out of cycle: 
+ 
+ 
+ By the way, did you try to increase number of physical clients, not just threads? By running in a cloud on several VMs or on several physical machines. I recently read comments I think from Aerospike developers where they explain that many people are unable to reproduce their results just because they don't understand it's not that easy to make a client actually send that much queries per second (above 1M per second in their case). For instance, for their benchmark they had to run 4 clients in parallel. Maybe this particular oracle driver just is not fast enough to support more than 7-8 thousands of request per second on single machine? 
+ 

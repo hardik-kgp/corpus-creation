@@ -1,0 +1,104 @@
+*** ways-to-save-enums-in-database ***
+
+ What is the best way to save enums into a database? 
+ I know Java provides   and   methods to convert enum values into a String and back. But are there any other (flexible) options to store these values? 
+ Is there a smart way to make enums into unique numbers (  is not safe to use)? 
+ **Update:**
+
+ Thanks for all awesome and fast answers! It was as I suspected. 
+ However a note to 'toolkit'; That is one way. The problem is that I would have to add the same methods to each Enum type I create. Thats a lot of duplicated code and, at the moment, Java does not support any solutions for this (a Java enum cannot extend other classes). 
+ 
+ We  never  store enumerations as numerical ordinal values anymore; it makes debugging and support way too difficult. We store the actual enumeration value converted to string: 
+ 
+ and then read back with: 
+ 
+ The problem was in the past staring at Enterprise Manager and trying to decipher: 
+ 
+ verses 
+ 
+ the latter is much easier. The former required getting at the source code and finding the numerical values that were assigned to the enumeration members. 
+ Yes it takes more space, but the enumeration member names are short, and hard drives are cheap, and it is much more worth it to help when you're having a problem. 
+ Additionally, if you use numerical values, you are tied to them. You cannot nicely insert or rearrange the members without having to force the old numerical values. For example, changing the Suit enumeration to: 
+ 
+ would have to become : 
+ 
+ in order to maintain the legacy numerical values stored in the database. 
+ How to sort them in the database 
+ The question comes up: lets say i wanted to order the values. Some people may want to sort them by the enum's ordinal value. Of course, ordering the cards by the numerical value of the enumeration is meaningless: 
+ 
+ That's not the order we want - we want them in enumeration order: 
+ 
+ The same work that is required if you save integer values is required if you save strings: 
+ 
+ But that's not the order we want - we want them in enumeration order: 
+ 
+ My opinion is that this kind of ranking belongs in the user interface. If you are sorting items based on their enumeration value: you're doing something wrong.  
+ But if you wanted to really do that, i would create a   dimension table: 
+ 
+ This way, when you want to change your cards to use  **Kissing Kings**
+** New Deck Order**
+ you can change it for display purposes without throwing away all your data: 
+ 
+ Now we are separating an internal programming detail (enumeration name, enumeration value) with a display setting meant for users: 
+ 
+ 
+ Unless you have specific performance reasons to avoid it, I would recommend using a separate table for the enumeration.  Use foreign key integrity unless the extra lookup really kills you. 
+ **Suits table:**
+
+ 
+ **Players table**
+
+ 
+ 
+ If you ever refactor your enumeration to be classes with behavior (such as priority), your database already models it correctly 
+ Your DBA is happy because your schema is normalized (storing a single integer per player, instead of an entire string, which may or may not have typos). 
+ Your database values ( ) are independent from your enumeration value, which helps you work on the data from other languages as well. 
+ 
+ 
+ I would argue that the only safe mechanism here is to use the String   value. When writing to the DB, you  could  use a sproc to insert the value and when reading, use a View. In this manner, if the enums change, there is a level of indirection in the sproc/view to be able to present the data as the enum value without "imposing" this on the DB. 
+ 
+ As you say, ordinal is a bit risky. Consider for example: 
+ 
+ If you stored this as ordinals, you might have rows like: 
+ 
+ But what happens if you updated Boolean? 
+ 
+ This means all your lies will become misinterpreted as 'file-not-found' 
+ Better to just use a string representation 
+ 
+ For a large database, I am reluctant to lose the size and speed advantages of the numeric representation. I often end up with a database table representing the Enum. 
+ You can enforce database consistency by declaring a foreign key -- although in some cases it might be better to not declare that as a foreign key constraint, which imposes a cost on every transaction. You can ensure consistency by periodically doing a check, at times of your choosing, with: 
+ 
+ The other half of this solution is to write some test code that checks that the Java enum and the database enum table have the same contents. That's left as an exercise for the reader. 
+ 
+ We just store the enum name itself - it's more readable. 
+ We did mess around with storing specific values for enums where there are a limited set of values, e.g., this enum that has a limited set of statuses that we use a char to represent (more meaningful than a numeric value): 
+ 
+ and when you have a lot of values you need to have a Map inside your enum to keep that getFromXYZ method small. 
+ 
+ If saving enums as strings in the database, you can create utility methods to (de)serialize any enum: 
+ 
+ 
+ All my experience tells me that safest way of persisting enums anywhere is to use additional code value or id (some kind of evolution of @jeebee answer). This could be a nice example of an idea: 
+ 
+ Now you can go with any persistence referencing your enum constants by it's code. Even if you'll decide to change some of constant names, you always can save code value (e.g.   to  ) 
+ Ok, dive some more deeper with this conception. Here is some utility method, that helps you find any enum value, but first lets extend our approach. 
+ 
+ And let our enum implement it: 
+ 
+ This is the time for magic search method: 
+ 
+ And use it like a charm:  
+ 
+ I have faced the same issue where my objective is to persist Enum String value into database instead of Ordinal value.  
+ To over come this issue, I have used   and my objective got resolved. 
+ For Example, you have an   Class: 
+ 
+ In the entity class, define  : 
+ 
+ While you try to set your value to Database, String value will be persisted into Database as " ", " " or " ". 
+ 
+ Multiple values with OR relation for one, enum field.
+The concept for .NET with storing enum types in database like a byte or an int and using FlagsAttribute in your code. 
+ http://blogs.msdn.com/b/efdesign/archive/2011/06/29/enumeration-support-in-entity-framework.aspx 
+ 

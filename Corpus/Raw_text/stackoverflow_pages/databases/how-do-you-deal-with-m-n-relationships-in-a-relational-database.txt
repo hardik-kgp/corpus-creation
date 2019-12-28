@@ -1,0 +1,67 @@
+*** how-do-you-deal-with-m-n-relationships-in-a-relational-database ***
+
+ Let's look at an example - books. A book can have 1..n authors. An author can have 1..m books. What is a good way to represent all of the authors of a book? 
+ I came up with an idea to create a Books table and an Authors table. The Authors table has a primary AuthorID key the author's name. The Books table has a primary Book ID and metadata about the book (title, publication date, so on). However, there needs to be a way to link the books to authors and authors to books. And this is where the problem is. 
+ Let's say we have three books by Bob. However, on one book, he wrote it as Bob, PhD. Another he wrote as Dr. Bob, and a third he wrote as Dr. Robert. I want to be able to identify the fact that these authors are, in reality, the same person but credited under different names. I also want to distinguish Bob from another Bob who wrote different books. 
+ Now let's also add in another part to an application, a Person table that keeps track of interesting people. And let's say that Bob is an interesting person. I want to not only say that the author of all three books is Bob, but that this interesting Bob is the same Bob as the author Bob. 
+ So what strategies exist for such potentially complicated mapping, while ensuring that the book authors are identified by the name on the cover? 
+ 
+ Add another table called BookAuthors with columns for BookID, AuthorID, and NameUsed.  A NULL value for NameUsed would mean to pull it from the Author's table instead.  This is called an Intersection table. 
+ 
+ You'd need three tables -  
+ 
+ Book 
+ Author 
+ BookAuthors 
+ 
+ Book would contain book id, book title, and all the other information you need to collect about the book. 
+ Author would contain author ID as well as other information such as First name, last name that you need to collect about any given author. 
+ BookAuthors would be a many-to-many join, containing BookID, AuthorID, and NameUsed. This would allow the book to have either zero or many authors, for an author to have either zero or many books, and for information about that relationship to be captured. You could also, for example, have a column on the BookAuthor table that described the author's relationship to the book ("Edited By", "Fore word by"). 
+ 
+ I think you're pretty much there.  You need a Books table, an Authors table, and then a "authors_of_books" table with the primary key of the book, the primary key of the author, and a "cited as" text field showing how that particular author was cited on that book. 
+ 
+ This sounds like a many-to-many relationship, not a 1-to-many.  I think you'll want to use a table between those two that allows you to define 1-to-many on either side of that.  Check this out... 
+ http://www.tekstenuitleg.net/en/articles/database_design_tutorial/8 
+ 
+ Given that Dr. Bob and Dr. Robert and Bob, PhD are all the same person, they would link to the same row in the authors table. 
+ However, I think what you need is a person table that authors links to.  You could also link your interesting person table to it.  That way Author Bob and Author Robert as well as Interesting Bob link to Person Bob.  Hope that makes sense. 
+ 
+ The first thing that comes to mind is to have a link table, perhaps called AuthorOf to link books with their authors.   
+ The columns would be AuthorID, BookID and perhaps CreditAs, so you can differentiate between Dr. Bob and Bob, PhD.  (As well as pen names like Stephen King and Richard Bachman).   
+ And you can still uniquely identify the author. 
+ 
+ It really looks like you are wanting to create a series of custom join tables, that are used to associate items from one entity to another. 
+ I would start at the most granular level, person and say that ANY author must be a person.  I would simplify that process. 
+ Create a person table with person information and a PersonId, put the information in there. 
+ THen create a BookAuthors table, with 3 columns BookId, PersonId, TitledName.  THis way you can use a different name if needed, if not, you can use COALESE or something similar to get the default name if TitledName is null. 
+ Just an idea.. 
+ 
+ What you're asking really is not how you deal with 1..n relationships, but n..n relationships (as effectively on author and have many books, and one book can have many authors). 
+ The classic way to handle this is via an intermediate table, so 
+ Author table (authorID, authorDetails)
+Book table (bookID, book details)
+AuthorBook table (authorID, bookID) 
+ If you're really bothered about changing author names then use a 1..n author details table, so add 
+ AuthorDetails (authorID, itemID, authorDetails) 
+ and remove authorDetails from the author table 
+ 
+ For 1..n relationship (author has many books, author has many aliases): 
+ 
+ Put a foreign key author_id in Books pointing at author. 
+ Create a new table, author_aliases, to hold the aliases information. 
+ Put a foreign key alias_id in Books pointing at alias (nullable if author details are defaul). 
+ Put author_id foreign key in author_aliases. 
+ 
+ If you wish, you can use intermediary tables to link authors and books, but with a 1..n mapping I don't think this is necessary.  
+ For an n..m relationship (author has many books, book has many authors): 
+ You would have to use an intermediary join table (author_id, alias_id, book_id) instead of foreign keys in the book table. You will want to keep the foreign key from aliases to author (for easy lookup of author aliases without having to go via all their books). 
+ You can argue that in terms of scalability in the future this is a better way to start off as well, even if the initial specification says something is a 1..n relationship. You will find that specifications (or question) as given often are inadequate, so you will want to design in the general manner for when the specifications change or are clarified. 
+ 
+ a possible implementation in postgresql, just for the fun of it: 
+ 
+ one could use "using" instead of the natural join: 
+ 
+ or do the complicated thing for mysql compatibility (note that mysql would also need an explicit maximal length for the varchars above): 
+ 
+ this example doesn't use the "people" table, only an "interesting" flag to authors. please note that  nothing  changes (structurally), if you rename "authors" to "people" 
+ 

@@ -1,0 +1,76 @@
+*** advantages-and-disadvantages-of-guid-uuid-database-keys ***
+
+ I've worked on a number of database systems in the past where moving entries between databases would have been made a lot easier if all the database keys had been  GUID / UUID  values. I've considered going down this path a few times, but there's always a bit of uncertainty, especially around performance and un-read-out-over-the-phone-able URLs. 
+ Has anyone worked extensively with GUIDs in a database? What advantages would I get by going that way, and what are the likely pitfalls? 
+ 
+ Advantages: 
+ 
+ Can generate them offline.  
+ Makes replication trivial (as opposed to int's, which makes it REALLY hard) 
+ ORM's usually like them 
+ Unique across applications. So We can use the PK's from our CMS (guid) in our app (also guid) and know we are NEVER going to get a clash. 
+ 
+ Disadvantages: 
+ 
+ Larger space use, but space is cheap(er) 
+ Can't order by ID to get the insert order. 
+ Can look ugly in a URL, but really, WTF are you doing putting a REAL DB key in a URL!? (This point disputed in comments below) 
+ Harder to do manual debugging, but not that hard. 
+ 
+ Personally, I use them for most PK's in any system of a decent size, but I got "trained" on a system which was replicated all over the place, so we HAD to have them. YMMV. 
+ I think the duplicate data thing is rubbish - you can get duplicate data however you do it. Surrogate keys are usually frowned upon where ever I've been working. We DO use the WordPress-like system though: 
+ 
+ unique ID for the row (GUID/whatever). Never visible to the user. 
+ public ID is generated ONCE from some field (e.g. the title - make it the-title-of-the-article) 
+ 
+ **UPDATE:**
+
+So this one gets +1'ed a lot, and I thought I should point out a big downside of GUID PK's: Clustered Indexes. 
+ If you have a lot of records, and a clustered index on a GUID, your insert performance will SUCK, as you get inserts in random places in the list of items (thats the point), not at the end (which is quick) 
+ So if you need insert performance, maybe use a auto-inc INT, and generate a GUID if you want to share it with someone else (ie, show it to a user in a URL) 
+ 
+ @Matt Sheppard: 
+ Say you have a table of customers. Surely you don't want a customer to exist in the table more than once, or lots of confusion will happen throughout your sales and logistics departments (especially if the multiple rows about the customer contain different information). 
+ So you have a customer identifier which uniquely identifies the customer and you make sure that the identifier is known by the customer (in invoices), so that the customer and the customer service people have a common reference in case they need to communicate. To guarantee no duplicated customer records, you add a uniqueness-constraint to the table, either through a primary key on the customer identifier or via a NOT NULL + UNIQUE constraint on the customer identifier column. 
+ Next, for some reason (which I can't think of), you are asked to add a GUID column to the customer table and make that the primary key. If the customer identifier column is now left without a uniqueness-guarantee, you are asking for future trouble throughout the organization because the GUIDs will always be unique. 
+ Some "architect" might tell you that "oh, but we handle the  real  customer uniqueness constraint in our app tier!". Right. Fashion regarding that general purpose programming languages and (especially) middle tier frameworks changes all the time, and will generally never out-live your database. And there is a very good chance that you will at some point need to access the database without going through the present application. == Trouble. (But fortunately, you and the "architect" are long gone, so you will not be there to clean up the mess.) In other words: Do maintain obvious constraints in the database (and in other tiers, as well, if you have the time). 
+ In other words: There may be good reasons to add GUID columns to tables, but please don't fall for the temptation to make that lower your ambitions for consistency within the  real  (==non-GUID) information. 
+ 
+ Why doesn't anyone mention performance? When you have multiple joins, all based on these nasty GUIDs the performance will go through the floor, been there :( 
+ 
+ The main advantages are that you can create unique id's without connecting to the database. And id's are globally unique so you can easilly combine data from different databases. These seem like small advantages but have saved me a lot of work in the past. 
+ The main disadvantages are a bit more storage needed (not a problem on modern systems) and the id's are not really human readable. This can be a problem when debugging. 
+ There are some performance problems like index fragmentation. But those are easilly solvable (comb guids by jimmy nillson:  http://www.informit.com/articles/article.aspx?p=25862  ) 
+ Edit  merged my two answers to this question 
+ @Matt Sheppard I think he means that you can duplicate rows with different GUIDs as primary keys. This is an issue with any kind of surrogate key, not just GUIDs. And like he said it is easilly solved by adding meaningfull unique constraints to non-key columns. The alternative is to use a natural key and those have real problems.. 
+ 
+ GUIDs may cause you a lot of trouble in the future if they are used as "uniqifiers", letting duplicated data get into your tables. If you want to use GUIDs, please consider still maintaining UNIQUE-constraints on other column(s). 
+ 
+ One other small issue to consider with using GUIDS as primary keys if you are also using that column as a clustered index (a relatively common practice).  You are going to take a hit on insert because of the nature of a guid not begin sequential in anyway, thus their will be page splits, etc when you insert.  Just something to consider if the system is going to have high IO... 
+ 
+ primary-keys-ids-versus-guids 
+ The Cost of GUIDs as Primary Keys  (SQL Server 2000) 
+ Myths, GUID vs. Autoincrement  (MySQL 5) 
+ This is realy what you want. 
+ **UID Pros**
+
+ 
+ Unique across every table, every database, every server 
+ Allows easy merging of records from different databases 
+ Allows easy distribution of databases across multiple servers 
+ You can generate IDs anywhere, instead of having to roundtrip to the database 
+ Most replication scenarios require GUID columns anyway 
+ 
+ **GUID Cons**
+
+ 
+ It is a whopping 4 times larger than the traditional 4-byte index value; this can have serious performance and storage implications if you're not careful 
+ Cumbersome to debug (where userid='{BAE7DF4-DDF-3RG-5TY3E3RF456AS10}') 
+ The generated GUIDs should be partially sequential for best performance (eg, newsequentialid() on SQL 2005) and to enable use of clustered indexes 
+ 
+ 
+ There is one thing that is not really addressed, namely using  **random**
+ (UUIDv4) IDs as primary keys will harm the performance of the  primary key index . It will happen whether or not your table is clustered around the key. 
+ RDBMs usually ensure the uniqueness of the primary keys, and ensure the lookups by a key, in a structure called BTree, which is a search tree with a large branching factor (a binary search tree has branching factor of 2). Now, a sequential integer ID would cause the inserts to occur just  one  side of the tree, leaving most of the leaf nodes untouched. Adding random UUIDs will cause the insertions to split leaf nodes all over the index.  
+ Likewise if the data stored is mostly temporal, it is often the case that the most recent data needs to be accessed and joined against the most. With random UUIDs the patterns will not benefit from this, and will hit more index rows, thereby needing more of the index pages in memory. With sequential IDs if the most-recent data is needed the most, the hot index pages would require less RAM. 
+ 

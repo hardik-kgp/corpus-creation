@@ -1,0 +1,59 @@
+*** optimal-database-structure-wider-table-with-empty-fields-or-greater-number-o ***
+
+ I need to fit in additional data into a database, and I have a choice between modifying an existing table (table_existing) or creating new tables. 
+ This is how table_existing looks like right now: 
+ 
+ Option (A) 
+ 
+ Option (B) 
+ 
+ Context: The combination of SP, SV determine the "number" of fields that will be populated. For instance, (XX, 1) has 2 fields. (YY, 2) has 3 fields. 
+ If I were to go with Option (A) I would have many empty/NULL values in the "wider" table. 
+ If I go with Option (B), I am basically creating more tables... one for "each" combination of SP, SV - there will be perhaps 4-5 in total. But each would be fully populated with the right number of fields. table_existing would be changed as well. 
+ **What is the more optimal database structure from the speed point of view?**
+ I think that from the maintainability point of view, Option (B) might be better. 
+ 
+ **Edit1**
+
+ Neither of the two Options will be the most critical / frequently used tables in my application.  
+ In Option (B), after the data has been split up, there would be no need of JOINing them at all. If I know I need Fields for XX_1, I will go to that table.  
+ I'm trying to understand if there are pros and cons for having ONE large table with many unused values vs having the same data split across more number of tables. Do the larger number of tables lead to a performance hit in the database (we've got ~80 tables already)? 
+ 
+ What is the more optimal database structure from the speed point of view? 
+ Well, what is correct, best practice, etc, is called Normalisation.  If you do that correctly, there will be no optional columns (not fields), no Nulls.  The optional columns will be in a separate table, with fewer rows.  Sure, you can arrange the tables so that they are sets of optional columns, rather than (one PK plus) one column each. 
+ Combining the rows from the sub-tables into one 5NF row is easy, do that i a view (but do not update via the view, do that directly to each sub-table, via a transactional stored proc). 
+ More, smaller tables, are the nature of a Normalised Relational database.  Get used to it.  Fewer, larger tables are slower, due to lack of normalisation, duplicates and Nulls.  Joining is cumbersome in SQL< but that is all we have.  There is no cost in joins themselves, only it the tables being joined (rows, row width, join columns, datatypes, mismatches, indices [or not] ).  Databases are optimised for Normalised tables, not for data heaps. And large numbers of tables. 
+ Which happens to be optimal re performance, no surprise.  For two reasons: 
+ 
+ The tables are narrower, so there are more rows per page, you get more rows per physical I/O, and more rows in the same cache space. 
+ Since you have No Nulls, those columns are fixed len, no unpacking to extract the contents of the column. 
+ 
+ There are no pros for large tables with many optional (null) columns, only cons.  There never is a pro for breaching standards. 
+ The answer is unchanged regardless of whether you are contemplating 4 or 400 new tables.   
+ 
+ One recommendation if you are seriously considering that many tables: you are heading in the direction of Sixth Normal Form, without realising it.  So realise it, and do so formally.  The 400 tables will be much better controlled.  If you get a professional to do it, they will normalise that, and end up back at less than 100. 
+ 
+ 
+ I am a SQL server DBA so I will sugggest what I would do in SQL Server 2008.   
+ Add the columns to the existing table as nullable marking the columns as SPARSE.  Using the sparse tag will not increase the storage for the extra columns in the existing table pages and still allow you to query the sparse columns as columns.  SQL Server stores sparse columns internally in XML format which may also be queried or displayed. 
+ If there are legacy apps which can not handle the new table structure 
+ 
+ rename the table 
+ Create a view with the origional table structure and name it the origional table name 
+ 
+ If you have a version which does not support sparse columns build a single child table for your existing table linking the child to the parent with the ID of the parent table.  Create a view across the two tables to present the data. 
+ 
+ Are your queries more likely to need to combine rows fro (XX,1) set with (YY,2) set etc...? 
+ If not, then splitting into separate tables is faster, since the individual tables used for all queries are narrower. 
+ If you combine them, they might be marginally slower since you'd need UNIONs which will require duplicate queries against main table. 
+ 
+ I would agree with DVK that if you opt for (B) you will end up having to query against several tables to get all of your original Field1 values, let alone complexity of JOINs etc. This wouldnt make sense unless the split into separate tables also corresponded to separation into different entities. 
+ I agree with Paul in that your question can't really be answered without knowing the details of the entities involved and the sorts of queries and updates you will be running. 
+ 
+ I remember having these doubts before. 
+ From a data validation perspective, option (B) turns out to be more favorable. You can place constraints on the fields better. This is precisely why you would want to split, say, a   table into  ,  , etc to enforce the NOT NULL constraints depending on the role of the user. 
+ Generally, having a lot of NULL values in your table is bad for performance because of indexing problems. 
+ As a rule of thumb, as long as the number of tables involved in your joins is 4 or less, you don't have to worry about a performance hit. 
+ **Edit:**
+ If you're worried about the number of tables in your database, I suggest you look  here . 
+ 

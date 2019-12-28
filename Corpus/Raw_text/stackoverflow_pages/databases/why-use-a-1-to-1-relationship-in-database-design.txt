@@ -1,0 +1,53 @@
+*** why-use-a-1-to-1-relationship-in-database-design ***
+
+ I am having a hard time trying to figure out when to use a 1-to-1 relationship in db design or if it is ever necessary. 
+ If you can select only the columns you need in a query is there ever a point to break up a table into 1-to-1 relationships. I guess updating a large table has more impact on performance than a smaller table and I'm sure it depends on how heavily the table is used for certain operations (read/ writes) 
+ So when designing a database schema how do you factor in 1-to-1 relationships? What criteria do you use to determine if you need one, and what are the benefits over not using one? 
+ 
+ From the logical standpoint, a 1:1 relationship should always be merged into a single table. 
+ On the other hand, there may be  physical  considerations for such  "vertical partitioning"  or "row splitting", especially if you know you'll access some columns more frequently or in different pattern than the others, for example: 
+ 
+ You might want to  cluster  or  partition  the two "endpoint" tables of a 1:1 relationship differently. 
+ If your DBMS allows it, you might want to put them on different physical disks (e.g. more performance-critical on an SSD and the other on a cheap HDD). 
+ You have measured the effect on caching and you want to make sure the "hot" columns are kept in cache, without "cold" columns "polluting" it. 
+ You need a concurrency behavior (such as locking) that is "narrower" than the whole row. This is highly DBMS-specific. 
+ You need different security on different columns, but your DBMS does not support column-level permissions. 
+ Triggers are typically table-specific. While you can theoretically have just one table and have the trigger ignore the "wrong half" of the row, some databases may impose additional limits on what a trigger can and cannot do. For example, Oracle doesn't let you modify the so called "mutating" table from a row-level trigger - by having separate tables, only one of them may be mutating so you can still modify the other from your trigger (but there are  other ways  to work-around that). 
+ 
+ Databases are very good at manipulating the data, so I wouldn't split the table just for the update performance,  unless  you have performed the actual benchmarks on representative amounts of data and concluded the performance difference is actually there and significant enough (e.g. to offset the increased need for JOINing). 
+ 
+ On the other hand, if you are talking about "1:0 or 1" (and not a true 1:1), this is a different question entirely, deserving a different answer... 
+ 
+ Separation of duties and abstraction of database tables. 
+ If I have a user and I design the system for each user to have an address, but then I change the system, all I have to do is add a new record to the Address table instead of adding a brand new table and migrating the data. 
+ **EDIT**
+
+ Currently right now if you wanted to have a person record and each person had exactly one address record, then you could have a 1-to-1 relationship between a Person table and an Address table or you could just have a Person table that also had the columns for the address.   
+ In the future maybe you made the decision to allow a person to have multiple addresses.  You would not have to change your database structure in the 1-to-1 relationship scenario, you only have to change how you handle the data coming back to you.  However, in the single table structure you would have to create a new table and migrate the address data to the new table in order to create a best practice 1-to-many relationship database structure. 
+ 
+ Well, on paper, normalized form looks to be the best. In real world usually it is a trade-off. Most large systems that I know do trade-offs and not trying to be fully normalized. 
+ I'll try to give an example. If you are in a banking application, with 10 millions passbook account, and the usual transactions will be just a query of the latest balance of certain account. You have table A that stores just those information (account number, account balance, and account holder name). 
+ Your account also have another 40 attributes, such as the customer address, tax number, id for mapping to other systems which is in table B. 
+ A and B have one to one mapping. 
+ In order to be able to retrieve the account balance fast, you may want to employ different index strategy (such as hash index) for the small table that has the account balance and account holder name. 
+ The table that contains the other 40 attributes may reside in different table space or storage, employ different type of indexing, for example because you want to sort them by name, account number, branch id, etc. Your system can tolerate slow retrieval of these 40 attributes, while you need fast retrieval of your account balance query by account number. 
+ Having all the 43 attributes in one table seems to be natural, and probably 'naturally slow' and unacceptable for just retrieving single account balance. 
+ 
+ It makes sense to use 1-1 relationships to model an entity in the real world. That way, when more entities are added to your "world", they only also have to relate to the data that they pertain to (and no more). 
+ That's the key really, your data (each table) should contain only enough data to describe the real-world thing it represents and no more. There should be no redundant fields as all make sense in terms of that "thing". It means that less data is repeated across the system (with the update issues that would bring!) and that you can retrieve individual data independently (not have to split/ parse strings for example). 
+ To work out how to do this, you should research "Database Normalisation" (or Normalization), "Normal Form" and "first, second and third normal form". This describes how to break down your data. A version with an example is always helpful. Perhaps try this  tutorial . 
+ 
+ Often people are talking about a 1:0..1 relationship and call it a 1:1. In reality, a typical RDBMS cannot support a literal 1:1 relationship in any case.  
+ As such, I think it's only fair to address sub-classing here, even though it technically necessitates a 1:0..1 relationship, and not the literal concept of a 1:1. 
+ A 1:0..1 is quite useful when you have fields that would be exactly the same among several entities/tables. For example, contact information fields such as address, phone number, email, etc. that might be common for both employees and clients could be broken out into an entity made purely for contact information. 
+ A contact table would hold common information, like address and phone number(s).  
+ So an employee table holds employee specific information such as employee number, hire date and so on. It would also have a foreign key reference to the contact table for the employee's contact info.  
+ A client table would hold client information, such as an email address, their employer name, and perhaps some demographic data such as gender and/or marital status. The client would also have a foreign key reference to the contact table for their contact info. 
+ In doing this, every employee would have a contact, but not every contact would have an employee. The same concept would apply to clients. 
+ 
+ Just a few samples from past projects:   
+ 
+ a TestRequests table can have only one matching Report. But depending on the nature of the Request, the fields in the Report may be totally different.   
+ in a banking project, an Entities table hold various kind of entities: Funds, RealEstateProperties, Companies. Most of those Entities have similar properties, but Funds require about 120 extra fields, while they represent only 5% of the records. 
+ 
+ 

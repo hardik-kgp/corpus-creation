@@ -1,0 +1,64 @@
+*** why-do-we-need-a-temporal-database ***
+
+ I was reading about temporal databases and it seems they have built in time aspects. I wonder why would we need such a model? 
+ How different is it from a normal RDBMS? Can't we have a normal database i.e. RDBMS and say have a trigger which associates a time stamp with each transaction that happens? May be there would be a performance hit. But I'm still skeptical on temporal databases having a strong case in the market. 
+ Does any of the present databases support such a feature? 
+ 
+ A temporal database efficiently stores a time series of data, typically by having some fixed timescale (such as seconds or even milliseconds) and then storing only changes in the measured data. A timestamp in an RDBMS is a discretely stored value for each measurement, which is very inefficient. A temporal database is often used in real-time monitoring applications like SCADA. A well-established system is the PI database from OSISoft ( http://www.osisoft.com/ ). 
+ 
+ Consider your appointment/journal diary - it goes from Jan 1st to Dec 31st. Now we can query the diary for appointments/journal entries on any day. This ordering is called the  **valid time**
+. However, appointments/entries are not usually inserted in order.  
+ Suppose I would like to know what appointments/entries were in my diary on April 4th. That is, all the records that existed in my diary on April 4th. This is the  **transaction time**
+. 
+ Given that appointments/entries can be created and deleted etc. A typical record has a beginning and end valid time that covers the period of the entry and a beginning and end transaction time that indicates the period during which the entry appeared in the diary. 
+ This arrangement is necessary when the diary may undergo  **historical revision**
+. Suppose on April 5th I realise that the appointment I had on Feb 14th actually occurred on February 12th i.e. I discover an error in my diary - I can correct the error so that the valid time picture is corrected, but now, my query of what was in the diary on April 4th would be wrong, UNLESS, the transaction times for appointments/entries are also stored. In that case if I query my diary as of April 4th it will show an appointment existed on February 14th but if I query as of April 6th it would show an appointment on February 12th. 
+ This time travel feature of a temporal database makes it possible to record information about how errors are corrected in a database. This is necessary for a true audit picture of data that records when revisions were made and allows queries relating to how data have been revised over
+time. 
+ Most business information should be stored in this bitemporal scheme in order to provide a true audit record and to maximise business intelligence - hence the need for support in a relational database. Notice that each data item occupies a (possibly unbounded) square in the two dimensional time model which is why people often use a GIST index to implement bitemporal indexing. The problem here is that a GIST index is really designed for geographic data and the requirements for temporal data are somewhat different. 
+ PostgreSQL 9.0 exclusion constraints should provide new ways of organising temporal data e.g. transaction and valid time PERIODs should not overlap for the same tuple.  
+ 
+ As I understand it (and over-simplifying enormously), a temporal database records facts about when the data was valid as well as the the data itself, and permits you to query on the temporal aspects.  You end up dealing with 'valid time' and 'transaction time' tables, or 'bitemporal tables' involving both 'valid time' and 'transaction time' aspects.  You should consider reading either of these two books: 
+ 
+ Darwen, Date and Lorentzos " Temporal Data and the Relational Model " (out of print), 
+ and (at a radically different extreme) " Developing Time-Oriented Database Applications in SQL ", Richard T. Snodgrass, Morgan Kaufmann Publishers, Inc., San Francisco, July, 1999, 504+xxiii pages, ISBN 1-55860-436-7. That is out of print but available as PDF on his web site at  cs.arizona.edu  (so a Google search makes it pretty easy to find). 
+ 
+ 
+ Temporal databases are often used in the financial services industry. One reason is that you are rarely (if ever) allowed to delete any data, so ValidFrom - ValidTo type fields on records are used to provide an indication of when a record was correct. 
+ 
+ Apart from reading the  Wikipedia article ?  A database that maintains an "audit log" or similar transaction log will have some properties of being "temporal".  If you need answers to questions about  **who did what to whom and when**
+ then you've got a good candidate for a temporal database. 
+ 
+ You can imagine a simple temporal database that just logs your GPS location every few seconds. The opportunities for compressing this data is great, a normal database you would need to store a timestamp for every row.  If you have a great deal of throughput required, knowing the data is temporal and that updates and deletes to a row will never be required permits the program to drop a lot of the complexity inherit in a typical RDBMS. 
+ Despite this, temporal data is usually just stored in a normal RDBMS. PostgreSQL, for example has some  temporal extensions , which makes this a little easier. 
+ 
+ Two reasons come to mind: 
+ 
+ Some are optimized for insert and read only and can offer dramatic perf improvements 
+ Some have better understandings of time than traditional SQL - allowing for grouping operations by second, minute, hour, etc 
+ 
+ 
+ Just an update, Temporal database is coming to SQL Server 2016. 
+ To clear all your doubts why one need a Temporal Database, rather than configuring with custom methods, and how efficiently & seamlessly SQL Server configures it for you, check the in-depth video and demo on Channel9.msdn here:  https://channel9.msdn.com/Shows/Data-Exposed/Temporal-in-SQL-Server-2016 
+ MSDN link:  https://msdn.microsoft.com/en-us/library/dn935015(v=sql.130).aspx 
+ Currently with the CTP2 (beta 2) release of SQL Server 2016 you can play with it. 
+ Check  this video  on how to use Temporal Tables in SQL Server 2016. 
+ 
+ Besides "what new things can I do with it", it might be useful to consider "what old things does it unify?". The temporal database represents a particular generalization of the "normal" SQL database. As such, it may give you a unified solution to problems that previously appeared unrelated. For example: 
+ 
+ **Web Concurrency**
+ When your database has a web UI that lets multiple users perform standard Create/Update/Delete (CRUD) modifications, you have to face the  concurrent web changes problem . Basically, you need to check that an incoming data modification is not affecting any records that have changed since that user last saw those records. But if you have a temporal database, it quite possibly already associates something like a "revision ID" with each record (due to the difficulty of making timestamps unique and monotonically ascending). If so, then that becomes the natural, "already built-in" mechanism for preventing the clobbering of other users' data during database updates. 
+ **Legal/Tax Records**
+ The legal system (including taxes) places rather more emphasis on historical data than most programmers do. Thus, you will often find  advice  about schemas for invoices and such that warns you to beware of deleting records or normalizing in a natural way--which can lead to an inability to answer basic legal questions like "Forget their current address, what address did you mail this invoice to in 2001?" With a temporal framework base, all the machinations to those problems (they usually are halfway steps to having a temporal database) go away. You just use the most natural schema, and delete when it make sense, knowing that you can always go back and answer historical questions accurately. 
+ 
+ On the other hand, the temporal model itself is half-way to complete revision control, which could inspire further applications. For example, suppose you roll your own temporal facility on top of SQL and allow branching, as in revision control systems. Even limited branching could make it easy to offer "sandboxing" -- the ability to play with and modify the database with abandon without causing any visible changes to other users. That makes it easy to supply highly realistic user training on a complex database. 
+ Simple branching with a simple merge facility could also simplify some common workflow problems. For example, a non-profit might have volunteers or low-paid workers doing data entry. Giving each worker their own branch could make it easy to allow a supervisor to review their work or enhance it (e.g., de-duplification) before merging it into the main branch where it would become visible to "normal" users. Branches could also simplify permissions. If a user is only granted permission to use/see their unique branch, you don't have to worry about preventing every possible unwanted modification; you'll only merge the changes that make sense anyway. 
+ 
+ My understanding of temporal databases is that are geared towards storing certain types of temporal information. You could simulate that with a standard RDBMS, but by using a database that supports it you have built-in idioms for a lot of concepts and the query language might be optimized for these sort of queries. 
+ To me this is a little like working with a GIS-specific database rather than an RDBMS. While you could shove coordinates in a run-of-the-mill RDBMS, having the appropriate representations (e.g., via grid files) may be faster, and having SQL primitives for things like topology is useful. 
+ There are academic databases and some commercial ones. Timecenter has some links. 
+ 
+ Another example of where a temporal database is useful is where data changes over time. I spent a few years working for an electricity retailer where we stored meter readings for 30 minute blocks of time. Those meter readings could be revised at any point but we still needed to be able to look back at the history of changes for the readings. 
+ We therefore had the latest reading (our 'current understanding' of the consumption for the 30 minutes) but could look back at our historic understanding of the consumption. When you've got data that can be adjusted in such a way temporal databases work well. 
+ (Having said that, we hand carved it in SQL, but it was a fair while ago. Wouldn't make that decision these days.) 
+ 

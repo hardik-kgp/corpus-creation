@@ -1,0 +1,50 @@
+*** database-localization ***
+
+ i am looking for opinions if the following problem maybe has a better/different/common solution: 
+ 
+ I have a database for products which contains the names of the products in english (the default language of this application) and i need translations of the names if available. 
+ Currently i have this setup: 
+ A product table 
+ 
+ and a product localization table 
+ 
+ and i use the following query to retrieve a list of localized products (german in this case) with fallback to the default english names: 
+ 
+ The SQL code is in postgres dialect. Data is stored as UTF-8. 
+ 
+ Looks good to me.  The one thing I might change is the way you handle languages: that should probably be a separate table.  Thus, you would have: 
+ 
+ Besides that, I think you've got just about the best possible solution. 
+ 
+ Looks good - similar to my preferred localization technique - what about wide characters (Japanese)?  We always used nvarchar to handle that. 
+ What we actually found, however in our international purchasing operation, was that there was no consistency across international boundaries on products, since the suppliers in each country were different, so we internationalized/localized our interface, but the databases were completely distinct. 
+ 
+ The only variation I can offer is that you may also want to include country/dialect possibility; eg, instead of just English (en), use English US (en-US).  That way you can account for variations all the way (eg, British spellings, French Canadian probably has differences from the French spoken in France, etc). 
+ 
+ Looks decent to me. 
+ Obviously you should put the localized name into a Unicode column, which you could opt to put the English default into an ASCII field (assuming the database supports that).  It may be best to just do Unicode throughout and "forget" about it. 
+ 
+ The only complicating factor that others have not mentioned is code sets - will you be able to handle Hebrew, Arabic, Russian, Chinese, Japanese?  If everything is Unicode, you only have to worry about GB18030 (Chinese), which is (IIUC) a superset of Unicode. 
+ 
+ When dealing with this kind of thing, i use to build a product table containing no name at all, and a product_translation table holding only names (and more, obviously). 
+ Then i end up with this kind of query: 
+ 
+SELECT 
+    i.id, 
+    i.price, 
+    it.label 
+FROM 
+    items i 
+    LEFT JOIN items_trans it 
+        ON i.id=it.item_id AND it.lang_id=(
+            SELECT lang_id
+            FROM items_trans
+            WHERE item_id=i.id
+            ORDER BY
+                (lang_id=1) DESC,
+                (lang_id=0) DESC
+            LIMIT 1
+        )
+ 
+ What do you think ? 
+ 

@@ -1,0 +1,61 @@
+*** datasource-or-connectionpooldatasource-for-application-server-jdbc-resources ***
+
+ When creating JNDI JDBC connection pools in an application server, I always specified the type as  .  I never really gave it too much thought as it always seemed natural to prefer pooled connections over non-pooled. 
+ However, in looking at some examples ( specifically for Tomcat ) I noticed that they specify  .  Further, it seems there are settings for   and   giving the impression that these connections are pooled as well.  Glassfish also allows these parameters regardless of the type of data source selected. 
+ 
+ Are   pooled in an application server (or servlet container)? 
+ What (if any) advantages are there for choosing   over   (or vice versa)? 
+ 
+ 
+ Yes, Tomcat does use Apache DBCP pooling by default for DataSources defined as JNDI Context resources. 
+ From documentation at
+ http://tomcat.apache.org/tomcat-7.0-doc/jndi-resources-howto.html#JDBC_Data_Sources 
+ 
+ NOTE - The default data source support
+  in Tomcat is based on the DBCP
+  connection pool from the Commons
+  project. However, it is possible to
+  use any other connection pool that
+  implements javax.sql.DataSource, by
+  writing your own custom resource
+  factory, as described below. 
+ 
+ Digging Tomcat 6 sources revealed that they obtain connection factory this way (in case when you don't specify your own using Context's "factory" attribute): 
+ 
+ And org.apache.tomcat.dbcp.dbcp.BasicDataSourceFactory that implements javax.naming.spi.ObjectFactory takes care of creating DataSource instances:
+ http://www.jarvana.com/jarvana/view/org/apache/tomcat/tomcat-dbcp/7.0.2/tomcat-dbcp-7.0.2-sources.jar!/org/apache/tomcat/dbcp/dbcp/BasicDataSourceFactory.java?format=ok 
+ I see they create instances of org.apache.tomcat.dbcp.dbcp.BasicDataSource:
+ http://www.jarvana.com/jarvana/view/org/apache/tomcat/tomcat-dbcp/7.0.2/tomcat-dbcp-7.0.2-sources.jar!/org/apache/tomcat/dbcp/dbcp/BasicDataSource.java?format=ok 
+ Oddly enough, this class doesn't implement ConnectionPoolDataSource itself, neither does org.apache.tomcat.dbcp.dbcp.PoolingDataSource, that's returned internally by BasicDataSource
+ http://www.jarvana.com/jarvana/view/org/apache/tomcat/tomcat-dbcp/7.0.2/tomcat-dbcp-7.0.2-sources.jar!/org/apache/tomcat/dbcp/dbcp/PoolingDataSource.java?format=ok 
+ So I presume when you configured your DataSources as javax.sql.ConnectionPoolDataSource you also used some custom-defined factory (it's just a guess, but I suppose otherwise you'd have class cast exceptions in Tomcat, since their pooling doesn't really provide instances of javax.sql.ConnectionPoolDataSource, only javax.sql.DataSource). 
+ Thus, to answer questions about advantages or disadvantages of particular case you should compare Apache DBCP against pooling mechanism in your DataSource factory, whichever one you used. 
+ 
+ My understanding is that only purpose of   is to give access to   which implements  native  pooling by JDBC driver. In this case application server can implement connections pooling using this native interface. 
+ When using simple  , appserver uses its own pooling instead of native. 
+ Can't say which approach is best. 
+ 
+ As for the Java docs it contains this: 
+ DataSource Java 7 API 
+ 
+ The DataSource interface is implemented by a driver vendor. There are three types of implementations: 
+ Basic implementation -- produces a standard Connection object 
+ Connection pooling implementation -- produces a Connection object that will automatically participate in connection pooling. This implementation works with a middle-tier connection pooling manager. 
+ Distributed transaction implementation -- produces a Connection object that may be used for distributed transactions and almost always participates in connection pooling. This implementation works with a middle-tier transaction manager and almost always with a connection pooling manager. 
+ 
+ PooledConnection Java 7 API 
+ 
+ An  **application programmer does not use the PooledConnection**
+ interface directly; rather, it is used by a middle tier infrastructure that manages the pooling of connections. 
+ When an application calls the method DataSource.getConnection, it gets back a Connection object.  **If connection pooling is being done, that Connection object is actually a handle to a PooledConnection object**
+, which is a physical connection. 
+ **The connection pool manager**
+, typically the application server,  **maintains a pool of PooledConnection**
+ objects .... 
+ 
+ So in the end you just use  **DataSource**
+ and  **Connection**
+ classes and never  **PooledConnection  / ConnectionPoolDataSource**
+, if you are a happy and normal programmer. 
+ If are implementing an Application Server that's another story... 
+ 

@@ -1,0 +1,26 @@
+*** very-large-mnesia-tables-in-production ***
+
+ We are using Mnesia as a primary Database for a very large system. Mnesia Fragmented Tables have behaved so well over the testing period. System has got about 15 tables, each replicated across 2 sites (nodes), and each table is highly fragmented. During the testing phase, (which focused on availability, efficiency and load tests), we accepted the Mnesia with its many advantages of complex structures will do for us, given that all our applications running on top of the service are Erlang/OTP apps. We are running Yaws 1.91 as the main WebServer. 
+For efficiently configuring Fragmented Tables, we used a number of references who have used mnesia in large systems:
+ 
+These are:  Mnesia One Year Later Blog ,  Part 2 of the Blog ,  Followed it even here ,  About Hashing . These blog posts have helped us fine tune here and there to a better performance. 
+ Now, the problem. Mnesia has table size limits, yes we agree. However, limits on number of fragments have not been mentioned anywhere. For performance reasons, and to cater for large data, about how many fragments would keep mnesia "okay" ?. 
+ In some of our tables, we have 64 fragments. with   set to the number of nodes in the cluster so that each node has a copy per fragment. This has helped us solve issues of mnesia write failure if a given node is out of reach at an instant. Also in the blog above, he suggests that  , this statement (he says) was investigated from the way mnesia does its hashing of records. We however need more explanation on this, and which power of two are being talked about here: 2,4,16,32,64,128,...? 
+ The system is intended to run on HP Proliant G6, containing Intel processors (2 processors, each 4 cores, 2.4 GHz speed each core, 8 MB Cache size), 20 GB RAM size, 1.5 Terabytes disk space. Now, 2 of these high power machines are in our disposal. System Database should be replicated across the two. Each server runs Solaris 10, 64 bit. 
+ At what number of fragments may mnesia's performance start to de-grade? Is it okay if we increase the number of fragments from 64 to 128 for a given table? how about 65536 fragments (2 ^ 16) ? How do we scale out our mnesia to make use of the Terabyte space by using fragmentation?  
+ Please do provide the answers to the questions and you may provide advice on any other parameters that may enhance the System. 
+ NOTE: All tables that are to hold millions of records are created in   type, so no RAM problems. The RAM will be enough for the few RAM Tables we run. Other DBMS like MySQL Cluster and CouchDB will also contain data and are using the same hardware with our Mnesia DBMS. MySQL Cluster is replicated across the two servers (each holding two NDB Nodes, a MySQL server), the Management Node being on a different HOST. 
+ 
+ The hint of having a power of two number of fragments is simply related to the fact the default fragmentation module   uses linear hashing so using 2^n fragments assures that records are equally distributed (more or less, obviously) between fragments. 
+ Regarding the hardware at disposal, it's more a matter of performance testing.
+The factors that can reduce performance are many and configuring a database like Mnesia is just one single part of the general problem.
+I simply advice you to stress test one server and then test the algorithm on both servers to understand if it scales correctly. 
+ Talking about Mnesia fragments number scaling remember that by using disc_only_copies most of the time is spent in two operations: 
+ 
+ decide which fragment holds which record 
+ retrieve the record from corresponding dets table (Mnesia backend) 
+ 
+ The first one is not really dependent from the number of fragments considered that by default Mnesia uses linear hashing.
+The second one is more related to hard disk latency than to other factors. 
+ In the end a good solution could be to have more fragments and less records per fragment but trying at the same time to find the middle ground and not lose the advantages of some hard disk performance boosts like buffers and caches. 
+ 

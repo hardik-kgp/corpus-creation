@@ -1,0 +1,220 @@
+*** database-structure-advice-needed ***
+
+ Im currently working on a site which will contain a products catalog.  I am a little new to database design so I'm looking for advice on how best to do this.  I am familiar with relational database design so I understand "many to many" or "one to many" etc  (took a good db class in college).  Here is an example of what an item might be categorized as:   
+ 
+ Instead of trying to write what I have so far, just take a quick look at this image I created from the phpmyadmin designer feature. 
+ alt text http://www.usfultimate.com/temp/db_design.jpg 
+ Now, this all seemed fine and dandy, until I realized that the category "wood" would also be used under propeller -> airboat -> (wood).  This would mean, that "wood" would have to be recreated every time I want to use it under a different parent.  This isn't the end of the world, but I wanted to know if there is a more optimal way to go about this.   
+ Also, I am trying to keep this thing as dynamic as possible so the client can organize his catalog as his needs change. 
+ *Edit.  Was thinking about just creating a "tags" table.  So I could assign the tag "wood" or "metal"  or "50inch" to 1 to many items.  I would still keep a parenting type thing for the main categories, but this way the categories wouldnt have to go so deep and there wouldnt be the repetition. 
+ 
+ **First, the user interface:**
+ as user I  **hate**
+ to search a product in a catalog organized in a  strictly hierarchical  way. I never remember in what sub-sub-sub-sub...-category an "exotic" product is in and this force me to waste time exploring "promising" categories just to discover it is categorized in a (for me, at least) strange way. 
+ What  Kevin Peno  suggests is a good advice and is known as  **faceted browsing**
+. As  Marcia Bates  wrote in  After the Dot-Bomb: Getting Web Information Retrieval Right This Time , "  .. faceted classification is to hierarchical classification as relational databases are to hierarchical databases. ..  ". 
+ In essence, faceted search allows users to search your catalog starting from whatever "facet" they prefer and let them filter information choosing other facets along the search. Note that, contrary to how tag systems are usually conceived, nothing prevents you to organize some of these facets hierarchically. 
+ To quickly understand what faceted search is all about, there are  **some demos**
+ to explore at   The Flamenco Search Interface Project - Search Interfaces that Flow . 
+ **Second, the application logic:**
+ what  Manitra  proposes is also a good advice (as I understand it), i.e. separating   and   of a tree/graph in different relations. What he calls "ancestor table" (which is a much better intuitive name, however) is known as  transitive closure of a directed acyclic graph (DAG)  (reachability relation). Beyond performance, it simplify queries greatly, as Manitra said. 
+ **But**
+ I suggest a  view  for such "ancestor table" (transitive closure), so that updates are in real-time and incremental, not periodical by a batch job. There is SQL code (but I think it needs to be adapted a little to specific DBMSes) in papers I mentioned in my answer to  query language for graph sets: data modeling question . In particular, look at  Maintaining Transitive Closure of Graphs in SQL  (.ps - postscript). 
+ **Products-Categories relationship**
+
+ The first point of Manitra is worth of emphasis, also. 
+ What he is saying is that between products and categories there is a many-to-many relationship. I.e.: each product can be in one or more categories and in each category there can be zero or more products. 
+ Given relation variables (relvars) Products and Categories such relationship can be represented, for example, as a relvar PC with at least attributes P# and C#, i.e. product and category numbers (identifiers) in a foreign-key relationships with corresponding Products and Categories numbers. 
+ This is complementary to management of categories' hierarchies. Of course, this is only a design sketch. 
+ **On faceted browsing in SQL**
+
+ A useful concept to implement "faceted browsing" is  relational division , or, even,  relational comparisons  (see bottom of linked page). I.e. dividing PC (Products-Categories) by a (growing) list of categories chosen from a user (facet navigation) one obtains only products in such categories (of course, categories are presumed  **not**
+ all mutually exclusive, otherwise choosing two categories one will obtain zero products). 
+ SQL-based DBMS usually lack this operators (division and comparisons), so I give below some interesting papers that implement/discuss them: 
+ 
+ ON MAKING RELATIONAL DIVISION COMPREHENSIBLE  (.pdf from  FIE 2003 Session Index ); 
+ A simpler (and better) SQL approach to relational division  (.pdf from Journal of Information Systems Education -  Contents Volume 13, Number 2 (2002) ); 
+ Processing frequent itemset discovery queries by division and set containment join operators ; 
+ Laws for Rewriting Queries Containing Division Operators ; 
+ Algorithms and Applications for Universal Quantification in Relational Databases ; 
+ Optimizing Queries with Universal Quantification in Object-Oriented and Object-Relational Databases ; 
+ (ACM access required)  On the complexity of division and set joins in the relational algebra ; 
+ (ACM access required)  Fast algorithms for universal quantification in large databases ; 
+ 
+ and so on... 
+ I will not go into details here but interaction between categories hierarchies and facet browsing needs special care. 
+ **A digression on "flatness"**
+
+ I briefly looked at the article linked by  Pras ,  Managing Hierarchical Data in MySQL , but I stopped reading after these few lines in the introduction: 
+ 
+ **Introduction**
+
+ Most users at one time or another have
+  dealt with hierarchical data in a SQL
+  database and no doubt learned that the
+  management of hierarchical data is not
+  what a relational database is intended
+  for. The tables of a relational
+  database are not hierarchical (like
+  XML), but are simply a  **flat list**
+.
+  Hierarchical data has a parent-child
+  relationship that is not naturally
+  represented in a relational database
+  table. ... 
+ 
+ To understand why this insistence on flatness of relations is  **just nonsense**
+, imagine a cube in a  three dimensional Cartesian coordinate system : it will be identified by 8 coordinates (triplets), say P1(x1,y1,z1), P2(x2,y2,z2), ..., P8(x8, y8, z8) [here we are not concerned with constraints on these coordinates so that they represent really a cube]. 
+ Now, we will put these set of coordinates (points) into a relation variable and we will name this variable  . We will  **represent**
+ the relation value of   as a table below: 
+ 
+ Points |   x  |   y  |   z  |
+=======+====+====+====+
+       | x1 | y1 | z1 |
+       +----+----+----+
+       | x2 | y2 | z2 |
+       +----+----+----+
+       | .. | .. | .. |
+       | .. | .. | .. |
+       +----+----+----+
+       | x8 | y8 | z8 |
+       +----+----+----+
+ 
+ Does this cube is being "flattened" by the mere act of representing it in a tabular way? Is a relation (value) the same thing as its tabular representation? 
+ A relation variable assumes as values sets of points in a n-dimensional discrete space, where n is the number of relation attributes ("columns"). What does it mean, for a n-dimensional discrete space, to be "flat"? Just nonsense, as I wrote above. 
+ Don't get me wrong, It is certainly true that SQL is a badly designed language and that SQL-based DBMSes are full of idiosyncrasies and shortcomings  (NULLs, redundancy, ...), especially the bad ones, the DBMS-as-dumb-store type (no referential constraints, no integrity constrains, ...). But that has nothing to do with relational data model fantasized limitations, on the contrary: more they turn away from it and worse is the outcome. 
+ In particular, the relational data model, once you understand it, poses no problem in representing whatever structure, even hierarchies and graphs, as I detailed with references to published papers mentioned above. Even SQL can, if you gloss over its deficiencies, missing something better. 
+ **On the "The Nested Set Model"**
+
+ I skimmed the rest of  that article  and I'm not particularly impressed by such logical design: it suggests to muddle two different entities,  **nodes**
+ and  **links**
+, into one relation and this will probably cause awkwardness. But I'm not inclined to analyze that design more thoroughly, sorry. 
+ 
+ **EDIT:**
+ Stephan Eggermont objected, in comments below, that "  The flat list model is a problem. It is an abstraction of the implementation that makes performance difficult to achieve. ...  ". 
+ Now, my point is, precisely, that: 
+ 
+ this "flat list model" is a  **fantasy**
+: just because one lay out (represents) relations as tables ("flat lists") does not mean that relations are "flat lists" (an "object" and its representations are not the same thing); 
+ a logical representation (relation) and physical storage details (horizontal or vertical decompositions, compression, indexes (hashes, b+tree, r-tree, ...), clustering, partitioning, etc.) are distinct; one of the points of relational data model ( **RDM**
+) is to decouple logical from "physical" model (with advantages to both users and implementors of DBMSes); 
+ performance is a direct consequence of physical storage details (implementation) and  **not**
+ of logical representation (Eggermont's comment is a classic example of  logical-physical confusion ). 
+ 
+ RDM model does not constraint implementations in any way; one is free to implement tuples and relations as one see fit. Relations are  **not necessarily**
+ files and tuples are  **not necessarily**
+ records of a file. Such correspondence is a dumb  **direct-image implementation**
+. 
+ Unfortunately SQL-based DBMS implementations  **are**
+, too often, dumb direct-image implementations and they suffer poor performance in a variety of scenarios -  OLAP / ETL  products exist to cover these shortcomings. 
+ This is slowly changing. There are commercial and free software/open source implementations that finally avoid this fundamental pitfall: 
+ 
+ Vertica , which is a commercial successor of.. 
+ C-Store: A Column-Oriented DBMS ; 
+ MonetDB ; 
+ LucidDB ; 
+ Kdb  in a way; 
+ an so on... 
+ 
+ Of course, the point is  **not**
+ that there must exist an "optimal" physical storage design, but that whatever physical storage design can be abstracted away by a nice  declarative language  based on relational algebra/calculi (and SQL is a  **bad**
+ example) or more directly on a logic programming language (like Prolog, for example - see my answer to " prolog to SQL converter " question). A good DBMS should be change physical storage design on-the-fly, based on data access statistics (and/or user hints). 
+ Finally, in Eggermont's comment the statement "  The relational model is getting squeeezed between the cloud and prevayler.  " is another nonsense but I cannot give a rebuttal here, this comment is already too long. 
+ 
+ Before you create a hierarchical category model in your database, take a look at  this article  which explains the problems and the solution (using nested sets). 
+ To summarize, using a simple parent_category_id doesn't scale very well and you'll have a hard time writing performant SQL queries. The answer is to use nested sets which make you visualize your many-to-many category model as sets which are nested inside other sets. 
+ 
+ If you want categories to have multiple parent categories, then it's just a "many to many" relationship instead of a "one to many" relationship. You'll need to put a bridging table between category and itself. 
+ However, I doubt this is what you want. If I'm looking in the category  Aircraft > Wood  then I wouldn't want to see items from  Boating > Wood . There are two  Wood  categories because they contain different items. 
+ 
+ **My suggestions**
+
+ 
+ put a many-to-many relation between Item and Category so that a product can be displayed in many hierarchy node (used in ebay, sourceforge ...)  
+ keep the category hierarchy  
+ 
+ **Performance on the category hierarchy**
+
+ If your category hierarchy is depth, then you could generate an "Ancestors" table. This table will be generated by a batch work and will contains : 
+ 
+ ChildId (the id of a category) 
+ AncestorId (the id of its parent, grand parent ... all ancestors category) 
+ 
+ It means that if you have 3 categories : 1-Propeller > 2-aircraft > 3-wood 
+ Then the Ancestor table will contain : 
+ 
+ This means that to have all the children of category1, you just need 1 query and you don't have do nested query. By the way this would work not matter what is the depth of you category hierarchy. 
+ Thanks to this table, you will need only 1 join to query against a category (with its childrens). 
+ If you need help on how to create the Ancestor table, just let me know.  
+ 
+ 
+ Before you create a hierarchical
+  category model in your database, take
+  a look at  this article  which explains
+  the problems and the solution (using
+  nested sets). 
+ To summarize, using a simple
+  parent_category_id doesn't scale very
+  well and you'll have a hard time
+  writing performant SQL queries. The
+  answer is to use nested sets which
+  make you visualize your many-to-many
+  category model as sets which are
+  nested inside other sets. 
+ 
+ It should be worth pointing out that the "multiple categories" idea is basically how "tagging" works. With the exception that, in "tagging", we allow any product to have many categories. By allowing any product to be in many categories, you  **allow the customer**
+ the full ability  **to**
+ filter their search by  **start**
+ing  **where they believe they need to start**
+. It could be clicking on "airplanes", then "wood", then "turbojet engine" (or whatever). Or they could start their search with Wood, and get the same result. 
+ This will give you the greatest flexibility, and the  **customer will enjoy a better **
+**UX**
+, yet still allow you to maintain the hierarchy structure. So, while the quoted answer suggests letting categories be M:N to categories, my suggestion is to  **allow products to have M:N categories instead.**
+
+ All in all the result is mostly the same, the  **categories will have a natural hierarchy**
+,  **but**
+ this  **will lend**
+ to  **even greater flexibility**
+. 
+ I should also note that this doesn't prevent strict hierarchy either. You could much easily enforce hierarchy in the code where necessary (ex. only showing the categories "cars", "airplanes", and "boats" on your initial page). It just moves the "strctness" to your business logic, which might make it better in the long run. 
+ EDIT: I just realized that you vaguly mentioned this in your answer. I actually didn't notice it, but I think this is along the lines you would want to do instead. Otherwise you are mixing two hierarchy systems into your program without much benefit. 
+ 
+ I've done this before.  I recommend starting with tagging (many-to-many relationship table to products).  You can build a hierarchy relationship on top of your tags (tree, or nested sets, or whatever) a lot easier than on your products.  Because tagging is relatively freeform, this also gives you the ability to allow people to categorize naturally and then later codify certain expected behaviors. 
+ For instance, we had special tags like 2009-Nov-Special.  Any product like this was eligible to show as a special on the front page for that month.  So we didn't have to build a special system to handle rotating specials onto the front page we just used the existing tag system.  Later this could be enhanced to hide those tags from consumers, etc. 
+ Similarly, you can use tagging prefixes like: style:wood mfg:Nike to allow you to do relatively complex categorization and drilldowns without the difficulties of complex database reshuffling or the nightmares of EAV, all in a tagging system which gives you more flexibility to accommodate user expectations.  Remember that users might expect to navigate the products in ways different than you as a database and business owner might expect.  Using the tagging system can help you enable the shopping interface without compromising your inventory or sales tracking or anything else. 
+ 
+ 
+ Now, this all seemed fine and dandy, until I realized that the category "wood" would also be used under propeller -> airboat -> (wood). This would mean, that "wood" would have to be recreated every time I want to use it under a different parent. This isn't the end of the world, but I wanted to know if there is a more optimal way to go about this. 
+ 
+ What if you have an aircraft that is wood construction, but the propeller could be carbon fiber, fiberglas, metal, graphite? 
+ I'd define a table of materials, and use a foreign key reference in the items table.  If you want to support more than one material (IE: say there's metal re-inforcement, or screws...), then you'd need a corrollary/lookup/xref table. 
+ ** table**
+
+ 
+  pk 
+ 
+ 
+ ** table**
+
+ 
+ , pk 
+  fk  **IF**
+ only one material is ever associated 
+ 
+ ** table**
+
+ 
+ , pk 
+  pk 
+ 
+ I would also relate products to one another using a corrollary/lookup/xref table.  A product could be related to more than one kitted product: 
+ ** table**
+
+ 
+ , fk  
+ , fk  
+ 
+ ...and it supports a hierarchical relationship because the child could be the parent of soemthing else. 
+ 
+ You can easily test your DB designs at  http://cakeapp.com 
+ 

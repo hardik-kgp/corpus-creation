@@ -1,0 +1,39 @@
+*** mongodb-normalization-foreign-key-and-joining ***
+
+ Before I dive really deep into MongoDB for days, I thought I'd ask a pretty basic question as to whether I should dive into it at all or not. I have basically no experience with nosql. 
+ I did read a little about some of the benefits of document databases, and I think for this new application, they will be really great. It is always a hassle to do favourites, comments, etc. for many types of objects (lots of m-to-m relationships) and subclasses - it's kind of a pain to deal with. 
+ I also have a structure that will be a pain to define in SQL because it's extremely nested and translates to a document a lot better than 15 different tables. 
+ But I am confused about a few things.  
+ 
+ Is it desirable to keep your database normalized still? I really don't want to be updating multiple records. Is that still how people approach the design of the database in MongoDB? 
+ What happens when a user favourites a book and this selection is still stored in a user document, but then the book is deleted? How does the relationship get detached without foreign keys? Am I manually responsible for deleting all of the links myself? 
+ What happens if a user favourited a book that no longer exists and I query it (some kind of join)? Do I have to do any fault-tolerance here? 
+ 
+ 
+ MongoDB doesn't support server side foreign key relationships, normalization is also discouraged. You should embed your child object within parent objects if possible, this will increase performance and make foreign keys totally unnecessary. That said it is not always possible, so there is a special construct called DBRef which allows to reference objects in a different collection. This may be then not so speedy because DB has to make additional queries to read objects but allows for kind of foreign key reference. 
+ Still you will have to handle your references manually. Only while looking up your DBRef you will see if it exists, the DB will not go through all the documents to look for the references and remove them if the target of the reference doesn't exist any more. But I think removing all the references after deleting the book would require a single query per collection, no more, so not that difficult really. 
+ If your schema is more complex then probably you should choose a relational database and not nosql. 
+ There is also a book about designing MongoDB databases:  Document Design for MongoDB 
+ **UPDATE**
+ The book above is not available anymore, yet because of popularity of MongoDB there are quite a lot of others. I won't link them all, since such links are likely to change, a simple search on Amazon shows multiple pages so it shouldn't be a problem to find some. 
+ See the MongoDB manual page for  'Manual references' and DBRefs  for further specifics and examples 
+ 
+ Above, @TomaaszStanczak states 
+ 
+ MongoDB doesn't support server side foreign key relationships,
+  normalization is also discouraged. You should embed your child object
+  within parent objects if possible, this will increase performance and
+  make foreign keys totally unnecessary. That said it is not always
+  possible ... 
+ 
+ Normalization is not discouraged by Mongo. To be clear, we are talking about two fundamentally different types of relationships two data entities can have. In one, one child entity is  owned  exclusively by a parent object. In this type of relationship the Mongo way is to embed.  
+ In the other class of relationship two entities exist independently - have independent lifetimes and relationships. Mongo wishes that this type of relationship did not exist, and is frustratingly silent on precisely how to deal with it. Embedding is just not a solution. Normalization is not discouraged, or encouraged. Mongo just gives you two mechanisms to deal with it;  Manual refs  (analoguous to a key with the foreign key constraint binding two tables), and   DBRef  (a different, slightly more structured way of doing the same). In this use case SQL databases win. 
+ 
+ The answers of both Tomasz and Francis contain good advice: that "normalization" is not discouraged by Mongo, but that you should first consider optimizing your database document design before creating "document references".    were mentioned by Tomasz, however as he alluded, are not a "magic bullet" and require additional processing to be useful. 
+ What is now possible, as of MongoDB version 3.2, is to produce results equivalent to an SQL  JOIN  by using the  **$lookup**
+ aggregation pipeline stage operator.  In this manner you can have a "normalized" document structure, but still be able to produce consolidated results. In order for this to work you need to create a unique key in the target collection that is hopefully both  meaningful  and  unique .  You can enforce uniqueness by creating a unique index on this field. 
+ **$lookup**
+ usage is pretty straightforward.  Have a look at the documentation here:  https://docs.mongodb.com/manual/reference/operator/aggregation/lookup/#lookup-aggregation . Run the   method on the source collection (i.e. the "left" table).  The  from  parameter is the target collection (i.e. the "right" table).  The  localField  parameter would be the field in the source collection (i.e. the "foreign key").  The  foreignField  parameter would be the matching field in the target collection. 
+ As far as orphaned documents, from your question I would presume you are thinking about a traditional RDBMS set of constraints, cascading deletes, etc. Again, as of MongoDB version 3.2, there is native support for  document validation .  Have a look at this StackOver article:  How to apply constraints in MongoDB?   Look at the second answer, from JohnnyHK 
+ Packt Publishers have a bunch of good books on MongoDB.  (Full Disclosure: I wrote a couple of them.) 
+ 

@@ -1,0 +1,79 @@
+*** why-would-you-use-expressionfunct-rather-than-funct ***
+
+ I understand lambdas and the   and   delegates. But expressions stump me. In what circumstances would you use an   rather than a plain old  ? 
+ 
+ When you want to treat lambda expressions as expression trees and look inside them instead of executing them. For example, LINQ to SQL gets the expression and converts it to the equivalent SQL statement and submits it to server (rather than executing the lambda). 
+ Conceptually,   is  completely different  from  .   denotes a   which is pretty much a pointer to a method and   denotes a  tree data structure  for a lambda expression. This tree structure  **describes what a lambda expression does**
+ rather than doing the actual thing. It basically holds data about the composition of expressions, variables, method calls, ... (for example it holds information such as this lambda is some constant + some parameter). You can use this description to convert it to an actual method (with  ) or do other stuff (like the LINQ to SQL example) with it. The act of treating lambdas as anonymous methods and expression trees is purely a compile time thing. 
+ 
+ will effectively compile to an IL method that gets nothing and returns 10. 
+ 
+ will be converted to a data structure that describes an expression that gets no parameters and returns the value 10: 
+   larger image 
+ While they both look the same at compile time, what the compiler generates is  **totally different**
+. 
+ 
+ I'm adding an answer-for-noobs because these answers seemed over my head, until I realized how simple it is. Sometimes it's your expectation that it's complicated that makes you unable to 'wrap your head around it'. 
+ I didn't need to understand the difference until I walked into a really annoying 'bug' trying to use LINQ-to-SQL generically: 
+ 
+ This worked great until I started getting OutofMemoryExceptions on larger datasets. Setting breakpoints inside the lambda made me realize that it was iterating through each row in my table one-by-one looking for matches to my lambda condition. This stumped me for a while, because why the heck is it treating my data table as a giant IEnumerable instead of doing LINQ-to-SQL like it's supposed to? It was also doing the exact same thing in my LINQ-to-MongoDb counterpart. 
+ The fix was simply to turn   into  , so I googled why it needs an   instead of  , ending up here. 
+ **An expression simply turns a delegate into a data about itself.**
+ So   becomes something like "On the left side there's an  . On the right side you add 1 to it."  **That's it.**
+ You can go home now. It's obviously more structured than that, but that's essentially all an expression tree really is--nothing to wrap your head around. 
+ Understanding that, it becomes clear why LINQ-to-SQL needs an  , and a   isn't adequate.   doesn't carry with it a way to get into itself, to see the nitty-gritty of how to translate it into a SQL/MongoDb/other query. You can't see whether it's doing addition or multiplication or subtraction. All you can do is run it.  , on the other hand, allows you to look inside the delegate and see everything it wants to do. This empowers you to translate the delegate into whatever you want, like a SQL query.   didn't work because my DbContext was blind to the contents of the lambda expression. Because of this, it couldn't turn the lambda expression into SQL; however, it did the next best thing and iterated that conditional through each row in my table. 
+ Edit: expounding on my last sentence at John Peter's request: 
+ IQueryable extends IEnumerable, so IEnumerable's methods like   obtain overloads that accept  . When you pass an   to that, you keep an IQueryable as a result, but when you pass a  , you're falling back on the base IEnumerable and you'll get an IEnumerable as a result. In other words, without noticing you've turned your dataset into a list to be iterated as opposed to something to query. It's hard to notice a difference until you really look under the hood at the signatures. 
+ 
+ An extremely important consideration in the choice of Expression vs Func is that IQueryable providers like LINQ to Entities can 'digest' what you pass in an Expression, but will ignore what you pass in a Func. I have two blog posts on the subject: 
+ More on Expression vs Func with Entity Framework  and
+ Falling in Love with LINQ - Part 7: Expressions and Funcs  (the last section) 
+ 
+ I'd like to add some notes about the differences between   and  : 
+ 
+  is just a normal old-school MulticastDelegate; 
+  is a representation of lambda expression in form of expression tree; 
+ expression tree can be constructed through lambda expression syntax or through the API syntax; 
+ expression tree can be compiled to a delegate  ; 
+ the inverse conversion is theoretically possible, but it's a kind of decompiling, there is no builtin functionality for that as it's not a straightforward process; 
+ expression tree can be observed/translated/modified through the  ; 
+ the extension methods for IEnumerable operate with  ; 
+ the extension methods for IQueryable operate with  . 
+ 
+ There's an article which describes the details with code samples:  
+ LINQ: Func<T> vs. Expression<Func<T>> . 
+ Hope it will be helpful. 
+ 
+ There is a more philosophical explanation about it from Krzysztof Cwalina's book( Framework Design Guidelines: Conventions, Idioms, and Patterns for Reusable .NET Libraries ); 
+ 
+ 
+ 
+ **Edit for non-image version:**
+
+ 
+ Most times you're going to want  **Func**
+ or  **Action**
+ if all that needs to happen is to run some code. You need  **Expression**
+ when the code needs to be analyzed, serialized, or optimized before it is run.  **Expression**
+ is for thinking about code,  **Func/Action**
+ is for running it. 
+ 
+ 
+ LINQ is the canonical example (for example, talking to a database), but in truth, any time you care more about expressing  what  to do, rather  than actually doing it. For example, I use this approach in the RPC stack of  protobuf-net  (to avoid code-generation etc) - so you call a method with: 
+ 
+ This deconstructs the expression tree to resolve   (and the value of each argument), performs the RPC call, updates any  /  args, and returns the result from the remote call. This is only possible via the expression tree. I cover this more  here . 
+ Another example is when you are building the expression trees manually for the purpose of compiling to a lambda, as done by the  generic operators  code. 
+ 
+ You would use an expression when you want to treat your function as data and not as code.  You can do this if you want to manipulate the code (as data).  Most of the time if you don't see a need for expressions then you probably don't need to use one. 
+ 
+ The primary reason is when you don't want to run the code directly, but rather, want to inspect it. This can be for any number of reasons: 
+ 
+ Mapping the code to a different environment (ie. C# code to SQL in Entity Framework) 
+ Replacing parts of the code in runtime (dynamic programming or even plain DRY techniques) 
+ Code validation (very useful when emulating scripting or when doing analysis) 
+ Serialization - expressions can be serialized rather easily and safely, delegates can't 
+ Strongly-typed safety on things that aren't inherently strongly-typed, and exploiting compiler checks even though you're doing dynamic calls in runtime (ASP.NET MVC 5 with Razor is a nice example) 
+ 
+ 
+ I don't see any answers yet that mention performance.  Passing  s into   or   is bad.  Real bad.  If you use a   then it calls the   LINQ stuff instead of  , which means that whole tables get pulled in and  then  filtered.    is significantly faster, especially if you are querying a database that lives another server. 
+ 

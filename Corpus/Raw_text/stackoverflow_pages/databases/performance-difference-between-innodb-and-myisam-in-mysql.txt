@@ -1,0 +1,33 @@
+*** performance-difference-between-innodb-and-myisam-in-mysql ***
+
+ I have a mysql table with over 30 million records that was originally being stored with myisam. Here is a description of the table: 
+ 
+ I would run the following query against this table which would generally take around 30 seconds to complete. I would change @eid each time to avoid database or disk caching. 
+ 
+ I then converted this table to innoDB without making any other changes and afterwards the same query now returns in under a second every single time I run the query. Even when I randomly set @eid to avoid caching, the query returns in under a second.  
+ I've been researching the differences between the two storage types to try to explain the dramatic improvement in performance but haven't been able to come up with anything. In fact, much of what I read indicates that Myisam should be faster. 
+ The queries I'm running are against a local database with no other processes hitting the database at the time of the tests.  
+ 
+ That's a surprisingly large performance difference, but I can think of a few things that may be contributing. 
+ MyISAM has historically been viewed as faster than InnoDB, but for recent versions of InnoDB, that is true for a much, much smaller set of use cases. MyISAM is typically faster for table scans of read-only tables. In most other use cases, I typically find InnoDB to be faster. Often many times faster. Table locks are a death knell for MyISAM in most of my usage of MySQL. 
+ MyISAM caches indexes in its key buffer. Perhaps you have set the key buffer too small for it to effectively cache the index for your somewhat large table. 
+ MyISAM depends on the OS to cache table data from the .MYD files in the OS disk cache. If the OS is running low on memory, it will start dumping its disk cache. That could force it to keep reading from disk. 
+ InnoDB caches both indexes and data in its own memory buffer. You can tell the OS not to also use its disk cache if you set innodb_flush_method to O_DIRECT, though this isn't supported on OS X. 
+ InnoDB usually buffers data and indexes in 16kb pages. Depending on how you are changing the value of @eid between queries, it may have already cached the data for one query due to the disk reads from a previous query. 
+ Make sure you created the indexes identically. Use explain to check if MySQL is using the index. Since you included the output of describe instead of show create table or show indexes from, I can't tell if entity_id is part of a composite index. If it was not the first part of a composite index, it wouldn't be used. 
+ If you are using a relatively modern version of MySQL, run the following command before running the query: 
+ set profiling = 1; 
+ That will turn on query profiling for your session. After running the query, run 
+ show profiles; 
+ That will show you the list of queries for which profiles are available. I think it keeps the last 20 by default. Assuming your query was the first one, run: 
+ show profile for query 1; 
+ You will then see the duration of each stage in running your query. This is extremely useful for determining what (e.g., table locks, sorting, creating temp tables, etc.) is causing a query to be slow. 
+ 
+ My first suspicion would be that the original MyISAM table and/or indexes became fragmented over time resulting in the performance slowly degrading.  The InnoDB table would not have the same problem since you created it with all the data already in it (so it would all be stored sequentially on disk). 
+ You could test this theory by rebuilding the MyISAM table.  The easiest way to do this would be to use a "null" ALTER TABLE statement: 
+ 
+ Then check the performance to see if it is better. 
+ Another possibility would be if the database itself is simply tuned for InnoDB performance rather than MyISAM.  For example, InnoDB uses the   to know how much memory should be allocated for storing cached data and indexes in memory.  But MyISAM uses the   parameter.  If your database has a large innodb buffer pool and a small key buffer, then InnoDB performance is going to be better than MyISAM performance, especially for large tables. 
+ 
+ What are your index definitions, there are ways in which you can create indexes for MyISAM in which your index fields will not be used when you think they would. 
+ 

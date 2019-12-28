@@ -1,0 +1,42 @@
+*** unexpected-locking-for-table-with-primary-key-unique-key ***
+
+ I've run into an innodb locking issue for transactions on a table with both a primary key and a separate unique index. It seems if a TX deletes a record using a unique key, and then re-inserts that same record, this will result in a next-key lock instead of the expected record lock (since the key is unique). See below for a test case as well as breakdown of what records I expect to have what locks:  
+ 
+ (Note: Just run the TX2 sql after the TX1 sql, in a separate connection)  
+ **TX1**
+
+ 
+ results in exclusive lock on i=8 (no gap lock since i is primary key and unique) 
+ 
+ results in exclusive lock for i=8 & j= 8, and shared intention lock on i=6 & i=7, as well as j=6 & j=7 
+ **TX2**
+
+ 
+ results in exclusive lock for i=7 & j=7, as well as shared intention lock on on i=6 & j=6 
+ I would expect TX2 to not be blocked by TX1, however it is. Oddly, the blocking seems to be related to the insert by TX1. I say this because if TX1's insert statement is not run after the delete, TX2's insert is not blocked. It's almost as if TX1's re-insertion of (8,8) causes a next-key lock on index j for (6,8].  
+ Any insight would be much appreciated. 
+ 
+ The problem you are experiencing happens because MySQL doesn't just lock the table row for a value you're going to insert, it locks all possible values between the previous   and the next id in order, so, reusing your example bellow: 
+ 
+ Suppose you start with transaction TX1: 
+ 
+ Then if you start a transaction  , whatever   or   using an   between 5 and 11 will be locked: 
+ 
+ Looks like MySQL uses this kind of locking to avoid the "phantom problem" described here:  http://dev.mysql.com/doc/refman/5.0/en/innodb-next-key-locking.html , MySQL uses a "next-key locking", that combines index-row locking with gap locking, this means for us that it will lock a lot of possible ids between the previous and next ids, and will lock prev and next ids as well. 
+ To avoid this try to create a server algorithm that inserts your records so that records inserted in different transactions don't overlap, or at least don't execute all your transactions at the same time so the   doesn't have to wait one each other.  
+ 
+ It seems as if the problem might lie in the fact that InnoDB indexes are weird. 
+ The primary key (clustered) is   and there would be a   associated with it. 
+ The unique key on   (nonclustered) has the   of   associated with the value of   in the index. 
+ Doing a   followed by an   on the same key value for   should produce an upcoming different   for the primary key (clustered) and, likewise, an upcoming different   to associate with the value of   (nonclustered). 
+ This would require some bizarre internal locking within MVCC mechanism. 
+ You may need to change your Transaction Isolation Level to Allow Dirty Reads (i.e., not have repeatable reads) 
+ Play some games with   variable within a session 
+Try   and  
+ Click here to see syntax for setting Isolation Level in a Session 
+ Click here to see how there was once a bug concerning this within a Session and the warning on how to use it carefully 
+ Otherwise, just permamnently set the following in /etc/my.cnf (Example) 
+ [mysqld] 
+ 
+ Give it a try !!! 
+ 

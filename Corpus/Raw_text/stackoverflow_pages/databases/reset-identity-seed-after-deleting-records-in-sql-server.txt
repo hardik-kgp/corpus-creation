@@ -1,0 +1,122 @@
+*** reset-identity-seed-after-deleting-records-in-sql-server ***
+
+ I have inserted records into a SQL Server database table. The table had a primary key defined and the auto increment identity seed is set to “Yes”. This is done primarily because in SQL Azure, each table has to have a primary key and identity defined.  
+ But since I have to delete some records from the table, the identity seed for those tables will be disturbed and the index column (which is auto-generated with an increment of 1) will get disturbed. 
+ **How can I reset the identity column after I deleted the records so that the column has sequence in ascending numerical order?**
+
+ The identity column is not used as a foreign key anywhere in database. 
+ 
+ The   management command is used to reset identity counter. The command syntax is: 
+ 
+ Example:  
+ 
+ It was not supported in a previous versions of Azure SQL Database, but is supported now. 
+ 
+ Please note that   argument is varied across SQL Server versions  according to documentation :  
+ 
+ If rows are present in the table, the next row is inserted with the  new_reseed_value  value. In version SQL Server 2008 R2 and earlier, the next row inserted uses  new_reseed_value  + the current increment value. 
+ 
+ However,  **I find this information misleading**
+ (just plain wrong actually) because observed behaviour indicates that at least SQL Server 2012 is still uses  new_reseed_value  + the current increment value logic. Microsoft even contradicts with its own   found on same page: 
+ 
+ C. Forcing the current identity value to a new value 
+ The following example forces the current identity value in the
+  AddressTypeID column in the AddressType table to a value of 10.
+  Because the table has existing rows, the next row inserted will use 11
+  as the value, that is, the new current increment value defined for the
+  column value plus 1. 
+ 
+ 
+ Still, this all leaves an option for different behaviour on newer SQL Server versions. I guess the only way to be sure, until Microsoft clear up things in its own documentation, is to do actual tests before usage. 
+ 
+ 
+ Where 0 is   Start value 
+ 
+ It should be noted that IF  all  of the data is being removed from the table via the   (i.e. no   clause), then as long as a) permissions allow for it, and b) there are no FKs referencing the table (which appears to be the case here), using   would be preferred as it does a more efficient    and  resets the   seed at the same time. The following details are taken from the MSDN page for  TRUNCATE TABLE : 
+ 
+ Compared to the DELETE statement, TRUNCATE TABLE has the following advantages: 
+ 
+ Less transaction log space is used. 
+ The DELETE statement removes rows one at a time and records an entry in the transaction log for each deleted row. TRUNCATE TABLE removes the data by deallocating the data pages used to store the table data and records only the page deallocations in the transaction log. 
+ Fewer locks are typically used. 
+ When the DELETE statement is executed using a row lock, each row in the table is locked for deletion. TRUNCATE TABLE always locks the table (including a schema (SCH-M) lock) and page but not each row. 
+ Without exception, zero pages are left in the table. 
+ After a DELETE statement is executed, the table can still contain empty pages. For example, empty pages in a heap cannot be deallocated without at least an exclusive (LCK_M_X) table lock. If the delete operation does not use a table lock, the table (heap) will contain many empty pages. For indexes, the delete operation can leave empty pages behind, although these pages will be deallocated quickly by a background cleanup process. 
+ 
+ If the table contains an identity column, the counter for that column is reset to the seed value defined for the column. If no seed was defined, the default value 1 is used. To retain the identity counter, use DELETE instead. 
+ 
+ So the following: 
+ 
+ Becomes just: 
+ 
+ Please see the   documentation (linked above) for additional information on restrictions, etc. 
+ 
+ Although most answers are suggesting RESEED to 0, But many a times we  need to just reseed to next Id available 
+ 
+ This will check the table and reset to the next ID. 
+ 
+ I tried   answer and it reset the identity. But when a new row was inserted it got the  . So instead I changed the syntax to: 
+ 
+ Then the first row will get the identity = 1. 
+ 
+ Although most answers are suggesting   to  , and while some see this as a flaw for   tables, Microsoft has a solution that excludes the  
+ 
+ This will check the table and reset to the next  . This has been available since MS SQL 2005 to current. 
+ https://msdn.microsoft.com/en-us/library/ms176057.aspx 
+ 
+ issuing 2 command can do the trick 
+ 
+ the first reset the identity to zero , and the next will set it to the next available value
+ -- jacob 
+ 
+ @jacob 
+ 
+ Worked for me, I just had to clear all entries first from the table, then added the above in a trigger point after delete. Now whenever i delete an entry is taken from there. 
+ 
+ Reset identity column with new id... 
+ 
+ 
+ This is a common question and the answer is always the same: don't do it. Identity values should be treated as arbitrary and, as such, there is no "correct" order. 
+ 
+  table is preferred because it clears the records, resets the counter and reclaims the disk space.  
+  and   should be used only where foreign keys prevent you from truncating. 
+ 
+ Run this script to reset the identity column.  You will need to make two changes.  Replace tableXYZ with whatever table you need to update.  Also, the name of the identity column needs dropped from the temp table.  This was instantaneous on a table with 35,000 rows & 3 columns.  Obviously, backup the table and first try this in a test environment.  
+ 
+ 
+ 
+ 
+ This will set the current identity value to 0. 
+ On inserting the next value, the identity value get incremented to 1. 
+ 
+ Use this stored procedure: 
+ 
+ Just revisiting my answer. I came across a weird behaviour in sql server 2008 r2 that you should be aware of. 
+ 
+ The first select produces  . 
+ The second one produces  . If you execute the reset right after the table is created the next value is 0. Honestly, I am not surprised Microsoft cannot get this stuff right. I discovered it because I have a script file that populates reference tables that I sometimes run after I re-create tables and sometimes when the tables are already created. 
+ 
+ For a complete DELETE rows and reset the IDENTITY count, I use this (SQL Server 2008 R2) 
+ 
+ 
+ I use the following script to do this. There's only one scenario in which it will produce an "error", which is if you have deleted all rows from the table, and   is currently set to 1, i.e. there was only one row in the table to begin with. 
+ 
+ 
+ Reseeding to 0 is not very practical unless you are cleaning up the table as a whole. 
+ other wise the answer given by Anthony Raymond is perfect. Get the max of identity column first, then seed it with max. 
+ 
+ Its always better to use   **TRUNCATE**
+ when possible instead of deleting all records as it doesn't use log space also. 
+ In case we need delete and need to reset the seed, always remember that if table was never populated and you used   
+then first record will get identity = 0 
+as stated on   msdn documentation 
+ 
+ In your case only  **rebuild the index**
+ and don't worry about losing the
+  series of identity as this is a common scenario. 
+ 
+ 
+ First : Identity Specification Just : "No" >> Save Database Execute Project 
+ After then : Identity Specification Just : "YES" >> Save Database Execute Project 
+ Your Database ID, PK Start from 1 >> 
+ 

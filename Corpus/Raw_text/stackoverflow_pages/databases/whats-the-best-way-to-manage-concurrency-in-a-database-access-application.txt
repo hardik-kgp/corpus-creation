@@ -1,0 +1,33 @@
+*** whats-the-best-way-to-manage-concurrency-in-a-database-access-application ***
+
+ A while ago, I wrote an application used by multiple users to handle trades creation.
+I haven't done development for some time now, and I can't remember how I managed the concurrency between the users. Thus, I'm seeking some advice in terms of design. 
+ The original application had the following characteristics: 
+ 
+ One heavy client per user.   
+ A single database.   
+ Access to the database for each user to insert/update/delete trades.   
+ A grid in the application reflecting the trades table. That grid being updated each time someone changes a deal.   
+ I am using WPF.  
+ 
+ Here's what I'm wondering: 
+ 
+ Am I correct in thinking that I shouldn't care about the connection to the database for each application? Considering that there is a singleton in each, I would expect one connection per client with no issue.   
+ How can I go about preventing the concurrency of the accesses? I guess I should lock when modifying the data, however don't remember how to.  
+ How do I set up the grid to automatically update whenever my database is updated (by another user, for example)? 
+ 
+ Thank you in advance for your help! 
+ 
+ 
+ Consider leveraging Connection Pooling to reduce # of connections.  See:  http://msdn.microsoft.com/en-us/library/8xx3tyca.aspx 
+ lock as late as possible and release as soon as possible to maximize concurrency.  You can use TransactionScope (see:  http://msdn.microsoft.com/en-us/library/system.transactions.transactionscope.aspx  and  http://blogs.msdn.com/b/dbrowne/archive/2010/05/21/using-new-transactionscope-considered-harmful.aspx ) if you have multiple db actions that need to go together to manage consistency or just handle them in DB stored proc.  Keep your query simple.  Follow the following tips to understand how locking work and how to reduce resource contention and deadlock:  http://www.devx.com/gethelpon/10MinuteSolution/16488 
+ I am not sure other db, but for SQL, you can use SQL Dependency, see  http://msdn.microsoft.com/en-us/library/a52dhwx7(v=vs.80).aspx 
+ 
+ 
+ Concurrency is usually granted by the DBMS using locks. Locks are a type of semaphore that grant the exclusive lock to a certain resource and allow other accesses to be restricted or queued (only restricted in the case you use uncommited reads). 
+ The number of connections itself does not pose a problem while you are not reaching heights where you might touch on the max_connections setting of your DBMS. Otherwise, you might get a problem connecting to it for maintenance purposes or for shutting it down. 
+ DBMSes usually use a concept of either table locks (MyISAM) or row locks (InnoDB, most other DBMSes). The type of lock determines the volume of the lock. Table locks can be very fast but are usually considered inferior to row level locks. 
+ Row level locks occur inside a transaction (implicit or explicit). When manually starting a transaction, you begin your transaction scope. Until you manually close the transaction scope, all changes you make will be attributes to this exact transaction. The changes you make will also obey the  ACID paradigm . 
+ Transaction scope and how to use it is a topic far too long for this platform, if you want, I can post some links that carry more information on this topic. 
+ For the automatic updates, most databases support some kind of trigger mechanism, which is code that is run at specific actions on the database (for instance the creation of a new record or the change of a record). You could post your code inside this trigger. However, you should only inform a recieving application of the changes, not really "do" the changes from the trigger, even if the language might make it possible. Remember that the action which triggered the code is suspended until you finish with your trigger code. This means that a lean trigger is best, if it is needed at all. 
+ 

@@ -1,0 +1,174 @@
+*** there-is-already-an-object-named-in-the-database ***
+
+ Update-Database failed from Package Manager Console.
+I've used Entity Framework 6.x and code-first approach.
+Error is 
+ **"There is already an object named 'AboutUs' in the database."**
+
+ How can I solve this problem? 
+ 
+ My DbContext is: 
+ 
+ Package Manage Console: 
+ 
+ 
+ it seems there is a problem in migration process, run add-migration command in "Package Manager Console": 
+ 
+ Add-Migration Initial -IgnoreChanges 
+ 
+ do some changes, and then update database from "Initial" file: 
+ 
+ Update-Database -verbose 
+ 
+ **Edit:**
+
+-IgnoreChanges is in EF6 but not in EF Core, here's a workaround:
+ https://stackoverflow.com/a/43687656/495455 
+ 
+ Maybe you have changed the namespace in your project! 
+There is a table in your data base called  . The table has a column called  . 
+The value of this column is based on your  . for example is " ". 
+ When you change the namespace, it causes duplicate table names with different namespaces. 
+So, after you change namespace in code side, change the namespace in this table in database, too, (for all rows). 
+For example, if you change the namespace to  , then you should change the values of   column in   to " ". 
+Then in code side, in Tools => Package Manager Console, use the   command. 
+ Another option instead of changing the context value in the database is to hard code the context value in your code to the old namespace value. This is possible by inheriting   and in the constructor just assign the old context value to  , than inherit from   and leave that class empty. The last thing to do is call   in your DbContext in a static constructor. 
+ I hope your problem will be fixed. 
+ 
+ 
+ "There is already an object named 'AboutUs' in the database." 
+ 
+ This exception tells you that somebody has added an object named 'AboutUs' to the database already.  
+  can lead to it since data base versions are not controlled by you in this case. In order to avoid unpredictable migrations and make sure that every developer on the team works with the same data base structure  **I suggest you set **
+. 
+ Automatic migrations and Coded migrations can live alongside if you are very careful and the only one developer on a project. 
+ There is a quote from Automatic Code First Migrations post on Data Developer Center : 
+ 
+ Automatic Migrations allows you to use Code First Migrations without
+  having a code file in your project for each change you make. Not all
+  changes can be applied automatically - for example column renames
+  require the use of a code-based migration. 
+ Recommendation for Team Environments 
+ You can intersperse automatic and code-based migrations but this is
+  not recommended in team development scenarios. If you are part of a
+  team of developers that use source control you should either use
+  purely automatic migrations or purely code-based migrations. Given the
+  limitations of automatic migrations we recommend using code-based
+  migrations in team environments. 
+ 
+ 
+ In my case, my   table was emptied (somehow) and when trying to run   I would get:  
+ 
+ There is already an object named 'AspNetUsers' in the database 
+ 
+ After seeing the table had been emptied it made sense that it was trying to rerun the initial migration and trying to recreate the tables. 
+ To fix this problem I added rows into my   table. 1 row for each migration that I knew the database was up to date with. 
+ A row will have 2 columns:   and  
+  is the name of your migration file. Example:  
+  is the ef version you're running. You can find this by typing   into the Package Manager Console and looking for your ef package. 
+ Hope this is helpful for someone. 
+ 
+ In my case I had re-named the assembly that contained the code-first entity framework model. Although the actual schema hadn't changed at all the migrations table called 
+ 
+ contains a list of already performed migrations based on the  old  assembly name. I updated the old name in the migrations table to match the new and the migration then worked again. 
+ 
+ Make sure your solutions startup project has the correct connectionstring in the config file. Or set the -StartUpProjectName parameter when executing the update-database command. The -StartUpProjectName parameter specifies the configuration file to use for named connection strings. If omitted, the specified project’s configuration file is used.   
+ Here is a link for ef-migration command references
+ http://coding.abel.nu/2012/03/ef-migrations-command-reference/ 
+ 
+ Note: not recommended solution. but quick fix in some cases. 
+ For me,   in production database missed migration records during publish process, but development database had all migration records. 
+ If you are sure that production db has same-and-newest schema compared to dev db, copying all migration records to production db could resolve the issue. 
+ You can do with VisualStudio solely. 
+ 
+ Open 'SQL Server Object Explorer' panel > right-click   table in source(in my case dev db) database > Click "Data Comparison..." menu. 
+ Then, Data Comparison wizard poped up, select target database(in my case production db) and click Next. 
+ A few seconds later, it will show some records only in source database. just click 'Update Target' button. 
+ In browser, hit refresh button and see the error message gone. 
+ 
+ Note that, again, it is not recommended in complex and serious project. Use this only you have problem during ASP.Net or EntityFramework learning. 
+ 
+ I had same problem and after three hour struggling I find out what's going on 
+ In my case, when I wanted to migrate for the first time in   method, the default code wants to create the tables that already existed so I got same error as you 
+ To solve it, just delete those code and write want you want. For example, I wanted to add a column so i just write 
+ 
+ 
+ Delete rows from dbo_MigrationHistory table or delete the table and run 
+ 
+ It will run all the migrations in your project one by one 
+ 
+ In my case, the issue was in Seeder. I was calling _ctx.Database.EnsureCreated() inside of it and as far as I understood, the update database command has successfully executed, but then seeder tried to create database "second" time. 
+ How to address: 
+ 
+ Do nut run update, just start application and call EnsureCreated(). Database will be created/updated 
+ Comment out or remove seeder. 
+ 
+ 
+ Another edge-case EF Core scenario. 
+ Check you have a  **Migrations/YOURNAMEContextModelSnapshot.cs**
+ file. 
+ as detailed in -  https://docs.microsoft.com/en-us/ef/core/managing-schemas/migrations/#create-a-migration 
+ If you have tried to manually re-create your database by deleting migration.cs files, be careful that your Migrations/*ContextModelSnapshot.cs file still exists. 
+ Without it, your subsequent migrations have no snapshot on which to create the required differences and your new migrations files will look like they are re-creating everything again from scratch, you will then get the existing table error as above. 
+ 
+ Simply execute command update-migration -Script. This generate new *.sql script which include all DB changes included in migration. In the end of code are insert commands something like this: INSERT [dbo].[__MigrationHistory]([MigrationId], [ContextKey], [Model], [ProductVersion]) you can simply run this all INSERT and DB will be synchronized  
+ 
+ After more than an hour of not getting any results I tried another approach, not using migrations but I did a schema compare. 
+ In Visual Studio -> Tools -> SQL Server -> New Schema Comparison 
+ First I created a new completely new database with EF migrations. Than I did a compare, comparing the new database with the one I wanted to update. Finally generated a migration script, and I could perform a schema update. 
+ 
+ In my case (want to reset and get a fresh database),  
+ First I has got the error message : 
+ 
+ and I saw, a little bit before: 
+ 
+ My database was created, but no record in migrations history. 
+ I drop all tables except dbo.__MigrationsHistory 
+ MigrationsHistory was empty. 
+ Run 
+ 
+ (--verbose just for fun) 
+ and got  
+ 
+ I faced the same bug as below. Then I fixed it as below: 
+ 
+ Check current databases in your project:
+
+ 
+ 
+ 
+ If the newest is what you've added, then remove it:
+
+ 
+ 
+ 
+ Guarantee outputs of this database must be deteled in source code: .cs/.Designer.cs files 
+ 
+ 4.Now it is fine. Try to re-add:
+  
+ 5.Finally, try to update again, in arrangement base on migration list: 
+ 
+   
+ 
+ ...  
+ 
+ 
+ Hope it is helpful for you. ^^ 
+ 
+ same happened with me..
+Problem was that Actually i deleted my Database table   and made new table and problem was that my last migration was trying to induce the deleted table   in the database.
+I Solved it by simply removing all the content of last migration and simply ran Up() & down() method  
+ 
+ then updated the database and simply add new migration  
+ 
+ You have deleted migration folder than you are trying to run "update-database" command on Package manager console ? if so 
+ Just manually delete all you tables
+Than run if update-databse(cons seed data will be deleted) 
+ 
+ In migration file check the  **public override void Up()**
+ method. May be you are trying to create a new db object which is already in database. 
+So, you need to drop this object/table before creation of the db object. Just do like bellow- 
+ 
+ And now run your migration
+         
+ 

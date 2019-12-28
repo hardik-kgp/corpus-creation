@@ -1,0 +1,54 @@
+*** optimal-raid-setup-for-sql-server ***
+
+ We have an SQL 2005 database backend for our website, currently about 10GB in size. There are a lot more reads than writes, though I don't have the exact statistics. 
+ We're upgrading our database server and I was thinking of getting 4 disks and setting them up in two RAID 1 arrays - one for the data files and the other for the OS and log files. Would this be the optimal set-up or would RAID 5 be better for the data files? RAID 10 gets a bit pricey and is probably overkill for us. 
+ At this stage SQL Server should keep much of the database in RAM (8GB), but it will grow, so I don't want to entirely rely on that. 
+ Edit: we definitely want redundancy on a production server, so RAID 0 by itself is out. RAID 10 is nice, but might be a bit expensive for us. 
+ 
+ Your concept of using independent RAID 1 mirrors is the correct strategy. 
+ We have implemented similar scenarios at my work and they work very well. 
+ **RAID 1**
+
+ RAID 1 gives you the speed of 1 disk for writing but 2 disks for reading. 
+ When you write data to a RAID 1 array, it has to write that data to both disks, so you do not gain any performance increase, however this is where you get your data security. 
+ When reading from a RAID 1 array the controller will read from both disks as they have the same data on them. 
+ **RAID 5**
+
+ This is useful for protecting larger amounts of data.  The cost of RAID 5 increases a lot slower than RAID 1 (or RAID 0+1 once you are doing capacities beyond the size of the individual disks) for the same amount of data. 
+ If you want to protect 600gb in with RAID 5 you can achieve that with 4x200gb drives or 3x300gb drives, requiring 800-900gb of total purchased drive space.  RAID 1 would be 2x600gb drives requiring 1,200gb of purchased space (with 600gb drives being quite more expensive) or RAID 0+1 allowing you to use less expensive capacity drives (ie: 4x300gb or 6x200gb) but still requires a total of 1,200gb of purchased space. 
+ **RAID 0+1**
+
+ Offers similar advantages as RAID 1 taking it up another notch with the striping across disks.  I am assuming that if you are concerned about higher simultaneous reads, you will also be using multi-processors/multi-cores.  You will be processing multiple queries at once and so the striping isn't going to help as much.  You would see a better advantage on a RAID 0+1 for single applications using large data files, such as video editing. 
+ When I was researching this same issue a while ago for a customer I found this article to be very interesting  http://blogs.zdnet.com/Ou/?p=484 .  On the second page he dicusses the change from a RAID 0+1 to independent RAID 1 arrays creating a lot of performance improvements.  This was on a much larger scale (a 20 disk and 16 disk SAN) but same concepts.  The ability for SQL Server to load balance the data between multiple volumes instead of using just basic uninformed striping of RAID 0+1 is a great concept. 
+ 
+ I'd spend a little time making sure your database is efficiently indexed; monitor it for Full Table Scans, make sure the most frequent queries read as little data as possible; I'd take an efficiently designed database on a slow disk setup over a database with improper indexes on SSDs.  
+ 
+ Given that there are a lot more Reads than Writes, RAID 5 will be faster for your data files. 
+ If you possibly can, use a separate RAID 1+0 array for the transaction log files. 
+ EDIT: you will need at least 3 Disks to create a RAID 5 array. 
+ 
+ Be aware that the key performance metric will be the seek rate, not the data rate.  That is, a typical database that is disk-bound (as yours may become as it grows) will be limited by how many IOs per second the disks can support, rather than the maximum data rate they can support for sequential reads. 
+ This means that if you're wondering how to use 4 disks (for example), two RAID1 pairs should give you better performance than one 4-disk RAID5 array.  Of course, you won't get as much usable storage out of the two RAID1 pairs. 
+ 
+ Given the small size of the database I would use four 15krpm 2.5" SFF SAS disks, setup as two  separate RAID 1 mirrors. I'd run them through something like an Adaptec 5805 PCI-e x 8 SAS controller. I'd put the data on one array and the logs on another for safety. Bar memory-mapping the whole database, a very large/expensive SAN or using SSDs I'm pretty convinced this will be just about the quickest setup for the money. 
+ Hope this helps. 
+ 
+ Two things, 
+ The theory is RAID 1 gives you two drives for a read, but dont' think that equals two times the performance.  As a matter of fact, it doesn't, usually the sequential read spee ends up being exactly the same as one drive.  Surprising, but true....do real world tests, don't rely on theory. 
+ With that said, I would go with two RAID 1...but not as you said, one for OS, and the other for data.  I would have some small OS partition on one of them, but definately give both raids to sql server for data.  Give sql server all the sets you can. 
+ SQL Server can stripe across the pairs, you absolutely do not want to go with 0+1 despite what anyone here says.   They are again looking at theoretical benchmarks, not  understand that sql server can stripe all its data across the disks, and can do so in an optimized way.   
+ Raid 1 is just for data redundancy...other than that, give as much as you can to sql server, and let it do its thing...its very good at what it does. 
+ You have a 0+1 and break it into two raid 1....do real world testing, you'll be surprised at which is faster for sql server work. 
+ 
+ RAID 5 is good if you use a hardware controller with a decent amount of battery-backed cache RAM.  Select a chunk size and configure the DB so that the stripe size (data disks * chunk size) is equal to DB write size.   Make sure your data partition [is aligned / is a multiple of] the stripe size. 
+ Otherwise, RAID 1+0 is always a good choice for DB servers. 
+ 
+ I would also recommend establishing a set of baseline values which allows you to both do some more founded predictions than just putting your finger in the air (or asking StackOverflow, seems vaguely and oddly similar those two concepts). 
+ With some baseline values you can also measure the effectiveness of your changes and be a good foundation for future upgrades... 
+ (If not known, pick up some literature (or wikipedia) on Performance Engineering. It's a whole branch of stuff that deals with just this type of problems). 
+ 
+ btw, where I work, they have a high end san, that does a tablescan in about 2 minutes.  I broke up the drives into simple raid 1 sets, and let sql server handle the striping...not the san.   2 minutes dropped to 45 seconds. 
+ there are other articles on the net about this...its very hard to get raid 'true believers' to accept this, thats why I'm so emphatic, about this point. 
+ 
+ I prefer raid 10 which i've already configured on my dell r210-II linux server. Amazing performance... 
+ 

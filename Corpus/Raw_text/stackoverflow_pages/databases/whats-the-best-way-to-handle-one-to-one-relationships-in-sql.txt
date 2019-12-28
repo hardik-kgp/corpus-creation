@@ -1,0 +1,100 @@
+*** whats-the-best-way-to-handle-one-to-one-relationships-in-sql ***
+
+ Let's say I've got Alpha things that may or may not  be  or be  related to  Bravo or Charlie things. 
+ These are one-to-one relationships: No Alpha will relate to more than one Bravo.  And no Bravo will relate to more than one Alpha. 
+ I've got a few goals: 
+ 
+ a system that's easy to learn and
+maintain. 
+ data integrity enforced within my
+database. 
+ a schema that matches the
+real-world, logical organization of
+my data. 
+ classes/objects within my
+programming that map well to
+database tables (à la Linq to SQL) 
+ speedy read and write operations 
+ effective use of space (few null fields) 
+ 
+ I've got three ideas… 
+ 
+ One table with many nullalbe fields (flat file)… 
+ 
+ Many tables with zero nullalbe fields… 
+ 
+ Best (or worst) of both: Lots of nullalbe foreign keys to many tables… 
+ 
+ What if an Alpha must be either Bravo or Charlie, but not both? 
+ What if instead of just Bravos and Charlies, Alphas could also be any of Deltas, Echos, Foxtrots, or Golfs, etc…? 
+ 
+ **EDIT:**
+ This is a portion of the question:  Which is the best database schema for my navigation? 
+ 
+ If you want each Alpha to be related to by only one Bravo I would vote for the possibility with using a combined FK/PK: 
+ 
+ This way one and only one Bravo may refer to your Alphas. 
+ If the Bravos and Charlies have to be mutually exclusive, the simplest method would probably to create a discriminator field: 
+ 
+ This way the AlphaType field forces the records to always belong to exactly one subtype. 
+ 
+ I'm assuming you will be using SQL Server 2000 / 2005. I have a standard pattern for 1-to-1 relationships which I use, which is not too dissimilar to your 2nd idea, but here are the differences: 
+ 
+ Every entity must have its own primary key first, so your Bravo, Charlie, etc tables should define their own surrogate key, in addition to the foreign key column for the Alpha table. You are making your domain model quite inflexible by specifying that the primary key of one table must be exactly the same as the primary key of another table. The entities therefore become very tightly coupled, and one entity cannot exist without another, which is not a business rule that needs to be enforced within database design. 
+ Add a foreign key constraint between the AlphaID columns in the Bravo and Charlie tables to the primary key column on the Alpha table. This gives you 1-to-many, and also allows you to specify whether the relationship is mandatory simply by setting the nullability of the FK column (something that isn't possible in your current design). 
+ Add a unique key constraint to tables Bravo, Charlie, etc on the AlphaID column. This creates a 1-to-1 relationship, with the added benefit that the unique key also acts as an index which can help to speed up queries that retrieve rows based on the foreign key value. 
+ 
+ The major benefit of this approach is that change is easier: 
+ 
+ Want 1-to-many back? Drop the relevant unique key, or just change it to a normal index 
+ Want Bravo to exist independently of Alpha? You've already got the surrogate key, all you do is set the AlphaID FK column to allow NULLs 
+ 
+ 
+ Personally, I've had lots of success with your second model, using a PK/FK on a single column. 
+ I have never had a situation where all Alphas were required to have a record in a Bravo or Charlie table. I've always dealt with 1 <-> 0..1, never 1 <-> 1. 
+ As for your last question, that's just that many more tables. 
+ 
+ One more approach is having 3 tables for storing the 3 entities and having a separate table for storing the relations. 
+ 
+ You could have a join table that specifies an Alpha and a related ID.  You can then add another column specifing if it is an ID for Bravo, Charlie or whatever.  Keeps the column creep down on Alpha but does add some complexity to joining queries. 
+ 
+ I have an example working pretty well so far that fits your model: 
+ I Have Charlie and Bravo Tables Having the Foreign Key alpha_id from Alpha. Like your first example, except alpha is not the Primary Key, bravo_id and charlie_id are. 
+ I use alpha_id on every table I need to address to those entities, so, to avoid a SQL that may cause some delay researching both Bravo and Charlie to find which one Alpha is, I created a AlphaType table and on Alpha table I have its id (alpha_type_id) as foreign key. That way I can know in a programmatic way which AlphaType I am dealing with without Joining tables that may have zillions of records. in tSQL: 
+ 
+ 
+ You raise a lot of questions that make it hard to select any of your proposed solutions without a lot more clarification on the exact problem you are trying to solve.  Consider not just my clarification questions, but the criteria that you will use to evaluate my questions, as an indication of the amount of detail required to solve your problem: 
+ 
+ a system that's easy to learn and maintain.  
+ 
+ What "System" will it be easy to learn and maintain?  The source code of your app, or the app's data via it's end-user interface?   
+ 
+ data integrity enforced within my database. 
+ 
+ What do you mean by "enforced within my database"?  Does this mean you cannot by any means control data integrity any other way, i.e. the project requires only DB-based data integrity rules? 
+ 
+ a schema that matches the real-world, logical organization of my data. 
+ 
+ Can you provide us the real world, logical organization to which you are referring?  It's impossible to infer it from your three examples of the data you are trying to store -- i.e. suppose all three of your structures are completely wrong.  How would we know that unless we know the real-world spec? 
+ 
+ classes/objects within my programming that map well to database tables (à la Linq to SQL) 
+ 
+ This requirement sounds like your hand is being forced to create this with linq to SQL, is that the case? 
+ 
+ speedy read and write operations 
+ 
+ What is "speedy"?  .03 seconds?  3 seconds?  30 minutes?  It's unclear because you're not specifying the data size and type of operations to which you are referring. 
+ 
+ effective use of space (few null fields) 
+ 
+ Effective use of space has nothing to do with the number of null fields.  If you mean a normalized database structure, that will depend again on the real-world spec's and other design elements of the application that have not been provided in the question.   
+ 
+ I'd go with option 1 unless I had a significant reason not to. It might not cost you as much space as you think, esp. if you are using varchars in Bravo. Don't forget that splitting it will cost you for foreign keys, secondary identity and needed indexes.
+ A place where you might run into trouble is if Bravo is unlikely to be needed (<%10) AND you need to quickly query by one of its fields so you index it. 
+ 
+ I would create a supertype / subtype relationship. 
+ 
+ So, for example, an alpha that has a charlie but not a bravo:- 
+ 
+ Note, you can't create more than one charlie for the alpha, as if you tried to create a two charlies with a ThingId of 1 the second insert would get a unique index/constraint violation. 
+ 

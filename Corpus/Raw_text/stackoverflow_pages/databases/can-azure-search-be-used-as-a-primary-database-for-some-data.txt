@@ -1,0 +1,29 @@
+*** can-azure-search-be-used-as-a-primary-database-for-some-data ***
+
+ Microsoft promotes Azure Search as "cloud search", but doesn't necessarily say it's a "database" or "data storage". It stops short of saying it's big data. 
+ Can/should azure search be used as the primary database for some data? Or should there always be some "primary" datastore that is "duplicated" in azure search for search purposes? 
+ If so, under what circumstances/what scenarios make sense to use Azure Search as a primary database? 
+ 
+ Although we generally don't recommend it, you might consider using Azure Search as a primary store if: 
+ 
+ **Your app can tolerate some data inconsistency.**
+ Azure Search is eventually consistent.
+
+ 
+ When you index data, it is not available for querying immediately. 
+ Currently there is no mechanism to control concurrent updates to the same document in an index. 
+ When reading data using search queries, paging is not based on any kind of snapshot, so you may get missing or duplicated documents. 
+ 
+ **You don't need to read out the entire contents of your index**
+. Paging in Azure Search relies on the   parameter, which is currently capped at a maximum of 100000. For indexes larger than 100000 documents, it can be very tricky to read all your data out. You'll need to pick some field to partition on, and your reads have no consistency guarantees. 
+ **In case of accidental deletion, you are ok with losing your data.**
+ Azure Search does not support backup/restore as of the time of this writing. If you accidentally delete your data, you will need to re-index it from its original source. 
+ **You won't need to change your index definition much.**
+ Modifying or removing fields from your index currently requires re-indexing all your data (you can add new fields without re-indexing). If Azure Search is your primary store, your only option may be to try to read all the data from your old index into a new one, which is subject to all the aforementioned limitations around consistency,  , etc. 
+ **Your application's query needs match the features that Azure Search provides.**
+ Azure Search supports full-text search, facets, and a subset of the OData filter language, but it does not support things like joins between indexes or arbitrary aggregations. If your app needs different query features than what Azure Search provides, you should consider another NoSQL solution like Azure Cosmos DB. 
+ **Your application can tolerate high write latency.**
+ Since it is a search engine and not a general-purpose DB, Azure Search is optimized heavily for query performance (especially full-text search queries). This comes at the cost of slower write performance, since every write requires a lot of work to index the data. In particular, you will get the best write throughput by batching indexing actions together (batches can contain up to 1000 indexing actions). Writing documents one at a time to the index will result in much lower throughput. 
+ 
+ Note that many of these are areas where we want to improve Azure Search in the future for the sake of manageability and ease of use, but it has never been our goal to make Azure Search a general-purpose NoSQL database. 
+ 

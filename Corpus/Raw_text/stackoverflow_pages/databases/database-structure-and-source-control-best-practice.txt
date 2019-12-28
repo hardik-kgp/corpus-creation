@@ -1,0 +1,84 @@
+*** database-structure-and-source-control-best-practice ***
+
+ **Background**
+
+ I came from several years working in a company where all the database objects were stored in source control, one file per object.  We had a list of all the objects that was maintained when new items were added (to allow us to have scripts run in order and handle dependencies) and a VB script that ran to create one big script for running against the database.  
+ All the tables were 'create if not exists' and all the SP's etc. were drop and recreate. 
+ Up to the present and I am now working in a place where the database is the master and there is no source control for DB objects, but we do use redgate's tools for updating our production database (SQL compare), which is very handy, and requires little work. 
+ **Question**
+
+ How do you handle your DB objects?  I like to have them under source control (and, as we're using GIT, I'd like to be able to handle merge conflicts in the scripts, rather than the DB), but I'm going to be pressed to get past the ease of using SQL compare to update the database. 
+ I don't really want to have us updating scripts in GIT and then using SQL compare to update the production database from our DEV DB, as I'd rather have 'one version of the truth', but I don't really want to get into re-writing a custom bit of software to bundle the whole lot of scripts together. 
+ I think that visual studio database edition may do something similar to this, but I'm not sure if we will have the budget for it. 
+ I'm sure that this has been asked to death, but I can't find anything that seems to quite have the answer I'm looking for.
+Similar to this, but not quite the same: 
+ What are the best practices for database scripts under code control 
+ 
+ **Started a bounty, as I'm interested in canvassing for a few more opinions - the answers here are sound, but I feel that there should really be an easier way.**
+
+ Thanks for all the great answers - all have their merits, so I'm going to take the highest vote, but cheers for all the input. 
+ 
+ We have all our database objects under source control using Visual Studio Database Edition (DBPro). It is a wonderful tool that version controls our schema, does builds, validations, allows code analysis, schema comparisons, deployments, data comparisons, refactoring etc. It was designed from the ground up to be a DB management and version control system. Highly recommended. 
+ This is the blog site of the lead architect for DBPro: 
+ click here 
+ 
+ Have a look at this five part series on the principles and practices of database version control (by K. Scott Allen): 
+ 
+ Three rules for database work 
+ The Baseline 
+ Change Scripts 
+ Views, Stored Procedures and the Like 
+ Branching and Merging   
+ 
+ The five parts are important but basically the idea is to have a baseline and then change scripts (with a version table). Updating the database means applying change scripts "above" the current version. And this strategy is very VCS friendly (no conflicts). 
+ 
+ Using a 3rd party SSMS add-in  ApexSQL Source Control , database objects can be automatically scripted and pushed to a remote Git repository, or even to a cloned local one, if you prefer working with local repository. 
+ ApexSQL Source Control support Git source control system out of the box. That means you don’t need any additional Git client installed. Besides this, Branching and Merging are integrated and available through the add-in UI. 
+ 
+ Assuming that you use the .net framework, have a look at the  Fluent Migrator  and also the  Hearding Code Podcast  that talks about the project. 
+The main aim as I see it is to easily code the migrations as you do your normal coding using a fluent interface using a database agnostic approach.  
+ It is built on top of the .net framework. and works with a number of database formats including SQL Server, SqlLite and MySQL. 
+ The advantage of the this approach is that it lives with the rest of your code and can therefore be managed by SCM 
+ Example: 
+ 
+ 
+ If you're already using Red Gate tools, you might consider using SQL Source Control, which works side by side with SQL Compare and SQL Data Compare to allow one version of the truth to exist in source control. It's in early access at the moment, but most of the functionality is in there to be tried out. You can download this from  http://www.red-gate.com/Products/SQL_Source_Control/index.htm  . However, it only supports SVN and TFS for the moment. Have you standardized on GIT? 
+ David (Product Manager at Red Gate) 
+ 
+ We have a system where the database is nominally the master-inside our source control system, we maintain a sequence of "schema change" scripts (.sql files), each of which is responsible for idempotently rolling back the change and then applying it. Each script is just numbered, so we have 000.sql (which creates the database and sets up standard objects), 001.sql etc.  
+ During development, a developer writes a schema change script and runs it against the development database. Each change is required to add a row into a   table, containing the change number and a brief description. In order to roll back a change, one can just run the first section of it. For SQL Server, the idempotence of the rollback section is handled by examining sysobjects etc before issuing DROP commands- similar to "drop ... if exists" constructs. Schema changes may need to do migration of data if a model is being changed rather than simply being added, and also are used to maintain reference data. 
+ During the release process, a DBA (we're a small company, so this is a role taken on by one of the developers anyway) applies the schema changes for the release to the production database between stopping the old version of the applications and starting the updated ones. 
+ This is all quite a manual process, but satisfies requirements such as migrating data from one model to another: e.g. expanding a boolean flag to a set of options, or converting a many-to-one association to a many-to-many. This typically isn't something that can be generated with simple schema-comparison tools anyway. It also allows for role separation- although in practice we all have full access to production, there is enough decoupling there so that the "DBA" can read and review the .sql files to be applied in production. 
+ In theory, at least, a complete database (containing only reference data) could be built by simply running all schema changes in order for 000.sql onwards. In practice we don't regularly do this, but rather copy our production database to dev and then apply the change scripts before running regression tests prior to a release. This serves to test the change scripts themselves, but is only practical with a medium size production database. 
+ 
+ I am not very familiar with RedGate toolkit, but if it is any similar to  dbGhost , there must be a utility that allows you to script the database objects to the files one per object. In this case I would suggest following: 
+ 
+ add a daily (or part of a build) job to reverse-engineer the  **DEV**
+ database into the directory structure 
+ then compare it to what you have in repository (by means of simple diff), and basically  **FAIL**
+ the build job and report the   if any. This will indicate that the structure of the DEV database has changed and is not reflected in the source control, 
+ which will indicate to the developer to add the changes to the source control (even use the reported   file for this) 
+ 
+ If you many DEV databases (one per user or development branch) and it is too cumbersome, then probably a better combination would be to do such task on the   (TEST just before release) version of the database, at which point you would store the PROD schema in the repository and would update it from the STAGE only during the pre-release testing phase, where you will ensure that your schema changes are also in the repository. 
+ This way developers can still work in the usual way: change the schema on the DEV database first, and hopefully you get the balance between the   and   you would like. 
+ In my team we add change to VCS as soon as we change the DEV database, but we still do have such task to compare the schema between different databases (DEV, STAGE and PROD). Basically, we follow what I once answered in  How should you build your database from source control? . 
+ 
+ At work we make heavy use of a powerful tool which comes as part of  ActiveRecord  (which is the default ORM that comes with the  Rails  web framework called  Migrations . 
+ A basic migration would look like the following: 
+ 
+ There is a Migration created for every database change, and they are created in sequential order by timestamp.  You can run pre-defined methods to run these migrations in the proper order so your database can always be created and/or rolled back.  Some of the functions are below: 
+ 
+ Migrations have methods for creating tables, dropping tables, updating tables, adding indexes, etc.  The full suite.  The migrations also automatically add an   column, and the   section automatically generates a "created_at" field and an "updated_at" field. 
+ Most languages have ORM facilities such as these, and they allow the database to be maintained in a code-like state, which is easy for developers to understand, as well as being simple enough for DBA's to use and maintain. 
+ 
+ I currently maintain a database design in a modelling tool (DeZine for Databases) and store that under source control. Within my table design I add a table with two rows which have the version number of the schema and of the reference data, this is updated each time the database is changed/released (users do not access this table). 
+ Reference data is maintained in an Excel spreadsheet (also under source control) which can generate a SQL script of INSERT statements to populate new databases. 
+ When a new release is required the schema script, reference data script and an installer package are sent out. The installer package renames the old database, creates a new database from the script and imports the new reference data (which may also have changed). The user's data is then copied from the old (renamed) database to the new one. 
+ This has the advantage that when things go wrong you can revert to the original database as it has not been modified. 
+ 
+ There's a special tool for this exact thing. It's called  Wizardby : 
+ 
+ ...database continuous integration & schema migration framework 
+ 
+ Wizardby Workflow http://octalforty-wizardby.googlecode.com/svn/trunk/docs/img/database_versioning_with_wizardby.png 
+ 

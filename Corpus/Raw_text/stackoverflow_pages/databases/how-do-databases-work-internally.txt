@@ -1,0 +1,87 @@
+*** how-do-databases-work-internally ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  2 years ago . 
+ 
+ 
+ 
+ I've been working with databases for the last few years and I'd like to think that I've gotten fairly competent with using them. However I was reading recently about Joel's   Law of Leaky Abstractions  and I realised that even though I can write a query to get pretty much anything I want out of a database, I have no idea how the database actually interprets the query. Does anyone know of any good articles or books that explain how databases work internally? 
+ Some specific things I'm interested in are: 
+ 
+ What does a database actually do to find out what matches a select statement? 
+ How does a database interpret a join differently to a query with several "where key1 = key2" statements? 
+ How does the database store all its memory? 
+ How are indexes stored? 
+ 
+ 
+ 
+ What does a database actually do to
+  find out what matches a select
+  statement? 
+ 
+ To be blunt, it's a matter of brute force. Simply, it reads through each candidate record in the database and matches the expression to the fields. So, if you have "select * from table where name = 'fred'", it literally runs through each record, grabs the "name" field, and compares it to 'fred'. 
+ Now, if the "table.name" field is indexed, then the database will (likely, but not necessarily) use the index first to locate the candidate records to apply the actual filter to. 
+ This reduces the number of candidate records to apply the expression to, otherwise it will just do what we call a "table scan", i.e. read every row. 
+ But fundamentally, however it locates the candidate records is separate from how it applies the actual filter expression, and, obviously, there are some clever optimizations that can be done. 
+ 
+ How does a database interpret a join
+  differently to a query with several
+  "where key1 = key2" statements? 
+ 
+ Well, a join is used to make a new "pseudo table", upon which the filter is applied. So, you have the filter criteria and the join criteria. The join criteria is used to build this "pseudo table" and then the filter is applied against that. Now, when interpreting the join, it's again the same issue as the filter -- brute force comparisons and index reads to build the subset for the "pseudo table". 
+ 
+ How does the database store all its
+  memory? 
+ 
+ One of the keys to good database is how it manages its I/O buffers. But it basically matches RAM blocks to disk blocks. With the modern virtual memory managers, a simpler database can almost rely on the VM as its memory buffer manager. The high end DB'S do all this themselves. 
+ 
+ How are indexes stored? 
+ 
+ B+Trees typically, you should look it up. It's a straight forward technique that has been around for years. It's benefit is shared with most any balanced tree: consistent access to  the nodes, plus all the leaf nodes are linked so you can easily traverse from node to node in key order. So, with an index, the rows can be considered "sorted" for specific fields in the database, and the database can leverage that information to it benefit for optimizations. This is distinct from, say, using a hash table for an index, which only lets you get to a specific record quickly. In a B-Tree you can quickly get not just to a specific record, but to a point within a sorted list. 
+ The actual mechanics of storing and indexing rows in the database are really pretty straight forward and well understood. The game is managing buffers, and converting SQL in to efficient query paths to leverage these basic storage idioms. 
+ Then, there's the whole multi-users, locking, logging, and transactions complexity on top of the storage idiom. 
+ 
+ 
+ What does a database actually do to find out what matches a select statement? 
+ DBs are using indexes(see below) 
+ How does a database interpret a join differently to a query with several "where key1 = key2" statements?
+Join Operations can be translated to binary tree operations by merging trees. 
+ How does the database store all its memory? 
+ **memorymapped files**
+ for faster access of their data  
+ How are indexes stored? 
+ Internally DBs are working with  **B-Trees**
+ for indexing.  
+ 
+ This should be explained in greater details on wikipedia.. 
+ http://en.wikipedia.org/wiki/B-tree 
+ http://en.wikipedia.org/wiki/Database 
+ 
+ In addition to reading, it can be instructive to use the DB tools to examine the execution plan that the database uses on your queries. In addition to getting insight into how it is working, you can experiment with techniques to optimize the queries with a better feedback loop. 
+ 
+ Saif, excellent link.  A bird's eye overview that manages to cover most topics, and provide details on specific vendor implementations. 
+ I made three tries at writing an explanation, but this is really too big a topic.  Check out the Hellerstein article (the one on the berkeley server that Saif linked to), and then ask about specifics.   
+ It's worth noting that only a subset of "known good ideas" is implemented in any given DBMS.  For example, SQLite doesn't even do hash joins, it only does nested loops (ack!!).  But then, it's an easily embeddable dbms, and it does its work very well, so there's something to be said for the lack of complexity. 
+ Learning about how a DBMS gathers statistics and how it uses them to construct query plans, as well as learning how to read the query plans in the first place, is an invaluable skill -- if you have to choose one "database internals" topic to learn, learn this.  It will make a world of difference (and you will never accidentally write a Cartesian product again... ;-)). 
+ 
+ If you want to know more in detail, I'd recommend getting the sqlite sources and having a look at how it does it.  It's complete, albeit not at the scale of the larger open source and commercial databases.  If you want to know more in detail I recommend  The Definitive Guide to SQLite  which is not only a great explanation of sqlite, but also one of the most readable technical books I know.  On the MySQL side, you could learn from  MySQL Performance Blog  as well as on the book front the O'Reilly  High Performance MySQL  (V2) of which the blog is one of the authors. 
+ 

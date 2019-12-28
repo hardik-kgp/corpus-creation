@@ -1,0 +1,56 @@
+*** pros-and-cons-of-sorting-data-in-db ***
+
+ Let's assume I have a table with field of type VARCHAR. And I need to get data from that table sorted alphabetically by that field.  
+ What is the best way (for performance): add   to the SQL-query or sort the data when it's already fetched? 
+ I'm using Java (with Hibernate), but I can't tell anything about DB engine. It could be any popular relational database (like MySQL or MS Sql Server or Oracle or HSQL DB or any other). 
+ The amount of records in table can vary greatly but let's assume there are 5k records. 
+ UPD: how well does 2nd level hibernate cache (EHCache for example) support sorted data? 
+ 
+ If this field is indexed, then the average DB would be much more efficient in this task than Java. Also note that you normally wouldn't retrieve all those rows at once if it's for pure display, but rather retrieve a subset of it so that it can be shown by pagination. You can do this at DB level as well. Sorting the data in Java would require the entire table being hauled into Java's memory, you don't want to do that. 
+ 
+ In Hibernate you can order the results using   and paginate using   and  . E.g. 
+ 
+ 
+ Sort the data in the database - that's (part of) what it's there for. The database engine is probably better at sorting this data than you are. 
+ 
+ Pro sorting in the Database: 
+ 
+ Speed. If you have an index on the order by condition, the databasae shouldn't have to sort at all, and for maximum performance you could use a clustered index. 
+ Ease of use. An   in the sql query is easier to write and maintain than a Java Comparator. 
+ 
+ Pro sorting in the application: 
+ 
+ Customizability. Maybe you want to sort by more elaborate criteria, then a custom sort in Java will be more flexible. 
+ Reproducibility. If you code for different databases, their  Collating rules  will probably differ. Maybe that's a problem, and you want one particular odering. In Java, you can write a  Custom Collator  to make sure the output from all databases is ordered the same way. 
+ 
+ 
+ 
+ What is the best way (for performance): add sort by field  to the SQL-query or sort the data when it's already fetched? 
+ 
+ It's  , not sort by. 
+ It's a matter of tradeoff: sorting on client side is distributed which means less impact on the server. However, it can require more client resources. 
+ If the field is not indexed, to return the whole sorted, recordset the server will need to do the following things: 
+ 
+ Fetch the whole recordset 
+ Sort it 
+ Send it over the network to the client 
+ 
+ , while sorting on the client side requires only points   and   (which are the least resource-intensive). 
+ If you server needs to serve hundreds of clients simultaneously and your clients need the whole recordsets, then most probably sorting on the client side will be more efficient. 
+ If the field is indexed, the database can return the data already sorted from that index. However, this will require additional table lookups to get the other fields. 
+ Also, if you don't want the whole recordset but only some top fields (like in   or  ), the whole recorset will not need to be fetched and transmitted over the network. In this case, ordering on database side will likely be more efficient. 
+ 
+ My solution would be create index for the sort column and write query with order by clause.  
+ 
+ For only 5 thousand records, it doesn't really make much difference, but I'd sort it the database; even if there's no index on the field, it's probably at least as fast as doing it afterwards. 
+ 
+ 
+ do you usually extract only a subset of that data ?  -> a good back end design (indexing and and/or partitioning) helps you extracting that subset ordered faster; then an "order by" on the db is matter of instants. 
+ tables always contain a few rows of data ? then an "order by" on the db is matter of instants 
+ 
+ and even if you don't(can't) optimize your database you should (almost) always prefer to leave that kind of op.s to the b.e.   
+ 
+ if you are willing to pull all of your data into memory and work with it in memory, here is a library that will work really well for your use case 
+ http://casperdatasets.googlecode.com 
+ it operates effectively like an in-memory table, and allows you to perform searching, filtering, and SORTING on data, all in memory (and in java). it performs very fast for the number of records that you are trying to work with, and you don't need to integrate with a heavy ORM framework.  
+ 

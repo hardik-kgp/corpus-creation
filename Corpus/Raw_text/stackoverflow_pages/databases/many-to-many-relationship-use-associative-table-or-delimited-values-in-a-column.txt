@@ -1,0 +1,85 @@
+*** many-to-many-relationship-use-associative-table-or-delimited-values-in-a-column ***
+
+ **Update 2009.04.24**
+
+ The main point of my question is not developer confusion and what to do about it. 
+ The point is to understand when delimited values are the right solution. 
+ I've seen delimited data used in commercial product databases (Ektron lol). 
+ SQL Server even has an XML datatype, so that could be used for the same purpose as delimited fields. 
+ **/end Update**
+
+ The application I'm designing has some many-to-many relationships. In the past, I've often used associative tables to represent these in the database. This has caused some confusion to the developers. 
+ Here's an example DB structure: 
+ 
+ **There is a many-to-many relationship between Document and Category.**
+
+ In this implementation, Document.CategoryIDs is a big pipe-delimited list of CategoryIDs. 
+ To me, this is bad because it requires use of substring matching in queries -- which cannot make use of indexes. I think this will be slow and will not scale. 
+ With that model, to get all Documents for a Category, you would need something like the following: 
+ 
+ My solution is to create an associative table as follows: 
+ 
+ This is confusing to the developers. Is there some elegant alternate solution that I'm missing? 
+ I'm assuming there will be thousands of rows in Document. Category may be like 40 rows or so. The primary concern is query performance. Am I over-engineering this? 
+ Is there a case where it's preferred to store lists of IDs in database columns rather than pushing the data out to an associative table? 
+ Consider also that we may need to create many-to-many relationships among documents. This would suggest an associative table Document_Document. Is that the preferred design or is it better to store the associated Document IDs in a single column? 
+ Thanks. 
+ 
+ The Document_Category table in your design is certainly the correct way to approach the problem. If it's possible, I would suggest that you educate the developers instead of coming up with a suboptimal solution (and taking a performance hit, and not having referential integrity). 
+ Your other options may depend on the database you're using. For example, in SQL Server you can have an XML column that would allow you to store your array in a pre-defined schema and then do joins based on the contents of that field. Other database systems may have something similar. 
+ 
+ 
+ This is confusing to the developers. 
+ 
+ Get better developers.  That is the right approach. 
+ 
+ Your suggestion IS the elegant, powerful, best practice solution. 
+ Since I don't think the other answers said the following strongly enough, I'm going to do it. 
+ If your developers 1) can't understand how to model a many-to-many relationship in a relational database, and 2) strongly insist on storing your CategoryIDs as delimited character data, 
+ Then they ought to immediately lose all database design privileges. At the very least, they need an actual experienced professional to join their team who has the authority to stop them from doing something this unwise and can give them the database design training they are completely lacking. 
+ Last, you should not refer to them as "database developers" again until they are properly up to speed, as this is a slight to those of us who actually are competent developers & designers. 
+ I hope this answer is very helpful to you. 
+ **Update**
+
+ 
+ The main point of my question is not developer confusion and what to do about it. 
+ The point is to understand when delimited values are the right solution. 
+ 
+ Delimited values are the wrong solution except in extremely rare cases. When individual values will ever be queried/inserted/deleted/updated this proves it was the wrong decision, because you have to parse and touch all the other values just to work with the desired one. By doing this you're violating  **first**
+ (!!!) normal form (this phrase should sound to you like an unbelievably vile expletive). Using XML to do the same thing is wrong, too. Storing delimited values or multi-value XML in a column  could  make sense when it is treated as an indivisible and opaque "property bag" that is NOT queried on by the database but is always sent whole to another consumer (perhaps a web server or an EDI recipient). 
+ This takes me back to my initial comment. Developers who think violating first normal form is a good idea are very inexperienced developers in my book. 
+ I will grant there are some pretty sophisticated non-relational data storage implementations out there using text property bags (such as Facebook(?) and other multi-million user sites running on thousands of servers). Well, when your database, user base, and transactions per second are big enough to need that, you'll have the money to develop it. In the meantime, stick with best practice. 
+ 
+ It's almost always a big mistake to use comma separated IDs. 
+ **RDBMS are designed to store relationships.**
+
+ 
+ 
+ My solution is to create an
+  associative table as follows: This is
+  confusing to the developers 
+ 
+ Really? this is database 101, if this is confusing to them then maybe they need to step away from their wizard generated code and learn some basic DB normalization. 
+ What you propose is the right solution!! 
+ 
+ The many-to-many mapping you are doing is fine and normalized.  It also allows for other data to be added later if needed.  For example, say you wanted to add a time that the category was added to the document. 
+ I would suggest having a surrogate primary key on the document_category table as well.  And a Unique(documentid, categoryid) constraint if that makes sense to do so. 
+ Why are the developers confused? 
+ 
+ The 'this is confusing to the developers' design means you have under-educated developers.  It is the better relational database design - you should use it if at all possible. 
+ If you really want to use the list structure, then use a DBMS that understands them.  Examples of such databases would be the  U2  (Unidata, Universe) DBMS, which are (or were, once upon a long time ago) based on the Pick DBMS.  There are likely to be other similar DBMS providers. 
+ 
+ This is the classic object-relational mapping problem. The developers are probably not stupid, just inexperienced or unaccustomed to doing things the right way. Shouting "3NF!" over and over again won't convince them of the right way.  
+ I suggest you ask your developers to explain to you how they would get a count of documents by category using the pipe-delimited approach. It would be a nightmare, whereas the link table makes it quite simple. 
+ 
+ The number one reason that my developers try this "comma-delimited values in a database column" approach is that they have a perception that adding a new table to address the need for multiple values will take too long to add to the data model and the database. 
+ Most of them know that their work around is bad for all kinds of reasons, but they choose this suboptimal method because they  **just can**
+.  They can do this and maybe never get caught, or they will get caught much later in the project when it is too expensive and risky to fix it. Why do they do this? Because their performance is measured solely on speed and not on quality or compliance. 
+ It could also be, as on one of my projects, that the developers  had  a table to put the multi values in but were under the impression that duplicating that data in the parent table would speed up performance.  They were wrong and they were called out on it. 
+ So while you do need an answer to how to handle these costly, risky, and  **business-confidence damaging**
+ tricks, you should also try to find the reason why the developers believe that taking this course of action is better in the short and the long run for the project and company.  Then fix both the perception and the data structures. 
+ Yes, it could just be laziness, malicious intent, or cluelessness, but I'm betting most of the time developers do this stuff because they are constantly being told "just get it done". We on the data model and database design sides need to ensure that we aren't sending the wrong message about how responsive we can be to requests to fulfill a business requirement for a new entity/table/piece of information. 
+ We should also see that data people need to be constantly monitoring the "as-built" part of our data architectures. 
+ Personally, I never authorize the use of comma delimited values in a relational database because it is actually faster to build a new table than it is to build a parsing routine to create, update, and manage multiple values in a column  and  deal with all the anomalies introduced because sometimes that data has embedded commas, too. 
+ Bottom line, don't do comma delimited values, but find out why the developers want to do it and fix that problem. 
+ 

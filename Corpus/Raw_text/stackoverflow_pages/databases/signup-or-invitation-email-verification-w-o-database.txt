@@ -1,0 +1,82 @@
+*** signup-or-invitation-email-verification-w-o-database ***
+
+ I'd like to keep my database clean of stale almost-accounts, and I was thinking about making new signups and invitations put their data into the welcome email as an encrypted or hashed url. Once the link in the url is visited, the information is then added into the database as an account.
+Is there something that currently does this? Any references, thoughts, or warnings about doing user registration this way?
+Thanks! 
+ Edit:
+I've made a working example, and the url is 127 characters. 
+ 
+ Obviously, more data = larger url 
+ 
+ 
+ Thoughts: 
+ 
+ **Use true asymmetric cypher for the "cookie" to prevent bots creating accounts. Encrypt the "cookie" using public key, verify it by decoding with private key.**
+
+ Rationale:  If only a base64 or other algorithm was used for encoding the cookie, it would be easy to reverse-engineer the scheme and create accounts automatically. This is undesirable because of spambots. Also, if the account is password protected, the password would have to appear in the cookie. Anyone with access to the registration link would be able not only to activate the account, but also to figure out the password. 
+ **Require re-entry of the password after activation through the link.**
+
+ Rationale:  Depending on the purpose of the site you may want to improve the protection against information spoofing. Re-entering the password after activation protects against stolen/spoofed activation links. 
+ **When verifying the activation link, make sure the account created by it is not created already.**
+
+ **How do you protect against two users simultaneously creating an account with the same name?**
+
+ Possible answer:  Use email as the login identifier and don't require unique account name. 
+ **Verify the email first, than continue account creation.**
+
+ Rationale:  This will minimize the information you need to send in the cookie. 
+ 
+ 
+ 
+ There are some e-mail clients which break URLs after 80 letters. I doubt that you can fit all the information in there. 
+ Some browsers have limitations for the URL,  Internet Explorer 8  has a limit of 2083 characters, for example. 
+ 
+ Why don't you clean your database regularly (cron script) and remove all accounts that haven't been activated for 24 houres? 
+ 
+ I have done pretty much the same before. I only have 2 suggestions for you, 
+ 
+ Add a key version so you can rotate the key without breaking outstanding confirmation. 
+ You need a timestamp or expiration so you can set a time limit on confirmation if you want to. We allow one week. 
+ 
+ As to the shortest URL, you can do better by making following changes, 
+ 
+ Use a stream cipher mode like CFB so you don't have to pad to the block size.  
+ Compress the cleartext will help when the data is big. I have a flag and only use compression when it shrinks data. 
+ Use   so you don't have to URL encode it. 
+ 
+ 
+ There's a few problems with your solution. 
+ Firstly, you're not setting the IV of the cipher.  In my view this has exposed a serious bug in the Ruby OpenSSL wrapper - it shouldn't let you perform an encryption or decryption until both   and   have been set, but instead it's going ahead and using an IV of all-zeroes.  Using the same IV every time basically removes much of the benefit of using a feedback mode in the first place. 
+ Secondly, and more seriously, you have no authenticity checking.  One of the properties of CBC mode is that an attacker who has access to one message can modify it to create a second message where a block in the second message has entirely attacker-controlled contents, at the cost of the prior block being completely garbled.  (Oh, and note that CFB mode is just as much a problem in this regard). 
+ In this case, that means that I could request an account with Last Name of AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA and my own email address to recieve a valid URL.  I can then,  without knowing the key , modify the email address to   (and garble the Last Name in the process, which doesn't matter), and have a valid URL which I can submit to your server and create accounts for email addresses that I don't control. 
+ To solve this, you need to compute a HMAC over the data, keyed with a secret that only the server knows, and send that as part of the URL.  Note that the only reason you need encryption at all here is to secure the user's password - other than that it could just be plaintext plus a HMAC.  I suggest you simply send as the url something like: 
+ 
+ ...and have the verification page prompt for a password (there doesn't seem to be a reason to bounce the password back and forth). 
+ 
+ I will take a crack at describing a design that may work. 
+ **Prerequisities:**
+
+ 
+ Cryptography library with support for RSA and some secure hash function H (eg. SHA-1) 
+ One pair of private and public keys 
+ 
+ **Design:**
+
+ 
+ Unique user identifier is e-mail address 
+ An account has associated password and possible other data 
+ The activation cookie is kept as small as possible 
+ 
+ **Process:**
+
+ 
+ User is asked for e-mail address and password. Upon submission of the form a cookie is computed as
+ 
+ E-mail is sent containing a link to the activation page with the cookie, eg.
+ 
+ The activation page at   decrypts the cookie passed as parameter:  
+ In the same activation page the user is asked for password (which must be hashed to the the same value as in cookie) and any other information necessary for the account creation 
+ Upon submission of the activation page a new account is created 
+ 
+ Please point out anything that I have missed or any improvements. I'd be glad to update the answer accordingly. 
+ 

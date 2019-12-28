@@ -1,0 +1,60 @@
+*** are-there-any-design-patterns-for-bitemporal-nosql-databases ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed.  This question is  off-topic . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?   Update the question  so it's  on-topic  for Stack Overflow.
+                         
+ Closed  10 months ago . 
+ 
+ 
+ 
+ I'm curious if anyone has implemented or even knows of any bitemporal databases built on NoSQL platforms (e.g., riak). 
+ 
+ I don't know of any NoSQL datastore that are specifically designed to handle temporal data.
+In order to put the valid and transaction time periods onto data in Riak you would need to either: 
+ 
+ Wrap your documents/values with a structure that can hold metadata like: 
+ {
+  meta:{
+    valid:["2001-11-08", "2001-11-09"],
+    transaction:["2011-01-29 10:27:00", "2011-01-29 10:28:00"]
+  }
+  payload:"This is the actual document/value I want to store!"
+} 
+ Create a "meta-document" for each document and use  Riak Links  to link them up.
+ I think this is a little bit cleaner but if you need to retrieve these times often then this method may be too slow. 
+ 
+ If you want to retrieve documents by time then I don't think Riak (or any other key/value datastores that I know of) will be the right datastore to use. SQL or possibly some BigTable system may be your only good option. 
+ 
+ I have written a small bitemporal, open source database layer based on Mongodb: 
+ https://github.com/1123/bitemporaldb 
+ When storing Scala or Java objects, the object is wrapped into a generic bitemporal object with bitemporal meta-information (valid time, transaction time). Subsequently it is serialized to json and stored as BSON in MongoDB.  
+ It handles temporal and non-temporal updates to objects transparently. Search by bitemporal context is possible. 
+ Document-oriented databases for bitemporal data are beneficial, since document oriented storage reduces the number of joins for data retrieval. Joins in a bitemporal context can be inefficient and hard to code by hand. 
+ Feedback, contribution and feature-requests are very welcome. 
+ 
+ To support a bitemporal (or temporal db model), you need acid transactions to perform the proper DML to update and insert records on two time dimensions (valid/effective time and transaction/system time).  See for details  on temporal modeling.  
+ The popular NoSQL database like Cassandra, MongoDB, Couchbase, for example, don't have ACID support to perform the necessary record update/insert operations needed to support bitemporal record manipulation. With temporal and bitemporal databases records must never overlap and records must properly be terminated when superseded by succeeding valid/transaction time records. 
+ MarkLogic NoSQL database claims support for bitemporal, but never tried it and is not open source. But you can roll your own solution by using ACID database that effectively functions as a  valid/transaction time tracking journal and then use NoSQL for the actual data store. See high-level description of this  approach here . 
+ 
+ From Wikipedia: 
+ "Bitemporal data is a concept used in a temporal database. It denotes both the valid time and transaction time of the data.
+In a database table bitemporal data is often represented by four extra table-columns StartVT and EndVT, StartTT and EndTT. Each time interval is closed at its lower bound, and open at its upper bound." 
+ So you can't just put these four values onto your data? 
+ 

@@ -1,0 +1,92 @@
+*** database-that-can-handle-500-millions-rows ***
+
+ I am looking for a database that could handle (create an index on a column in a reasonable time and provide results for  select queries  in less than 3 sec) more than 500 millions rows. Would Postgresql or Msql on low end machine (Core 2 CPU 6600, 4GB, 64 bit system, Windows VISTA) handle such a large number of rows? 
+ Update: Asking this question, I am looking for information which database I should use on a low end machine in order to provide results to select questions with one or two fields specified in where clause. No joins. I need to create indices -- it can not take ages like on mysql -- to achieve sufficient performance for my select queries. This machine is a test PC to perform an experiment. 
+ The table schema: 
+ 
+ 
+ MSSQL can handle that many rows just fine.  The query time is completely dependent on a lot more factors than just simple row count. 
+ For example, it's going to depend on: 
+ 
+ how many joins those queries do 
+ how well your indexes are set up 
+ how much ram is in the machine 
+ speed and number of processors 
+ type and spindle speed of hard drives  
+ size of the row/amount of data returned in the query 
+ Network interface speed / latency 
+ 
+ It's very easy to have a small (less than 10,000 rows) table which would take a couple minutes to execute a query against.  For example, using lots of joins, functions in the where clause, and zero indexes on a Atom processor with 512MB of total ram. ;) 
+ It takes a bit more work to make sure all of your indexes and foreign key relationships are good, that your queries are optimized to eliminate needless function calls and only return the data you actually need.  Also, you'll need fast hardware. 
+ It all boils down to how much money you want to spend, the quality of the dev team, and the size of the data rows you are dealing with. 
+ **UPDATE**
+
+Updating due to changes in the question.   
+ The amount of information here is still not enough to give a real world answer.  You are going to just have to test it and adjust your database design and hardware as necessary. 
+ For example, I could very easily have 1 billion rows in a table on a machine with those specs and run a "select top(1) id from tableA (nolock)" query and get an answer in milliseconds.  By the same token, you can execute a "select * from tablea" query and it take a while because although the query executed quickly, transferring all of that data across the wire takes awhile. 
+ Point is, you have to test.  Which means, setting up the server, creating some of your tables, and populating them.  Then you have to go through performance tuning to get your queries and indexes right. As part of the performance tuning you're going to uncover not only how the queries need to be restructured but also exactly what parts of the machine might need to be replaced (ie: disk, more ram, cpu, etc) based on the lock and wait types. 
+ I'd highly recommend you hire (or contract) one or two DBAs to do this for you. 
+ 
+ Most databases can handle this, it's about what you are going to do with this data and how you do it. Lots of RAM will help. 
+ I would start with PostgreSQL, it's for free and has no limits on RAM (unlike SQL Server Express) and no potential problems with licences (too many processors, etc.). But it's also my work :) 
+ 
+ Pretty much every non-stupid database can handle a billion rows today easily. 500 million is doable even on 32 bit systems (albeit 64 bit really helps). 
+ The main problem is: 
+ 
+ You need to have enough RAM. How much is enough depends on your queries. 
+ You need to have a good enough disc subsystem. This pretty much means if you want to do large selects, then a single platter for everything is totally out of the question. Many spindles (or a SSD) are needed to handle the IO load. 
+ 
+ Both Postgres as well as Mysql can easily handle 500 million rows. On proper hardware. 
+ 
+ What you want to look at is the  **table size limit**
+ the database software imposes.  For example, as of this writing,  MySQL InnoDB has a limit of 64 TB per table , while  PostgreSQL has a limit of 32 TB per table ; neither limits the number of rows per table.  If correctly configured, these database systems should not have trouble handling tens or hundreds of billions of rows (if each row is small enough), let alone 500 million rows. 
+ For best performance handling extremely large amounts of data, you should have sufficient disk space and good disk performance—which can be achieved with disks in an appropriate RAID—and large amounts of memory coupled with a fast processor(s) (ideally server-grade Intel Xeon or AMD Opteron processors).  Needless to say, you'll also need to make sure your database system is configured for optimal performance and that your tables are indexed properly. 
+ 
+ The following article discusses the import and use of a  16  **billion**
+ row table in Microsoft SQL.
+ http://sqlmag.com/t-sql/adventures-big-data-how-import-16-billion-rows-single-table . 
+ From the article: 
+ 
+ Here are some distilled tips from my experience: 
+ The more data you have in a table with a defined clustered index, the
+  slower it becomes to import unsorted records into it. At some point,
+  it becomes too slow to be practical. If you want to export your table
+  to the smallest possible file, make it native format. This works best
+  with tables containing mostly numeric columns because they’re more
+  compactly represented in binary fields than character data. If all
+  your data is alphanumeric, you won’t gain much by exporting it in
+  native format. Not allowing nulls in the numeric fields can further
+  compact the data. If you allow a field to be nullable, the field’s
+  binary representation will contain a 1-byte prefix indicating how many
+  bytes of data will follow. You can’t use BCP for more than
+  2,147,483,647 records because the BCP counter variable is a 4-byte
+  integer. I wasn’t able to find any reference to this on MSDN or the
+  Internet. If your table consists of more than 2,147,483,647 records,
+  you’ll have to export it in chunks or write your own export routine.
+  Defining a clustered index on a prepopulated table takes a lot of disk
+  space. In my test, my log exploded to 10 times the original table size
+  before completion. When importing a large number of records using the
+  BULK INSERT statement, include the BATCHSIZE parameter and specify how
+  many records to commit at a time. If you don’t include this parameter,
+  your entire file is imported as a single transaction, which requires a
+  lot of log space. The fastest way of getting data into a table with a
+  clustered index is to presort the data first. You can then import it
+  using the BULK INSERT statement with the ORDER parameter. 
+ 
+ Even that is small compared to the multi-petabyte Nasdaq OMX database, which houses tens of petabytes (thousands of terabytes) and trillions of rows on SQL Server. 
+ 
+ Have you checked out Cassandra?  http://cassandra.apache.org/ 
+ 
+ As mentioned pretty much all DB's today can handle this situation - what you want to concentrate on is your disk i/o subsystem. You need to configure a RAID 0 or RAID 0+1 situation throwing as many spindles to the problem as you can. Also, divide up your Log/Temp/Data logical drives for performance. 
+ For example, let say you have 12 drives - in your RAID controller I'd create 3 RAID 0 partitions of 4 drives each. In Windows (let's say) format each group as a logical drive (G,H,I) - now when configuring SQLServer (let's say) assign the tempdb to G, the Log files to H and the data files to I. 
+ 
+ I don't have much input on which is the best system to use, but perhaps this tip could help you get some of the speed you're looking for. 
+ If you're going to be doing exact matches of long varchar strings, especially ones that are longer than allowed for an index, you can do a sort of pre-calculated hash: 
+ 
+ This won't help you if you aren't doing exact matches, but in that case you might look into full-text indexing. This will really change the speed of lookups on a 500-million-row table. 
+ 
+  I need to create indices (that does not take ages like on mysql) to achieve sufficient performance for my select queries  
+ I'm not sure what you mean by "creating" indexes.  That's normally a one-time thing.  Now, it's typical when  loading a huge amount of data as you might do, to drop the indexes, load your data, and then add the indexes back, so the data load is very fast.  Then as you make changes to the database, the indexes would be updated, but they don't necessarily need to be created each time your query runs.   
+ That said, databases do have query optimization engines where they will analyze your query and determine the best plan to retrieve the data, and see how to join the tables (not relevant in your scenario), and what indexes are available, obviously you'd want to avoid a full table scan, so performance tuning, and reviewing the query plan is important, as others have already pointed out.  
+ The point above about a checksum looks interesting, and that could even be an index on attr1 in the same table. 
+ 

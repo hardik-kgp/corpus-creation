@@ -1,0 +1,61 @@
+*** why-is-it-not-good-to-have-a-primary-key-on-a-join-table ***
+
+ I was watching a screencast where the author said it is not good to have a primary key on a join table but didn't explain why.  
+ The join table in the example had two columns defined in a Rails migration and the author added an index to each of the columns but no primary key.  
+ Why is it not good to have a primary key in this example? 
+ 
+ EDIT: As I mentioned to Cletus, I can understand the potential usefulness of an auto number field as a primary key even for a join table. However in the example I listed above, the author explicitly avoids creating an auto number field with the syntax ":id => false" in the "create table" statement. Normally Rails would automatically add an auto-number id field to a table created in a migration like this and this would become the primary key. But for this join table, the author specifically prevented it. I wasn't sure why he decided to follow this approach. 
+ 
+ Some notes: 
+ 
+ The combination of category_id and post_id is unique in of itself, so an additional ID column is redundant and wasteful 
+ The phrase "not good to have a primary key" is incorrect in the screencast. You still have a Primary Key -- it is just made up of the two columns (e.g. CREATE TABLE foo( cid, pid, PRIMARY KEY( cid, pid ) ). For people who are used to tacking on ID values everywhere this may seem odd but in relational theory it is quite correct and natural; the screencast author would better have said it is "not good to have an implicit integer attribute called 'ID' as the primary key". 
+ It is redundant to have the extra column because you will place a unique index on the combination of category_id and post_id anyway to ensure no duplicate rows are inserted 
+ Finally, although common nomenclature is to call it a "composite key" this is also redundant. The term "key" in relational theory is actually the set of zero or more attributes that uniquely identify the row, so it is fine to say that the primary key is category_id, post_id 
+ Place the MOST SELECTIVE column FIRST in the primary key declaration. A discussion of the construction of b(+/*) trees is out of the scope of this answer ( for some lower-level discussion see:  http://www.akadia.com/services/ora_index_selectivity.html  ) but in your case, you'd probably want it on post_id, category_id since post_id will show up less often in the table and thus make the index more useful. Of course, since the table is so small and the index will be, essentially, the data rows, this is not very important. It would be in broader cases where the table is wider. 
+ 
+ 
+ A DBA would tell you that the primary key in this case is actually the combination of the two FK columns. Since Rails/ActiveRecord doesn't play nice with composite PKs (by default, at least), that may be the reason. 
+ 
+ The combination of foreign keys can be a primary key (called a composite primary key). Personally I favour using a technical primary key instead of that (auto number field, sequence, etc). Why? Well, it makes it  **much**
+ easier to identify the record, which you may need to do if you're going to delete it. 
+ Think about it: if you're going to present a Webpage of all the linkages, having a primary key to identify the record makes it much easier. 
+ 
+ Basically because there's no need for it.  The combination of the two foreign key field adequately uniquely identifies any row.  
+ But that merely says why it's not a Good Idea.... but why would it be a Bad Idea? 
+ Consider the overhead adding a identity column would add.  The table would take up 50% more disk space.  Worse is the index situation.   With a identity field, you have to maintain the identity count, plus a second index. You'll be tripling the disk space and tripling the work the needs to be performed on every insert.   With the only advantage being a slightly shorter WHERE clause in a DELETE command.   
+ On the other hand, If the composite key fields are the entire table, then the index can be the table.   
+ 
+ It is a bad idea not to have a primary key on any table, period (if the DBMS is a relational DBMS - or an SQL DBMS).  Primary keys are a crucial part of the integrity of your database. 
+ I suppose if you don't mind your database being inaccurate and providing incorrect answers every so often, then you could do without...but most people want accurate answers from their DBMS and for such people, primary keys are crucial. 
+ 
+ Placing the most selective column first should only be relevant in the INDEX declaration.  In the KEY declaration, it should not matter (because, as has been correctly pointed out, the KEY is a SET, and inside a set, order doesn't matter - the set {a1,a2} is the same set as {a2,a1}). 
+ If a DBMS product is such that ordering of attributes inside a KEY declaration makes a difference, then that DBMS product is guilty of not properly distinguishing between the logical design of a database (the part where you do the KEY declaration) and the physical design of the database (the part where you do the INDEX declaration). 
+ 
+ I wanted to comment on the following comment : "It is not correct to say zero or more". 
+ I wanted to remark that the text to which this comment was added simply did not contain the text "zero or more", so the author of the comment I wanted to comment on was criticizing someone else for something that hadn't been said. 
+ I also wanted to comment that it is not correct to say that it is not correct say "zero or more". Relational theory as commonly known today among the few people who still bother to study the details of that theory, actually REQUIRES the possibility of a key with no attributes. 
+ But when I pressed the button "comment", the system responded to me that commenting requires a reputation score of 50 (or some such). 
+ A sad illustration of how the world seems to have forgotten that science is not democracy, and that in science, the truth is not determined by whoever happens to be the majority, nor by whoever happens to have "enough reputation". 
+ 
+ **Pros of having a single PK**
+
+ 
+ Uniquely identifies a row with a single value 
+ Makes it easy to reference the  **relationship**
+ from elsewhere if needed 
+ Some tools want you to have a single integer value pk 
+ 
+ **Cons of having a single PK**
+
+ 
+ Uses more disk space 
+ Need 3 indexes rather than 1 
+ Without a unique constraint you could end up with multiple rows for the same relationship 
+ 
+ 
+ 
+ You need to define a unique constraint if you want to avoid duplicates 
+ In my opinion don't use the single pk if you're table is going to be huge, otherwise trade off some disk space for the convenience. Yes it's wasteful, but who cares about a few MB on disk in real world applications. 
+ 
+ 

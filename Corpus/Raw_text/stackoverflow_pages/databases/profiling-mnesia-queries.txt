@@ -1,0 +1,52 @@
+*** profiling-mnesia-queries ***
+
+ Our Mnesia DB is running slowly and we think it should be somewhat faster.   
+ So we need to profile it and work out what is happening. 
+ There are a number of options that suggest themselves: 
+ 
+ run fprof and see where the time is going 
+ run cprof and see which functions are called a lot 
+ 
+ However these are both fairly standard performance monitoring style tools. The question is how do I actually do query profiling - which queries are taking the longest times. If we were an Oracle or MySQL shop we would just run a query profiler which would return the sorts of queries that were taking a long time to run. This is not a tool that appears to be available for Mnesia. 
+ So the question is: 
+ 
+ what techniques exist to profile Mnesia 
+ what tools exist to profile Mnesia - none I think, but prove me wrong :) 
+ how did you profile your queries and optimise your mnesia database installation 
+ 
+ **Expanded In The Light Of Discussion**
+
+ One of the problems with fprof as a profiling tool is that it only tells you about the particular query you are looking at. So fprof tells me that X is slow and I tweak it down to speed it up. Then, low and behold, operation Y (which was fast enough) is now dog slow. So I profile up Y and realise that the way to make Y quick is to make X slow. So I end up doing a series of bilateral trade-offs... 
+ What I actually  **need**
+ is a way to manage multilateral trade-offs. I now have 2 metric shed-loads of actual user activities logged which I can replay. These logs represent what I would like to optimize. 
+ A 'proper' query analyser on an SQL database would be able to profile the structure of SQL statements, eg all statements with the form:   
+ 
+ and say  285 queries of this form took on average 0.37ms to run 
+ They magic answers are when it says:  17 queries of this form took 6.34s to run and did a full table scan on table X, you should put an index on field Y 
+ When I have a result set like this over a representative set of user-activities I can then start to reason about trade-offs in the round - and design a test pattern. 
+ The test pattern would be something like: 
+ 
+ activity X would make queries A, C
+and C faster but queries E and F
+slower 
+ test and measure 
+ then approve/disapprove 
+ 
+ I have been using Erlang long enough to 'know' that there is no query analyser like this, what I would like to know is how other people (who must have had this problem) 'reason' about mnesia optimization. 
+ 
+ I hung back because I don't know much about either Erlang or Mnesia, but I know a lot about performance tuning, and from the discussion so far it sounds pretty typical. 
+ These tools   etc. sound like most tools that get their fundamental approach from  , namely instrumenting functions, counting invocations, sampling the program counter, etc. Few people have  examined the foundations  of that practice for a long time. Your frustrations sound typical for users of tools like that. 
+ There's a method that is less-known that you might consider,  outlined here . It is based on taking a small number (10-20) of samples of the state of the program at random times, and understanding each one, rather than summarizing. Typically, this means examining the call stack, but you may want to examine other information as well. There are different ways to do this, but I just use the pause button in a debugger. I'm not trying to get precise timing or invocation counts. Those are indirect clues at best. Instead I ask of each sample  "What is it doing and why?"  If I find that it is doing some particular activity, such as performing the X query where it's looking for y type answer for the purpose z, and it's doing it on more than one sample, then the fraction of samples it's doing it on is a rough but reliable estimate of what fraction of the time it is doing that. Chances are good that it is something I can do something about, and get a good speedup. 
+ Here's a case study of the use of the method. 
+ 
+ Since Mnesia queries are just erlang functions I would imagine you can profile them the same way you would profile your own erlang code.  http://www.erlang.org/doc/efficiency_guide/profiling.html#id2266192  has more information on the erlang profiling tools available. 
+ **Update**
+ As a test I ran this at home on a test mnesia instance and using fprof to trace an mnesia qlc query returned output a sample of which I'm including below. So it definitely includes more information than just the query call. 
+ 
+ 
+ Mike Dunlavey's suggestion reminds me about  redbug  that allow you to sample calls in production systems. Think of it as an easy-to-use   that doesnt give you enough rope to hang your production system.  
+ Using something like this call should give you lots of stack traces to identify where your mnesia transactions are called from: 
+ 
+ Its not possible to get call duration for these traces though.  
+ If you have organized all mnesia lookups into modules that export an api to perform them, you could also use redbug to get a call-frequency on specific queries only. 
+ 

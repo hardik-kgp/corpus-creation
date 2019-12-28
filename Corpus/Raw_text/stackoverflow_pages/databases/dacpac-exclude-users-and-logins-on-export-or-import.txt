@@ -1,0 +1,59 @@
+*** dacpac-exclude-users-and-logins-on-export-or-import ***
+
+ Im doing some automation and in the middle of rewriting some 10-15 old, quirky scripts to one single and simple unit, which can: 
+ 
+ Export a database scheme from MsSql2012 in production environment 
+ Import the database scheme to MsSql2012 in development environment 
+ 
+ Im doing this using the  **Microsoft.SqlServer.Dac**
+ in which i can export/import dac packs. 
+ It works nicely :), but after doing all my TDD and testing, it was time for the real thing and it turns out I had completely missed that we have 2 domains at my work. 
+ This means I get an error when I'm importing the dacpac in the dev environment, due to the fact that our 2 domains do not have full 2 way trust and of course the database has users from both domains. In particular the production domain users.
+I can see 3 viable solutions: 
+ 
+ **Gain full trust between environments.**
+ But this is not going to happen due the high level of security enforced at my work. 
+ Import the dacpac without users. 
+ Export to dacpac without users. 
+ 
+ Ive read the documentation (which is vague of course), trying to find a set of options which could achieve 2) or 3). Ive testet a lot of combos but none that will work. 
+The dac pac import keeps trying to create the users and fails since the production users cannot be verified in the dev environment. 
+ Im using Deploy and Extract to export/import.
+The different options can be found here: 
+ 
+ Extract:  http://technet.microsoft.com/en-us/library/microsoft.sqlserver.dac.dacextractoptions.aspx 
+ Deploy:  http://technet.microsoft.com/en-us/library/microsoft.sqlserver.dac.dacdeployoptions.aspx 
+ 
+ No combination I have found works and Ive even read posts that suggest that its a bug in the DacPac. But I'm not sure.
+A last option I'm looking into right now is to use the GenerateScript method which  hopefully can force to exclusion of users/logins, but I fear that its not going to work either. See ( http://technet.microsoft.com/en-us/library/hh753526.aspx ). 
+ **Question:**
+
+How can I exclude users/logins from my dacpac, either in the export or the import? 
+ **UPDATE**
+
+ **Current Extract Settings:**
+
+ 
+ **Current Deploy Settings:**
+
+ 
+ **Update**
+
+ So far everything points to one ugly solution. 
+ 
+ The reason for the use of SQLCMD is that the generated script apperently not is pure tsql, but uses stuff as ':setvar', which only SQLCMD can handle, as far as i can tell. Come on MS... 
+ Again if anyone know a better way to do this in C#, or know of a bug fix/update for the DacPac assemblies, please share. :) 
+ **Update**
+
+ I found that stuff like IgnorePartitionSchemes also do not work. It seems that the namespace Microsoft.SqlServer.Dac, is not just a little but VERY buggy or lacking implementation. 
+ 
+ I managed to solve this problem with the following deployment of a   file. The important setting was in  . 
+ 
+ 
+ During deployment the important setting is the "IgnoreUserSettingsObjects" one. This will ignore users, user-> login and user->schema relationships. Setting that to true should be the main thing to get this working. 
+ On Extract you can also set the DacExtractOptions.IgnoreUserLoginMappings to true. In this case the user->login mapping is not included, but it looks like it's more important to just ignore users at deployment time. This does mean that you need to run a script after the deployment to ensure the correct users are present. 
+ 
+ I'm struggling with a similar issue. DACPACs are just a zip archive with 3 XML files in them. I found source code for a  dacpac manipulation tool  and modified that to strip the users and logins out of a DACPAC.  
+ 
+ The way we handled this was to simply exclude the tables which contained sensitive security information, then re-insert them afterwards with generic info.  The DacServices.ExportBacpac method has an overload which takes a list of tables to include; so you can create a list which does not include the tables you want to skip.  It turns out that it will include the tables, it just ignores the data.  So we use this to, for example, grab a bacpac from prod, then import it to a local dev machine (having been sanitised because of this command that skips the sensitive data programmatically); then we run some insert scripts to populate the user table, e.g. with a global admin user with a generic password.  See the overload here that takes a table list:   https://msdn.microsoft.com/en-us/library/microsoft.sqlserver.dac.dacservices.exportbacpac(v=sql.120).aspx 
+ 

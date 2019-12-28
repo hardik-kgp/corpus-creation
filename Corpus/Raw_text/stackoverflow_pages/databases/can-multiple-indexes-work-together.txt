@@ -1,0 +1,51 @@
+*** can-multiple-indexes-work-together ***
+
+ Suppose I have a database table with two fields, "foo" and "bar".  Neither of them are unique, but each of them are indexed.  However, rather than being indexed together, they each have a separate index. 
+ Now suppose I perform a query such as    My table a huge number of rows for which foo is 'hello' and a small number of rows for which bar is 'world'. 
+ So the most efficient thing for the database server to do under the hood is use the bar index to find all fields where bar is 'world', then return only those rows for which foo is 'hello'.  This is   where n is the number of rows where bar is 'world'. 
+ However, I imagine it's possible that the process would happen in reverse, where the fo index was used and the results searched.  This would be   where m is the number of rows where foo is 'hello'. 
+ So is Oracle smart enough to search efficiently here?  What about other databases?  Or is there some way I can tell it in my query to search in the proper order?  Perhaps by putting   first in the   clause? 
+ 
+ Oracle will almost certainly use the most selective index to drive the query, and you can check that with the explain plan. 
+ Furthermore, Oracle can combine the use of both indexes in a couple of ways -- it can convert btree indexes to bitmaps and perform a bitmap ANd operation on them, or it can perform a hash join on the rowid's returned by the two indexes. 
+ One important consideration here might be any correlation between the values being queried. If foo='hello' accounts for 80% of values in the table and bar='world' accounts for 10%, then Oracle is going to estimate that the query will return 0.8*0.1= 8% of the table rows. However this may not be correct - the query may actually return 10% of the rwos or even 0% of the rows depending on how correlated the values are. Now, depending on the distribution of those rows throughout the table it may not be efficient to use an index to find them. You may still need to access (say) 70% or the table blocks to retrieve the required rows (google for "clustering factor"), in which case Oracle is going to perform a ful table scan if it gets the estimation correct. 
+ In 11g you can collect multicolumn statistics to help with this situation I believe. In 9i and 10g you can use dynamic sampling to get a very good estimation of the number of rows to be retrieved. 
+ To get the execution plan do this: 
+ 
+ Contrast that with: 
+ 
+ 
+ Yes, you can give "hints" with the query to Oracle. These hints are disguised as comments ("/* HINT */") to the database and are mainly vendor specific. So one hint for one database will not work on an other database. 
+ I would use index hints here, the first hint for the small table. See  here . 
+ On the other hand, if you often search over these two fields, why not create an index on these two? I do not have the right syntax, but it would be something like 
+ 
+ This way data retrieval should be pretty fast. And in case the concatenation is unique hten you simply create a unique index which should be lightning fast. 
+ 
+ Eli, 
+ In a comment you wrote: 
+ 
+ Unfortunately, I have a table with lots of columns each with their own index. Users can query any combination of fields, so I can't efficiently create indexes on each field combination. But if I did only have two fields needing indexes, I'd completely agree with your suggestion to use two indexes. – Eli Courtwright (Sep 29 at 15:51) 
+ 
+ This is actually rather crucial information. Sometimes programmers outsmart themselves when asking questions. They try to distill the question down to the seminal points but quite often over simplify and miss getting the best answer. 
+ This scenario is precisely why bitmap indexes were invented -- to handle the times when unknown groups of columns would be used in a where clause.  
+ Just in case someone says that BMIs are for low cardinality columns only and may not apply to your case. Low is probably not as small as you think.  The only real issue is concurrency of DML to the table. Must be single threaded or rare for this to work.  
+ 
+ 
+ So is Oracle smart enough to search
+  efficiently here? 
+ 
+ The simple answer is "probably".  There are lots'o' very bright people at each of the database vendors working on optimizing the query optimizer, so it's probably doing things that you haven't even thought of.  And if you update the statistics, it'll probably do even more. 
+ 
+ First off, I'll assume that you are talking about nice, normal, standard b*-tree indexes.  The answer for bitmap indexes is radically different.  And there are lots of options for various types of indexes in Oracle that may or may not change the answer. 
+ At a minimum, if the optimizer is able to determine the selectivity of a particular condition, it will use the more selective index (i.e. the index on bar).  But if you have skewed data (there are N values in the column bar but the selectivity of any particular value is substantially more or less than 1/N of the data), you would need to have a histogram on the column in order to tell the optimizer which values are more or less likely.  And if you are using bind variables (as all good OLTP developers should), depending on the Oracle version, you may have issues with bind variable peeking. 
+ Potentially, Oracle could even do an on the fly conversion of the two b*-tree indexes to bitmaps and combine the bitmaps in order to use both indexes to find the rows it needs to retrieve.  But this is a rather unusual query plan, particularly if there are only two columns where one column is highly selective. 
+ 
+ I'm sure you can also have Oracle display a query plan so you can see exactly which index is used first. 
+ 
+ You can provide hints as to which index to use. I'm not familiar with Oracle, but in Mysql you can use USE|IGNORE|FORCE_INDEX (see  here  for more details). For best performance though you should use a combined index. 
+ 
+ The best approach would be to add foo to bar's index, or add bar to foo's index (or both). If foo's index also contains an index on bar, that additional indexing level will not affect the utility of the foo index in any current uses of that index, nor will it appreciably affect the performance of maintaining that index, but it will give the database additional information to work with in optimizing queries such as in the example. 
+ 
+ It's better than that. 
+ Index Seeks are always quicker than full table scans. So behind the scenes Oracle (and SQL server for that matter) will first locate the range of rows on both indices. It will then look at which range is shorter (seeing that it's an inner join), and it will iterate the shorter range to find the matches with the larger of the two. 
+ 

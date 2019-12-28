@@ -1,0 +1,62 @@
+*** fastest-and-most-efficient-way-to-pre-populate-database-in-android ***
+
+ If you want to pre-populate a database (SQLite) in Android, this is not that easy as one might think. 
+ So I found  this tutorial  which is often referenced here on Stack Overflow as well. 
+ But I don't really like that way of pre-populating the database since you take the control from the database handler and create the files yourself. I would prefer to not touch the file system and let the database handler do everything on its own. 
+ So what I thought one could do is create the database in the database handler's onCreate() as usual but then load a file (.sql) from /assets which contains the statements to fill in the values: 
+ 
+ But calling execSQL() in the handler's onCreate() doesn't really work. It seems that the /assets file must not have more than 1MB and the execSQL() only executes the first statement (Mike - Tiger). 
+ What would you do do pre-populate the database? 
+ 
+ I suggest the following: 
+ 
+ Wrap all of your   logic into a transaction ( , or via the  beginTransaction() ...  endTransaction()  APIs) 
+ As already suggested, utilize the bind APIs and  **recycle objects**
+. 
+ Don't create any indexes until  after  this bulk insert is complete. 
+ 
+ Additionally take a look at  Faster bulk inserts in sqlite3?   
+ 
+ Your question states, that you want the fastest way - but you don't like the way it's done in the article - you don't want to manually replace the DB file (even though, it may be actually faster than filling empty DB with queries). 
+ I had exaclty the same thoughts - and I figured out, that populating via SQL statements and prepopulating can both be the best solution - but it depends on the way you will use the DB. 
+ In my application I need to have about 2600 rows (with 4 columns) in DB at the very first run - it's the data for autocompletion and few other things. It will be modified quite rarely (users can add custom records, but most of the time - they don't need to) and is quite big. Populating it from SQL statements takes not only significantly more time, but more space in the APK (assuming I would store data inside it, alternatively I could download it from the internet). 
+ This is the very simple case (the "Big" insert can take place only once and only at first startup) and I decided to go with copying prepopulated DB file. Sure, it may not be the nicest way - but it's faster. I want my users to be able to use the app as quickly as it's possible and treat speed as a priority - and they really like it. On the contrary, I doubt they would be glad when app would slow down because I thought that slower and nicer solution is actually better. 
+ If instead of 2600 my table would have initially ~50 rows, I would go with SQL statements, since speed and size difference wouldn't be so big. 
+ You have to decide which solution fits your case better. If you foresee any problems that may arise from using "prepopulated db" option - don't use it. If you are not sure about these problems - ask, providing more details on how you will use (and eventually, upgrade) contents of the DB. If you aren't quite sure which solution will be faster - benchmark it. And don't be afraid of that copying file method - it can work really well, if used wisely. 
+ 
+ You can have your cake and eat it too.  Here is a solution that can both respect the use of your db adapter and also use a simple (and much faster) copy process for a pre-populated database.   
+ I'm using a db adapter based on one of Google's examples.  It includes an internal class dbHelper() that extends Android's SQLiteOpenHelper() class. The trick is to override it's  onCreate() method.  This method is only called when the helper can't find the DB you are referencing and it has to create the DB for you.  This should only happen the first time it is called on any given device installation, which is the only time you want to copy the DB.  So override it like this - 
+ 
+ Of course make sure you have first declared and initialized this flag in the DbHelper  -  
+ 
+ Now, in your dbAdapter's open() method you can test to see if you need to copy the DB.  If you do then close the helper, copy the DB and then finally open a new helper (see below code).  All future attempts to open the db using the db adapter will find your (copied) DB and therefor the onCreate() method of the internal DbHelper class will not be called and the flag mNeedToCopyDb will remain false.   
+ 
+ Just place some code to do your database copy inside of your db adapter in a method named copyDatabase() as used above.  You can use the value of mDb that was updated by the first instance of DbHelper (when it created the stub DB) to get the path to use for your output stream when you do the copy. 
+Construct your input stream like this  
+ 
+ [note: If your DB file is too large to copy in one gulp then just break it up into a few pieces.] 
+ This works very fast and puts all of the db access code (including the copying of the DB if needed) into your db adapter. 
+ 
+ I wrote a DbUtils class similar to the previous answer. It is part of the ORM tool  greenDAO  and is available on  github . The difference is that it will try to find statement boundaries using a simple regular expression, not just line endings. If you have to rely on a SQL file, I doubt that there's a faster way.  
+ But, if you can supply the data in another format, it should be significantly faster than using a SQL script. The trick is to use a  compiled statement . For each data row, you bind the parsed values to the statement and execute the statement. And, of course, you need to do this inside a transaction. I would recommend a simple delimiter separated file format (for example CSV) because it can be parsed faster than XML or JSON. 
+ We did some  performance tests  for greenDAO. For our test data, we had insert rates of about 5000 rows per second. And for some reason, the  rate dropped to half with Android 4.0 . 
+ 
+ ye, the  **assets**
+ maybe has size limit, so if bigger than the limit, you can cut to more files. 
+ and exesql support more sql sentence, here give you a example: 
+ 
+ above example  **require the INIT_FILE need every line is a sql sentence**
+. 
+ Also, if your sql sentences file is big, you can create the database  **out site of android**
+(sqlite support for windows, linux, so you can create the database in your os, and copy the database file to your assets folder, if big, you can zip it)  
+ when your application run, you can get the database file from assets, directed to save to your application's database folder (if you zip it, you can unzip to the application's database folder) 
+ hope can help you -): 
+ 
+ I used this method. First create your sqlite database there are a few programs you can use I like  SqliteBrowser . Then copy your database file into your assets folder. Then you can use this code in the constructor of SQLiteOpenHelper. 
+ 
+ DB_PATH is something like /data/data/com.mypackage.myapp/databases/ 
+ NAME is whatever database name you choose "mydatabase.db" 
+ I know there are many improvements on this code but it worked so well and is VERY FAST. So I left it alone. Like this might be even better in the onCreate() method. Also checking if the file exists every time is probably not the best. Anyway like I said it works, it's fast and reliable. 
+ 
+ If the data is not private then simply host it on your website then download it on first run.  That way you can keep it up to date.  So long as you remember to take app version into account when you upload it to your webserver. 
+ 

@@ -1,0 +1,16 @@
+*** maximum-transaction-size-in-postgresql ***
+
+ I have a utility in my application where i need to perform bulk load of INSERT, UPDATE & DELETE operations. I am trying to create transaction around this so that once this system is invoke and the data is fed to it, it is ensured that it is either all or none added to the database. 
+ The concern what is have is what is the boundary conditions here? How many INSERT, UPDATE & DELETE can i have in one transaction? Is transaction size configurable? 
+ 
+ I don't think there's a maximum amount of work that can be performed in a transaction. Data keeps getting added to the table files, and eventually the transaction either commits or rolls backs: AIUI this result gets stored in pg_clog; if it rolls back, the space will eventually be reclaimed by vacuum. So it's not as if the ongoing transaction work is held in memory and flushed at commit time, for instance. 
+ 
+ A single transaction can run approximately two billion commands in it (2^31, minus IIRC a tiny bit of overhead. Actually, come to think of it, that may be 2^32 - the commandcounter is unsigned I think). 
+ Each of those commands can modify multiple rows, of course. 
+ 
+ For a project I work on, I perform 20 millions of INSERT. I tried with one big transaction and with one transaction for every million of INSERT and the performances seem exactly the same. 
+ PostgreSQL 8.3 
+ 
+ I believe the maximum amount of work is limited by your log file size. The database will never allow itself to not be able to rollback, so if you consume all your log space during the transaction, it will halt until you give it more space or rollback. This is a generally true for all databases. 
+ I would recommend chunking your updates into manageable chunks that take a most a couple of minutes of execution time, that way you know if there's a problem earlier (eg what normally takes 1 minute is still running after 10 minutes... hmmm, did someone drop an index?) 
+ 

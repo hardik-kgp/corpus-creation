@@ -1,0 +1,33 @@
+*** synchronizing-partial-database-model-from-server-to-client ***
+
+ This is more of a conceptual question not necessarily bound to any specific technologies.
+Lets say you got some database on a server, some REST/JSON API to access content in that database and some mobile client displaying data retrieved through the API. 
+ It would be nice to have some caching mechanism on the client and also to be able to enable offline access to the data as long as the client is only reading (In my case it's fine to deny write access to offline clients to avoid having to manage all those nasty conflicts that might happen). 
+ It appears that a nice way to solve that would be to have a subset of the servers database model present on the client and synchronizing data from the server to the client.
+Access to the local database might then immediately return results but also trigger update requests to the server. In case the server returns modified data the client model then synchronizes it's local database and notifies the display of data changes. 
+ The goal in the end is of course is that the user may browse the information regardless of the stability of his internet connection and is not annoyed by connection dialogs or similar as long as he doesn't modify any data. 
+ Now from an implementation perspective... on one hand it seems like a bad idea to couple the server database directly to the client database as they may be from different vendors. I guess at least there would need to be a vendor independent model above both database implementations. On the other hand, transforming the data from the server database into some transport format and than putting it back into the client database seems like a lot of overhead. 
+ Any suggestions how to solve that in an elegant and maintainable way? 
+ 
+ I am working on an app that syncs small portions of a large database locally onto the handset. There is an initial preload that has to occur on the handset but after that the updates happen asynchronously in the background.  
+ First of all, decoupling the server and handset using JSON or XML is highly advised. Locking into one technology always causes issues as you are forced to use the same technology regardless of the platform. That is, if you plan on expanding into other platforms (Web,iOS,etc..) you are forced to use the format dictated by the server. Choosing a generic format will make that simpler in the long run. In reality with the amount of public libraries reading/writing JSON is a trivial matter.  
+ There are two ways that we use to sync the data;  
+ **1. AlarmManager**
+
+ We schedule the AlarmManager to trigger a service to wakeup on a regular schedule (lets say every 6 hours). The wakeup starts a background service that contacts the server, downloads the changes in JSON and updates a local SQLite DB. If there is no connection, the update is skipped and scheduled for the next wakeup. We add a ConnectivityChanged receiver to automatically restart the sync when the connection is restored. 
+ **2. GCM**
+
+ It's a little more work but saves a lot of battery and data usage if you only update the local database when there are changes. Google Cloud Messaging can send a wakeup message to the device and tell it to start the sync service. The sync service runs the same as the AlarmManager method above.  
+ We do a combination of both of the methods above depending on how "fresh" you need the data and how often it changes. Something like an RSS feed should probably be updated every 30min whereas weather data may not need to be updated more than every 4 hours.  
+ So to run the database sync we use;  
+ Receivers -> listen for system events and trigger Service
+Services -> connect to the server, download the JSON and update the SQLite providers
+Providers -> insert the records into the database and broadcast content changes to ContentObservers
+ContentObservers -> when the app is running, the ContentObservers update the UI with the new data 
+ There is a lot of technical details in each of the components above but that should provide you with a very robust architecture for syncing server data with a local db.  
+ 
+ I'm working on a project that has similar requirements.  We want to have a big, available database on a server somewhere and then mobile devices that get data from it.  If the devices go offline it's ok because they have saved their own copies of the data locally. 
+ We've decided to use BigCouch (fork of Apache CouchDb that supports clustering) as the server technology and then Couchbase Mobile on the mobile devices.  (As a note TouchDB for Android will replace Couchbase Mobile, but it's not stable yet.) 
+ The reason we went with Couch* technologies is that Couch has good replication over HTTP.  You can programmatically initiate a sync event on the mobile device and it will replicate all inserts, updates and deletes for you.  It stores the information on it's own embedded CouchDb on the mobile device, so it can be read offline. 
+ If you didn't want to go down the Couch road, you could simply use something like SQLlite to store the results of your REST/API calls.  Then you would have to write your own replication logic for when a mobile device goes offline and then comes back.  There are creative ways to do this, so maybe it's an option. 
+ 

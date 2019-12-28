@@ -1,0 +1,35 @@
+*** postgresql-how-to-index-all-foreign-keys ***
+
+ I am working with a large PostgreSQL database, and I am trying to tune it to get more performance.   
+ Our queries and updates seem to be doing a lot of lookups using foreign keys. 
+ What I would like is a relatively simple way to add Indexes to all of our foreign keys without having to go through every table (~140) and doing it manually. 
+ In researching this, I've come to find that there is no way to have Postgres do this for you automatically (like MySQL does), but I would be happy to hear otherwise there, too. 
+ 
+ **EDIT**
+: so, I wrote the query below and then thought... "hang on, Postgresql requires that foreign key targets have to have unique indices." So I guess I misunderstood what you meant? You can use the below query to check that the  source  of your foreign keys have indices by substituing "conrelid" for "confrelid" and "conkey" for "confkey" (yeah, yeah, no aliases in the query...) 
+ Well, I guess it should be possible to go through the system catalogues... As usual, the best guide to the system catalogues is to use psql and do "\set ECHO_HIDDEN 1" and then see what SQL it generates for interesting "\d" commands. Here's the SQL used to find the foreign keys for a table ("\d tablename") : 
+ 
+ Seems that pg_constraint has columns   and   that look like they could be the column numbers that the key is defined across. Probably   is the column numbers in the foreign table since it's only non-null for foreign keys. Also, took me a while to realise this is the SQL to show foreign keys  referencing  the given table. Which is what we want anyway. 
+ So something this query shows the data beginning to take shape: 
+ 
+ I'm going to be using 8.4 features like  unnest ... you might be able to get along without. 
+ I ended up with: 
+ 
+ OK, this monstrosity prints out the candidate index commands and tries to match them up with existing indices. So you can simply add "where indexrelid is null" on the end to get the commands to create indices that don't seem to exist. 
+ This query doesn't deal with multi-column foreign keys very well; but imho if you're using those, you deserve trouble. 
+ **LATER EDIT**
+: here's the query with the proposed edits up at the top put in. So this shows the commands to create indices that don't exist, on columns that are the source of a foreign key (not its target). 
+ 
+ My experience is that this isn't really all that useful. It suggests creating indices for things like reference codes that really don't need to be indexed. 
+ 
+ The information is inside the  catalog tables . But it seem it's not very straightforward to do want you need, specially if there are already some indexes created (and what about multicolumn indexes...) 
+ If you don't have any indexed FK , you could do something quick and dirty, as 
+ 
+ You'd replace with the schema you are interested, dump that to a file, edit, check, pray and feed to psql. BEWARE this procedure does not detect already existant indexes. 
+ Ah,   is an informational view created as: 
+ 
+ 
+ i created a script with this code, seems to be a little bit shorter: 
+ 
+ comment in the last line if you do not want to recreate already existing indexes 
+ 

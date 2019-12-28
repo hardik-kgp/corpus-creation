@@ -1,0 +1,40 @@
+*** why-db-indexes-use-balanced-trees-not-hashtables ***
+
+ Hashtables seem to be preferable in terms of disk access. What is the real reason that indexes usually implemented with a tree? 
+Sorry if it's infantile, but i did not find the straight answer on SO. 
+ 
+ Size, btrees start small and perfectly formed and grow nicely to enormous sizes. Hashes have a fixed size which can be too big (10,000 buckets for 1000 entries) or too small (10,000 buckets for 1,000,000,000 entries) for the amount of data you have. 
+ 
+ One of the common actions with data is to sort it  or to search for data in a range - a tree will contain data in order while a hash table is only useful for looking up a row and has no idea of what the next row is. 
+ So hash tables are no good for this common case, thanks to this  answer 
+ 
+ or 
+ 
+ Obviously there are cases where hash tables are better but best to deal with the main cases first. 
+ 
+ Hash tables provide no benefit for this case: 
+ 
+ 
+ One has to only look at  MySQL's hash index implementation  associated with   storage engine to see its disadvantages: 
+ 
+ They can be used with equality operators such as   but not with comparison operators such as  
+ The optimizer cannot use a hash index to speed up ORDER BY operations. 
+ Only whole keys can be used to search for a row. (With a B-tree index, any leftmost prefix of the key can be used to find rows.) 
+ Optimizer cannot determine approximately how many rows there are between two values (this is used by the range optimizer to decide which index to use). 
+ 
+ And note that the above applies to hash indexes implemented in memory, without the added consideration of disk access matters associated with indexes implemented on disk.
+Disk access factors as noted by @silentbicycle would skew it in favour of the balanced-tree index even more. 
+ 
+ Databases typically use B+ trees (a specific kind of tree), since they have  **better disk access properties**
+ - each node can be made the size of a filesystem block. Doing as few disk reads as possible has a greater impact on speed, since comparatively little time is spent on either chasing pointers in a tree or hashing. 
+ 
+ Hasing is good when the data is not increasing, more techically when N/n is constant .. 
+where N = No of elements and n = hash slots ..  
+ If this is not the case hashing doesnt give a good performance gain. 
+ In database most probably the data would be increasing a significant pace so using hash there is not a good idea. 
+ and yes sorting is there too ... 
+ 
+ "In database most probably the data would be increasing a significant pace so using hash there is not a good idea." 
+ That is an over-exaggeration of the problem.  Yes hash spaces must be fixed in size (modulo solutions ala extensible hashing) and yes, their size must be managed, and yes, someone must do that job. 
+ That said, the performance gains if you exploit hash-based physical location to its fullest potential, are enormous. 
+ 

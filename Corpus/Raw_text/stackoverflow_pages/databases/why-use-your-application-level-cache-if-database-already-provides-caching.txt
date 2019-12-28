@@ -1,0 +1,54 @@
+*** why-use-your-application-level-cache-if-database-already-provides-caching ***
+
+ Modern database provide caching support. Most of the ORM frameworks cache retrieved data too. Why this duplication is necessary? 
+ 
+ Because to get the data from the database's cache, you still have to: 
+ 
+ Generate the SQL from the ORM's "native" query format 
+ Do a network round-trip to the database server 
+ Parse the SQL 
+ Fetch the data from the cache 
+ Serialise the data to the database's over-the-wire format 
+ Deserialize the data into the database client library's format 
+ Convert the database client librarie's format into language-level objects (i.e. a collection of whatevers) 
+ 
+ By caching at the application level, you don't have to do any of that. Typically, it's a simple lookup of an in-memory hashtable. Sometimes (if caching with memcache) there's still a network round-trip, but all of the other stuff no longer happens. 
+ 
+ Here are a couple of reasons why you may want this: 
+ 
+ An application caches just what it needs so you should get a better cache hit ratio  
+ Accessing a local cache will probably be a couple of orders of magnitude faster than accessing the database due to network latency - even with a fast network 
+ 
+ 
+ Even if a database engine caches data, indexes, or query result sets, it still takes a round-trip to the database for your application to benefit from that cache. 
+ An ORM framework runs in the same space as your application. So there's no round-trip.  It's just a memory access, which is generally a lot faster. 
+ The framework can also decide to keep data in cache as long as it needs it.  The database may decide to expire cached data at unpredictable times, when other concurrent clients make requests that utilize the cache. 
+ Your application-side ORM framework may also cache data in a form that the database can't return.  E.g. in the form of a collection of java objects instead of a stream of raw data.  If you rely on database caching, your ORM has to repeat that transformation into objects, which adds to overhead and decreases the benefit of the cache. 
+ 
+ The performance considerations related to the network roundtrips have correctly been pointed out. 
+ To that, it must be added that caching data anywhere else than in the dbms (NOT "database"), creates a problem of potentially obsoleted data that is still being presented as being "up to date". 
+ Giving in to the temptations of performance improvement goes at the expense of losing the guarantee (watertight or at least close to that) of absolutely reliably and guaranteeably correct and consistent data. 
+ Consider this every time accuracy and consistency is crucial. 
+ 
+ Also, the database's cache might not be as practical as one think. I copied this from  http://highscalability.com/bunch-great-strategies-using-memcached-and-mysql-better-together  -- it's MySQL specific, tho.  
+ 
+ Given that MySQL has a cache, why is memcached needed at all? 
+ The MySQL cache is associated with just one instance. This limits the cache to the maximum address of one server. If your system is larger than the memory for one server then using the MySQL cache won't work. And if the same object is read from another instance its not cached. 
+ The query cache invalidates on writes. You build up all that cache and it goes away when someone writes to it. Your cache may not be much of a cache at all depending on usage patterns. 
+ The query cache is row based. Memcached can cache any type of data you want and it isn't limited to caching database rows. Memcached can cache complex complex objects that are directly usable without a join.  
+ 
+ 
+ A lot of good answers here. I'll add one other point: I  know  my access pattern, the database doesn't. 
+ Depending on what I'm doing, I know that if the data ends up stale, that's not really a problem. The DB doesn't, and would have to reload the cache with the new data. 
+ I know that I'll come back to a piece of data a few times over the next while, so it's important to keep around. The DB has to guess at what to keep in the cache, it's doesn't have the information I do. So if I fetch it from the DB over and over, it may not be in cache if the server is busy. I could get a cache miss. With my cache, I can be sure I get a hit. This is especially true on data that is non-trivial to get (i.e. a few joins, some group functions) as opposed to just a single row. Getting a row with the primary key of 7 is easy for the DB, but if it has to do some real work, the cost of the cache miss is much higher. 
+ 
+ No doubt that modern databases are providing caching facility but when you are having more traffic on you site and that time you need to perform many database transaction then you will no get high performance.So to increase performance in this case hibernate cache will help you,
+by optimizing the database applications. The cache actually stores the data already loaded from the database, so that the traffic between our application and the database will be reduced when the application want to access that data again.The access time and traffic will be reduced between the application and the database. 
+ 
+ That said - caches can sometimes become a burden and actually slowdown the server. When you have high load the algorithm for what is cached and what is not might not fit right with the requests coming in...what you get is a cache that starts to operate like FIFO in overtime...this begins to make itself known when the table that sits behind the cache has significantly more records than are ever going to be cached in memory... 
+ A good trade off would be to cluster the data for what you want to cache. Have a main server which pumps updates to the clusters, the time for when to send/pump the updates should be able to be tailored for each table depending on TTL (time to live) settings. 
+ Your logic and data on the user node can then sit on the same server which opens up in memory databases or if it does have to fetch data then you could set it up to use a pipe instead of a network call... 
+ This is something that takes some thought on how you want to use the data and when/if you cluster then you have to be aware of distributed transactions (transactions over more than one database)...but if the data being cached will be updated on its own without links into other db spaces then you can get away with this.... 
+ The problem with ORM caching is that if the database is updated independently through another application then the ORM cache can become out of date...Also it can get tricky if you do an update to a set...the update might update something that is in your cache and it needs to have some sort of algorithm to identify which records need to be removed/updated in memory (slowing down the update!?) - and then this algorithm becomes incredibly tricky and bug prone! 
+ If using ORM caching then keep to a simple rule...cache simple objects that hardly ever change (user/role details for example) and that are small in size and are hit many times in a request...if its outside of this then I suggest clustering the data for performance. 
+ 

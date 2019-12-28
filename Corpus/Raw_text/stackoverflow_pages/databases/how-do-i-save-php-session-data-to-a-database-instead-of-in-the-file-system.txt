@@ -1,0 +1,59 @@
+*** how-do-i-save-php-session-data-to-a-database-instead-of-in-the-file-system ***
+
+ I have two websites, One is TLS and one is not, both are for the same client but I need the websites to share with each other (and only each other) common data for  users ,  orders ,  accounts  etc.  
+ This would normally be done with   data but I obviously these can't work across other sites, and I have found that I can store session data in a database (MySQL) rather than in the file system. 
+ I have dug around and found  This useful guide  as well as this older but 
+ useful guide . I also found  this guide  which has slightly more up to date MySQL.  
+ I have written an interface class but it only partly works, it stores the session data in the database, but it doesn't retrieve it. I have also used the  suggested method from the PHP manual . 
+ **My MySQL**
+ (as copied from first couple of the above links): 
+ 
+ 
+ **Please Note:**
+
+  Before I show you my interface class please know that the Db connetion uses my own custom made interface and that works perfectly, in itself.  
+ The   contains the Session Database connection details as I am keeping sessions on a seperate Database from the main website contents.  
+ 
+ **My interface class**
+ (as based on all the above links) 
+ 
+ **My Test Page**
+ (written from scratch!) 
+ 
+ **Issue:**
+  
+ The test pages I run save the data to the database ok but they do not seem to retrieve the data,  
+ I have error logging enabled and no PHP errors are reported. No critical MySQL errors are reported.  
+ Why doesn't it work? 
+ 
+ I have found over the course of several hours debugging that the referenced articles found on numerous Google searches as well as a significant subset of Stack Overflow answers such as  here ,  here  and  here  all provide invalid or outdated information.  
+ Things that can cause [critical] issues with saving session data to a database: 
+ 
+ While all the examples online state that you can "fill" the  , none of them state that you must also set the   too ( reference ).  
+ Several (older) guides refer to an outdated SQL Database structure, and should  not  be used. The database structure that you need for saving session data to the database is:  / / . That's it. no need for various extra timestamp columns as I've seen on a few "guides" and examples. 
+ 
+ Several of the older guides also have outdated MySQL syntax such as  
+ 
+ The class [made in my question] must  implement  the   . I have seen guides (referenced above) that give the implementation of   which is not a suitable interface. Perhaps previous versions of PHP had a slightly different method (probably <5.4).  
+ The session class methods  must  return the values set out by the PHP manual. Again, probably inherited from pre-5.4 PHP but two guides I read stated that   returns the row to be read, whereas the  PHP manual states  that it needs to return    or   only. 
+ **This is the cause of my Original Issue**
+: I was using custom session names (actually id's as session names and session id's  are the same thing! ) as per  this very good StackOverflow post  and this was generating a session name that was 128 characters long. As the session name is the sole key that is needed to be cracked to compromise a session and take over with a  session hijacking  then a longer name/id is a very good thing.  
+ 
+ But, this caused an issue because  **MySQL was silently slicing the session id**
+ down to just 32 characters instead of 128, so it was never able to find the session data in the database. This was a completely silent issue (maybe due to my database connection class not throwing warnings of such things). But this is the one to watch out for. If you have any issues with retrieving sessions from a database first check is that the  full  session id can be stored in the field provided. 
+ 
+ 
+ So with all that out of the way there are some extra details to add as well: 
+ The PHP manual page (linked above) shows an unsuitable pile of lines for a class object: 
+ 
+ 
+ 
+ Whereas it works just as well if you put this in the class constructor: 
+ 
+ This  means that to then start a session on your output page all you need is: 
+ 
+ 
+ For reference the complete Session communication class is as follows, this works with PHP 5.6 (and probably 7 but not tested on 7 yet) 
+ 
+ Usage: As shown just above the class code text.  
+ 

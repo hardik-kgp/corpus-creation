@@ -1,0 +1,30 @@
+*** sqlalchemy-latitude-and-longitude-float-precision ***
+
+ I'm using Sqlalchemy to define my tables and such and here is some code I came up with: 
+ 
+ I read  somewhere  that latitude and longitude require better precision than floats, usually double precision. So I set the precision manually to 64, is this sufficient? Overkill? Would this even help for my situation? 
+ 
+ It depends on what you are using your data for. If you use a float it will be ok if the you only need it down to about the meter level of detail. Using the data in graphically applications will cause a jitter effect if the user zooms in to far. For more about jitter and see  Precisions, Precisions . Hope this helps. 
+ 
+ Nobody else here provided concrete numbers with proof for the worst-case accuracy of a floating point lat/long.  I needed to know this for something I was working on, so here is my analysis in case it helps someone else. 
+ A single-precision floating point offers 24-bits of precision in the significand (the binary exponential notation of a number).  As the whole part of the number gets larger, the number of bits after the decimal goes down.  Therefore, the worst-case accuracy for a latitude or longitude is when the magnitude is as far away from 0 as is possible.  Assuming you bound your latitudes to [-90, 90] and longitudes from (-180, 180], the worst-case will be at the equator for longitude 180. 
+ In binary, 180 requires 8-bits of the 24-bits available, leaving 16 bits after the decimal point.  Therefore, the distance between consecutively representable values at this longitude would be 2^-16 deg (approximately 1.526E-5).  Multiplying that number (in radians) by the WGS-84 radius of the Earth at the equator (6,378,137 m) yields a worst-case precision of: 
+ 
+ The same analysis against lat/longs stored in radians yields the following: 
+ 
+ And finally, if you normalize the latitudes to the range [-1, 1] and the longitudes to the range (-1, 1], then you can achieve the following worst-case precision: 
+ 
+ So storing lat/long in radians buys you around 7 inches of additional accuracy, and storing them in normalized form buys you around 1'8" of additional accuracy, both in the worst-case scenario. 
+ If, when converting between double-precision and single-precision you rounded (instead of truncating), the single-precision value will be within half of the distance between two consecutive values computed above. 
+ 
+ Update : Jeff's answer has a better analysis. However... 
+ To improve upon Jeff's answer: 
+ If you divide the actual angle in radians by π, thus encoding the angle in a scale going from 0 to ±1, then it should be possible to use all the digits of the significand (23 bits (24 - 1 sign bit)). The precision would then be: 
+ 
+ 
+ My Old answer: 
+ A 32 bit floating point number can represent a number with about 7.2 decimal digits of precision. This is an approximation because the floating point number is actually in binary, and when converted to decimal, the number of significant digits might vary. 
+ If we take it as 6 decimal digits of precision (to play on the safe side), and if we are storing latitude and longitude in degrees, then we get a precision of about 1/1000th of a degree which is a precision of about 111 meters in the worst case. In the best case, if we get 7 decimal digits of precision, the accuracy would be about 11.1 meters. 
+ It is possible to get a better precision using radians as the unit. In the worst case we get a precision of 10 millionth of a radian which is about 63 meters. In the best case, it would be 1 millionth of a radian which is about 6 meters. 
+ Needless to say, a 64bit floating point number would be extremely precise (about 6 micro meters in the worst case). 
+ 

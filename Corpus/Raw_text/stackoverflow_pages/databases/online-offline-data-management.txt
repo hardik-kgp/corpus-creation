@@ -1,0 +1,111 @@
+*** online-offline-data-management ***
+
+ I have to create an application that has functionality similar to the contacts app. You can add a contact on the client's iPhone and it should get uploaded onto the client's iPad. If the client updates the contact on their iPad, it should get updated on their iPhone. 
+ Most of this is fairly straight forward. I am using   as my back end and saving contacts locally with  . The only problem I'm encountering is managing contacts when the user is offline. 
+ Let's say I have an iPhone and an iPad. Both of them currently have the same version of the online database. My iPhone is now offline. It is 9AM. 
+ At 10AM I update the phone number for a contact on my iPad. It saves the change locally and online. At 11AM I update the email address for the same contact on my iPhone but I'm still offline.  
+ At noon, my iPhone connects to the internet and checks the server for changes. It sees that its changes are more recent than the latest update (checking an   timestamp property), so instead of downloading the new phone number for the contact (which is "obsolete"), it overrides the phone number along with the email address (updates the new phone number to the old version it has because it was offline during the phone number update at 10AM and its changes are supposedly more recent). 
+ How am I supposed to manage the online/offline problems encountered such as the one above? A solution I can think of would be to keep updated timestamps on every attribute for a contact instead of just a general   property for the entire contact, e.g. when was first name updated, when was last name updated, and then manually check if an offline device has more recent changes on every attribute instead of overwriting the whole object, but that seems sloppy. 
+ I was also thinking on having an   and   timestamp property on every   object. This way if the two don't match I can do a diff-check and use the most recent one for conflicts but this still doesn't seem like the cleanest solution. Has anyone else encountered something similar? If so, how did you solve it? 
+ **Pseudocode/Summary for what I **
+**think?**
+** covers every test case but still isn't very elegant/complete:**
+
+ 2 Entities on Parse.com: Contact and Contact History 
+ Contact has first, last, phone, email, onlineUpdate 
+ Contact History has a Primary Key to a Contact to refer to and the same attributes but with history. e.g.  
+ 1 Entity on Core Data, Contact: 
+ Contact has first, last phone, email, onlineUpdate, and offlineUpdate (IMPORTANT: this is only on Core Data, not on Parse) 
+ 
+ TL;DR: How are you supposed to structure a kind of version-control system for online/offline updates without accidental overwriting? I'd like to limit bandwidth usage to a minimum. 
+ 
+ **I would suggest to use key based updates instead of contact based updates.**
+  
+You should not send the whole contact to the server, in most cases the user would just change a few attributes anyways (things like 'last name' usually don't change very often). This also reduces bandwith usage. 
+Along with the applied changes of your offline contact you send the 
+old version number/last update timestamp of your local contact to the server. The server can now
+determine whether or not your local data is up to date, simply by looking at your old version number.   If your old version number matches the current version number of the server there is no need for your client to update any other information. If this is not the case the server should send you the new contact (after applying your requested update). 
+You can also save those commits, this would result in a contact history
+which does not store the whole contact each time a key was changed but only the changes themselves. 
+A simple implementation in pseudo code could look like this: 
+ 
+ The server side would look just as simple: 
+ 
+ 
+To get a better understanding of the workflow I will provide an example: 
+ 
+ **8 AM both clients and the server are up to date**
+, each device is online 
+ Each device has an entry (in this case a row) for the contact 'Foo Bar' which has the primary key ID.
+The version is the same for each entry, so all of them are up to date. 
+ 
+ (excuse this terrible format, SO sadly does not support any sort of tables...) 
+ 
+ 
+ **9 AM your iPhone is offline. You notice Foo Bar's email changed to 'foo@b'**
+.
+You change the contact information on your phone like this:   
+ 
+ so now the contact in your phone would look like this: 
+ 
+ 
+ 
+ **10 AM your iPad is offline. You notice 'Foo Bar' is actually written as 'Voo Bar'**
+! You apply the changes immediatly on your iPad. 
+ 
+ Notice that the iPad still thinks the current version of contact 42 is 1. Neither the server nor the iPad did notice how you changed the mail address and increased the version number, since no devices were connected to the network. Those changes are only locally stored and visible on your iPad.
+ 
+ 
+ **11 AM you connect your iPad to the network.**
+ The iPad sends the recent update
+to the server.  Before: 
+ 
+ 
+iPad -> Server: 
+ 
+ The server can now see that you are updating Version 1 of contact 42. Since version 1 is the current version your client is up to date (no changes commited in the mean time while you were offline). 
+ Server -> iPad 
+ 
+ After: 
+ 
+ 
+ 
+ **12 AM you disconnected your iPad from the network and connect your iPhone.**
+
+The iPhone tries to commit the recent changes.  Before: 
+ 
+ 
+iPhone -> Server 
+ 
+ The server notices how you try to update an old version of the same contact.
+He will apply your update since it is more recent than the iPad's update but 
+will send you the new contact data to make sure you get the updated first name aswell. After: 
+ 
+ Server -> iPad 
+ 
+ 
+The next time your iPad connects to the network and has no changes to commit it should just send the current version of the contact and see whether it is still up to date. 
+ 
+ Now you have committed two offline changes without overwriting each other.
+  You can easily extend this approach and so some optimizations.  For example: 
+ 
+ If the client tries to update an old version of the contact, don't send them the whole contact as answer. Rather send them the commits they missed and let them update their contact by themselves. This is useful if you store lots of information about your client and expect few changes to be done between updates.  
+ If the client updated all information about a contact we can assume he does not need to know about the missed updates, however we would let him know about everything he missed (but it would/should have no effect to him) 
+ 
+ 
+I hope this helps.  
+ 
+ 
+ Instead of having separate flag for each of the core data objects, you can have separate table which will store IDs(primary key from database table which stores contact information) of all updated contacts. 
+ Later when user comes online you just fetch those contacts from your actual contact detail table and upload them on your server. 
+ 
+ 
+ I know nothing about iOs, core data and parse.com, so I can suggest only a general algorithmic solution. I think you can an approach similar to what is done in version control systems.  
+ The simplest thing is to keep all the history on the server: keep all the revisions of the contact list. Now during the synchronization the phone sends information about the last server revision it has seen, and this revision will be the "common parent" for both the current phone revision and current server revision.  
+ Now you can see what has changed on server and on phone since that revision, and apply the usual 3-way comparison: if some field has changed only on the server, then send the new field to the phone; if some field has changed only on the phone, then change it on server too, if some field has been changed both on phone and on server and the changes are different, then you have a conflict and have to ask user. 
+ A variation of this approach might be to work with  changes , not  revisions . The primary data at both the server and the client will be not the contact list, but a history of its changes. (The current contact list, as well as a set of 'keyframes' can also be kept if needed; it will not be used for conflict resolving algorithm, but can be used so that it can be quickly shown and used.) 
+ Then, when a user synchronizes the data, you download/upload only the changes. If there are any conflict changes, you have nothing left but to ask a user, otherwise you just merge them. How you define a change and which changes are considered conflicting, is up to you. A simple approach can be defining a change as a pair (field, new-value), and two change are conflicting if they have the same field. You can also employ a more advanced conflict resolving logic such as if one change changes only the first half of the email, and the other the second half, then you can merge them. 
+ 
+ The correct way to do this is to keep a transaction log.  Whenever you save in Core Data you create a log entry in your transaction log.  When you are next online you play back the transaction log against the server. 
+ This is how iCloud and other sync services work. 
+ 

@@ -1,0 +1,43 @@
+*** secure-encrypted-database-design ***
+
+ I have a web based (perl/MySQL) CRM system, and I need a section for HR to add details about disciplinary actions and salary. 
+ All this information that we store in the database needs to be encrypted so that we developers can't see it. 
+ I was thinking about using AES encryption, but what do I use as the key? If I use the HR Manager's password then if she forgets her password, we lose all HR information. If she changes her password, then we have to decrypt all information and re-encrypt with the new password, which seems inefficient, and dangerous, and could go horrifically wrong if there's an error half way through the process. 
+ I had the idea that I could have an encryption key that encrypts all the information, and use the HR manager's password to encrypt the key. Then she can change her password all she likes and we'll only need to re-encrypt the key. (And without the HR Manager's password, the data is secure) 
+ But then there's still the problem of multi-user access to the encrypted data. 
+ I could keep a 'plaintext' copy of the key off site, and encrypt it with each new HR person's password. But then I know the master key, which doesn't seem ideal. 
+ Has anyone tried this before, and succeeded? 
+ 
+ GnuPG allows documents to be encrypted using multiple public keys, and decrypted using any one of the corresponding private keys. In this way, you could allow data to be encrypted using the public keys of the everyone in the HR department.  Decryption could be performed by any one having one of the private keys.  Decryption would require both the private key and the passphrase protecting the key to be known to the system.  The private keys could be held within the system, and the passphrase solicited from the user. 
+ The data would probably get quite bloated by GnuPG using lots of keys:  it has to create a session key for the payload and then encrypt that key using each of the public keys.  The encrypted keys are stored alongside the data. 
+ The weak parts of the system are that the private keys need to be available to the system (ie. not under the control of the user), and the passphrase will have to pass through the system, and so could be compromised (ie. logged, stolen) by dodgy code.  Ultimately, the raw data passes through the system too, so dodgy code could compromise that without worrying about the keys.  Good code review and release control will be essential to maintain security. 
+ You are best avoiding using MySQL's built in encryption functions:  these get logged in the replication, slow, or query logs, and can be visible in the processlist - and so anyone having access to the logs and processlist have access to the data. 
+ 
+ Why not just limit access to the database or table in general.  That seems much easier.  If the developer has access to query the production, there is no way to prevent them from seeing the data b/c at the end of the day, the UI has to decrypt / display the data anwyays. 
+ In the experience I've had, the amount of work it takes to achieve the "developers cannot see production data at all" is immense and nearly imposible.  At the end of the day, if the developers have to support the system, it will be difficult to achieve.  If you have to debug a production problem, then it's impossible not to give some developers access to production data.  The alternative is to create a large number of levels and groups of support, backups, test data, etc.. 
+ It can work, but it's not as easy as business owners may think. 
+ 
+ Another approach is to use a single system-wide key stored in the database - perhaps with a unique id so that new keys can be added periodically.  Using Counter Mode, the standard MySQL AES encryption can be used without directly exposing the cleartext to the database, and the size of the encrypted data will be exactly the same as the size of the cleartext.  A sketch of the algorithm: 
+ 
+ The application generates a unique initial counter value for the record.  This might be based on some unique attribute of the record, or you could generate and store a unique value for this purpose. 
+ The application generates a stream of counter blocks for the record based on the initial counter value.  The counter stream must be the same size or up to 1 block larger than the cleartext. 
+ The application determines which key to use.  If keys are being periodically rotated, then the most recent one should be used. 
+ The counter stream is sent to the database to be encrypted: something like  
+ select aes_encrypt( 'counter', key ) from hrkeys where key_id = 'id'; 
+ The resulting encrypted counter value is trimmed to the length of the cleartext, and XORed with the cleartext to produce the encrypted text. 
+ The encrypted text is stored. 
+ Decryption is exactly the same process applied to the encrypted text. 
+ 
+ The advantages are that the cleartext never goes any where near the database, and so the administrators cannot see the sensitive data.  However, you are then left with the problem of preventing your adminstrators from accessing the encrypted counter values or the keys.  The first can be achieved by using SSL connections between your application and database for the encryption operations. The second can be mitigated with access control, ensuring that the keys never appear in the database dumps, storing the keys in in-memory tables so that access control cannot be subverted by restarting the database with "skip-grants".  Ultimately, the only way to eliminate this threat is to use a tamper-proof device (HSM) for performing encryption.   The higher the security you require, the less likely you will be able to store the keys in the database. 
+ See  Wikipedia - Counter Mode 
+ 
+ I am just thinking out loud.  
+ This seems to call for a public/private key mechanism. The information would be stored encrypted with the HR public key and would only be viewable by someone in possession of the associated private key. 
+ This, to me, seems to rule out a web based interface to view these confidential data (entering them via the web interface is certainly feasible). 
+ Given that individuals come and go, tying the keys to a specific person's account seems infeasible. Instead, one must handle key distribution separately and have a mechanism for someone to change the keypair used (and re-encrypt the database — again without the use of a web interface) in case the current HR manager is replaced with someone else. Of course, nothing would prevent the HR manager from dumping all the data before leaving while before the keys are replaced. 
+ 
+ I'm not sure how feasible this is currently, or what current stable DB systems have support for this, but alternate authentication mechanisms at the database level may help.  For example Drizzle, a refactoring of the MySQL code base, supports (or aims to?) completely pluggable authentication, allowing no auth, server housed auth, or auth through PAM or some other mechanism, meaning you can use LDAP. 
+ If you had different levels of access based on the database connection, and the application login also specified what you could actually access in the database, you could theoretically build a system where it wasn't possible to access the confidential database info unless using an account with specific access rights, regardless of the privilege escalation attempts in the application itself. 
+ As long as the people setting user account access rights can be trusted or themselves are OK to see the confidential information, this should be fairly secure. 
+ P.S. It might be useful to use a generic DB connection for "regular" application information, but when an attempt to access confidential information is made, then the specific DB connection is attempted.  This allows for a few DB connections to handle most requests, assuming the majority of users aren't viewing confidential info.  Otherwise, a separate DB connection per user may become burdensome to the DB. 
+ 

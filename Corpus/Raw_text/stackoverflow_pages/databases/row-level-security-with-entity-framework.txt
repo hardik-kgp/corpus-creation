@@ -1,0 +1,27 @@
+*** row-level-security-with-entity-framework ***
+
+ I've been trying to consider how Row Level Security could be implemented with the Entity Framework.  The idea is to have a database agnostic means that would offer methods to restrict the rows coming from the ObjectContext. 
+ Some of my inital ideas have involved modifying the partial classes created by the EDMGEN tool and that has offered some limited support.  Users are still able to get around this solution by using their own eSQL statements and a QueryObject.   
+ I've been looking for a comprehensive solution that would exist above the database providers so that it would remain agnostic. 
+ 
+ Sure you can do it.  The important thing to do is to block direct access to the object context (preventing users from building their own ObjectQuery), and instead give the client a narrower gateway within which to access and mutate entities. We do it with the  Entity Repository pattern .  You can find an  example implementation of this pattern for the entity framework in this blog post . Again, the key is blocking access to the object context.  Note that the object context class is partial.  So you should be able to prevent "unauthorized" means of instantiating it, namely, outside of your repository assembly. 
+ However, there are subtleties to consider.  If you implement row-level view security on a certain entity type via the repository pattern, then you must consider other means by which a client could access the same entities.  For example, via navigational relationships.  You may need to make some of those relationships private, which you can do in your model.  You also have the option of  specifying a custom query  or stored procedure for loading/saving entities. Stored procedures tend to be DB server specific, but SQL can be written in a generic manner. 
+ While I don't agree that this cannot be done with the Entity Framework, I do agree with the "do it on the DB server" comments insofar as you should implement  defense in depth . 
+ 
+ The place where you add security really depends on who you're trying to secure against. 
+ If, for example, you were securing a web site, then adding the filtering at the context level would be sufficient, because the "users" in this case are on the web site. They have no choice but to go through your context, since you would write the application entirely against the context. 
+ In your case, it sounds like the "users" you're trying to secure against are developers. That's quite a bit more difficult. If the developers don't have access to make modifications to the database itself, then you'll have to put the security at the database level. No amount of eSQL access is going to be able to get around the database saying "no". 
+ 
+ What you're trying to achieve is, by definition, not possible. 
+ If the security is not handled explicitly by the underlying database application (SQL Server, Oracle, whatever) then the standard tools like SQL Management Studio will blow right past it. 
+ The best you can do is enforce row level security by users of the application ONLY if those users do not have access to the database via another mechanism. 
+ 
+ You might find this article useful: 
+ http://msdn.microsoft.com/en-us/magazine/ff898427.aspx 
+ "Deny Table Access to the Entity Framework Without Causing a Mutiny" 
+ 
+ I found a way to do it using Postgres and an Extension called  Veil . It actually works (designed for) using   for all operations (select, update,delete,insert) and verifying permissions in   clauses. But Veil just adds the maths for efficiently managing permission's information in memory instead of querying it every time. So with Veil, although you connect directly to DBMS you have just the row level access granted for you.  
+ I modify my style with veil in some ways, for example, I began to use   instead of   for applying permissions restrictions. 
+ I recommend you to study this solution and try to apply it's logic here. 
+ i.e.: You make a   query and you get just what you're intent to (row level speaking). 
+ 

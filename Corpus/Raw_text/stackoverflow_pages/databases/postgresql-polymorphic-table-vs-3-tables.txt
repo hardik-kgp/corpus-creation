@@ -1,0 +1,78 @@
+*** postgresql-polymorphic-table-vs-3-tables ***
+
+ I am using PostgreSQL 9.5 (but upgrade is possible to say 9.6). 
+ I have permissions table: 
+ 
+ And 3 tables for many-to-many associations 
+ -companies_permissions (+indices declaration) 
+ 
+ -permissions_user_groups (+indices declaration) 
+ 
+ -permissions_users (+indices declaration) 
+ 
+ 
+ I will have to run SQL query like this a lot times: 
+ 
+ Let's say we have about 10000+ permissions and similar amount of records inside other tables. 
+ Do I need to worry about performance? 
+ I mean... I have 4  s and it should return results pretty fast (say <200ms). 
+ I was thinking about declaring 1 "polymorphic" table, something like: 
+ 
+ Then I could run query like this: 
+ 
+ 
+ QUESTIONS: 
+ 
+ Which options is better/faster? Maybe there is better way to do this? 
+ 
+ a) 4 tables ( )
+b) 2 tables ( ) 
+ 
+ Do I need to declare different indexes than   on   ? 
+ Do I need to run a few times per day   for tables to make indices work (both options)? 
+ 
+ 
+ EDIT1: 
+ SQLFiddle examples: 
+ 
+ wildplasser suggestion (from comment), not working:  http://sqlfiddle.com/#!15/9723f8/1 
+ Original query (4 tables):  http://sqlfiddle.com/#!15/9723f8/2 
+ 
+ { I also removed backticks in wrong places thanks @wildplasser } 
+ 
+ I'd recommend abstracting all access to  your permissions system to a couple of model classes.  Unfortunately, I've found that permission systems like this do sometimes end up being performance bottlenecks, and I've found that it is sometimes necessary to significantly refactor your data representation.
+So, my recommendation is that try to keep the permission-related queries isolated in a few classes and try to  keep the interface  to those classes independent of the rest of the system. 
+ Examples of good approaches here are what you have above.  You don't actually join against the topics table; you already have the topic IDs you care about when you're constructing the permissions. 
+ Examples of bad interfaces would be class interfaces that make it easy to join the permissions tables into arbitrary other SQL. 
+ I understand you asked the question in terms of SQL rather than a particular framework on top of SQL, but from the rails constraint names it looks like you are using such a framework, and I think taking advantage of it will be useful to your future code maintainability. 
+ In the 10,000 rows cases, I think either approach will work fine.
+I'm not actually sure that the approaches will be all that different.  If you think about the query plans generated, assuming you're getting a small number of rows from the table, the join might be handled with a loop against each table in exactly the same way that the or query might be handled assuming that the index is likely to return a small number of rows.
+I have not fed a plausible data set into Postgres to figure out whether that's what it actually does given a real data set.  I have reasonably high confidence that Postgres is smart enough to do that if it makes sense to do so. 
+ The polymorphic approach does give you a bit more control and if you run into performance problems you may want to check if moving to it will help.
+If you choose the polymorphic approach, I'd recommend writing code to go through and check to make sure that your data is consistent.  That is, make sure that resource_type and resource_id corresponds to actual resources that exist in your system.
+I'd make that recommendation in any case where application concerns force you to denormalize your data such that database constraints are not sufficient to enforce consistency. 
+ If you start running into performance problems, here are the sorts of things you may need to do in the future: 
+ 
+ Create a cache in your application mapping objects (such as topics) to the set of permissions for those objects. 
+ Create a cache in your application caching all the permissions a given user has (including the groups they are a member of) for the objects in your application. 
+ Materializing the user group permissions.  That is create a materialized view that combines the user_group permissions with the user permissions and the user group memberships. 
+ 
+ In my experience the thing that really kills performance of permission systems is when you add something like permitting one group to be a member of another group.  At that point you very quickly get to a point where you need caching or materialized views. 
+ Unfortunately, it's really hard to give more specific advice without actually having your data and looking at real query plans and real performance.  I think that if you prepare for future changes you'll be fine though. 
+ 
+ Maybe it's an obvious answer, but I think the option with 3 tables should be just fine. SQL databases are good at doing   operations and you have 10,000 records - this is not a big amount of data at all, so I am not sure what makes you think there will be a performance problem. 
+ With proper indexes (btree should be OK), it should work fast and actually you can go just a bit further and generate the sample data for you tables and see how your query actually works on real amount of data. 
+ I also don't think you'll need to worry about something like running vacuum manually. 
+ Regarding the option two, polymorphic table, it can be not very good as you now have single   field which can point out to different tables which is a source of problems (for example, due to a bug you can have a record with resource_type=  and resource_id pointing to   - table structure doesn't prevent it). 
+ One more note: you do not tell anything about relations between User, UserGropup and Company - if they are all related too, it may be possible to fetch permissions just using user id(s), joining also gropus and companies to users. 
+ And one more: you don't need  s in many-many tables, nothing bad happens if you have them, but it's enough to have   and   and make them to be composite primary key. 
+ 
+ You can try to denormalize the many-to-many relations in a permission field on each of the 3 tables (user, user_group, company). 
+ You can use this field to store the permissions in JSON format, and use it only for reading (SELECTs). You can still use the many-to-many tables for changing the permissions of specific users, groups and companies, just write a trigger on them, that will update the denormalized permission field whenever there is a new change on the many-to-many table. With this solution you will still get fast query execution time on the SELECTs, while keeping the relationship normalized and in compliance with database standards. 
+ Here is an example script, that I have written for mysql for a one-to-many relation, but a similar thing can be applied for your case as well:  
+ https://github.com/martintaleski/mysql-denormalization/blob/master/one-to-many.sql 
+ I have used this approach several times, and it makes sense when the SELECT statements outnumber and are more important than the INSERT, UPDATE and DELETE statements. 
+ 
+ In case you do not often change your permissions, materialized views might speed up your search enormously. I will prepare an example based on your setting later today and will post it. Afterwards, we can do some benchmark. 
+ Nevertheless, materialized views require an update of the materialized view after changing the data. So that solution might be fast, but will speed up your queries only if basic data are not changed so often.  
+ 

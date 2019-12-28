@@ -1,0 +1,106 @@
+*** managing-the-product-count-in-the-database ***
+
+ Excuse me if this question may seem naive but I have come across a scenario where I need to manage the product count in the database of an e-commerce store.  
+ There is a Product class with an integer variable   which signifies the number of available products in the database which is visible to users of the site. Now this class is accessed by several threads or can say several users of the e-commerce site. Everyone is adding or removing the product to his cart.  
+ The ORM framework being used is hibernate 
+ Sample code  
+ 
+ As it is clear from the code that I need to keep a concurrency check on the product count in the database to prevent lost updates.  
+ Also if several users are trying to add only single left product in the database. Which user's cart the product should be added to? 
+ I did a little research on this  
+ Possible ways I found were  
+ 
+ Creating a singleton class for Product. That would ensure that just one instance of product is available throughout the application. 
+ Synchronize the   &    methods. 
+which would allow only one thread to update the product count & update the db at a time.  
+ Use database concurrency control apply some db transaction isolation level, optimistic/pessimistic locking for the  . I am using mysql the default isolation level is  . 
+ 
+ What would be the best approach to deal with this? 
+ 
+ For the first two possibilities you are considering, those work only if you are restricted to deploying only a single instance of the application. You can't have singletons managed across multiple application instances, you can't have synchronization across multiple JVMs. So if you go with one of these your deployment options will be constrained, the only way to deploy multiple instances of the application is if you do something like pin the sessions to a specific instance, which is bad for load-balancing. So these both seem undesirable. 
+ The approach of getting the product counts from the database has the advantage that it remains valid as your application scales up across multiple instances without messing up load-balancing.  
+ You may think, this will only be one instance on one server so I can get by with this. But at the time you're building an application it may not be entirely clear how the application will be deployed (I've been in situations where we didn't know what the plan was until the application was set up in a preprod environment), or at a later date there might be a reason to change how an application is deployed; if your application has more-than-expected load then it may be beneficial to set up a second box.  
+ One thing that is not apparent to me is how vital it is that the product count is actually correct. In different business domains (airline tickets, shipping) it's common to overbook, and it might be more trouble than it's worth to keep a 100% accurate count, especially if it's at an early point in the process such as adding an item to the shopping cart (compared to the point where the customer actually commits to making a purchase). At the time the customer buys something it may make more sense to make sure you reserve those items with a database transaction (or not, cf. overbooking again). 
+ It seems common in web applications to expect a low conversion rate from items in the cart to items actually purchased. Keep in mind what level of accuracy for your counts is appropriate for your business domain.  
+ 
+ **3. Use database concurrency control**
+
+ Why? 
+ 
+ 1 & 2 are OK if your e-commerce app is absolutely the only way to modify the product count.  That's a big if.  In the course of doing business and maintaining inventory the store may need other ways to update the product count and the e-commerce app may not be the ideal solution.  A database, on the other hand, is generally easier to hook into different applications that aid the inventory process of your store. 
+ Database products usually have a lot of fail-safe mechanisms so that if something goes wrong you can trace what transactions succeeded, which didn't, and you can roll back to a specific point in time.  A java program floating in memory doesn't have this out of the box, you would have to develop that yourself if you did 1 or 2.  Spring and Hibernate and other things like that are certainly better than nothing but compare what they offer and what a database offers in terms of recovering from some electronic disaster. 
+ 
+ 
+ The right way to do it is use database locks, as it designed for this work. And if you are using hibernate it's pretty simple with LockRequest: 
+ 
+ Here we are fetching product from database for updating which prevents any concurrent updates. 
+ 
+ IMO a conventional layered approach would help here - not sure how radical a change this would be as don't know the size/maturity of the application but will go ahead and describe it anyway and you can choose which bits are workable. 
+ **The theory...**
+
+ 
+ It's useful for the entities to be separate from the DAO layer so they are just simple units of storage that you can populate, compare etc. without including methods that act on them. So these are just a class representation of  what  is in the database and ideally shouldn't be polluted with code that defines  how  they will be used. 
+ The DAO layer provides the basic CRUD operations that allow these entities to be persisted, retrieved, merged and removed without needing to know the context in which this is done. This is one place where singletons can be useful to prevent multiple instances being created again and again - but use of a singleton doesn't imply thread safety. Personally I'd recommend using Spring to do this (Spring beans are singletons by default) but guess it could be done manually if preferred. 
+ And the services layer is where "domain logic" is implemented, i.e. the specific combinations of operations needed by your application to perform particular functions. Thread safety issues can be tackled here and there will be times when it is needed and times when it isn't. 
+ **In practice...**
+
+ Following this approach you might end up with something like this (lots omitted for brevity): 
+ 
+ 
+ Let's evaluate three options. 
+ 
+ 1.Creating a singleton class for Product. That would ensure that just one instance of product is available throughout the application. 
+ 
+ Single instance for product is fine. But if you are offering a Product like Mobile with quantity 20, still you have to   product count (static variable ) on   and   product count on  . Still you have to synchronize the access to this mutable count Or update database and read product count.  
+ 
+ 2.Synchronize the addProductToCart &  removeTheProductFromTheCart methods. which would allow only one thread to update the product count & update the db at a time. 
+ 
+ This is one solution but I prefer third one : Remove synchronization in application and provide data consistency at database layer. 
+ 
+ 3.Use database concurrency control apply some db transaction isolation level, optimistic/pessimistic locking for the productCount. I am using mysql the default isolation level is REPEATABLE_READ. 
+ 
+ Defer consistency to database instead of application. But you have to use   for isolation level instead of  
+ Have a look at this  article 
+ 
+ **READ COMMITTED**
+
+ 
+ : Each consistent read, even within the same transaction, sets and reads its own fresh snapshot. 
+ 
+ As I understood carts are also persisted in db? And as final result bought products too. 
+ product:  
+ 
+ cart:  
+ 
+ bought :  
+ 
+ Then you can get count for the product 
+ 
+ now you can show final count by  
+ 
+ This way you guarantee that there will not overriden or bypassed increments/decrements. Finally beside code check for count you can also add a trigger in DB level which checks for the total count and if the product can be inserted in carts or bought tabel.  
+ If your product count is changing daily, I mean yesterday you had 100 product and sold 20, today 50 products has arrived, thus you should have 150 - 20 sold count which is 130. In order to have a good reports you can make product count daily. like 
+ 
+ then your queries will change like 
+ 
+ for this you have to only insert new product data at midnight 00:00:00 and when your new products arrive in the morning you can update newly_arrived without intervening any insert or delete operations on carts or bought tables. and you can have detailed reports easily without making sophisticated report queries :)) 
+ 
+ If you have to use a relational database for this (and not a key value store e.g.).  I would highly recommend to do this as close to the storage as possible to avoid locks and conflicts and get the highest performance as possible. 
+ On the other hand it sounds like a typical scenario where multiple nodes are working on one database which also creates problems with latency due to Hibernate session handling. 
+ At the end you need statements like 
+ 
+ To be executed in a transaction maybe using a simple JDBC statement or by a JPA repository method with @Query annotation. 
+ To make Hibernate aware of the changes you can use   on the product after such an operation. 
+ 
+ Best way to do that work in ecommerce web app, using  **Messaging Queue**
+ . You can use  **RabbitMQ**
+ , 
+ 
+ Create a queue on rabbitMQ and keep all requests here that reduce product count 
+ because of queue all request will be processed one by one so there wont be any conflicts to reduce product.  
+ 
+ 
+ This isn't so much a technical question as a process question.  Personally, I would not reduce inventory until someone had actually purchased the product.  Adding an item to a shopping cart is an indicator that they may purchase it.  Not that they have. 
+ Why not reduce the inventory count only when the payment has successfully processed?  Wrap the entire thing in a database transaction.  If 10 people add the same item to their cart and there is only 1 left, then the first to pay wins.  9 folks will be upset they didn't pay faster. 
+ The airlines reference is different.  They do issue temp holds, but it is way more complicated than managing inventory.  That and they are working with a fluid pool of seats that they monkey with as the inventory becomes scarce. 
+ 

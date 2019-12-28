@@ -1,0 +1,47 @@
+*** twisted-sqlalchemy-and-the-best-way-to-do-it ***
+
+ So I'm writing yet another Twisted based daemon.  It'll have an xmlrpc interface as usual so I can easily communicate with it and have other processes interchange data with it as needed. 
+ This daemon needs to access a database.  We've been using SQL Alchemy in place of hard coding SQL strings for our latest projects - those mostly done for web apps in Pylons. 
+ We'd like to do the same for this app and re-use library code that makes use of SQL Alchemy.  So what to do?  Well of course since that library was written for use in a Pylons app it's all the straight-forward blocking style code that everyone is accustomed to and all of the non-blocking is magically handled by Pylons via threading, thread locals, scoped sessions and so on. 
+ So now for Twisted I guess I'm a bit stuck.  I could: 
+ 
+ Just write the sql I need directly if it's minimal and use the dbapi pool in twisted to do runInteractions etc when I need to hit the db. 
+ Use the objects and inherently blocking methods in our library and block now and then in my Twisted daemon. Bah. 
+ Use sAsync which was last updated in 2008 and kind of reuse the models we have defined already but not really and this doesn't address that the library code needs to work in Pylons too. Does that even work with the latest version SQL Alchemy?  Who knows. That project looked great though - why was it apparently abandoned?   
+ Spawn a separate subprocess and have it deal with the library code and all it's blocking, the results being returned back to my daemon when ready as objects marshalled via YAML over xmlrpc. 
+ Use deferToThread and then expunge the objects returned having made sure to do eager loads so that I have all my stuff that I might need.  Seems kind of ugha to me. 
+ 
+ I'm also stuck using Python 2.5.4 atm so no 2.6 yet and I don't think I can just do an import from future to get access to the cool new multiprocessing module stuff in there. That's OK though I guess as we've got dealing with interprocess communication down pretty well. 
+ So I'm leaning towards option 4 mostly as that would avoid the mortal sin of logic  duplication with option 1 while also staying the heck away from threads.   
+ My first attempt though will be option 2 to just get the thing going and then separate out the calls to the library code perhaps into a separate process if it looks like there's a good chance that something might take a bit too long to block on.  Sad.  Maybe a combination of Stackless Python and Twisted would be interesting here. 
+ Any better ideas? 
+ 
+ Firstly, I can unfortunately only second your opinion that twisted and
+SQLAlchemy don't play along very well. I have worked some with both
+and would be somewhat afraid of the complexity that would arise from
+putting them together. 
+ All the database integration layers that I know of to date use
+twisteds threading integration layer, and if you want to avoid that at
+all costs you are pretty much stuck with point 4 in your list. 
+ On the other hand, I have seen examples of database connecting code
+using deferToThread() and friends that worked very well. 
+ Anyway, some pointers if you'd be ready to consider other frameworks
+than SQLAlchemy: 
+ The DivMod guys have been doing some tentative work on twisted -
+database integration based on the Storm ORM (google for "storm orm"). 
+ See this link for an example: 
+ http://divmod.readthedocs.org/en/latest/products/nevow/storm-approach.html 
+ Also, head over to DivMod's site and have a look at the sources of
+their Axiom db layer (probably not of any use to you directly since
+it's Sqlite only, but it's principles might be useful). 
+ 
+ In the intervening couple of years, Alex Gaynor created  https://github.com/alex/alchimia  which may be a better central repository for doing integration with SQLAlchemy and Twisted. 
+ 
+ There's a storm branch that you can use with twisted directly (internally it does the defer to thread stuff) on launchpad  https://code.launchpad.net/~therve/storm/twisted-integration . I've used it nicely. 
+ Sadly sqlalchemy is significantly more complex in implementation to audit for async usage. If you really want to use it, i'd recommend an out of process approach with a storage rpc layer. 
+ alternatively if your feeling adventurous and using postgresql, the latest pyscopg2 supports true async usage ( https://launchpad.net/txpostgres ), and the storm source is pretty simple to hack on ;-) 
+ incidentally the storm you tried last year may not have had the C-extension on by default (it is now in the latest releases.) which might account for your speed issues. 
+ 
+ Perhaps twistar is what you're looking for. It's a native active record (aka ORM) implementation for twisted, working on top of  . 
+ http://findingscience.com/twistar/ 
+ 

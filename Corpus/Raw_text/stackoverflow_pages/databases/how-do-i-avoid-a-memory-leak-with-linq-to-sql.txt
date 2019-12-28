@@ -1,0 +1,28 @@
+*** how-do-i-avoid-a-memory-leak-with-linq-to-sql ***
+
+ I have been having some issues with LINQ-To-SQL around memory usage.  I'm using it in a Windows Service to do some processing, and I'm looping through a large amount of data that I'm pulling back from the context.  Yes - I know I could do this with a stored procedure but there are reasons why that would be a less than ideal solution. 
+ Anyway, what I see basically is memory is not being released even after I call  .  So I end up having to do all sorts of weird things like only pull back 100 records at time, or create several contexts and have them all do separate tasks.  If I keep the same   and use it later for other calls, it just eats up more and more memory.  Even if I call   on the " " array that the query returns to me, set it to null, and call   - it still doesn't release the memory. 
+ Now I've read some about how you should use   quickly and dispose of them quickly, but it seems like their ought to be a way to force the context to dump all its data (or all its tracking data for a particular table) at a certain point to guarantee the memory is free. 
+ Anyone know what steps guarantee that the memory is released? 
+ 
+ If you don't need object tracking set  **DataContext.ObjectTrackingEnabled**
+ to  false . If you do need it, you can use reflection to call the internal  **DataContext.ClearCache()**
+, although you have to be aware that since its internal, it's subject to disappear in a future version of the framework. And as far as I can tell, the framework itself doesn't use it but it  does  clear the object cache. 
+ 
+ A DataContext tracks all the objects it ever fetched.  It won't release this until it is garbage collected.  Also, as it implements  , you must call   or use the   statement. 
+ This is the right way to go: 
+ 
+ 
+ As David Points out, you should dispose of the DataContext using a using block. 
+ It seems that your primary concern is about creating and disposing a bunch of DataContext objects. THis is how linq2sql is designed. The DataContext is meant to have short lifetime. Since you are pulling a lot of data from the DB, it makes sense that there will be a lot of memory usage. You are on the right track, by processing your data in chunks.  
+ Don't be afraid of creating a ton of DataContexts. They are designed to be used that way. 
+ 
+ Thanks guys - I will check out the ClearCache method.  Just for clarification (for future readers), the situation in which I was getting the memory usuage was something like this: 
+ 
+ 
+ I just ran into a similar problem. In my case, helped establish the properties of   **DataContext.ObjectTrackingEnabled**
+ to false.
+But it works only in the case of iterating through the rows as follows: 
+ 
+ If, for example, in the query to use the methods ToArray() or ToList() - no effect 
+ 

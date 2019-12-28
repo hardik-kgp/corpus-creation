@@ -1,0 +1,186 @@
+*** data-in-different-resolutions ***
+
+ I have two tables, records are being continuously inserted to these tables from outside source. Lets say these tables are keeping statistics of user interactions. When a user is clicking a button the details of that click (the user, time of click etc.) is written to one of the tables. When a user mouseovers that button a record is added with details to other table. 
+ If there are lots of users constantly interacting with the system, there will be lots of data generated, and those tables will grow enormously. 
+ When I want to look at the data, I want to see it in hourly or daily resolution. 
+ Is there a way, or best practice to continuously summarize the data incrementally (as the data is collected) in the demanded resolution? 
+ Or is there a better approach to this kind of problem? 
+ PS. What I found so far is ETL tools like Talend could make life easy. 
+ Update: I am using MySQL at the moment, but I am wondering the best practices regardless of DB, environment etc. 
+ 
+ The normal way to do this on a low-latency data warehouse application is to have a partitioned table with a leading partition containing something that can be updated quickly (i.e. without having to recalculate aggregates on the fly) but with trailing partitions backfilled with the aggregates.  In other words, the leading partition can use a different storage scheme to the trailing partitions.  
+ Most commercial and some open-source RDBMS platforms (e.g. PostgreSQL) can support partitioned tables, which can be used to do this type of thing one way or another.  How you populate the database from your logs is left as an exercise for the reader. 
+ Basically, the structure of this type of system goes like: 
+ 
+ You have a table partitioned on some
+sort of date or date-time value,
+partitioned by hour, day or whatever
+grain seems appropriate.  The log
+entries get appended to this table. 
+ As the time window slides off a
+partition, a periodic job indexes or
+summarises it and converts it into
+its 'frozen' state.  For example, a
+job on Oracle may create bitmap
+indexes on that partition or update a
+materialized view to include summary
+data for that partition. 
+ Later on, you can drop old data,
+summarize it or merge partitions
+together. 
+ As time goes on, the periodic job
+back fills behind the leading edge
+partition.  The historical data is
+converted to a format that lends
+itself to performant statistical
+queries while the front edge
+partition is kept easy to update
+quickly.  As this partition doesn't
+have so much data, querying across
+the whole data set is relatively
+fast. 
+ 
+ The exact nature of this process varies between DBMS platforms.   
+ For example, table partitioning on SQL Server is not all that good, but this can be done with Analysis Services (an OLAP server that Microsoft bundles with SQL Server).  This is done by configuring the leading partition as pure ROLAP (the OLAP server simply issues a query against the underlying database) and then rebuilding the trailing partitions as MOLAP (the OLAP server constructs its own specialised data structures including persistent summaries known as 'aggregations').  Analysis services can do this completely transparently to the user.  It can rebuild a partition in the background while the old ROLAP one is still visible to the user.  Once the build is finished it swaps in the partition; the cube is available the whole time with no interruption of service to the user. 
+ Oracle allows partition structures to be updated independently, so indexes can be constructed, or a partition built on a materialized view.  With Query re-write, the query optimiser in Oracle can work out that aggregate figures calculated from a base fact table can be obtained from a materialized view.  The query will read the aggregate figures from the materialized view where partitions are available and from the leading edge partition where they are not. 
+ PostgreSQL may be able to do something similar, but I've never looked into implementing this type of system on it. 
+ If you can live with periodic outages, something similar can be done explicitly by doing the summarisation and setting up a view over the leading and trailing data.  This allows this type of analysis to be done on a system that doesn't support partitioning transparently.  However, the system will have a transient outage as the view is rebuilt, so you could not really do this during business hours - the most often would be overnight. 
+ **Edit:**
+ Depending on the format of the log files or what logging options are available to you, there are various ways to load the data into the system.  Some options are: 
+ 
+ Write a script using your favourite programming language that reads the data, parses out the relevant bits and inserts it into the database.  This could run fairly often but you have to have some way of keeping track of where you are in the file.  Be careful of locking, especially on Windows.  Default file locking semantics on Unix/Linux allow you to do this (this is how   works) but the default behaviour on Windows is different; both systems would have to be written to play nicely with each other. 
+ On a unix-oid system you could write your logs to a pipe and have a process similar to the one above reading from the pipe.  This would have the lowest latency of all, but failures in the reader could block your application. 
+ Write a logging interface for your application that directly populates the database, rather than writing out log files. 
+ Use the bulk load API for the database (most if not all have this type of API available) and load the logging data in batches.  Write a similar program to the first option, but use the bulk-load API.  This but would use less resources than populating it line-by-line, but has more overhead to set up the bulk loads.  It would be suitable a less frequent load (perhaps hourly or daily) and would place less strain on the system overall. 
+ 
+ In most of these scenarios, keeping track of where you've been becomes a problem.  Polling the file to spot changes might be infeasibly expensive, so you may need to set the logger up so that it works in a way that plays nicely with your log reader. 
+ 
+ One option would be to change the logger so it starts writing to a different file every period (say every few minutes).  Have your log reader start periodically and load new files that it hasn't already processed.  Read the old files.  For this to work, the naming scheme for the files should be based on the time so the reader knows which file to pick up.  Dealing with files still in use by the application is more fiddly (you will then need to keep track of how much has been read), so you would want to read files only up to the last period. 
+ Another option is to move the file then read it.  This works best on filesystems that behave like Unix ones, but should work on NTFS.  You move the file, then read it at leasure.  However, it requires the logger to open the file in create/append mode, write to it and then close it - not keep it open and locked.  This is definitely Unix behaviour - the move operation has to be atomic.  On Windows you may really have to stand over the logger to make this work. 
+ 
+ 
+ Take a look at  RRDTool . It's a round robin database. You define the metrics you want to capture but can also define the resolution that you store it at. 
+ For example, you can specify for the las hour, you keep every seconds worth of information; for the past 24 hours - every minute; for the past week, every hour, etc. 
+ It's widely used to gather stats in systems such as  Ganglia  and  Cacti . 
+ 
+ When it comes to slicing and aggregating data (by time or something else), the star schema (Kimball star) is a fairly simple, yet powerful solution. Suppose that for each click we store time (to second resolution), user’s info, the button ID,  and user’s location. To enable easy slicing and dicing, I’ll start with pre-loaded lookup tables for properties of objects that rarely change -- so called dimension tables in the DW world. 
+ 
+ 
+ 
+The   table has one row for each day, with number of attributes (fields) that describe a specific day. The table can be pre-loaded for years in advance, and should be updated once per day if it contains fields like  ; otherwise it can be “load and forget”. The   allows for easy slicing per date attributes like 
+ 
+ For ten years of data the table has only ~3650 rows. 
+ The   table is preloaded with geography regions of interest -- number of rows depend on “geographic resolution” required in reports, it allows for data slicing like   
+ 
+ Once loaded, it is rarely changed. 
+ For each button of the site, there is one row in the dimButton table, so a query may have  
+ 
+ The   table has one row per registered user, this one should be loaded with a new user info as soon as the user registers, or at least the new user info should be in the table before any other user transaction is recorded in fact tables. 
+ To record button clicks, I’ll add the   table.
+ 
+ 
+ 
+The   table has one row for each click of a button from a specific user at a point in time. I have used   (second resolution),   and   in a composite primary key to to filter-out clicks faster than one-per-second from a specific user. Note the   field, it contains the hour part of the  , an integer in range 0-23 to allow for easy slicing per hour, like 
+ 
+ So, now we have to consider: 
+ 
+ How to load the table? Periodically -- maybe every hour or every few minutes -- from the weblog using an ETL tool, or a low-latency solution using some kind of event-streaming process.  
+ How long to keep the information in the table?  
+ 
+ Regardless of whether the table keeps information for a day only or for few years -- it should be partitioned;  ConcernedOfTunbridgeW  has explained partitioning in his answer, so I’ll skip it here. 
+ Now, a few example of slicing and dicing per different attributes (including day and hour) 
+ To simplify queries, I’ll add a view to flatten the model: 
+ 
+ A query example 
+ 
+ Suppose that I am interested in data for  . The   is a large table, so I’ll make a view without it, to speed up queries. 
+ 
+ A query example 
+ 
+ 
+Suppose that for  **aggregations**
+ we do not need to keep specific user info, but are only interested in date, hour, button and geography. Each row in the   table has a counter for each hour a specific button was clicked from a specific geography area.
+ 
+ 
+ 
+ The   table can be loaded hourly, or even at the end of each day –- depending on requirements for reporting and analytic. For example, let’s say that the table is loaded at the end of each day (after midnight), I can use something like: 
+ 
+ To simplify queries, I'll create a view to flatten the model: 
+ 
+ Now I can query aggregated data, for example by day : 
+ 
+ Or with a few more options 
+ 
+ 
+ You could use an historical db like PI or Historian.  Those might be more money than you want to spend for this project, so you might want to look up one of the freeware alternatives, like the  Realtime and History Database Package . 
+ 
+ Quick 'n dirty suggestions. 
+ [Assuming you can't change the underlying tables, that those tables already record the time/date rows were added and that you do have permission to create objects in the DB]. 
+ 
+ Create a VIEW (or a couple of VIEWS) which has a logical field on it, which generates a unique 'slot-number' by chopping up the date in the tables. Something like: 
+ 
+ CREATE VIEW view AS
+SELECT a,b,c, SUBSTR(date_field,x,y) slot_number
+    FROM
+          TABLE; 
+ The example above is simplified, you probably want to add in more elements from date+time. 
+ [eg, say date is '2010-01-01 10:20:23,111', you could perhaps generate the key as '2010-01-01 10:00': so your resolution is one-hour]. 
+ 
+ Optionally: use the VIEW to generate a real table, like: 
+ CREATE TABLE frozen_data
+    AS
+    SELECT * FROM VIEW
+    WHERE
+    slot_number='xxx; 
+ 
+ Why bother with step 1? You don't actually have to: just using a VIEW might make things a bit easier (from a SQL point of view). 
+ Why bother with step 2? Just a way of a (possibly) reducing load on the already busy tables: if you can dynamically generate DDL then you could produce separate tables with copies of the 'slots' of data: which you can then work with. 
+ OR you could set up a group of tables : one per hour of the day.
+Create a trigger to populate the secondary tables : the logic of the trigger could segregrate which table is written to. 
+ On a daily basis you would have to reset these tables: unless you can generate tables in your trigger on your DB. [unlikely I think]. 
+ 
+ A suggestion that has not been given (so far) might be to use  couchDB  or similar database concepts that deal with unstructured data. 
+ Wait! Before jumping on me in horror, let me finish.  
+ CouchDB collects unstructured data (JSON &c); quoting the technical overview from the website,  
+ 
+ To address this problem of adding
+  structure back to unstructured and
+  semi-structured data, CouchDB
+  integrates a view model. Views are the
+  method of aggregating and reporting on
+  the documents in a database, and are
+  built on-demand to aggregate, join and
+  report on database documents. Views
+  are built dynamically and don’t affect
+  the underlying document, you can have
+  as many different view representations
+  of the same data as you like. 
+ View definitions are strictly virtual
+  and only display the documents from
+  the current database instance, making
+  them separate from the data they
+  display and compatible with
+  replication. CouchDB views are defined
+  inside special design documents and
+  can replicate across database
+  instances like regular documents, so
+  that not only data replicates in
+  CouchDB, but entire application
+  designs replicate too. 
+ 
+ From your requirements, I can tell you need  
+ 
+ to collect lots of data in a reliable way 
+ the priority is on speed/reliability, not on structuring data as soon as it get into the system nor on maintaining/checking the structural properties of what you collect (even if you miss 1ms of user data it might not be such a big problem) 
+ you need structured data when it comes  **out**
+ of the DB 
+ 
+ Personally, I'd do something like: 
+ 
+ cache collected data on client(s) and save it in bursts onto couchdb 
+ depending on the workload, keep a cluster of db (again, couchdb has been designed for that) in sync between each other 
+ every interval have a server generate a view of the things you need (i.e. every hour, etc) while the other(s) keep collecting data 
+ save such (now structured) views into a proper database for manipulation and playing with SQL tools, or whatever 
+ 
+ Last point is just an example. I have no idea what you plan to do with it.  
+ 

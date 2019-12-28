@@ -1,0 +1,59 @@
+*** in-sql-is-it-ok-for-two-tables-to-refer-to-each-other ***
+
+ In this system, we store products, images of products (there can be many image for a product), and a default image for a product. The database: 
+ 
+ as you can see,   and  , so a cycle reference. Is it OK? 
+ 
+ No, it's not OK. Circular references between tables are messy. See this (decade old) article:  SQL By Design: The Circular Reference 
+ Some DBMS can handle these, and with special care, but MySQL will have issues.  
+ 
+ The first choice is, as your design, to make one of the two FKs nullable. This allows you to solve the chicken-and-egg problem (which table should I first Insert into?). 
+ There is a problem though with your code. It will allow a product to have a default picture where that picture will be referencing another product! 
+ To disallow such an error, your FK constraint should be: 
+ 
+ This will require a   constraint/index in table   on   for the above FK to be defined and work properly. 
+ 
+ Another approach is to remove the   column form the   table and add an   column in the   table. The problem with this solution is how to allow only one picture per product to have that bit on and all others to have it off. In SQL-Server (and I think in Postgres) this can be done with a partial index: 
+ 
+ But MySQL has no such feature. 
+ 
+ A third approach, which allows you to even have both FK columns defined as   is to use deferrable constraints. This works in PostgreSQL and I think in Oracle. Check this question and the answer by @Erwin:  Complex foreign key constraint in SQLAlchemy  (the  **All key columns NOT NULL**
+ Part). 
+ Constraints in MySQL cannot be deferrable. 
+ 
+ A fourth approach (which I find cleanest) is to remove the   column and add another table. No circular path in the FK constraints and all FK columns will be   with this solution: 
+ 
+ This will also require a   constraint/index in table   on   as in solution 1. 
+ 
+ To summarize, with MySQL you have two options:  
+ 
+ option 1 (a nullable FK column) with the correction above to enforce integrity correctly 
+ option 4 (no nullable FK columns) 
+ 
+ 
+ this is just suggestion but if possible create one join table between this table might be helpfull to tracking  
+ 
+ 
+ The only issue you're going to encounter is when you do inserts.
+Which one do you insert first? 
+ With this, you will have to do something like: 
+ 
+ Insert product with null default picture  
+ Insert picture(s) with the newly created product ID 
+ Update the product to set the default picture to one that you just inserted. 
+ 
+ Again, deleting will not be fun. 
+ 
+ In the other table you can just hold that field without the foreign key constraint.
+it is useful in some cases where you want to process with the smaller table but connect to the bigger table with the result of the process. 
+ For example if you add a product_location table which holds the country, district, city, address and longitude and latitude information. There might be a case that you want to show the product within a circle on the map. 
+ 
+ John what your doing isnt anything bad but using PK-FK actually helps with normalizing your data by removing redundant repeating data. Which has some fantastic advantages from 
+ 
+ Improved data integrity owing to the elimination of duplicate storage locations for the same data 
+ Reduced locking contention and improved multiple-user concurrency 
+ Smaller files 
+ 
+ 
+ that is not a cyclic ref, that is pk-fk  
+ 

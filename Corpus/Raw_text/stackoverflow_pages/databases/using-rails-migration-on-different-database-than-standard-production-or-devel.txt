@@ -1,0 +1,113 @@
+*** using-rails-migration-on-different-database-than-standard-production-or-devel ***
+
+ I have a rails project running that defines the standard production:, :development and :test DB-connections in config/database.yml 
+ In addition I have a quiz_development: and quiz_production: definition pointing to a differnet host/db/user/password 
+ My goal now is to define a Migration that uses " }`" as its database configuration. 
+ What I have tried (and failed): 
+ 
+ Setting ActiveRecord::Base.connection in the Migration file 
+ Changing the db:migrate task in rails to set ActiveRecord::Base.connection there 
+ 
+ Question: 
+ How can I make rake db:migrate use that other database definition? 
+ Thanks,
+Frank 
+ 
+ A bit late, but I was dealing with this problem today and I came up with this custom rake task: 
+ 
+ 
+ There's a much easier answer.   Add this to your migration: 
+ 
+ That's for Rails 3.1.   For Rails 2.X or 3.0 it's a class function instead (eg  ) 
+ 
+ I got this to work with the following code. 
+ 
+ It was necessary to set the connection back to get it to write the migration to the schema_migrations table so rake would not try to re-run the migration the next time.  This assumes that you want the schema_migrations table in the default database configuration to keep track of the migrations checked into version control for the corresponding project. 
+ I was unable to get the down migration to work. 
+ 
+ You should define the other databases/environments in /config/environments. 
+ After that you can use the following command to migrate that specific environment. 
+ 
+ 
+ I recently struggled with the same problem. The goal was to split off a histories table to a different database since it was already so large and still growing very quickly. 
+ I started trying to resolve it by doing  , but could not get any variations of that way to work without the connection being closed. Then finally I discovered the solution below. 
+ In the History model after making this change: 
+ 
+ I was able to do this in the migration and it worked perfectly: 
+ 
+ This will create the table in a different database, yet modify the schema_migrations table in the original database so the migration does not run again. 
+ 
+ Hey I been digging into this for a few days and I ended up with this solution, just wanted to share it, it might help someone. 
+ Here the complete gist for it.  https://gist.github.com/rafaelchiti/5575309 
+It has details ans explanation. But find below more details if you need them. 
+ The approach is based on adding a namespace to the already known rake tasks db:migrate, db:create, db:drop and perform those tasks with a different database. And then in adding a base active record (AR) class for connecting based on the configuration of the new database.yml file. This way you don't need to hack around the migrations with connection stuff and you get a clean directory structure. 
+ Your structure will end up like this 
+ 
+ Then in your code you can create a base class and read the config from this new database.yml file and connect to it only on the models that inherit from that AR base class. (example in the gist). 
+ Best!. 
+ 
+ Following on from @Bryan Larsen, if you're using an abstract Class to attach a series of models to a different database, and would like to migrate schemas on them, then you can do this: 
+ 
+ with a model set up something like: 
+ 
+ and 
+ 
+ 
+ For Rails 3.2, this is what we did, works with migrating up and down: 
+ 
+ 
+ 
+ If you place this inside   you'll be able to do something like this:  
+ 
+ This will delete all widgets on the production db and make sure the connection to the current Rails env's db is re-established after that. 
+ If you just want to make it available in your migrations insead extend the   class. 
+ 
+ In rails 3.2, adding a connection method to your migration does NOT work. So all of the answers like 
+ 
+ simply won't work (can't  , doesn't work with  , connection lost, etc.) The reason for this is that the ActiveRecord::Migration and Migrator class have connections hard-coded to ActiveRecord::Base  all   over   the   place . 
+ Fortunately  this post  pointed me to  this ticket  which has a good solution, namely overriding the actual  rake task . 
+ I ended up using a slightly different rake task so that I could be specific about the migrations I run on the different database (we were trying to support multiple db versions): 
+ Here's my lib/task/database.rake 
+ 
+ This allows us to put migrations specific to one database in their own subdirectory (nine_four/migrations instead of db/migrations).  **It also gives each database total isolation in terms of their schema and migration versions.**
+ The only downside is having two rake tasks to run (db:migrate and nine_four:db:migrate). 
+ 
+ In addition to running a migration in a different environment, I also want the schemas in separate files.  You can do this from the command line: 
+ 
+ But I like the custom rake task approach so I can type this instead: 
+ 
+ Here's the rake task: 
+ 
+ 
+ I've found a great clean way to do this: 
+ 
+ 
+ 
+ And: 
+ 
+ You can call Artic.get_test_name in order to execute. 
+ 
+ You could use this version, which also supports  : 
+ 
+ 
+ Have you tried using quiz_development as a RAILS_ENV (instead of trying to get it to use  )? 
+ 
+ 
+ You can also move all your quiz_ related migrations into a separate subfolder in the db/ directory and then add rake tasks mirroring the regular migration functionality but that looks for the migrations in that subdirectory.  Not super-elegant perhaps but it works.  You can copy and paste the rake tasks already in rails and just modify them a bit. 
+ 
+ Based on @TheDeadSerious's answer: 
+ 
+ Usage: 
+ 
+ 
+ if you want to display the wordpress post to your rails website and 
+you don't want to use mult-magic connection gem. you can use the below code in order to get the data from wordpress blog. 
+ 
+ 
+ I got this working by creating separate connector classes for different databases and using them in the migrations. 
+ 
+ We can define these connector classes in initializers. 
+ 
+ ActiveRecord::Base keeps a connection pool that is a hash indexed by the class.  Read more here . So using separate classes for separate connections protects us from the closed connection error. 
+ Also, using   and   instead of   allows us to rollback the migration without any issue. Still haven't figured out the reason for this. 
+ 

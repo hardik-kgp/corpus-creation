@@ -1,0 +1,116 @@
+*** stored-procedures-db-schema-in-source-control ***
+
+ Do you guys keep track of stored procedures and database schema in your source control system of choice? 
+ When you make a change (add a table, update an stored proc, how do you get the changes into source control?   
+ We use SQL Server at work, and I've begun using darcs for versioning, but I'd be curious about general strategies as well as any handy tools. 
+ Edit:  Wow, thanks for all the great suggestions, guys!  I wish I could select more than one "Accepted Answer"! 
+ 
+ We choose to script everything, and that includes all stored procedures and schema changes. No wysiwyg tools, and no fancy 'sync' programs are necessary. 
+ Schema changes are easy, all you need to do is create and maintain a single file for that version, including all schema and data changes. This becomes your conversion script from version x to x+1. You can then run it against a production backup and integrate that into your 'daily build' to verify that it works without errors. Note it's important not to change or delete already written schema / data loading sql as you can end up breaking any sql written later. 
+ 
+ For stored procedures, we elect for a single file per sproc, and it uses the drop/create form. All stored procedures are recreated at deployment. The downside is that if a change was done outside source control, the change is lost. At the same time, that's true for any code, but your DBA'a need to be aware of this. This really stops people outside the team mucking with your stored procedures, as their changes are lost in an upgrade.  
+ Using Sql Server, the syntax looks like this: 
+ 
+ The only thing left to do is write a utility program that collates all the individual files and creates a new file with the entire set of updates (as a single script). Do this by first adding the schema changes then recursing the directory structure and including all the stored procedure files. 
+ As an upside to scripting everything, you'll become much better at reading and writing SQL. You can also make this entire process more elaborate, but this is the basic format of how to source-control all sql without any special software. 
+ addendum: Rick is correct that you will lose permissions on stored procedures with DROP/CREATE, so you may need to write another script will re-enable specific permissions. This permission script would be the last to run. Our experience found more issues with ALTER verses DROP/CREATE semantics. YMMV 
+ 
+ create a "Database project" in Visual Studio to write and manage your sQL code and keep the project under version control together with the rest of your solution. 
+ 
+ The solution we used at my last job was to number the scripts as they were added to source control: 
+ 01.CreateUserTable.sql 
+02.PopulateUserTable 
+03.AlterUserTable.sql 
+04.CreateOrderTable.sql 
+ The idea was that we always knew which order to run the scripts, and we could avoid having to manage data integrity issues that might arise if you tried modifying script #1 (which would presumable cause the INSERTs in #2 to fail). 
+ 
+ One thing to keep in mind with your drop/create scripts in SQL Server is that object-level permissions will be lost.  We changed our standard to use ALTER scripts instead, which maintains those permissions. 
+ There are a few other caveats, like the fact that dropping an object drops the dependency records used by sp_depends, and creating the object only creates the dependencies for that object.  So if you drop/create a view, sp_depends will no longer know of any objects referencing that view. 
+ Moral of the story, use ALTER scripts. 
+ 
+ I agree with (and upvote) Robert Paulson's practice. That is assuming you are in control of a development team with the responsibility and discipline to adhere to such a practice. 
+ To "force" that onto my teams, our solutions maintain at least one database project from  **Visual Studio Team Edition for Database Professionals**
+. As with other projects in the solution, the database project gets versioned control. It makes it a natural development process to break the everything in the database into maintainable chunks, "disciplining" my team along the way. 
+ Of course, being a Visual Studio project, it is no where near perfect. There are many quirks you will run into that may frustrate or confuse you. It takes a fair bit of understanding how the project works before getting it to accomplish your tasks. Examples include 
+ 
+ deploying data from CSV files . 
+ selective deployment of test data based on build type . 
+ Visual Studio crashing on comparing with databases with certain type of CLR assembly embedded within . 
+ no means of differntiation between test/production databases that implement different authentication schemes - SQL users vs Active Directory users. 
+ 
+ But for teams who don't have a practice of versioning their database objects, this is a good start. The other famous alternative is of course,  Red Gate's suite of SQL Server products , which most people who use them consider superior to Microsoft's offering. 
+ 
+ I think you should write a script which automatically sets up your database, including any stored procedures. This script should then be placed in source control. 
+ 
+ Couple different perspectives from my experience.  In the Oracle world, everything was managed by "create" DDL scripts.  As ahockley mentioned, one script for each object.  If the object needs to change, its DDL script is modified.  There's one wrapper script that invokes all the object scripts so that you can deploy the current DB build to whatever environment you want.  This is for the main core create.   
+ Obviously in a live application, whenever you push a new build that requires, say, a new column, you're not going to drop the table and create it new.  You're going to do an ALTER script and add the column.  So each time this kind of change needs to happen, there are always two things to do: 1) write the alter DDL and 2) update the core create DDL to reflect the change.  Both go into source control, but the single alter script is more of a momentary point in time change since it will only be used to apply a delta. 
+ You could also use a tool like ERWin to update the model and forward generate the DDL, but most DBAs I know don't trust a modeling tool to gen the script exactly the way they want.  You could also use ERWin to reverse engineer your core DDL script into a model periodically, but that's a lot of fuss to get it to look right (every blasted time you do it). 
+ In the Microsoft world, we employed a similar tactic, but we used the Red Gate product to help manage the scripts and deltas.  Still put the scripts in source control.  Still one script per object (table, sproc, whatever).  In the beginning, some of the DBAs really preferred using the SQL Server GUI to manage the objects rather than use scripts.  But that made it very difficult to manage the enterprise consistently as it grew. 
+ If the DDL is in source control, it's trivial to use any build tool (usually ant) to write a deployment script. 
+ 
+ I've found that by far, the easiest, fastest and safest way to do this is to just bite the bullet and use SQL Source Control from RedGate.  Scripted and stored in the repository in a matter of minutes.  I just wish that RedGate would look at the product as a loss leader so that it could get more widespread use. 
+ 
+ Similar to Robert Paulson, above, our organization keeps the database under source control. However, our difference is that we try to limit the number of scripts we have.  
+ For any new project, there's a set procedure. We have a schema creation script at version 1, a stored proc creation script and possibly an initial data load creation script. All procs are kept in a single, admittedly massive file. If we're using Enterprise Library, we include a copy of the creation script for logging; if it's an ASP.NET project using the ASP.NET application framework (authentication, personalization, etc.), we include that script as well. (We generated it from Microsoft's tools, then tweaked it until it worked in a replicable fashion across different sites. Not fun, but a valuable time investment.) 
+ We use the magic CTRL+F to find the proc we like. :) (We'd love it if SQL Management Studio had code navigation like VS does. Sigh!) 
+ For subsequent versions, we usually have upgradeSchema, upgradeProc and/or updateDate scripts. For schema updates, we ALTER tables as much as possible, creating new ones as needed. For proc updates, we DROP and CREATE. 
+ One wrinkle does pop up with this approach. It's easy to generate a database, and it's easy to get a new one up to speed on the current DB version. However, care has to be taken with DAL generation (which we currently -- usually -- do with SubSonic), to ensure that DB/schema/proc changes are synchronized cleanly with the code used to access them. However, in our build paths is a batch file which generates the SubSonic DAL, so it's our SOP to checkout the DAL code, re-run that batch file, then check it all back in anytime the schema and/or procs change. (This, of course, triggers a source build, updating shared dependencies to the appropriate DLLs ... ) 
+ 
+ In past experiences, I've kept database changes source controlled in such a way that for each release of the product any database changes were always scripted out and stored in the release that we're working on.  The build process in place would automatically bring the database up to the current version based on a table in the database that stored the current version for each "application".  A custom .net utility application we wrote would then run and determine the current version of the database, and run any new scripts against it in order of the prefix numbers of the scripts.  Then we'd run unit tests to make sure everything was all good. 
+ We'd store the scripts in source control as follows (folder structure below): 
+ I'm a little rusty on current naming conventions on tables and stored procedures so bare with my example... 
+ [root] 
+    [application] 
+        [version] 
+            [script]   
+ \scripts 
+    MyApplication\ 
+        1.2.1\ 
+            001.MyTable.Create.sql 
+            002.MyOtherTable.Create.sql 
+            100.dbo.usp.MyTable.GetAllNewStuff.sql   
+ With the use of a Versions table that would take into account the Application and Version the application would restore the weekly production backup, and run all the scripts needed against the database since the current version.  By using .net we were easily able to package this into a transaction and if anything failed we would rollback, and send emails out, so we knew that release had bad scripts. 
+ So, all developers would make sure to maintain this in source control so the coordinated release would make sure that all the scripts we plan to run against the database would run successfully. 
+ This is probably more information than you were looking for, but it worked very well for us and given the structure it was easy to get all developers on board. 
+ When release day came around the operations team would follow the release notes and pick up the scripts from source control and run the package against the database with the .net application we used during the nightly build process which would automatically package the scripts in transactions so if something failed it would automatically roll back and no impact to the database was made. 
+ 
+ Stored procedures get 1 file per sp with the standard if exist drop/create statements at the top. Views and functions also get their own files so they are easier to version and reuse. 
+ Schema is all 1 script to begin with then we'll do version changes. 
+ All of this is stored in a visual studio database project connected to TFS (@ work or VisualSVN Server @ home for personal stuff) with a folder structure as follows: 
+- project 
+-- functions 
+-- schema 
+-- stored procedures 
+-- views 
+ 
+ At my company, we tend to store all database items in source control as individual scripts  just as you would for individual code files.  Any updates are first made in the database and then migrated into the source code repository so a history of changes is maintained. 
+As a second step, all database changes are migrated to an integration database.  This integration database represents exactly what the production database should look like post deployment.  We also have a QA database which represents the current state of production (or the last deployment).  Once all changes are made in the Integration database, we use a schema diff tool (Red Gate's SQL Diff for SQL Server) to generate a script that will migrate all changes from one database to the other. 
+We have found this to be fairly effective as it generates a single script that we can integrate with our installers easily.  The biggest issue we often have is developers forgetting to migrate their changes into integration. 
+ 
+ We keep stored procedures in source control.  
+ 
+ Script everything (object creation, etc) and store those scripts in source control.  How do the changes get there?  It's part of the standard practice of how things are done.  Need to add a table?  Write a CREATE TABLE script.  Update a sproc?  Edit the stored procedure script. 
+ I prefer one script per object. 
+ 
+ For procs, write the procs with script wrappers into plain files, and apply the changes from those files.  If it applied correctly, then you can check in that file, and you'll be able to reproduce it from that file as well. 
+ For schema changes, you may need to check in scripts to incrementally make the changes you've made.  Write the script, apply it, and then check it in.  You can build a process then, to automatically apply each schema script in series. 
+ 
+ We do keep stored procedures in source control. The way we (or at least I) do it is add a folder to my project, add a file for each SP and manually copy, paste the code into it. So when I change the SP, I manually need to change the file the source control. 
+ I'd be interested to hear if people can do this automatically. 
+ 
+ I highly recommend maintaining schema and stored procedures in source control.   
+ Keeping stored procedures versioned allows them to be rolled back when determined to be problematic.   
+ Schema is a less obvious answer depending on what you mean.  It is very useful to maintain the SQL that defines your tables in source control, for duplicating environments (prod/dev/user etc.).   
+ 
+ We have been using an alternative approach in my current project - we haven't got the db under source control but instead have been using a database diff tool to script out the changes when we get to each release. 
+It has been working very well so far. 
+ 
+ We store everything related to an application in our SCM.  The DB scripts are generally stored in their own project, but are treated just like any other code... design, implement, test, commit. 
+ 
+ I run a job to script it out to a formal directory structure. 
+ The following is VS2005 code, command line project, called from a batch file, that does the work.  app.config keys at end of code. 
+ It is based on other code I found online.  Slightly a pain to set up, but works well once you get it working. 
+ 
+ 
+ If you're looking for an easy, ready-made solution, our  Sql Historian  system uses a background process to automatically synchronizes DDL changes to TFS or SVN, transparent to anyone making changes on the database.  In my experience, the big problem is maintaining the code in source control with what was changed on your server--and that's because usually you have to rely on people (developers, even!) to change their workflow and remember to check in their changes after they've already made it on the server. Putting that burden on a machine makes everyone's life easier.  
+ 

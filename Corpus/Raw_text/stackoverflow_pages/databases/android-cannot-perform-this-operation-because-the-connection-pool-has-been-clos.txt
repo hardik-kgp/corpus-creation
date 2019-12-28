@@ -1,0 +1,62 @@
+*** android-cannot-perform-this-operation-because-the-connection-pool-has-been-clos ***
+
+ I was reading through stackoverflow about this question and I still haven't found a solution. I notice that sometimes, my app throws this error: 
+ 
+ I have a file called DatabaseHelper.java using this approach to get an instance of it: 
+ 
+ Then I have methods like this one (that it crashed in the line cursor.moveToFirst() with that error). It almost never crashes but sometimes it does. 
+ 
+ So that's it, in all the methods I use:  
+ 
+ And then I close the cursor and the db. In this case, the error got throw in the line: 
+ 
+ I do not see why the error says the db is closed if I am calling this.getReadableDatabase() before. Please support! Thank you :) 
+ 
+ Remove 
+ 
+ If you try another operation after closing the database, it will give you that exception. 
+ The  documentation  says: 
+ 
+ Releases a reference to the object,  **closing the object...**
+
+ 
+ Also, check out
+ Android Sq Lite closed exception  about a comment from an Android Framework engineer which states that it is not neccesary to close the database connection. 
+ 
+ I currently have the same problem. While removing the db.close() solve the issue for me, I think the issue is caused by multi-threading. Here are my research. 
+ SQLiteOpenHelper holds a reference to SQLiteDatabase, when getReadableDatabase() or getWritableDatabase() called, it will return the reference, if the SQLiteDatabase is  **closed**
+ or null, a new SQLiteDatabase object will be created. Note that inside the get method, codes are guarded in a synchronized block. 
+ SQLiteDatabase is a subclass of SQLiteClosable. SQLiteClosable implements a reference counting scheme.  
+ 
+ When first created, the count is 1.  
+ When the database operation methods run (like insert, query), it will increase the count, and decrease the count when methods end. But the cursor operations are NOT protected by reference counting. 
+ If the count decreases to 0, connection pool will be closed and a member SQLiteConnectionPool object will be set to null, and now the SQLiteDatabase is  **closed**
+;  
+ SQLiteDatabase.close() will decrease the count by 1; 
+ 
+ So, if you have a single-threaded scheme, closing the SQLiteDatabase will be fine because SQLiteOpenHelper will just re-recreate it. 
+ If you do multi-threading, then you will run into trouble. Say thread A and thread B both call getReadableDatabase(), and SQLiteOpenHelper returns the SQLiteDatabase it holds, and then thread A first finished its operation and call SQLiteDatabase.close(), now the SQLiteDatabase object thread B has is  **closed**
+ so any subsequent db operation calls or cursor method calls will throw the exception.   
+ 
+ I am having the same problem, have not been able to fix it. I have found a possible clue:
+I have a sync thread that is running all the time: 
+ 
+ And inside DBHelper 
+ 
+ The error also shows up in the moveToFirst() method call. As the thread is poping items out in an infinite loop, the first time it works ok, the second time the error appears. The interesting part is that if I put a breakpoint and step through the code, the error does not show any more. I am testing on a real device using Android 4.1. 
+ I know, is not an answer, but it may help. I'll keep on testing. 
+ 
+ 
+ 
+ This is a simple error in Android architecture initialisation of room database with getApplicationContext(), this means that your application has one instance of the database reference, no matter how many activities create an instance of it, therefore if you close it in any activity the others will throw that exception. 
+ Essentially don't just check the activity throwing the exception but every activity for db.close() 
+ 
+ Maybe you close the database before access to database from your app. 
+ You have to edit getProfile() to 
+ 
+ 
+ I have  a  error  like  yours  ,here   my  code: 
+ 
+ I  use  return  before  db.beginTransaction(),my  code  return  before beginTransaction,but  I  endTransaction in  finally . if  you do not beginTransaction  and    endTransaction ,the exception  will appear. 
+ so check  your code  about  the db.beginTransaction and  endTransaction. 
+ 

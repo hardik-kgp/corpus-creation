@@ -1,0 +1,67 @@
+*** what-pagination-schemes-can-handle-rapidly-changing-content-lists ***
+
+ Pagination is hard when your content rankings can change quickly, and even harder when those rankings differ per-user. (Let's treat infinite scroll as a type of pagination where the links are invisible.)  There are two hard problems: newly-added content at the top, and reranked content.  
+ Let's forget about newly-added content, and accept that you'll have to refresh page 1 to see it. Let's also pretend we're doing pure  ; if you're ordering by something else, you might have to use window functions.  Our pages have 4 rows of animals per page. They start out: 
+ 
+ After we fetch page 1, and before we fetch page 2, a lot of items move around. The DB is now: 
+ 
+ There are three common approaches: 
+ **Offset/limit approach**
+
+ This is the typical naive approach; in Rails, it's how  will_paginate  and  Kaminari  work.  If I want to fetch page 2, I'll do 
+ 
+ which gets rows 5-8. I'll never see Elephants, and I'll see Cows twice. 
+ **Last seen ID approach**
+
+ Reddit takes a different approach. Instead of calculating the first row based on page size, the client tracks the ID of the last item you've seen, like a bookmark.  When you hit "next", they start looking from that bookmark onward: 
+ 
+ In some cases, this works better than page/offset. But in our case, Dogs, the last-seen post, zoomed right to #1.  So the client sends up  , and my page 2 is Bats, Alpacas, Elephants and Foxes. I haven't missed any animals, but I saw Bats and Alpacas twice. 
+ **Server side state**
+
+ HackerNews (and our site, right now) solves this with server-side continuations; they store the  entire  result set for you (or at least several pages in advance?), and the "More" link references that continuation. When I fetch page 2, I ask for "page 2 of my original query". It uses the same offset/limit calculation, but since it's against the original query, I simply don't care that things have now moved around.  I see Elephants, Foxes, Giraffes, and Horses.  No dups, no missed items. 
+ The downside is that we have to store a lot of state on the server. On HN, that's stored in RAM, and in reality those continuations often expire before you can press the "More" button, forcing you to go all the way back to page 1 to find a valid link. In most applications, you can store that in memcached, or even in the database itself (using your own table, or in Oracle or PostgreSQL, using holdable cursors). Depending on your application, there might be a performance hit; in PostgreSQL, at least, you have to find a way to hit the right database connection again, which requires a lot of sticky-state or some clever back-end routing. 
+ Are these the only three possible approaches? If not, are there computer-science concepts that would give me Google juice to read about this? Are there ways to approximate the continuation approach without storing the entire result set? Long term, there's complex event-streaming/point-in-time systems, where "the result set as of the moment I fetched page 1" is forever derivable. Short of that... ? 
+ 
+ Oracle handles this nicely.  As long as a cursor is open, you can fetch as many times as necessary and your results will always reflect the point in time at which the cursor was opened.  It uses data from the undo logs to virtually rollback changes that were committed after the cursor was opened.   
+ It will work as long as the required rollback data is still available.  Eventually the logs get recycled and the rollback data is no longer available, so there is some limit, depending on the log space, system activity, etc. 
+ Unfortunately (IMO), I don't know of any other DB that works like this.  The other databases I've worked with use locks to ensure read-consistency, which is problematic if you want read consistency over more than very short duration. 
+ 
+ **Solution 1: "**
+**the hacky solution**
+**"**
+
+ A solution could consist in your client keeping track of the already seen content, a list of IDs for example. Each time you need another page, you add this ID list to the parameters of your server call. Your server can then order the content, remove already seen content and apply the offset to get the right page. 
+ I would not recommend it though and I insist on  **hacky**
+. I just write it down here because it's quick and could fit with some needs. here are the bad things I can think of: 
+ 1) It needs some work on client side to get it right (what does "already seen" means in my sentence above, what if I go to a previous page?) 
+ 2) The resulting order doesn't reflect your true ordering policy. A content could be displayed in page 2 although the policy should have put it on page 1. It could lead to a user misunderstanding. Let's take the example of stack overflow with its former ordering policy, that means most upvoted answers first. We could have a question with 6 upvotes being in page 2 while a question with 4 upvotes would be in page 1. This happen when the 2 or more upvotes occurred while user was still on page 1. --> can be surprising for the user. 
+ **Solution 2**
+:  " **the client solution"**
+
+ It's basically the client-side equivalent solution to the one you call "server-side state". It's then useful only if keeping track of the full order on server side is not convenient enough. It works if the items list is not infinite. 
+ 
+ Call your server to get the full (finite) order list + the number of items/page 
+ Save it on client side 
+ Retrieve items directly through the ids of your content. 
+ 
+ 
+ We're going with the server-side state approach for now, caching the entire result on the first query so we always return a consistent list.  This will work as long as our query already returns all rows; eventually we'll need to use a nearest-neighbor approach and that wont work. 
+ But I think there's a fourth possibility, which scales very well, as long as: 
+ 
+ You don't need a  guarantee  of no duplicates, only a high likelihood 
+ You're okay with  missing  some content during scrolls, as long as you avoid duplicates 
+ 
+ The solution is a variant of the "last seen ID" solution: Have the client keep not one, but 5 or 10 or 20 bookmarks - few enough that you can store them efficiently.  The query ends up looking like:
+ 
+ 
+ As the number of bookmarks grows, the odds rapidly diminish that you are (a) starting at some point past all n bookmarks but (b) seeing duplicate content anyway because they were all reranked. 
+ If there are holes, or better answers in the future, I'll happily unaccept this answer. 
+ 
+ Very late to the party but here's something we experimented with. We are using continuous loading, not pages that the user would go back and forth between. 
+ The client builds a list of all the IDs it has displayed, so after the first set it might be:
+4,7,19,2,1,72,3 
+ When we load more content we do the same query with the same sort but add this to it:
+WHERE id NOT IN (4,7,19,2,1,72,3) 
+ The NOT IN list can grow rather quickly. For us this isn't an issue as our internal tool doesn't typically have tons of results. 
+ I want to add another idea. Maybe a server side addition could be applied to this. When the user searches add all the IDs they got to a table with a link to their search. When the client wants more it only has to provide the search ID (or use server side state) and the query can join in with their search data. 
+ 

@@ -1,0 +1,96 @@
+*** what-is-the-recommended-way-to-delete-a-large-number-of-items-from-dynamodb ***
+
+ I'm writing a simple logging service in DynamoDB. 
+ I have a logs table that is keyed by a user_id hash and a timestamp (Unix epoch int) range. 
+ When a user of the service terminates their account, I need to delete all items in the table, regardless of the range value. 
+ What is the recommended way of doing this sort of operation (Keeping in mind there could be millions of items to delete)? 
+ My options, as far as I can see are: 
+ A: Perform a Scan operation, calling delete on each returned item, until no items are left 
+ B: Perform a BatchGet operation, again calling delete on each item until none are left 
+ Both of these look terrible to me as they will take a long time. 
+ What I ideally want to do is call LogTable.DeleteItem(user_id) - Without supplying the range, and have it delete everything for me. 
+ 
+ 
+ What I ideally want to do is call LogTable.DeleteItem(user_id) -
+  Without supplying the range, and have it delete everything for me. 
+ 
+ An understandable request indeed; I can imagine advanced operations like these might get added over time by the AWS team (they have a history of starting with a limited feature set first and evaluate extensions based on customer feedback), but here is what you should do to avoid the cost of a full scan at least: 
+ 
+ Use  Query  rather than  Scan  to retrieve all items for   - this works regardless of the combined hash/range primary key in use, because  HashKeyValue  and  RangeKeyCondition  are separate parameters in this API and the former only targets the  Attribute value of the hash component of the composite primary key. . 
+ 
+ Please note that you''ll have to deal with the query API paging here as usual, see the  ExclusiveStartKey  parameter:
+
+ 
+ Primary key of the item from which to continue an earlier query. An
+  earlier query might provide this value as the LastEvaluatedKey if that
+  query operation was interrupted before completing the query; either
+  because of the result set size or the Limit parameter. The
+  LastEvaluatedKey can be passed back in a new query request to continue
+  the operation from that point. 
+ 
+ 
+ Loop over all returned items and either facilitate  DeleteItem  as usual 
+ 
+ **Update**
+: Most likely  BatchWriteItem  is more appropriate for a use case like this (see below for details). 
+ 
+ 
+ 
+ **Update**
+
+ As highlighted by  ivant , the  BatchWriteItem  operation  enables you to put  **or delete**
+ several items across multiple tables in a single API call [emphasis mine] : 
+ 
+ To upload one item, you can use the PutItem API and to delete one
+  item, you can use the DeleteItem API. However, when you want to upload
+  or delete large amounts of data, such as uploading large amounts of
+  data from Amazon Elastic MapReduce (EMR) or migrate data from another
+  database in to Amazon DynamoDB, this API offers an efficient
+  alternative. 
+ 
+ Please note that this still has some relevant limitations, most notably: 
+ 
+ **Maximum operations in a single request**
+ — You can specify a total of up to 25 put or delete operations; however, the total request size cannot exceed 1 MB (the HTTP payload). 
+ **Not an atomic operation**
+ — Individual operations specified in a BatchWriteItem are atomic; however BatchWriteItem as a whole is a "best-effort" operation and not an atomic operation. That is, in a BatchWriteItem request, some operations might succeed and others might fail. [...] 
+ 
+ Nevertheless this obviously offers a potentially significant gain for use cases like the one at hand. 
+ 
+ According to the DynamoDB documentation you could just delete the full table. 
+ See below: 
+ "Deleting an entire table is significantly more efficient than removing items one-by-one, which essentially doubles the write throughput as you do as many delete operations as put operations" 
+ If you wish to delete only a subset of your data, then you could make separate tables for each month, year or similar. This way you could remove "last month" and keep the rest of your data intact. 
+ This is how you delete a table in Java using the AWS SDK: 
+ 
+ 
+ If you want to delete items after some time, e.g. after a month, just use Time To Live option. It will  **not**
+ count write units. 
+ In your case, I would add ttl when logs expire and leave those after a user is deleted. TTL would make sure logs are removed eventually. 
+ 
+ When Time To Live is enabled on a table, a background job checks the
+  TTL attribute of items to see if they are expired. 
+ DynamoDB typically deletes expired items within 48 hours of
+  expiration. The exact duration within which an item truly gets deleted
+  after expiration is specific to the nature of the workload and the
+  size of the table. Items that have expired and not been deleted will
+  still show up in reads, queries, and scans. These items can still be
+  updated and successful updates to change or remove the expiration
+  attribute will be honored. 
+ 
+ https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/TTL.html 
+ https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/howitworks-ttl.html 
+ 
+ The answer of this question depends on the number of items and their size  and your budget. Depends on that we have following 3 cases: 
+ 1- The number of items and size of items in the table are not very much. then as Steffen Opel said you can Use Query rather than Scan to retrieve all items for user_id and then loop over all returned items and either facilitate   or  . But keep in mind you may burn a lot of throughput capacity here. For example, consider a situation where you need delete 1000 items from a DynamoDB table. Assume that each item is 1 KB in size, resulting in Around 1MB of data. This bulk-deleting task will require a total of 2000 write capacity units for query and delete. To perform this data load within 10 seconds (which is not even considered as fast in some applications), you would need to set the provisioned write throughput of the table to 200 write capacity units. As you can see its doable to use this way if its for less number of items or small size items. 
+ 2- We have a lot of items or very large items in the table and we can store them according to the time into different tables. Then as 
+jonathan Said you can just delete the table. this is much better but I don't think it is matched with your case. As you want to delete all of users data no matter what is the time of creation of logs, so in this case you can't delete a particular table. if you wanna have a separate table for each user then I guess if number of users are high then its so expensive and it is not practical for your case. 
+ 3- If you have a lot of data and you can't divide your hot and cold data into different tables and you need to do large scale delete frequently then unfortunately DynamoDB is not a good option for you at all. It may become more expensive or very slow(depends on your budget). In these cases I recommend to find another database for your data. 
+ 
+ We don't have option to truncate dynamo tables. we have to drop the table and create again . DynamoDB Charges is based on ReadCapacityUnits & WriteCapacityUnits . If we delete all items using BatchWriteItem function, it will use WriteCapacityUnits.So better to delete specific records or delete the table and start again . 
+ 
+ My approach to delete all rows from a table i DynamoDb is just to pull all rows out from the table, using DynamoDbs ScanAsync and then feed the result list to DynamoDbs AddDeleteItems. 
+Below code in C# works fine for me. 
+ 
+ Note: Deleting the table and then recreating it again from the web console may cause problems if using YAML/CloudFront to create the table.  
+ 

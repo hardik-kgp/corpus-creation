@@ -1,0 +1,102 @@
+*** can-i-have-multiple-primary-keys-in-a-single-table ***
+
+ Can I have multiple primary keys in a single table? 
+ 
+ A Table can have a  **Composite Primary Key**
+ which is a primary key made from two or more columns. For example: 
+ 
+ **Update:**
+  Here is a link  with a more detailed description of composite primary keys. 
+ 
+ You can only have one primary key, but you can have multiple columns in your primary key. 
+ You can also have Unique Indexes on your table, which will work a bit like a primary key in that they will enforce unique values, and will speed up querying of those values. 
+ 
+ A table can have multiple candidate keys.  Each candidate key is a column or set of columns that are UNIQUE, taken together, and also NOT NULL.  Thus, specifying values for all the columns of any candidate key is enough to determine that there is one row that meets the criteria, or no rows at all. 
+ Candidate keys are a fundamental concept in the relational data model. 
+ It's common practice, if multiple keys are present in one table, to designate one of the candidate keys as the primary key.  It's also common practice to cause any foreign keys to the table to reference the primary key, rather than any other candidate key.   
+ I recommend these practices, but there is nothing in the relational model that requires selecting a primary key among the candidate keys. 
+ 
+ This is the answer for both the main question and for @Kalmi's question of  
+ 
+ What would be the point of having multiple auto-generating columns? 
+ 
+ This code below has a composite primary key. One of its columns is auto-incremented. This will work only in MyISAM. InnoDB will generate an error " ERROR 1075 (42000): Incorrect table definition; there can be only one auto column and it must be defined as a key ". 
+ 
+ 
+ As noted by the others it is possible to have multi-column primary keys. 
+It should be noted however that if you have some  functional dependencies  that are not introduced by a key, you should consider  normalizing  your relation. 
+ Example: 
+ 
+ There can be a functional dependency between  
+But often a   is associated with a   and thus there is an internal functional dependecy between  . 
+ Thus one may consider splitting it into another table: 
+ 
+ So that it is consistent with the  third normal form . 
+ 
+ Primary Key is very unfortunate notation, because of the connotation of "Primary" and the subconscious association in consequence with the Logical Model. I thus avoid using it. Instead I refer to the Surrogate Key of the Physical Model and the Natural Key(s) of the Logical Model.  
+ It is important that the Logical Model for every Entity have at least one set of "business attributes" which comprise a Key for the entity. Boyce, Codd, Date et al refer to these in the Relational Model as Candidate Keys. When we then build tables for these Entities their Candidate Keys become Natural Keys in those tables. It is only through those Natural Keys that users are able to uniquely identify rows in the tables; as surrogate keys should always be hidden from users. This is because Surrogate Keys have no business meaning. 
+ However the Physical Model for our tables will in many instances be inefficient without a Surrogate Key. Recall that non-covered columns for a non-clustered index can only be found (in general) through a Key Lookup into the clustered index (ignore tables implemented as heaps for a moment). When our available Natural Key(s) are wide this (1) widens the width of our non-clustered leaf nodes, increasing storage requirements and read accesses for seeks and scans of that non-clustered index; and (2) reduces fan-out from our clustered index increasing index height and index size, again increasing reads and storage requirements for our clustered indexes; and (3) increases cache requirements for our clustered indexes. chasing other indexes and data out of cache. 
+ This is where a small Surrogate Key, designated to the RDBMS as "the Primary Key" proves beneficial. When set as the clustering key, so as to be used for key lookups into the clustered index from non-clustered indexes and foreign key lookups from related tables, all these disadvantages disappear. Our clustered index fan-outs increase again to reduce clustered index height and size, reduce cache load for our clustered indexes, decrease reads when accessing data through any mechanism (whether index scan, index seek, non-clustered key lookup or foreign key lookup) and decrease storage requirements for both clustered and nonclustered indexes of our tables. 
+ Note that these benefits only occur when the surrogate key is both small and the clustering key. If a GUID is used as the clustering key the situation will often be worse than if the smallest available Natural Key had been used. If the table is organized as a heap then the 8-byte (heap) RowID will be used for key lookups, which is better than a 16-byte GUID but less performant than a 4-byte integer.  
+ If a GUID must be used due to business constraints than the search for a better clustering key is worthwhile. If for example a small site identifier and 4-byte "site-sequence-number" is feasible then that design might give better performance than a GUID as Surrogate Key.  
+ If the consequences of a heap (hash join perhaps) make that the preferred storage then the costs of a wider clustering key need to be balanced into the trade-off analysis. 
+ Consider this example:: 
+ 
+ where the tuple " (P_Id,LastName) " requires a uniqueness constraint, and may be a lengthy Unicode LastName plus a 4-byte integer, it would be desirable to (1) declaratively enforce this constraint as " ADD CONSTRAINT pk_PersonID UNIQUE NONCLUSTERED (P_Id,LastName) " and (2) separately declare a small Surrogate Key to be the " Primary Key " of a clustered index. It is worth noting that Anita possibly only wishes to add the LastName to this constraint in order to make that a covered field, which is unnecessary in a clustered index because ALL fields are covered by it. 
+ The ability in SQL Server to designate a Primary Key as nonclustered is an unfortunate historical circumstance, due to a conflation of the meaning "preferred natural or candidate key" (from the Logical Model) with the meaning "lookup key in storage" from the Physical Model. My understanding is that originally SYBASE SQL Server always used a 4-byte RowID, whether into a heap or a clustered index, as the "lookup key in storage" from the Physical Model. 
+ 
+ (Have been studying these, a lot) 
+ There can only be 1 Primary key. 
+But you can have multiple Alternate keys. 
+ In simple this is the case: 
+ 
+ There  can  be multiple  **Candidate keys**
+ (minimal columns, to uniquely identify row) in a table. 
+ 
+ One of the candidate key is  chosen  specifically and is called  **Primary Key**
+
+ All  other  candidate keys is called  **Alternate keys**
+
+ 
+ Both Primary Key & Alternate keys can be  **Compound key**
+s (2 or more columns) 
+ 
+ 
+ 
+ Sources: 
+ https://en.wikipedia.org/wiki/Superkey 
+ https://en.wikipedia.org/wiki/Candidate_key 
+ https://en.wikipedia.org/wiki/Primary_key 
+ https://en.wikipedia.org/wiki/Compound_key   
+ 
+ Some people use the term "primary key" to mean exactly an integer column that gets its values generated by some automatic mechanism.  For example   in MySQL or   in Microsoft SQL Server.  Are you using primary key in this sense? 
+ If so, the answer depends on the brand of database you're using.  In MySQL, you can't do this, you get an error: 
+ 
+ In some other brands of database, you are able to define more than one auto-generating column in a table. 
+ 
+ A primary key is the key that uniquely identifies a record and is used in all indexes. This is why you can't have more than one. It is also generally the key that is used in joining to child tables but this is not a requirement. The real purpose of a PK is to make sure that something allows you to uniquely identify a record so that data changes affect the correct record and so that indexes can be created. 
+ However, you can put multiple fields in one primary key (a composite PK). This will make your joins slower (espcially if they are larger string type fields) and your indexes larger but it may remove the need to do joins in some of the child tables, so as far as performance and design, take it on a case by case basis. When you do this, each field itself is not unique, but the combination of them is. If one or more of the fields in a composite key should also be unique, then you need a unique index on it. It is likely though that if one field is unique, this is a better candidate for the PK. 
+ Now at times, you have more than one candidate for the PK. In this case you choose one as the PK or use a surrogate key (I personally prefer surrogate keys for this instance). And (this is critical!) you add unique indexes to each of the candidate keys that were not chosen as the PK. If the data needs to be unique, it needs a unique index whether it is the PK or not. This is a data integrity issue. (Note this is also true anytime you use a surrogate key; people get into trouble with surrogate keys because they forget to create unique indexes on the candidate keys.) 
+ There are occasionally times when you want more than one surrogate key (which are usually the PK if you have them). In this case what you want isn't more PK's, it is more fields with autogenerated keys. Most DBs don't allow this, but there are ways of getting around it.  First consider if the second field could be calculated based on the first autogenerated key (Field1 * -1 for instance) or perhaps the need for a second autogenerated key really means you should create a related table. Related tables can be in a one-to-one relationship. You would enforce that by adding the PK from the parent table to the child table and then adding the new autogenerated field to the table and then whatever fields are appropriate for this table. Then choose one of the two keys as the PK and put a unique index on the other (the autogenerated field does not have to be a PK). And make sure to add the FK to the field that is in the parent table. In general if you have no additional fields for the child table, you need to examine why you think you need two autogenerated fields.  
+ 
+ Having two primary keys at the same time, is not possible. But (assuming that you have not messed the case up with composite key), may be what you might need is to make one attribute unique. 
+ 
+ However note that in relational database a 'super key' is a subset of attributes which uniquely identify a tuple or row in a table. A 'key' is a 'super key' that has an additional property that removing any attribute from the key, makes that key no more a 'super key'(or simply a 'key' is a minimal super key). If there are more keys, all of them are candidate keys. We select one of the candidate keys as a primary key. That's why talking about multiple primary keys for a one relation or table is being a conflict.    
+ 
+ Good technical answers were given in better way than I can do.
+I am only can add to this topic: 
+ If you want something that not allowed/acceptable it is good reason to take step back. 
+ 
+ Understand the core of why it's not acceptable. 
+ Dig more in documentation/journal articles/web and etc. 
+ Analyze/review current design and point major flaws. 
+ Consider and test every step during new design. 
+ Always look forward and try to create adaptive solution. 
+ 
+ Hope it will helps someone. 
+ 
+ Yes, Its possible in SQL,
+but we can't set more than one primary keys in MsAccess.
+Then, I don't know about the other databases. 
+ 
+ 

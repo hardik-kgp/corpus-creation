@@ -1,0 +1,111 @@
+*** is-it-worth-breaking-out-address-information-into-a-separate-database-table ***
+
+ I have a table called "Person" with the following fields 
+ 
+ Id (Primary Key) 
+ FirstName 
+ LastName 
+ DateOfBirth 
+ City 
+ State 
+ Country 
+ 
+ Should things like City, or State or Country be normalized and broken up into their own table and then this table have CityId and StateId columns.  We were having a debate whether this was a good or bad decision. 
+ To add, I do have a City and a State table (for other reasons not related to this person table).  I am curious around answers with or without this additional fact. 
+ 
+ Normalizing address into a hierarchy is a questionable proposition.  It really depends on what you mean to do with your address data.  
+ The idea of normalizing to avoid update anomalies is a little dubious.  How often do cities, states or countries actually change names?  Furthermore, if this were to happen, how likely would it be that the change would be wholesale?  (i.e. every instance of old name X changes to new name Y).  I can tell you what happened in practice in Canada when there was a flurry of municipal amalgamations in the 2000's was that boundaries were redrawn, and that lots of old names stuck around, just with smaller territories than before.   
+ The fact is that things like municipality names can be loosely defined.  For example, where I grew up, my address had three officially recognized municipality names according to the postal authority: WILLOWDALE, NORTH YORK, TORONTO - all of which were valid options, although one was "more official" than the others.  The problem is that all of Willowdale is in North York, but North York also contains "Downsview" and others.   
+ Other frequent arguments for normalizing addresses include: ensure proper spelling and providing a basis for territory management.  Given the vagaries of address data quality, these arguments are not convincing.   
+ **The best way to ensure address data quality is to keep your addresses in a relatively flat, relatively simple structure and to employ one or more address quality tools that use postal authority data to match and standardize your addresses.**
+  Keep city, state and postal code in their own fields, by all means, but don't keep them in distinct tables.  This is actually more flexible than a normalized structure while producing more reliable results overall. 
+ Similarly, territory management is best done at a more granular level than municipality.  Some municipalities are enormous and names can be ambiguous.  Instead use a postal code or ZIP+4 (depending on jurisdiction).  This is much more granular and unambiguous.  Again, an address data quality tool will ensure that you have proper postal coding on your addresses. 
+ 
+ From my experience, yes.  
+ 1 The city, state and country are entities in the real world so it is good to have them as entities in your database model. It keeps the names consistent as the other answerers have already mentioned 
+ 2 You may populate them and validate them from external open sources or standards bodies. Eg for countries it is international standard ISO3166 
+ 3 In your present or future versions of your app, you may even connect directly to external sources to maintain them. 
+ 4 If you ever go multi-lingual you will already have the names to translate all in one place 
+ 5 If you ever exchange or interface data with other parties or apps, you will need the common classifications  
+ 
+ Before I get started, I want to point out that {city, state, country} isn't an address. 
+ 
+ Should things like City, or State or Country be normalized and broken
+  up into their own table and then this table have CityId and StateId
+  columns. We were having a debate whether this was a good or bad
+  decision. 
+ 
+ Normalization is good. I'm almost always advocating for normalization.   
+ But using ID numbers instead of text has  nothing  to do with normalization. Substituting "CityId" for "City" and "StateId" for "State" has no effect on the normal form of the table. If it were in 3NF before that change, it will still be in 3NF after that change.  
+ You can increase  data integrity  with a foreign key reference. Data integrity is also good. But this, like many other database design decisions, doesn't have anything to do with normalization. 
+ The simplest way to increase data integrity for cities would be to select distinct cities into a new table. (PostgreSQL syntax.) 
+ 
+ You need city, state, and country to represent the "full name" of a city.  You also need a key. 
+ 
+ Now you can declare a foreign key constraint to guarantee that {city, state, country} will always reference one single row in that new table. 
+ 
+ I wouldn't worry about the performance of cascading updates for this kind of table. (Unless I were using Oracle; Oracle doesn't support cascading updates.) These kinds of names change rarely, and I know PostgreSQL can cascade updates to 3 million rows in a table of 50 million rows in less than 3 seconds on my desktop. My desktop isn't anything special, and it's running 3 database management systems and two web servers.  If I had bigger tables and needed more time, I'd schedule the change during a maintenance window. 
+ You can increase data integrity for states in the same way. 
+ 
+ Having said all that, adding a surrogate key to the new_table is a defensible design decision, but only if you spend some time thinking about it. (Not thinking is never defensible.)  
+ The most immediate effect of replacing {city, state, country} with a surrogate key is that you now need a join in every query on a table that required  no  joins before. You can test the effect on performance with random sample data. Until you have many millions of rows, you'll probably find that the natural key is faster than a join on the surrogate key. That's what I found when I tested.  
+ 
+ Yes, almost certainly. If a country or city changes a name, you change it in one place and all references are automatically updated.  
+ Splitting also allows you to add other attributes to a country or city, i.e. the continent it's in, etc. You can't easily do this without a separate table. 
+ Finally if you want a list of countries (to populate a list box for example) you have a single place to reference. (Otherwise you'd end up doing some SELECT DISTINCT from your person table, which is dubious.) 
+ 
+ I would consider breaking out the city, state and country into a single 'address (or city)' table which contains the state and country replicated across the rows. For the number of unique cities in the world, this is not a real database query cost. 
+ It also depends on the number of records you are expecting to have - if the total person count will always be less than say 100,000 then is it really worth the effort to normalize the data? 
+ Having a flat data structure makes queries and testing so much simpler, so unless there is a performance or disk space problem, then maybe it is best to 'keep it simple'. 
+ 
+ 
+ If this would be a relatively small database and you plan to let the user input the address himself, you should let the table as it is. Even though that will increase the table size(in bytes), because of the duplicate storage of the city, state and country names. 
+ If this would be a relatively huge database and you want the user to select the city, state and country names from a list, then you need to separate this columns to another table. Also, for this to work, you have to populate this table yourself. The advantages would be a smaller table for users and addresses for too. 
+ 
+ 
+ It depends on where are you getting the data for City, State and Country from. 
+ If your application allows user to enter these information but forces them to select these values from drop-downs which are populated using your master data, then, it will be good idea to collapse these three fields to something like "locationId" and have a table which stored records (city_id, state_id, country_id).  You don't need these three ids in your Person table as the combination is going to change very rarely. 
+ On the contrary, if you are allowing your users to key-in the values for City, State and Country, then, it can get tricky to separate them out into separate table due to differently-spelled values for same city/state/country. 
+ 
+ I think the level of normalization really does depend on how large the application will be. At a minimum I would at least have an Address table so that CRUD can be performed on addresses without being coupled to users. You probably want to break it down more if there are plans in the UI to have drop downs that list cities or states or are providing web services. It gets a little more complicated if you need to factor in foreign addresses and  APO/FPO . The  objectives of normalization  listed on the wikipedia page might be worth going through to see if any of the scenarios should be accounted for in your project. Try your best to not duplicate data or effort without over designing. 
+ I wanted to provide some additional information that your team might consider: 
+ Luke W. has some great information about designing UI for addresses. 
+ 
+ http://www.lukew.com/ff/entry.asp?605 
+ http://www.lukew.com/ff/entry.asp?968 
+ 
+ If you are deploying via web there are many web service APIs that already manage location data. 
+ 
+ https://www.usps.com/business/web-tools-apis/list-of-apis.htm 
+ http://www.zippopotam.us/ 
+ 
+ If the data needs to be maintained internally or you don't like relying on external services use one of the  open data  sources such as  GeoNames . The data is a tab separated text file but could easily be parsed with a script to load the data automatically. 
+ 
+ I would say yes, But only for city/state/country unless you are planning to analyse/group people by their names. 
+ Create indexes on the id columns that result, and also on the text columns in the lookup tables. This will result in easier creation of drop-down options for forms and also quicker lookup times when your database size increases. 
+ This will also speed up the record write time if you are indexing the city/state/country column as a short numeric index write is a lot quicker than a full text index. 
+ 
+ The problem with {country,state,city} is that they  appear  to be a candidate key for the referenced table. In SQL, {country,state,city}   cannot  be a candidate key (or even a primary key),  **if**
+ state (or country) can be missing or NULL. (this could be avoided by allowing an empty string for them, which is different from NULL, but that would be an ugly hack, IMO) The same would go for zipcode, which could only be made into a candidate key by adding   to it. And both could be missing, unknown or NULL. 
+ The only way around the crippled candidate keys would be to demote them to (non-unique) indexes, and add a surrogate primary key, like in: 
+ 
+ WRT   : you could  squeeze these out  into a junction table (this basically is a BCNF problem, maybe even a 4NF problem, if all the join fields were non-NULLABLE) like in: 
+ 
+ Whether you should actually do this is a matter of taste (see @Joel Brown's answer). The normallisation would certainly help in case of massive renaming operations, like the merging of municipalities in the OQ. For small sets of addresses (upto maybe a few thousand), the extra complexity would probably cost more than it would gain.
+This complexity is particularly costly for the front-end applications used to maintain the data. For the DBMS, a few joins would not cost that much (for small sizes) and could even help performance (for larger sizes). Normalisation is not bad for performance.   
+ UPDATE (after Mike Sherill catcall's comment): 
+ If we could impose   constraints on {country,state,city} (or there ids),
+we could also impose UNIQUE constraints on the (composite) candidate keys that they are part of:
+        --
+        -- Plan C:
+        --
+    CREATE TABLE country3
+        ( country_id INTEGER NOT NULL PRIMARY KEY -- could be a serial ...
+        , country_name varchar NOT NULL
+        , country_iso varchar
+        , UNIQUE (country_name)
+        ); 
+ 
+ Though this   constraint will avoid duplicates in {city,state,country}, it will also  **impose**
+ them to being NOT NULL, obviously. This might be impossible or invalid in other countries (than Canada or the US). In the Netherlands, we don't have   or  ; we do have  , which is hardly used (only to disambiguate, if needed) Similar for the French  , IIRC. 
+ 

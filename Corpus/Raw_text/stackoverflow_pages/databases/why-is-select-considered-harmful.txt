@@ -1,0 +1,149 @@
+*** why-is-select-considered-harmful ***
+
+ Why is   bad practice? Wouldn't it mean less code to change if you added a new column you wanted? 
+ I  understand that   is a performance problem on some DBs, but what if you really wanted every column? 
+ 
+ There are really three major reasons: 
+ 
+ **Inefficiency in moving data to the consumer.**
+  When you SELECT *, you're often retrieving more columns from the database than your application really needs to function.  This causes more data to move from the database server to the client, slowing access and increasing load on your machines, as well as taking more time to travel across the network.  This is especially true when someone adds new columns to underlying tables that didn't exist and weren't needed when the original consumers coded their data access. 
+ **Indexing issues.**
+  Consider a scenario where you want to tune a query to a high level of performance.  If you were to use *, and it returned more columns than you actually needed, the server would often have to perform more expensive methods to retrieve your data than it otherwise might.  For example, you wouldn't be able to create an index which simply covered the columns in your SELECT list, and even if you did (including all columns [ shudder ]), the next guy who came around and added a column to the underlying table would cause the optimizer to ignore your optimized covering index, and you'd likely find that the performance of your query would drop substantially for no readily apparent reason. 
+ **Binding Problems.**
+ When you SELECT *, it's possible to retrieve two columns of the same name from two different tables.  This can often crash your data consumer.  Imagine a query that joins two tables, both of which contain a column called "ID".  How would a consumer know which was which?  SELECT * can also confuse views (at least in some versions SQL Server) when underlying table structures change --  the view is not rebuilt, and the data which comes back can be nonsense .  And the worst part of it is that you can take care to name your columns whatever you want, but the next guy who comes along might have no way of knowing that he has to worry about adding a column which will collide with your already-developed names. 
+ 
+ But it's not all bad for SELECT *.  I use it liberally for these use cases: 
+ 
+ **Ad-hoc queries.**
+  When trying to debug something, especially off a narrow table I might not be familiar with, SELECT * is often my best friend.  It helps me just see what's going on without having to do a boatload of research as to what the underlying column names are.  This gets to be a bigger "plus" the longer the column names get. 
+ **When * means "a row".**
+  In the following use cases, SELECT * is just fine, and rumors that it's a performance killer are just urban legends which may have had some validity many years ago, but don't now: 
+ 
+ in this case, * means "count the rows".  If you were to use a column name instead of * ,  it would count the rows where that column's value was not null .  COUNT(*), to me, really drives home the concept that you're counting  rows , and you avoid strange edge-cases caused by NULLs being eliminated from your aggregates.   
+ Same goes with this type of query: 
+ 
+ in any database worth its salt, * just means "a row".  It doesn't matter what you put in the subquery.  Some people use b's ID in the SELECT list, or they'll use the number 1, but IMO those conventions are pretty much nonsensical.  What you mean is "count the row", and that's what * signifies.  Most query optimizers out there are smart enough to know this.  (Though to be honest, I only  know  this to be true with SQL Server and Oracle.) 
+ 
+ 
+ The asterisk character, "*", in the SELECT statement is shorthand for all the columns in the table(s) involved in the query.  
+ **Performance**
+
+ The   shorthand can be slower because: 
+ 
+ Not all the fields are indexed, forcing a full table scan - less efficient 
+ What you save to send   over the wire risks a full table scan 
+ Returning more data than is needed 
+ Returning trailing columns using variable length data type can result in search overhead 
+ 
+ **Maintenance**
+
+ When using  : 
+ 
+ Someone unfamiliar with the codebase would be forced to consult documentation to know what columns are being returned before being able to make competent changes.  Making code more readable, minimizing the ambiguity and work necessary for people unfamiliar with the code saves more time and effort in the long run. 
+ If code depends on column order,   will hide an error waiting to happen if a table had its column order changed. 
+ Even if you need every column at the time the query is written,  that might not be the case in the future 
+ the usage complicates profiling 
+ 
+ **Design**
+
+  is an  **anti-pattern**
+: 
+ 
+ The purpose of the query is less obvious; the columns used by the application is opaque 
+ It  breaks the modularity rule about using strict typing whenever possible.  Explicit is almost universally better.  
+ 
+ **When Should "SELECT *" Be Used?**
+
+ It's acceptable to use   when there's the explicit need for every column in the table(s) involved, as opposed to every column that existed when the query was written.  The database will internally expand the * into the complete list of columns - there's no performance difference. 
+ Otherwise, explicitly list every column that is to be used in the query - preferably while using a table alias. 
+ 
+ Even if you wanted to select every column now, you might not want to select every column after someone adds one or more new columns. If you write the query with   you are taking the risk that at some point someone might add a column of text which makes your query run more slowly even though you don't actually need that column. 
+ 
+ Wouldn't it mean less code to change if you added a new column you wanted? 
+ 
+ The chances are that if you actually want to use the new column then you will have to make quite a lot other changes to your code anyway. You're only saving   - just a few characters of typing. 
+ 
+ If you name the columns in a SELECT statement, they will be returned in the order specified, and may thus safely be referenced by numerical index.  If you use "SELECT *", you may end up receiving the columns in arbitrary sequence, and thus can only safely use the columns by name.  Unless you know in advance what you'll be wanting to do with any new column that gets added to the database, the most probable correct action is to ignore it.  If you're going to be ignoring any new columns that get added to the database, there is no benefit whatsoever to retrieving them. 
+ 
+ In a lot of situations, SELECT * will cause errors at run time in your application, rather than at design time. It hides the knowledge of column changes, or bad references in your applications. 
+ 
+ If you really want every column, I haven't seen a performance difference between select (*) and naming the columns. The driver to name the columns might be simply to be explicit about what columns you expect to see in your code. 
+ Often though, you don't want every column and the select(*) can result in unnecessary work for the database server and unnecessary information having to be passed over the network. It's unlikely to cause a noticeable problem unless the system is heavily utilised or the network connectivity is slow. 
+ 
+ Think of it as reducing the coupling between the app and the database. 
+ To summarize the 'code smell' aspect: 
+  creates a dynamic dependency between the app and the schema.  Restricting its use is one way of making the dependency more defined, otherwise a change to the database has a greater likelihood of crashing your application.  
+ 
+ If you add fields to the table, they will automatically be included in all your queries where you use  . This may seem convenient, but it will make your application slower as you are fetching more data than you need, and it will actually crash your application at some point. 
+ There is a limit for how much data you can fetch in each row of a result. If you add fields to your tables so that a result ends up being over that limit, you get an error message when you try to run the query. 
+ This is the kind of errors that are hard to find. You make a change in one place, and it blows up in some other place that doesn't actually use the new data at all. It may even be a less frequently used query so that it takes a while before someone uses it, which makes it even harder to connect the error to the change. 
+ If you specify which fields you want in the result, you are safe from this kind of overhead overflow. 
+ 
+ Reference taken from this article. 
+ Never go with "SELECT *", 
+ I have found only one reason to use "SELECT *" 
+ If you have special requirements and created dynamic environment when add or delete column automatically handle by application code. In this special case you don’t require to change application and database code and this will automatically affect on production environment. In this case you can use “SELECT *”. 
+ 
+ Generally you have to fit the results of your   into data structures of various types. Without specifying which order the results are arriving in, it can be tricky to line everything up properly (and more obscure fields are much easier to miss). 
+ This way you can add fields to your tables (even in the middle of them) for various reasons without breaking sql access code all over the application. 
+ 
+ Using   when you only need a couple of columns means a lot more data transferred than you need. This adds processing on the database, and increase latency on getting the data to the client. Add on to this that it will use more memory when loaded, in some cases significantly more, such as large BLOB files, it's mostly about efficiency. 
+ In addition to this, however, it's easier to see when looking at the query what columns are being loaded, without having to look up what's in the table. 
+ Yes, if you do add an extra column, it would be faster, but in most cases, you'd want/need to change your code using the query to accept the new columns anyways, and there's the potential that getting ones you don't want/expect can cause issues. For example, if you grab all the columns, then rely on the order in a loop to assign variables, then adding one in, or if the column orders change (seen it happen when restoring from a backup) it can throw everything off. 
+ This is also the same sort of reasoning why if you're doing an   you should always specify the columns. 
+ 
+ I don't think that there can really be a blanket rule for this.  In many cases, I have avoided SELECT *, but I have also worked with data frameworks where SELECT * was very beneficial. 
+ As with all things, there are benefits and costs.  I think that part of the benefit vs. cost equation is just how much control you have over the datastructures.  In cases where the SELECT * worked well, the data structures were tightly controlled (it was retail software), so there wasn't much risk that someone was going to sneek a huge BLOB field into a table.   
+ 
+ There is also more pragmatic reason: money. When you use cloud database and you have to pay for data processed there is no explanation to read data that you will immediately discard. 
+ For example:  BigQuery : 
+ 
+ Query pricing 
+ Query pricing refers to the cost of running your SQL commands and user-defined functions.  **BigQuery charges for queries by using one metric: the number of bytes processed.**
+
+ 
+ and  Control projection - Avoid SELECT * : 
+ 
+ **Best practice: Control projection - Query only the columns that you need.**
+
+ Projection refers to the number of columns that are read by your query. Projecting excess columns incurs additional (wasted) I/O and materialization (writing results). 
+ **Using SELECT * is the most expensive way to query data. When you use SELECT *, BigQuery does a full scan of every column in the table.**
+
+ 
+ 
+ Understand your requirements prior to designing the schema (if possible). 
+ Learn about the data, 
+      1)indexing 
+      2)type of storage used, 
+      3)vendor engine or features; ie...caching, in-memory capabilities
+      4)datatypes
+      5)size of table
+      6)frequency of query
+      7)related workloads if the resource is shared
+      8)Test 
+ A) Requirements will vary. If the hardware can not support the expected workload, you should re-evaluate how to provide the requirements in the workload.  Regarding the addition column to the table.  If the database supports views, you can create an indexed(?) view of the specific data with the specific named columns (vs. select '*').  Periodically review your data and schema to ensure you never run into the "Garbage-in" -> "Garbage-out" syndrome. 
+ Assuming there is no other solution; you can take the following into account.  There are always multiple solutions to a problem. 
+ 1) Indexing: The select * will execute a tablescan.  Depending on various factors, this may involve a disk seek and/or contention with other queries.  If the table is multi-purpose, ensure all queries are performant and execute below you're target times.   If there is a large amount of data, and your network or other resource isn't tuned; you need to take this into account.   The database is a shared environment. 
+ 2) type of storage.  Ie: if you're using SSD's, disk, or memory.  I/O times and the load on the system/cpu will vary. 
+ 3) Can the DBA tune the database/tables for higher performance? Assumming for whatever reason, the teams have decided the select '*' is the best solution to the problem; can the DB or table be loaded into memory. (Or other method...maybe the response was designed to respond with  a 2-3 second delay? --- while an advertisement plays to earn the company revenue...) 
+ 4) Start at the baseline.  Understand your data types, and how results will be presented.  Smaller datatypes, number of fields reduces the amount of data returned in the result set.  This leaves resources available for other system needs.  The system resources are usually have a limit; 'always' work below these limits to ensure stability, and predictable behaviour. 
+ 5) size of table/data.  select '*' is common with tiny tables.  They typically fit in memory, and response times are quick.  Again....review your requirements.  Plan for feature creep; always plan for the current and possible future needs.   
+ 6) Frequency of query / queries. Be aware of other workloads on the system.  If this query fires off every second, and the table is tiny.  The result set can be designed to stay in cache/memory.  However, if the query is a frequent batch process with Gigabytes/Terabytes of data...you may be better off to dedicate additional resources to ensure other workloads aren't affected. 
+ 7) Related workloads.  Understand how the resources are used.  Is the network/system/database/table/application dedicated, or shared? Who are the stakeholders?  Is this for production, development, or QA?  Is this a temporary "quick fix".  Have you tested the scenario?  You'll be surprised how many problems can exist on current hardware today.  (Yes, performance is fast...but the design/performance is still degraded.)  Does the  system need to performance 10K queries per second vs. 5-10 queries per second.  Is the database server dedicated, or do other applications, monitoring execute on the shared resource.  Some applications/languages; O/S's will consume 100% of the memory causing various symptoms/problems. 
+ 8) Test: Test out your theories, and understand as much as you can about. Your select '*' issue may be a big deal, or it may be something you don't even need to worry about. 
+ 
+ Selecting with column name raises the probability that database engine can access the data from indexes rather than querying the table data. 
+ SELECT * exposes your system to unexpected performance and functionality changes in the case when your database schema changes because you are going to get any new columns added to the table, even though, your code is not prepared to use or present that new data. 
+ 
+ REASONS WHY NOT TO USE SELECT * FROM TABLE:- 
+ 
+ Unnecessary I/O 
+ Increase Network traffic 
+ Fragile views 
+ Conflict in Join Queries 
+ More application memory 
+ Risky while copying data 
+ Depends on column order 
+ 
+ Always use column names will help you always in a large scale database. 
+ 

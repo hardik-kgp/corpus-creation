@@ -1,0 +1,62 @@
+*** sqlgetinfo-how-to-use-this-function ***
+
+ I have developed a c# application which connects to many types of database servers like Sql,Oracle,Mysql etc..Connection was established using  **ODBC**
+. 
+ I need to find the server type (DBMS type) for which the connection was established, as the user only enters the  **DSN**
+ name. 
+ After several hours of surfing, I found that my requirement is possible only through this function  SQLGetInfo .But I don't know how to deal with this in C#. 
+ even have checked this  Link1 . 
+ from the above link, I found that ODBC API only gives  DataBase name  and  DataSource Name .But I need to find the Datatbase type like whether it's a SQL connection or Oracle connection or mySqlConnection. 
+ Is it possible to get the DBMS type from DSN name..? 
+ Note: I don't want to read it from a registry setting.I tried this and it works, but I'm having permission issues..! 
+ 
+ **This will absolutely do the trick**
+. Here is my implementation to hook OdbcConnection GetInfoStringUnhandled function. God we love reflection,  I know I am legend  ;) 
+ 
+ The best documentation I have found, explaining the 47 possibilities to use SQLGetInfo is here  https://mariadb.com/kb/en/sql-99/sqlgetinfo/ 
+ Nevertheless, OdbcConnection has just integrated an enum with 19 possibilities. The following is an disassembled enum of SQL_INFO of System.Data.Odbc.ODBC32: 
+ 
+ As you see, you can simply Invoke the GetInfoStringUnhandled method with a (ushort) casted integer of the info you need. This is an example: 
+ 
+ 
+ **Short answer:**
+ Don't. Try very hard to find managed equivalents instead. There is no documented way of getting this handle. 
+ **Long answer:**
+ The SQLGetInfo function's InfoType parameter has 47 possible values.  Ref . You can retrieve a regex pattern for quoted identifiers as follows: 
+ 
+ This will allow you to recognize but not produce quoted identifiers. It's safe to assume the quote character is indeed one character, though, so you can get it by simply doing: 
+ 
+ (The .Unescape() is necessary since the quote character could be special to
+regexen and hence escaped.) 
+ Most other uses for SQLInfo() can similarly be solved with .GetSchema(). If
+you absolutely, positively must use SQLGetInfo() for something, I recommend
+using the private methods  ,  
+and   on   through reflection. This is
+subject to breaking without warning, though. 
+ You can get the internal handle through the private .ConnectionHandle
+member, but this is equally subject to breaking and far less convenient
+(because you have to write all the unmanaged interop code too). 
+ Use  ILSpy  or  Reflector  to get more
+details on the implementation. Reverse engineering the innards can in many
+cases point you to a fully managed solution.  Ref . 
+ 
+ **OR**
+ build on this  MSDN sample  code to detect the version via different commands, eg  
+ MySQL:        "SELECT version()"; 
+Oracle:         "SELECT @@version, @@version_comment FROM dual"; 
+SQLServer:  "SELECT @@version"; 
+ MSDN Sample Code: 
+ 
+ 
+ **OR**
+ you could do something like others suggest, with a little more elegance.  
+ Note: this is a copy / paste job on @FabianStern 's answer - credit to the author. I just made it less procedural and more orthodox as I couldn't stand the cascading Try-Catch's): 
+ 
+ 
+ Have you tried to parse the .Driver property of OdbcConnection ?
+It will show you the used database wrapper driver for the connection.
+You can find these mappings also in the registry at HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\ODBC 
+ Sometimes it is just a .dll name (e.g. for Microsoft Excel Driver) but it could give you a hint. 
+ You can also execute database specific commands to obtain the database version from the server like so: 
+ 
+ 

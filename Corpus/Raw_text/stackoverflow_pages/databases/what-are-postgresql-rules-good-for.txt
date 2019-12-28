@@ -1,0 +1,47 @@
+*** what-are-postgresql-rules-good-for ***
+
+ **Question**
+
+ I often see it stated that  rules should be avoided and triggers used instead . I can see the danger in the rule system, but certainly there are valid uses for rules, right? What are they? 
+ I'm asking this out of general interest; I'm not very seasoned with databases. 
+ **Example of what might be a valid use**
+
+ For instance, in the past I've needed to lock down certain data, so I've done something like this: 
+ 
+ Then if I want to edit the protected data: 
+ 
+ I agree this is hacky, but I couldn't change the application(s) accessing the database in this case (or even throw errors at it). So  **bonus points**
+ for finding a reason why this is  a dangerous/invalid use of the rule system , but  **not**
+ for why this is  bad design . 
+ 
+ One of the use cases for RULES are updateable views (although that changes in 9.1 as that version introduces INSTEAD OF triggers for views) 
+ Another good explanation can be found in the manual:  
+ 
+ For the things that can be implemented by both, which is best depends on the usage of the database. A trigger is fired for any affected row once. A rule manipulates the query or generates an additional query. So if many rows are affected in one statement, a rule issuing one extra command is likely to be faster than a trigger that is called for every single row and must execute its operations many times. However, the trigger approach is conceptually far simpler than the rule approach, and is easier for novices to get right. 
+ 
+ (Taken from:  http://www.postgresql.org/docs/current/static/rules-triggers.html ) 
+ 
+ Some problems with rules are shown here:  http://www.depesz.com/index.php/2010/06/15/to-rule-or-not-to-rule-that-is-the-question/  (for instance, if a random() is included in a query, it might get executed twice and return different values). 
+ The biggest drawback of rules is that people don't  **understand**
+ them. 
+ For example, one might think that having the rule: 
+ 
+ Will mean that if I'll issue: 
+ 
+ No query will be ran. Which is not true. The query  will  be run, but it will be ran in modified version - with added condition. 
+ What's more - rules break very useful thing, that is returning clause: 
+ 
+ To wrap it - if you really, really, positively have to use writable views, and you're using pre 9.1 PostgreSQL - you  might  have a valid reason to use rules. 
+ In all other cases - you're most likely shooting yourself in a foot, even if you don't immediately see it. 
+ 
+ I've had a few bitter experiences with rules when dealing with volatile functions (if memory serves, depesz' blog post highlights some of them). 
+ I've also broken referential integrity when using them because of the timing in which fkey triggers get fired: 
+ 
+ ... then add another table, and make example reference that table with an on delete cascade foreign key. Then, delete * from that table... and recoil in horror. 
+ I reported the above issue as a bug, which got dismissed as a feature/necessary edge case. It's only months later that I made sense of why that might be, i.e. the fkey trigger does its job, and the rule then kicks in and does its own, but the fkey trigger won't check that its job was done properly for performance reasons. 
+ The practical use-case where I still use rules is when a   trigger that pre-manipulates data (the SQL standard says is not allowed, but Postgres will happily oblige) can result in pre-manipulating the affected rows and thus changing their ctid (i.e. it gets updated twice, or doesn't get deleted because an update invalidated the delete). 
+ This results in Postgres returning an incorrect number of affected rows, which is no big deal until you monitor that number before issuing subsequent statements. 
+ In this case, I've found that using a strategically placed rule or two can allow to pre-emptively execute the offending statement(s), resulting in Postgres returning the correct number of affected rows. 
+ 
+ How about this: You have a table that needs to be changed into a view. In order to support legacy applications that insert into said table, a rule is created that maps "inserts" to the new view to the underlying table(s). 
+ 

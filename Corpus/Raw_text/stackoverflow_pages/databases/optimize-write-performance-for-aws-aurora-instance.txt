@@ -1,0 +1,26 @@
+*** optimize-write-performance-for-aws-aurora-instance ***
+
+ I've got an AWS Aurora DB cluster running that is 99.9% focused on writes. At it's peak, it will be running 2-3k writes/sec. 
+ I know Aurora is somewhat optimized by default for writes, but I wanted to ask as a relative newcomer to AWS - what are some best practices/tips for write performance with Aurora? 
+ 
+ From my experience, Amazon Aurora is unsuited to running a database with heavy write traffic. At least in its implementation circa 2017. Maybe it'll improve over time. 
+ I worked on some benchmarks for a write-heavy application earlier in 2017, and we found that RDS (non-Aurora) was far superior to Aurora on write performance, given our application and database. Basically, Aurora was two orders of magnitude slower than RDS. Amazon's claims of high performance for Aurora are apparently completely marketing-driven bullshit. 
+ In November 2016, I attended the Amazon re:Invent conference in Las Vegas. I tried to find a knowledgeable Aurora engineer to answer my questions about performance. All I could find were junior engineers who had been ordered to repeat the claim that Aurora is magically 5-10x faster than MySQL. 
+ In April 2017, I attended the Percona Live conference and saw a presentation about how to develop an Aurora-like distributed storage architecture using standard MySQL with CEPH for an open-source distributed storage layer. There's a webinar on the same topic here:  https://www.percona.com/resources/webinars/mysql-and-ceph , co-presented by Yves Trudeau, the engineer I saw speak at the conference. 
+ What became clear about using MySQL with CEPH is that the engineers had to disable the  MySQL change buffer  because there's no way to cache changes to secondary indexes, while also have the storage distributed. This caused huge performance problems for writes to tables that have secondary (non-unique) indexes. 
+ This was consistent with the performance problems we saw in benchmarking our application with Aurora. Our database had a lot of secondary indexes. 
+ So if you absolutely have to use Aurora for a database that has high write traffic, I recommend the first thing you must do is  **drop all your secondary indexes.**
+
+ Obviously, this is a problem if the indexes are needed to optimize some of your queries. Both SELECT queries of course, but also some UPDATE and DELETE queries may use secondary indexes. 
+ One strategy might be to make a non-Aurora read replica of your Aurora cluster, and create the secondary indexes only in the read replica to support your SELECT queries. I've never done this, but apparently it's possible, according to  https://aws.amazon.com/premiumsupport/knowledge-center/enable-binary-logging-aurora/ 
+ But this still doesn't help cases where your UPDATE/DELETE statements need secondary indexes. I don't have any suggestion for that scenario. You might be out of luck. 
+ My conclusion is that I wouldn't choose to use Aurora for a write-heavy application. Maybe that will change in the future. 
+ 
+ I had a relatively positive experience w/ Aurora, for my use case. I believe ( time has passed ) we were pushing somewhere close to 20k DML per second, largest instance type ( I think db.r3.8xlarge? ). Apologies for vagueness, I no longer have the ability to get the metrics for that particular system. 
+ What we did: 
+ This system did not require "immediate" response to a given insert, so writes were enqueued to a separate process. This process would collect N queries, and split them into M batches, where each batch correlated w/ a target table. Those batches would be put inside a single txn.  
+ We did this to achieve the write efficiency from bulk writes, and to avoid cross table locking. There were 4 separate ( I believe? ) processes doing this dequeue and write behavior. 
+ Due to this high write load, we absolutely had to push all reads to a read replica, as the primary generally sat at 50-60% CPU. We vetted this arch in advance by simply creating random data writer processes, and modeled the general system behavior before we committed the actual application to it. 
+ The writes were almost all   writes, and the tables had a number of secondary indexes.  
+ I suspect this approach worked for us simply because we were able to tolerate delay between when information appeared in the system, and when readers would actually need it, thus allowing us to batch at much higher amounts. YMMV. 
+ 

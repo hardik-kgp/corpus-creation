@@ -1,0 +1,194 @@
+*** what-are-the-options-for-storing-hierarchical-data-in-a-relational-database ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  4 months ago . 
+ 
+ 
+ 
+ **Good Overviews**
+
+ Generally speaking, you're making a decision between fast read times (for example, nested set) or fast write times (adjacency list). Usually, you end up with a combination of the options below that best fit your needs. The following provides some in-depth reading: 
+ 
+ One more Nested Intervals vs. Adjacency List comparison :  the best comparison  of Adjacency List, Materialized Path, Nested Set and Nested Interval I've found. 
+ Models for hierarchical data : slides with good explanations of tradeoffs and example usage 
+ Representing hierarchies in MySQL : very good overview of Nested Set in particular 
+ Hierarchical data in RDBMSs : most comprehensive and well-organized set of links I've seen, but not much in the way of explanation 
+ 
+ **Options**
+
+ Ones I am aware of and general features: 
+ 
+ Adjacency List :
+
+ 
+ Columns: ID, ParentID 
+ Easy to implement. 
+ Cheap node moves, inserts, and deletes. 
+ Expensive to find the level, ancestry & descendants, path 
+ Avoid N+1 via  Common Table Expressions  in databases that support them 
+ 
+ Nested Set  (a.k.a  Modified Preorder Tree Traversal )
+
+ 
+ Columns: Left, Right 
+ Cheap ancestry, descendants 
+ Very expensive   moves, inserts, deletes due to volatile encoding 
+ 
+ Bridge Table  (a.k.a.  Closure Table /w triggers )
+
+ 
+ Uses separate join table with: ancestor, descendant, depth (optional) 
+ Cheap ancestry and descendants 
+ Writes costs   (size of subtree) for insert, updates, deletes 
+ Normalized encoding: good for RDBMS statistics & query planner in joins 
+ Requires multiple rows per node 
+ 
+ Lineage Column  (a.k.a.  Materialized Path , Path Enumeration)
+
+ 
+ Column: lineage (e.g. /parent/child/grandchild/etc...) 
+ Cheap descendants via prefix query (e.g.  ) 
+ Writes costs   (size of subtree) for insert, updates, deletes 
+ Non-relational: relies on Array datatype or serialized string format 
+ 
+ Nested Intervals 
+ 
+ Like nested set, but with real/float/decimal so that the encoding isn't volatile (inexpensive move/insert/delete) 
+ Has real/float/decimal representation/precision issues 
+ Matrix encoding variant  adds ancestor encoding (materialized path) for "free", but with added trickiness of linear algebra. 
+ 
+ Flat Table 
+ 
+ A modified Adjacency List that adds a Level and Rank (e.g. ordering) column to each record. 
+ Cheap to iterate/paginate over 
+ Expensive move and delete 
+ Good Use: threaded discussion - forums / blog comments 
+ 
+ Multiple lineage columns 
+ 
+ Columns: one for each lineage level, refers to all the parents up to the root, levels down from the item's level are set to NULL 
+ Cheap ancestors, descendants, level 
+ Cheap insert, delete, move of the leaves 
+ Expensive insert, delete, move of the internal nodes 
+ Hard limit to how deep the hierarchy can be 
+ 
+ 
+ **Database Specific Notes**
+
+ MySQL 
+ 
+ Use session variables for Adjacency List 
+ 
+ Oracle 
+ 
+ Use  CONNECT BY  to traverse Adjacency Lists 
+ 
+ PostgreSQL 
+ 
+ ltree datatype  for Materialized Path 
+ 
+ SQL Server 
+ 
+ General summary 
+ 2008 offers  HierarchyId  data type appears to help with Lineage Column approach and expand the depth that can be represented. 
+ 
+ 
+ My favorite answer is as what the first sentence in this thread suggested.  Use an Adjacency List to maintain the hierarchy and use Nested Sets to query the hierarchy. 
+ The problem up until now has been that the coversion method from an Adjacecy List to Nested Sets has been frightfully slow because most people use the extreme RBAR method known as a "Push Stack" to do the conversion and has been considered to be way to expensive to reach the Nirvana of the simplicity of maintenance by the Adjacency List and the awesome performance of Nested Sets.  As a result, most people end up having to settle for one or the other especially if there are more than, say, a lousy 100,000 nodes or so.  Using the push stack method can take a whole day to do the conversion on what MLM'ers would consider to be a small million node hierarchy. 
+ I thought I'd give Celko a bit of competition by coming up with a method to convert an Adjacency List to Nested sets at speeds that just seem impossible. Here's the performance of the push stack method on my i5 laptop. 
+ 
+ And here's the duration for the new method (with the push stack method in parenthesis). 
+ 
+ Yes, that's correct.  1 million nodes converted in less than a minute and 100,000 nodes in under 4 seconds. 
+ You can read about the new method and get a copy of the code at the following URL.
+ http://www.sqlservercentral.com/articles/Hierarchy/94040/ 
+ I also developed a "pre-aggregated" hierarchy using similar methods.  MLM'ers and people making bills of materials will be particularly interested in this article.
+ http://www.sqlservercentral.com/articles/T-SQL/94570/ 
+ If you do stop by to take a look at either article, jump into the "Join the discussion" link and let me know what you think. 
+ 
+ This is a very partial answer to your question, but I hope still useful. 
+ Microsoft SQL Server 2008 implements two features that are extremely useful for managing hierarchical data: 
+ 
+ the  HierarchyId  data type. 
+ common table expressions, using the  with  keyword. 
+ 
+ Have a look at  "Model Your Data Hierarchies With SQL Server 2008"  by Kent Tegels on MSDN for starts. See also my own question:  Recursive same-table query in SQL Server 2008 
+ 
+ This design was not mentioned yet: 
+ **Multiple lineage columns**
+
+ Though it has limitations, if you can bear them, it's very simple and very efficient. Features: 
+ 
+ Columns: one for each lineage level, refers to all the parents up to the root, levels below the current items' level are set to 0 (or NULL) 
+ There is a fixed limit to how deep the hierarchy can be 
+ Cheap ancestors, descendants, level 
+ Cheap insert, delete, move of the leaves 
+ Expensive insert, delete, move of the internal nodes 
+ 
+ Here follows an example - taxonomic tree of birds so the hierarchy is Class/Order/Family/Genus/Species - species is the lowest level, 1 row = 1 taxon (which corresponds to species in the case of the leaf nodes): 
+ 
+ and the example of the data: 
+ 
+ This is great because this way you accomplish all the needed operations in a very easy way, as long as the internal categories don't change their level in the tree. 
+ 
+ **Adjacency Model + Nested Sets Model**
+
+ I went for it because I could insert new items to the tree easily (you just need a branch's id to insert a new item to it) and also query it quite fast. 
+ 
+ 
+ Every time you need all children of any parent you just query the   column. 
+ If you needed all descendants of any parent you query for items which have their   between   and   of parent. 
+ If you needed all parents of any node up to the root of the tree, you query for items having   lower than the node's   and   bigger than the node's   and sort the by  . 
+ 
+ **I needed to make accessing and querying the tree faster than inserts, that's why I chose this**
+
+ The only problem is to fix the   and   columns when inserting new items. well I created a stored procedure for it and called it every time I inserted a new item which was rare in my case but it is really fast.
+I got the idea from the Joe Celko's book, and the stored procedure and how I came up with it is explained here in DBA SE
+ https://dba.stackexchange.com/q/89051/41481 
+ 
+ If your database supports arrays, you can also implement a lineage column or materialized path as an array of parent ids. 
+ Specifically with Postgres you can then use the set operators to query the hierarchy, and get excellent performance with GIN indices.  This makes finding parents, children, and depth pretty trivial in a single query.  Updates are pretty manageable as well. 
+ I have a full write up of using  arrays for materialized paths  if you're curious. 
+ 
+ This is really a square peg, round hole question. 
+ If relational databases and SQL are the only hammer you have or are willing to use, then the answers that have been posted thus far are adequate. However, why not use a tool designed to handle hierarchical data?  Graph database  are ideal for complex hierarchical data. 
+ The inefficiencies of the relational model along with the complexities of any code/query solution to map a graph/hierarchical model onto a relational model is just not worth the effort when compared to the ease with which a graph database solution can solve the same problem. 
+ Consider a Bill of Materials as a common hierarchical data structure. 
+ 
+ **Shortest path between two sub-assemblies**
+: Simple graph traversal algorithm. Acceptable paths can be qualified based on criteria. 
+ **Similarity**
+: What is the degree of similarity between two assemblies? Perform a traversal on both sub-trees computing the intersection and union of the two sub-trees. The percent similar is the intersection divided by the union. 
+ **Transitive Closure**
+: Walk the sub-tree and sum up the field(s) of interest, e.g. "How much aluminum is in a sub-assembly?" 
+ Yes, you can solve the problem with SQL and a relational database. However, there are much better approaches if you are willing to use the right tool for the job. 
+ 
+ I am using PostgreSQL with closure tables for my hierarchies.
+I have one universal stored procedure for the whole database: 
+ 
+ Then for each table where I have a hierarchy, I create a trigger 
+ 
+ For populating a closure table from existing hierarchy I use this stored procedure: 
+ 
+ Closure tables are defined with 3 columns - ANCESTOR_ID, DESCENDANT_ID, DEPTH. It is possible (and I even advice) to store records with same value for ANCESTOR and DESCENDANT, and a value of zero for DEPTH. This will simplify the queries for retrieval of the hierarchy. And they are very simple indeed: 
+ 
+ 

@@ -1,0 +1,76 @@
+*** how-do-null-values-affect-performance-in-a-database-search ***
+
+ In our product we have a generic search engine, and trying to optimze the search performance. A lot of the tables used in the queries allow null values. Should we redesign our table to disallow null values for optimization or not? 
+ Our product runs on both   and  . 
+ 
+ In  ,   values are not indexed, i. e. this query: 
+ 
+ will always use full table scan since index doesn't cover the values you need. 
+ More than that, this query: 
+ 
+ will also use full table scan and sort for same reason. 
+ If your values don't intrinsically allow  's, then mark the column as  . 
+ 
+ An extra answer to draw some extra attention to David Aldridge's comment on Quassnoi's accepted answer. 
+ The statement: 
+ 
+ this query: 
+ SELECT  * FROM    table WHERE   column
+  IS NULL 
+ will always use full table scan 
+ 
+ is not true. Here is the counter example using an index with a literal value: 
+ 
+ As you can see, the index is being used. 
+ Regards,
+Rob. 
+ 
+ Short answer: yes, conditionally! 
+ The main issue with null values and performance is to do with forward lookups. 
+ If you insert a row into a table, with null values, it's placed in the natural page that it belongs to. Any query looking for that record will find it in the appropriate place. Easy so far.... 
+ ...but let's say the page fills up, and now that row is cuddled in amongst the other rows. Still going well... 
+ ...until the row is updated, and the null value now contains something. The row's size has increased beyond the space available to it, so the DB engine has to do something about it.  
+ The fastest thing for the server to do is to move the row  off  that page into another, and to replace the row's entry with a forward pointer. Unfortunately, this requires an extra lookup when a query is performed: one to find the natural location of the row, and one to find its current location. 
+ So, the short answer to your question is yes, making those fields non-nullable will help search performance. This is especially true if it often happens that the null fields in records you search on are updated to non-null. 
+ Of course, there are other penalties (notably I/O, although to a tiny extent index depth) associated with larger datasets, and then you have application issues with disallowing nulls in fields that conceptually require them, but hey, that's another problem :) 
+ 
+ If your column doesn't contain NULLs it is best to declare this column  , the optimizer may be able to take more efficient path. 
+ However, if you have NULLs in your column you don't have much choice (a non-null default value may create more problems than it solves). 
+ As Quassnoi mentionned, NULLs are not indexed in Oracle, or to be more precise, a row won't be indexed if all the indexed columns are NULL, this means: 
+ 
+ that NULLs can potentially speed up your research because the index will have fewer rows 
+ you can still index the NULL rows if you add another NOT NULL column to the index or even a constant. 
+ 
+ The following script demonstrates a way to index NULL values: 
+ 
+ 
+ I would say that testing is required but it is nice to know other peoples experiences.  In my experience on ms sql server, nulls can and do cause massive performance issues (differences).  In a very simple test now I have seen a query return in 45 seconds when not null was set on the related fields in the table create statement and over 25 minutes where it wasn't set (I gave up waiting and just took a peak at the estimated query plan). 
+ Test data is 1 million rows x 20 columns which are constructed from 62 random lowercase alpha characters on an i5-3320 normal HD and 8GB RAM (SQL Server using 2GB) / SQL Server 2012 Enterprise Edition on windows 8.1.  It's important to use random data / irregular data to make the testing a realistic "worse" case.  In both cases table was recreated and reloaded with random data that took about 30 seconds on  database files that already had a suitable amount of free space. 
+ 
+ for performance reasons both had table option data_compression = page set and everything else was defaulted.  No indexes. 
+ 
+ Not having nulls is a requirement for in memory optimized tables for which I am not specifically using however sql server will obviously do what is fastest which in this specific case appears to be massively in favor of not having nulls in data and using not null on the table create. 
+ Any subsequent queries of the same form on this table return in two seconds so I would assume standard default statistics and possibly having the (1.3GB) table fit into memory are working well.
+i.e. 
+ 
+ On an aside not having nulls and not having to deal with null cases also makes queries much simplier, shorter, less error prone and very normally faster.  If at all possible, best to avoid nulls generally on ms sql server at least unless they are explicitly required and can not reasonably be worked out of the solution. 
+ Starting with a new table and sizing this up to 10m rows / 13GB same query takes 12 minutes which is very respectable considering the hardware and no indexes in use.  For info query was completely IO bound with IO hovering between 20MB/s to 60MB/s.  A repeat of the same query took 9 mins. 
+ 
+ Nullable fields can have a big impact on performance when doing "NOT IN" queries.  Because rows with all indexed fields set to null aren't indexed in a B-Tree indexes, Oracle must do a full table scan to check for null entires, even when a index exists. 
+ For example: 
+ 
+ The query has to check for null values so it has to do a full table scan of t2 for each row in t1. 
+ Now, if we make the fields not nullable, it can use the index. 
+ 
+ 
+ The issue of whether to use Nulls because they affect performance is one of those balancing acts of database design. You have to balance business needs against performance.  
+ Nulls should be used if they are needed. For instance, you may have a begin date and an end date in a table. You often would not know the end date at the time the record is created. Therefore you must allow nulls whether they affect performance or not as the data is simply not there to be put in. However, if the data must, by the business rules, be there at the time the record is created, then you should not allow nulls. This would improve performance, make coding a bit simpler and make sure the data integrity is preserved.  
+ If you have existing data that you would like to change to no longer allow nulls, then you have to consider the impact of that change. First, do you know what value you need to put into the records which are currently null? Second, do you have a lot of code that is using   or   which you need to update (these things slow performance, so if you no longer need to check for them, you should change the code)? DO you need a default value? Can you really assign one? If not will some of the insert or update code break if it is not considering that the field can no longer be null. Sometimes people will put in bad information to allow them to get rid of nulls. So now the price field needs to contain decimal values and things like 'unknown' and thus can't properly be a decimal datatype and then you have to go to all sorts of lengths in order to do calculations. This often creates performance problems as bad or worse than the null created. PLus you need to go through all your code and where ever you used a refernce to the filed being null or not being null, you need to rewrite to exclude or include based on the possible bad values someone will put in becasue the data is not allowed to be null.  
+ I do a lot of data imports from client data and every time we get a file where some field that should allow nulls does not, we get garbage data that needs to be cleaned up before we import to our system. Email is one of these. Often the data is input not knowing this value and it's generally some type of string data, so the user can type anything in here. We go to import emails and find things "I don't know". Tough to try to actually send an email to "I don't know". If the system requres a valid email address and checks for something like the existance of an @ sign, we would get 'I@dont.know" How is garbage data like this useful to the users of the data?  
+ Some of the performance issues with nulls are a result of writing nonsargable queries. Sometimes just rearranging the where clause rather than eliminating a necessary null can improve the performance. 
+ 
+ In my experience NULL is a valid value and usually means "don't know".  If you don't know then it really is pointless to make up some default value for the column or to try to enforce some NOT NULL constraint.  NULL just happens to be a specific case. 
+ The real challenge for NULLs is it complicate retrieval a bit.  For instance you can not say WHERE column_name IN (NULL,'value1','value2'). 
+ Personally if you find lot of your columns, or certain columns contain a lot of NULLs I think you might want to revisit your data model.  Maybe those null columns can be put into a child table?  For example: a table with phone numbers where it's name, homephone, cellphone, faxno, worknumber, emergencynumber etc...  You may only populate one or two of those and it would better normalizing it. 
+ What you need to do is step back and see how the data will be accessed.  Is this a column that should have a value?  Is this a column that only has a value for certain cases?  Is this a column that will be queried a lot? 
+ 

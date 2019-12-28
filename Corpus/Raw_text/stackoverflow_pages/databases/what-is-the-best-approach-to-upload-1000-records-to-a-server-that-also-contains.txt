@@ -1,0 +1,66 @@
+*** what-is-the-best-approach-to-upload-1000-records-to-a-server-that-also-contains ***
+
+ I have a app working offline. It is assumed that 1000+ records are created with images in each record during this period and whenever connectivity is established. What should be the approach to send all the 1000+ records to server that also handles any interruption between the network calls or API failure response. 
+ I assume I have to send records in batches but how to handle the interruption and maintain consistency and prevent any kind of data loss. 
+ 
+ I guess the best way here is to send each record separetely (if they are not related to each other).   
+ If you have media attachments, sending of each record will take 2 seconds in average, if you uploading via mobile internet with speed ~2 MB/s. If you will send the large batch of records via each request, you must have stable connection for a long period. 
+ You can send each record as multipart request, where parts are record's body and media attachments. 
+ Also you have no need to check for internet connection, or use receiver for catching changes of connection state. You can simply use this libraries for triggering sync requests: 
+ 
+ JobScheduler 
+ Firebase JobDispatcher 
+ Evernote android-job 
+ 
+ 
+ I would suggest to use Firebase database API.
+It has got nice offline/online/sync implementations. 
+ https://firebase.google.com/docs/database/ 
+ And it is possible to read/write the data using Admin SDK for your NodeJS server: 
+ https://firebase.google.com/docs/admin/setup 
+ 
+ Save your records in local Db and use ORMs for it. Use Retrofit which provide onSuccess and onFailure method for Webservice calling. To send data to server at regular interval you can use sync adapter. 
+ 
+ 
+ 1st I need to know how did you save image in local db ? 
+ You need to create a service to catch connection status. Each time when connection is established, you submit your record as Multipart kind. You can you Retrofit/Asynctask. 
+ Just submit 1 record per one Retrofit/Asynctask, it makes you ez to handle success/fail of each record. 
+ You can run a single or multi retrofit/asynctask to submit one or more record, it's up to you. 
+ If ur data has image, on server side, you have to handle process from ur server to 3rd server ( server to save image ). 
+ 
+ 
+ This is a very broad question and it relates to Architecture, UI Experience, limitations, etc. 
+ It seems to be a synchronization pattern where the user can interact with the data locally and offline but at some point, you'd need to synchronize the local data with server-side and vice-versa. 
+ I believe the best place to start is with a background service (Android, not sure if there's a similar approach on iOS). Essentially, regardless of whether the Android app is running or not, the service must handle all the synchronization, interruption, and failure in the background.  
+ If it's a local db, then you'd need to manage opening and closing the database appropriately and I'd suggest using a field to mark any sync'd records so if some records did fail, you can retry them at another point.
+Also, you can convert the records to json array, then do a post request.
+As for uploading images, definitely needs to be in batch if there's a lot of them but also making sure to keep track of which ones are uploaded and which ones aren't. 
+ The one problem that you will run into if you're supporting synchronization from different devices and platforms, is you'll have conflicting data being synchronized against the backend. You'll need to handle this case otherwise, it could be very messy and most likely cause a lot of weird issues. 
+ Hope this helps on a high level :) 
+ 
+ To take on simple approach ,have 1 flag in your data objects [NSManagedObject] classes as  **sync**
+.While creating new object / modifying an existing object change  **sync flag to false**
+ . 
+ Filter data objects with sync value as false. 
+ 
+ Now you will have an array of objects which you want to sync with server.If you are sending objects one by one in requests.
+On success change  **sync flag to true**
+ else whenever your function gets executed again on app launch/reachability status update, it will filter out unsynced data again & start synch. 
+ 
+ You can use divide and conquer approach means divide the task into small task and upload the data to the server.
+1. take a boolean flag "isFinishData" starting with false.
+2. starting upload the data on server from 0 to 100 records.
+3. next record send from 100 to 200.
+4. this process run until last record (1000) is not send .
+5. in last record update set boolean variable true and exit from loop . 
+ this logic would be work fine in IOS/android both.  
+ 
+ As others have mentioned this is a rather broad question. A lot depends on both the architecture of the server that will receive the data as well as the architecture of the app.  
+ If you have any control over the implementation of your backend I would recommend implementing a storage solution that allows for pausing and resuming of transfers. Both Google Cloud Storage and Amazon S3 offer a similar functionality.  
+ The idea behind this approach is to be able to pick up the upload from where it stopped. In case of app crash or issues with internet connection you don't have to restart all from the beginning.
+In your case I would still start separate uploads for each one of the records and store their upload progress. 
+ Here you can find an example of how to use the pause / resume approach using the mobile SDK with Amazon  https://aws.amazon.com/blogs/mobile/pause-and-resume-amazon-s3-transfers-using-the-aws-mobile-sdk-for-android/ . 
+ Editing adding reference to Amazon iOS SDK ,  http://docs.aws.amazon.com/mobile/sdkforios/developerguide/s3transfermanager.html   
+ 
+ Best way is to break the files into chunks of 100s and upload at intervals or when app is idle. 
+ 

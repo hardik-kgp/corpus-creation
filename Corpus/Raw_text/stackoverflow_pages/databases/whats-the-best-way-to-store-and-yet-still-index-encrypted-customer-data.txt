@@ -1,0 +1,54 @@
+*** whats-the-best-way-to-store-and-yet-still-index-encrypted-customer-data ***
+
+ I'm building an application that needs to store sensitive information, which means the data is encrypted on my database so that a hacker/employee with access to the database cannot decipher the sensitive data.  **However, it still needs to be searchable (on a certain level).**
+
+ I understand certain compromises may have to be made. For example, I'm willing to leave some data attributes unencrypted to make them indexable if necessary,  **but "the main body" must be encrypted**
+.  
+ What are some best practices and approaches for storing sensitive data that needs to be viewable, searchable, and/or sortable by authorized people? 
+ (I was thinking of extracting non  stop words  from the "body" and putting them in random order in a field before encrypting the body, and then feed that field to a search indexer, I doubt it provides any real security.) 
+ 
+ I'm currently looking for a solution to this same problem.  
+ One of the best ideas I've found, is this article from Raul García,  http://blogs.msdn.com/b/raulga/archive/2006/03/11/549754.aspx .  
+ He suggests using a  MAC , to create an indexable column.  The solution is for MS SQL Server, but it could be applied to another system. 
+ 
+ **Update**
+: You'll want to check out  CipherSweet  instead of rolling your own design. It takes care of a lot of  subtle security details  and has a  straightforward security argument . 
+ 
+ Hash functions aren't the solution here. As the accepted answer suggests,  indexing encrypted data  requires a "blind index", facilitated by a MAC. 
+ Let's say you're encrypting social security numbers. When you insert them into the database, you might do something like this: 
+ 
+ And then store both values in the database. When you need to quickly grab a value based on an SSN input, you can recalculate the HMAC and search based on that. 
+ The database never sees the SSN, and your encryption keys should never be checked into source control (SVN, git, etc.). 
+ 
+ You need to use a new class of encryption algorithms called Format Preserving Encryption (search Wiki).  
+ I would be judicious in using such algorithms off-hand simply for the reason that they are relatively new to the literature and it is a thumb rule that you wait for an algorithm to be crypt-analyzed for (say) a decade before you can use it for serious purposes. I am also not sure if there are any standards for such encryption formats. There is only a draft for standard that was submitted in 2010.  http://csrc.nist.gov/groups/ST/toolkit/BCM/documents/proposedmodes/ffx/ffx-spec.pdf   
+ So, consider using it judiciously. Do not rely on format-preserving encryption for information that needs a secrecy span of more than (say) 5 years.  
+ 
+ The reality is you will not benefit from indexes if you encrypt the data. You need to accept this. 
+ If an index is needed, then protect the data by removing permissions to those columns on the DBA accounts.  Only the application account will be able to query these columns. The security is in the limited access rather than encryption.  
+ You have to accept trade-offs.  I hope someone comes in with a wiz bang answer that proves me wrong!  
+ 
+ Take the attributes you want to search on and run them through a 1-way hash (MD5, SHA1), store the results as individual columns and index those columns.  Then when you need to query a value, run the input (unencrypted) value through the same hash and search for the hashed value. 
+ 
+ The main problem in your scenario is that encryption and availability for indexing / search are contradictory parameters.  
+ Here's the artificial but simple example of the problem:  
+Imagine we are looking for "child porn" in business e-mail. The DB is encrypted, everything is fine. But if the search reveals that the e-mail from John to Bill contains both of these  words by finding this e-mail when searching for "child porn", then the actual contents don't matter anymore - child porn should not be discussed in e-mail at all.  
+ So if the DB leaks together with indexes, smart analysis of the word set can reveal plenty of information. For example finding that 50% of corporate mail of software vendor company includes "webos" term can reveal the [possibly secret] fact, that the company works on software for webos.  
+ Now you see, that encryption has limited usefulness in your case. Stronger overall security of the DB might be more important than encryption.  
+ 
+ Store the encrypted blobs but create separate indexing tables that are tied to the blobs using encrypted relations. For example, the following table could store your blobs: 
+ 
+ and the indexes could be related to the blob as such: 
+ 
+ Now when you query for some blob you do: 
+ 
+ You could even use different seeds for the keys and actual blob data. 
+ 
+ There are databases that do support encrypted indexes. The one I know (since I worked for the company) is UniVerse. 
+ Check out the security manual(1) 'Automatic Data Encryption' section. Perhaps it will give you some ideas. 
+ (1):  http://docs.rocketsoftware.com , search for "UniVerse Security Features" 
+ 
+ First, if a hacker gets into your server, you probably have bigger problems than them reading an encrypted database. 
+ Encryption will slow you down.  That's the tradeoff for strengthening that weak link:  an unencrypted database.  KeePass (open source password management tool) says upfront that you shouldn't encrypt all of the fields because it will slow everything down. 
+ The good news is that you can give yourself enough encryption to slow most people down enough that they'll go for greener pastures.  If you're using AES encryption, just don't make the iteration count astronomical and the response on your application will be acceptable. 
+ 

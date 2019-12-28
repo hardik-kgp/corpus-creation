@@ -1,0 +1,35 @@
+*** how-to-migrate-a-postgresql-database-into-a-sqlserver-one ***
+
+ I have a PostgreSQL database that I want to move to SQL Server -- both schema and data. I am poor so I don't want to pay any money. I am also lazy, so I don't want to do very much work. Currently I'm doing this table by table, and there are about 100 tables to do. This is extremely tedious. 
+ Is there some sort of trick that does what I want? 
+ 
+ You should be able to find some useful information in the accepted answer in this Serverfault page:   https://serverfault.com/questions/65407/best-tool-to-migrate-a-postgresql-database-to-ms-sql-2005 . 
+ If you can get the schema converted without the data, you may be able to shorten the steps for the data by using this command: 
+ 
+ This load will be quite slow, but the   option generates the most generic INSERT statements possible for each row of data and should be compatible. 
+ EDIT: Suggestions on converting the schema follows: 
+ I would start by dumping the schema, but removing anything that has to do with ownership or permissions.  This should be enough: 
+ 
+ Edit this file to add the line   to the beginning and   to the end.  Now you can load it and run it in a query window in SQL Server.  If you get any errors, make sure you go to the bottom of the file, highlight the ROLLBACK statement and run it (by hitting F5 while the statement is highlighted).   
+ Basically, you have to resolve each error until the script runs through cleanly.  Then you can change the   to   and run one final time. 
+ Unfortunately, I cannot help with which errors you may see as I have never gone from PostgreSQL to SQL Server, only the other way around.  Some things that I would expect to be an issue, however (obviously, NOT an exhaustive list): 
+ 
+ PostgreSQL does auto-increment fields by linking a   field to a   using a  .  In SQL Server, this is an   column, but they're not exactly the same thing.  I'm not sure if they are equivalent, but if your original schema is full of "id" fields, you may be in for some trouble.  I don't know if SQL Server has  , so you may have to remove those. 
+ Database functions / Stored Procedures do not translate between RDBMS platforms.  You'll need to remove any   statements and translate the algorithms manually. 
+ Be careful about encoding of the data file.  I'm a Linux person, so I have no idea how to verify encoding in Windows, but you need to make sure that what SQL Server expects is the same as the file you are importing from PostgreSQL.    has an option   that will let you set a specific encoding.  I seem to recall that Windows tends to use two-byte, UTF-16 encoding for Unicode where PostgreSQL uses UTF-8.  I had some issue going from SQL Server to PostgreSQL due to UTF-16 output so it would be worth researching. 
+ The PostgreSQL datatype   is simply a   without a max length.  In SQL Server,   is... complicated (and deprecated).  Each field in your original schema that are declared as   will need to be reviewed for an appropriate SQL Server data type. 
+ SQL Server has extra data types for   data.  I'm not familiar enough with it to make suggestions.  I'm just pointing out that it may be an issue. 
+ 
+ 
+ I have found a faster and easier way to accomplish this. 
+ First copy your table (or query) to a tab delimited file like so: 
+ 
+ Next you need to create your table in SQL, this will not handle any schema for you. The schema must match your exported tsv file in field order and data types. 
+ Finally you run SQL's bcp utility to bring in the tsv file like so: 
+ 
+ A couple of things of note that I encountered. Postgres and SQL Server handle boolean fields differently. Your SQL Server schema need to have your boolean fields set to varchar(1) and the resulting data will be 'f', 't' or null. You will then have to convert this field to a bit. doing something like: 
+ 
+ Another thing is the geography/geometry fields are very different between the two platforms. Export the geometry fields as WKT using   and convert appropriately on the SQL Server end. 
+ There may be more incompatibilities needing tweaks like this. 
+ EDIT. So whereas this technique does technically work, I am trying to transfer several million records from 100+ tables to SQL Azure and bcp to SQL Azure is pretty flaky it turns out. I keep getting intermittent  Unable to open BCP host data-file  errors, the server is intermittently timing out and for some reason some records are not getting transferred with no indications of errors or problems. So this technique is not stable for transferring large amounts of data to Azure SQL. 
+ 

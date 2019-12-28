@@ -1,0 +1,132 @@
+*** first-time-database-design-am-i-overengineering ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ Background 
+ I'm a first year CS student and I work part time for my dad's small business. I don't have any experience in real world application development. I have written scripts in Python, some coursework in C, but nothing like this. 
+ My dad has a small training business and currently all classes are scheduled, recorded and followed up via an external web application. There is an export/"reports" feature but it is very generic and we need specific reports. We don't have access to the actual database to run the queries. I've been asked to set up a custom reporting system.  
+ My idea is to create the generic CSV exports and import (probably with Python) them into a MySQL database hosted in the office every night, from where I can run the specific queries that are needed. I don't have experience in databases but understand the very basics. I've read a little about database creation and normal forms. 
+ We may start having international clients soon, so I want the database to not explode if/when that happens. We also currently have a couple big corporations as clients, with different divisions (e.g. ACME parent company, ACME healthcare division, ACME bodycare division) 
+ The schema I have come up with is the following: 
+ 
+ **From the client perspective:**
+
+ 
+ Clients is the main table 
+ Clients are linked to the department they work for
+
+ 
+ Departments can be scattered around a country: HR in London, Marketing in Swansea, etc. 
+ Departments are linked to the division of a company 
+ 
+ Divisions are linked to the parent company   
+ 
+ **From the classes perspective:**
+
+ 
+ Sessions is the main table
+
+ 
+ A teacher is linked to each session 
+ A statusid is given to each session. E.g. 0 - Completed, 1 - Cancelled 
+ Sessions are grouped into "packs" of an arbitrary size 
+ 
+ Each packs is assigned to a client 
+ 
+ 
+ I "designed" (more like scribbled) the schema on a piece of paper, trying to keep it normalised to the 3rd form. I then plugged it into MySQL Workbench and it made it all pretty for me:  ( Click here for full-sized graphic ) 
+ 
+ (source:  maian.org )   
+ **Example queries I'll be running**
+
+ 
+ Which clients with credit still left are inactive (those without a class scheduled in the future) 
+ What is the attendance rate per client/department/division (measured by the status id in each session) 
+ How many classes has a teacher had in a month 
+ Flag clients who have low attendance rate 
+ Custom reports for HR departments with attendance rates of people in their division 
+ 
+ Question(s) 
+ 
+ **Is this overengineered or am I headed the right way?**
+
+ Will the need to join multiple tables for most queries result in a big performance hit? 
+ I have added a 'lastsession' column to clients, as it is probably going to be a common query. Is this a good idea or should I keep the database strictly normalised? 
+ 
+ Thanks for your time 
+ 
+ Some more answers to your questions: 
+ 1) You're pretty much on target for someone who is approaching a problem like this for the first time.  I think the pointers from others on this question thus far pretty much cover it. Good job! 
+ 2 & 3) The performance hit you will take will largely be dependent on having and optimizing the right indexes for your particular queries / procedures and more importantly the volume of records.  Unless you are talking about well over a million records in your main tables you seem to be on track to having a sufficiently mainstream design that performance will not be an issue on reasonable hardware.   
+ That said, and this relates to your question 3, with the start you have you probably shouldn't really be overly worried about performance or hyper-sensitivity to normalization orthodoxy here.  This is a reporting server you are building, not a transaction based application backend, which would have a much different profile with respect to the importance of performance or normalization.  A database backing a live signup and scheduling application has to be mindful of queries that take seconds to return data.  Not only does a report server function have more tolerance for complex and lengthy queries, but the strategies to improve performance are much different.   
+ For example, in a transaction based application environment your performance improvement options might include refactoring your stored procedures and table structures to the nth degree, or developing a caching strategy for small amounts of commonly requested data.  In a reporting environment you can certainly do this but you can have an even greater impact on performance by introducing a snapshot mechanism where a scheduled process runs and stores pre-configured reports and your users access the snapshot data with no stress on your db tier on a per request basis. 
+ All of this is a long-winded rant to illustrate that what design principles and tricks you employ may differ given the role of the db you're creating.  I hope that's helpful. 
+ 
+ You've got the right idea. You can however clean it up, and remove some of the mapping (has*) tables. 
+ What you can do is in the Departments table, add CityId and DivisionId. 
+ Besides that, I think everything is fine... 
+ 
+ The only changes I would make are: 
+1- Change your VARCHAR to NVARCHAR, if you might be going international, you may want unicode.   
+ 2- Change your int id's to GUIDs (uniqueidentifier) if possible (this might just be my personal preference).  Assuming you eventually get to the point where you have multiple environments (dev/test/staging/prod), you may want to migrate data from one to the other.  Have GUID Ids makes this significantly easier.   
+ 3- Three layers for your Company -> Division -> Department structure may not be enough.  Now, this might be over-engineering, but you could generalize that hierarchy such that you can support n-levels of depth.  This will make some of your queries more complex, so that may not be worth the trade-off.  Further, it could be that any client that has more layers may be easily "stuffable" into this model.   
+ 4- You also have a Status in the Client Table that is a VARCHAR and has no link to the Statuses table.  I'd expect a little more clarity there as to what the Client Status represents. 
+ 
+ No.  It looks like you're designing at a good level of detail. 
+ I think that Countries and Companies are really the same entity in your design, as are Cities and Divisions.  I'd get rid of the Countries and Cities tables (and Cities_Has_Departments) and, if necessary, add a boolean flag IsPublicSector to the Companies table (or a CompanyType column if there are more choices than simply Private Sector / Public Sector). 
+ Also, I think there's an error in your usage of the Departments table.  It looks like the Departments table serves as a reference to the various kinds of departments that each customer division can have.  If so, it should be called DepartmentTypes.  But your clients (who are, I assume, attendees) do not belong to a department TYPE, they belong to an actual department instance in a company.  As it stands now, you will know that a given client belongs to an HR department somewhere, but not which one! 
+ In other words, Clients should be linked to the table that you call Divisions_Has_Departments (but that I would call simply Departments).  If this is so, then you must collapse Cities into Divisions as discussed above if you want to use standard referential integrity in the database. 
+ 
+ By the way, it's worth noting that if you're generating CSVs already and want to load them into a mySQL database, LOAD DATA LOCAL INFILE is your best friend:  http://dev.mysql.com/doc/refman/5.1/en/load-data.html  . Mysqlimport is also worth looking into, and is a command-line tool that's basically a nice wrapper around load data infile. 
+ 
+ Most things have already been said, but I feel that I can add one thing: it is quite common for younger developers to worry about performance a little bit too much up-front, and your question about joining tables seems to go into that direction. This is a software development anti-pattern called ' Premature Optimization '. Try to banish that reflex from your mind :) 
+ One more thing: Do you believe you really need the 'cities' and 'countries' tables? Wouldn't having a 'city' and 'country' column in the departments table suffice for your use cases? E.g. does your application need to list departments by city and cities by country? 
+ 
+ Following comments based on role as a Business Intelligence/Reporting specialist and strategy/planning manager: 
+ 
+ I agree with Larry's direction above.  IMHO, It's not so much over engineered, some things just look a little out of place.  To keep it simple, I would tag client directly to a Company ID, Department Description, Division Description, Department Type ID, Division Type ID.  Use Department Type ID and Division Type ID as references to lookup tables and internal reporting/analysis fields for long term consistency. 
+ Packs table contains "Credit" column, shouldn't that actually be tied to the Client base table so if they many packs you can see how much credit owed is left for future classes?  The application can take care of the calc and store it centrally in the Client table. 
+ Company info could use many more fields, including the obvious address/phone/etc. information.  I'd also be prepared to add in D&B "DUNs" columns (Site/Branch/Ultimate) long term, Dun and Bradstreet (D&B) has a huge catalog of companies and you'll find later down the road their information is very helpful for reporting/analysis. This will take care of the multiple division issue you mention, and allow you to roll up their hierarchy for sub/division/branches/etc. of large corps. 
+ You don't mention how many records you'll be working with which could imply setting yourself up for a large development initiative which could have been done quicker and far fewer headaches with prepackaged "reporting" software.  If your not dealing with a large database (< 65000) rows, make sure MS-Access, OpenOffice (Base) or related report/app dev solutions couldn't do the trick.  I use Oracle's free APEX software quite a bit myself, it comes with their free database Oracle XE just download it from their site. 
+ FYI - Reporting insight: for large databases, you typically have two database instances a) transaction database for recording each detailed record.  b) reporting database (data mart/data warehouse) housed on a separate machine.  For more information search google both Star Schema and Snowflake Schema. 
+ 
+ Regards. 
+ 
+ I want to address only the concern that joining to mutiple tables will casue a performance hit. Do not be afraid to normalize because you will have to do joins. Joins are normal and expected in relational datbases and they are designed to handle them well. You will need to set PK/FK relationships (for data integrity, this is important to consider in designing) but in many databases FKs are not automatically indexed. Since they wil be used in the joins, you will definitelty want to start by indexing the FKS. PKs generally get an index on creation as they have to be unique. It is true that datawarehouse design reduces the number of joins, but usually one doesn't get to the point of data warehousing until one has millions of records needed to be accessed in one report. Even then almost all data warehouses start with a transactional database to collect the data in real time and then data is moved to the warehouse on a schedule (nightly or monthly or whatever the business need is). So this is a good start even if you need to design a data warehouse later to improve report performance. 
+ I must say your design is impressive for a first year CS student. 
+ 
+ It isn't over-engineered, this is how I would approach the problem. Joining is fine, there won't be much of a performance hit (it's completely necessary unless you de-normalise the database out which isn't recommended!). For statuses, see if you can use an enum datatype instead to optimise that table out. 
+ 
+ I've worked in the training / school domain and I thought I'd point out that there's generally a M:1 relationship between what you call "sessions" (instances of a given course) and the course itself. In other words, your catalog offers the course ("Spanish 101" or whatever), but you might have two different instances of it during a single semester (Tu-Th taught by Smith, Wed-Fri taught by Jones). 
+ Other than that, it looks like a good start. I bet you'll find that the client domain (graphs leading to "clients") is more complex than you've modeled, but don't go overboard with that until you've got some real data to guide you.  
+ 
+ A few things came to mind: 
+ 
+ The tables seemed geared to reporting, but not really running the business.  I would think when a client signs up, there's essentially an order being placed for the client attending a list of sessions, and that order might be for multiple employees in one company.  It would seem an "order" table would really be at the center of your system and driving your data capture and eventual reporting.  (Compare the paper documents you've been using to run the business with your database design to see if there's a logical match.) 
+ Companies often don't have divisions.  Employees sometimes change divisions/departments, maybe even mid-session.  Companies sometimes add/delete/rename divisions/departments.  Make sure the possible realtime changing contents of your tables doesn't make subsequent reporting/grouping difficult.  With so much contact data split over so many tables, you might have to enforce very strict data entry validation to keep your reports meaningful and inclusive.  Eg, when a new client is added, making sure his company/division/department/city match the same values as his coworkers. 
+ The "packs" concept isn't clear at all. 
+ Since you indicate it's a small business, it would be surprising if performance would be an issue, considering the speed and capacity of current machines. 
+ 
+ 

@@ -1,0 +1,45 @@
+*** scala-collection-like-sql-support-as-in-linq ***
+
+ As far as I understand the only thing LINQ supports, which Scala currently doesn't with its collection library, is the integration with a SQL Database. 
+ As far as I understand LINQ can "accumulate" various operations and can give "the whole" statement to the database when queried to process it there, preventing that a simple   first copies the whole table into data structures of the VM. 
+ If I'm wrong, I would be happy to be corrected. 
+ If not, what is necessary to support the same in Scala? 
+ Wouldn't it possible to write a library which implements the collection interface, but doesn't have any data structures backing it but a String which gets assembled with following collection into the required Database statement? 
+ Or am I completely wrong with my observations? 
+ 
+ As the author of ScalaQuery, I don't have much to add to Stilgar's explanation. The part of LINQ which is missing in Scala is indeed the expression trees. That is the reason why ScalaQuery performs all its computations on Column and Table types instead of the basic types of those entities. 
+ You declare a table as a Table object with a projection (tuple) of its columns, e.g.: 
+ 
+ User.id and User.name are now of type Column[Int] and Column[String] respectively. All computations are performed in the Query monad (which is a more natural representation of database queries than the SQL statements that have to be created from it). Take the following query: 
+ 
+ After some implicit conversions and desugaring this translates to: 
+ 
+ The filter and map methods do not have to inspect their arguments as expression trees in order to build the query, they just run them. As you can see from the types, what looks superficially  like "u.id:Int < 5:Int" is actually "u.id:Column[Int] < u.id:Column[Int]". Running this expression results in a query AST like Operator.Relational("<", NamedColumn("user", "id"), ConstColumn(5)). Similarly, the "filter" and "map" methods of the Query monad do not actually perform filtering and mapping but instead build up an AST that describes these operations. 
+ The QueryBuilder then uses this AST to construct the actual SQL statement for the database (with a DBMS-specific syntax). 
+ An alternative approach has been taken by  ScalaQL  which uses a compiler plugin to work directly with expression trees, ensure that they only contain the language subset which is allowed in database queries, and construct the queries statically. 
+ 
+ I should mention that Scala does have  experimental  support for expression trees. If you pass an anonymous function as an argument to a method expecting a parameter of type  , you get an AST. 
+ 
+ This has been used in the bytecode generation library 'Mnemonics', which was  presented  by its author Johannes Rudolph at Scala Days 2010. 
+ 
+ With LINQ the compiler checks to see if the lambda expression is compiled to IEnumerable or to IQueryable. The first works like Scala collections. The second compiles the expression to an expression tree (i.e. data structure). The power of LINQ is that the compiler itself can translate the lambdas to expression trees. You can write a library that builds expression trees with interface similar to what you have for collection but how are you goning to make the compiler build data structures (instead of JVM code) from lambdas? 
+ That being said I am not sure what Scala provides in this respect. Maybe it is possible to build data structures out of lambdas in Scala but in any case I believe you need a similar feature in the compiler to build support for databases. Mind you that databases are not the only underlying data source that you can build providers for. There are numerous LINQ providers to stuff like Active Directory or the Ebay API for example. 
+ Edit:
+Why there cannot be just an API? 
+ In order to make queries you do not only use the API methods (filter, Where, etc...) but you also use lambda expressions as arguments of these methods .Where(x => x > 3) (C# LINQ). The compilers translate the lambdas to bytecode. The API needs to build data structures (expression trees) so that you can translate the data structure to the underlying data source. Basically you need the compiler to do this for you. 
+ Disclaimer 1:
+Maybe (just maybe) there is some way to create proxy objects that execute the lambdas but overload the operators to produce data structures. This would result in slightly worse performance than the actual LINQ (runtime vs compile time). I am not sure if such a library is possible. Maybe the ScalaQuery library uses similar approach. 
+ Disclaimer 2:
+Maybe the Scala language actually can provide the lambdas as an inspectable objects so that you can retrieve the expression tree. This would make the lambda feature in Scala equivalent to the one in C#. Maybe the ScalaQuery library uses this hypothetical feature. 
+ Edit 2:
+I did a bit of digging. It seems like ScalaQuery uses the library approach and overloads a bunch of operators to produce the trees at runtime. I am not entirely sure about the details because I am not familiar with Scala terminology and have hard time reading the complex Scala code in the article:
+ http://szeiger.de/blog/2008/12/21/a-type-safe-database-query-dsl-for-scala/ 
+ 
+ Like every object which can be used in or returned from a query, a table is parameterized with the type of the values it represents. This is always a tuple of individual column types, in our case Integers and Strings (note the use of java.lang.Integer instead of Int; more about that later). In this respect SQuery (as I’ve named it for now) is closer to HaskellDB than to LINQ because Scala (like most languages) does not give you access to an expression’s AST at runtime. In LINQ you can write queries using the real types of the values and columns in your database and have the query expression’s AST translated to SQL at runtime. Without this option we have to use meta-objects like Table and Column to build our own AST from these. 
+ 
+ Very cool library indeed. I hope in the future it gets the love it deserves and becomes real production ready tool. 
+ 
+ You probably want something like  http://scalaquery.org/ . It does exactly what @Stilgar answer suggests, except it's only SQL. 
+ 
+ check out  http://squeryl.org/ 
+ 

@@ -1,0 +1,40 @@
+*** representing-number-ranges-in-a-relational-database-mysql ***
+
+ I'm trying to understand if there are any standard best practice approaches for modelling number ranges in a Relational Database (In this case MySQL) and if this is in fact a sensible thing to do. 
+ I shall explain the task that prompted the question for context. 
+ I'm currently in the process of designing a database which will model the allocation of a pool of Identifiers to Customers.  
+ The pool of potential Identifiers has a range from 0 to about 2^30 
+ A given customer could be allocated any number of Identifiers from a single Identifier to millions in multiple contiguous blocks. 
+ A given Identifier may only be allocated to a single customer (i.e. it is a one to many relationship) 
+ Clearly there will be a Customer table and and an Identifier table containing the Customer key. 
+ The complexity comes with how to model the Identifiers: 
+ Option one would be to have a row represent single identifier. This will result in a potentially huge number of rows in the table, but would make searching for who owns which identifier and if a given identifier is in use trivial.  
+ The second (and I think more promising) option would be to have a row represent a range of values with a minimum and maximum value. This would make queries a bit more complex (I'm assuming the query for checking if an identifier was in use would be to query for ranges with "Minimum lower than X" and a "Maximum higher than X") but would result in far fewer rows and would likely be easier to manage and update. 
+ I would welcome any views on if this is a good approach and if not if there is an obvious better approach that I am missing. 
+ 
+ If the ranges do not intersect, then you may store them as pairs of   values: 
+ 
+ To query the customer a number belongs to, use this: 
+ 
+ 
+ If I understand you correctly you're needing to work with multiple ranges, which could get tricky. You might want to look at PostgreSQL 9.2 range types. They look relevant to what you're trying to do. 
+ In the real world ranges can overlap, contain each other or not overlap, and they can be open or closed, making range-checking queries potentially complex and error-prone. Range types remove most of this complexity and they're supported natively by indexing. 
+ https://wiki.postgresql.org/images/7/73/Range-types-pgopen-2012.pdf 
+ Best wishes, 
+ Nick 
+ 
+ Normally, I wouldn't try to reduce the number of rows just for the sake of it - in principle, a well-indexed table with a billion rows should be just as quick as a table with 100 rows, as long as your queries hit the index.  
+ I'd work some more on the actual queries you are likely to want to run, and design the solution on that basis. For instance, would you want to list all the IDs that belong to a single customer? Would you want to check which customer owns several IDs? Would you want to find how many IDs a customer owns?
+The latter is a little tricky if you have "range" tables - instead of doing  , you'd have to calculate the number IPs in each range for the customer, and add them up. Not rocket science, but might be slower in the real world... 
+ 
+ If you make a table like so 
+ **table ids**
+
+ 
+ Now you can simply check for a free key by doing 
+ 
+ To check a free range do 
+ 
+ 
+ One possibility is to use a regular expression to represent the pool of identifiers, casting between strings and numbers as needed. The problem here is to find a regular expression for a given list of identifiers. This might be automated using the Aho–Corasick algorithm. This is only practical if these pools of IDs mostly look the same. Obviously if they are randomly assigned, then its going to be hard to find a regular expression much better than a long list of ORd literals. 
+ 

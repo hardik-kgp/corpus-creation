@@ -1,0 +1,125 @@
+*** why-do-i-get-java-lang-abstractmethoderror-when-trying-to-load-a-blob-in-the-db ***
+
+ I've got a problem with JDBC. 
+ I'have the following code: 
+ 
+ I get the following error: 
+ 
+ My connection string is    
+ The Oracle version is 11g.   
+ From the error message it seems that something is missing but:   
+ 
+ when I read from the same blob column
+(with blob.getBytes) everything
+works. 
+ The DLL's of the instant client are
+(correctly) in the library path. 
+ This is the manifest of the Oracle
+JDBC JAR in my class path: 
+ 
+ 
+ 
+ With JDBC, that error usually occurs because your JDBC driver implements an older version of the JDBC API than the one included in your JRE. These older versions are fine so long as you don't try and use a method that appeared in the newer API. 
+ I'm not sure what version of JDBC   appeared in. It's been around for a while, I think. 
+ Regardless, your JDBC driver version (10.2.0.4.0) is quite old, I recommend upgrading it to the version that was released with 11g (download  here ), and try again. 
+ 
+ It looks that even if the driver 10.2 is compatible with the JDBC3 it may not work with JRE6
+as I've found here: 
+ http://www.oracle.com/technology/tech/java/sqlj_jdbc/htdocs/jdbc_faq.html#02_03 
+ Which JDBC drivers support which versions of Javasoft's JDK?    
+ pre-8i OCI and THIN Drivers - JDK 1.0.x and JDK 1.1.x 
+8.1.5 OCI and THIN Drivers - JDK 1.0.x and JDK 1.1.x 
+8.1.6SDK THIN Driver - JDK 1.1.x and JDK 1.2.x (aka Java2) 
+8.1.6SDK OCI Driver - Only JDK 1.1.x 
+8.1.6 OCI and THIN Driver - JDK 1.1.x and JDK 1.2.x 
+8.1.7 OCI and THIN Driver - JDK 1.1.x and JDK 1.2.x 
+9.0.1 OCI and THIN Driver - JDK 1.1.x, JDK 1.2.x and JDK 1.3.x 
+9.2.0 OCI and THIN Driver - JDK 1.1.x, JDK 1.2.x, JDK 1.3.x, and JDK 1.4.x 
+10.1.0 OCI and THIN Driver - JDK 1.2.x, JDK 1.3.x, and JDK 1.4.x 
+10.2.0 OCI and THIN Driver - JDK 1.2.x, JDK 1.3.x, JDK 1.4.x, and JDK 5.0.x 
+11.1.0 OCI and THIN Driver - JDK 1.5.x and JDK 1.6.x    
+ Oracle 10.2.0 supports:      
+ Full support for JDBC 3.0 
+Note that there is no real change in the support for the following in the database.     Allthat has changed is that some methods that previously threw SQLException now do something more reasonable instead. 
+result-set holdability 
+returning multiple result-sets.      
+ 
+ Here's what the JDK API says about AbstractMethodError: 
+ 
+ Thrown when an application tries to
+  call an abstract method. Normally,
+  this error is caught by the compiler;
+  this error can only occur at run time
+  if the definition of some class has
+  incompatibly changed since the
+  currently executing method was last
+  compiled. 
+ 
+ Bug in the oracle driver, maybe? 
+ 
+ Just put   in class path, so that we can fix   exception: 
+ 
+ in Oracle. 
+ 
+ As described in the API of   it is available since 1.6 so it is a  **JDBC 4.0 API**
+! You use a  **JDBC 3 Driver**
+ so this method is not available! 
+ 
+ In my case this was the error. 
+ 
+ Exception in thread "main" java.lang.AbstractMethodError: oracle.jdbc.driver.T4CConnection.isValid(I)Z
+      at org.apache.tomcat.dbcp.dbcp2.DelegatingConnection.isValid(DelegatingConnection.java:917)
+      at org.apache.tomcat.dbcp.dbcp2.PoolableConnection.validate(PoolableConnection.java:282)
+      at org.apache.tomcat.dbcp.dbcp2.PoolableConnectionFactory.validateConnection(PoolableConnectionFactory.java:356)
+      at org.apache.tomcat.dbcp.dbcp2.BasicDataSource.validateConnectionFactory(BasicDataSource.java:2306)
+      at org.apache.tomcat.dbcp.dbcp2.BasicDataSource.createPoolableConnectionFactory(BasicDataSource.java:2289)
+      at org.apache.tomcat.dbcp.dbcp2.BasicDataSource.createDataSource(BasicDataSource.java:2038)
+      at org.apache.tomcat.dbcp.dbcp2.BasicDataSource.getConnection(BasicDataSource.java:1532)
+      at beans.Test.main(Test.java:24) 
+ 
+ **Solution:**
+ I just change   to  
+ 
+ Just use ojdb6.jar and will fix all such issues. 
+ For maven based applications: 
+ 
+ Download and copy ojdbc6.jar to a directory in your local machine 
+ From the location where you have copied your jar install the ojdbc6.jar in your local .M2 Repo by issuing below command
+C:\SRK\Softwares\Libraries>mvn install:install-file -DgroupId=com.oracle -DartifactId=ojdbc6 -Dversion=11.2.0.3 
+-Dpackaging=jar -Dfile=ojdbc6.jar -DgeneratePom=true 
+ Add the below in your project pom.xml as ojdbc6.jar dependency 
+ 
+ 
+ PS: The issue might be due to uses of @Lob annotation in JPA for storing large objects specifically in oracle db columns. Upgrading to 11.2.0.3 (ojdbc6.jar) can resolve the issue. 
+ 
+ I would suggest investigating your classpath very carefully.  You might have two different versions of a jar file where one invokes methods in the other and the other method is abstract. 
+ 
+ In my case problem was at context.xml file of my project. 
+ The following from context.xml causes the  **java.lang.AbstractMethodError**
+, since we didn't show the datasource factory. 
+ 
+ Simpy adding  **factory="org.apache.tomcat.jdbc.pool.DataSourceFactory"**
+ solved the issue: 
+ 
+ To make sure I reproduced the issue several times by removing   factory="org.apache.tomcat.jdbc.pool.DataSourceFactory" from Resource           
+ 
+ I do meet this problem.
+use ojdbc14.jar and jdk 1.6  
+ 
+ 
+ 
+ instead of this u need to use 
+ 
+ 
+ The problem is due to older version of ojdbc - ojdbc14. 
+ Place the latest version of ojdbc jar file in your application or shared library.
+(Only one version should be there and it should be the latest one)
+As of today - ojdbc6.jar 
+ Check the application libraries and shared libraries on server. 
+ 
+ I think, the reason of the error from JDBC driver, you should get suitable JDBC driver for your Oracle db. You can get it from 
+ http://www.oracle.com/technetwork/database/enterprise-edition/jdbc-112010-090769.html 
+ 
+ I got the same problem and resolved it. 
+ To resolve this problem, you should upgrade  commons-dbcp  library to latest version (1.4). It will work with latest JDBC drivers. 
+ 

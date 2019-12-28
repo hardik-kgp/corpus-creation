@@ -1,0 +1,134 @@
+*** modeling-product-variants ***
+
+ I've been trying to model product variants and thought that I might need to use EAV. I might have been able to do it without EAV, but I'm concerned that I might have missed something. Here's my design: 
+ 
+ Here's what I am trying to represent: 
+ 
+ A   can have 0 or more   (e.g. a t-shirt product may have size and color variants). 
+ A   can have 1 or more   (e.g. the size variant can be small, medium, large). 
+ An   is comprised of 1 or more   (the   table would contain all the possible combinations of `product_variant_options. So, if there were 3 sizes and 3 colors, there would be 3 * 3 = 9 combinations -- and each combination would be given its own SKU and price). 
+ A   can have 1 or more  . 
+ 
+ If the product doesn't have any variants, then just ignore  ,  , and  . 
+ Is this design sound? Will I end up having problems querying this? Will it scale? Is it normalized? 
+ **UPDATE 1**
+
+ @Edper: 
+ 
+ If a product can have 0 or many (optional mode) product variants (e.g. size, color etc). Does it follow that a product variants can also have 0 or many products having that variant? 
+ 
+ I don't think so. It is possible that a product like a "t-shirt" may have a "size" variant and another product like "pants" may also have a "size" variant, but I think that's just only happenstance. There is no need to make "size" only appear as one record because "size" might have different context. 
+ The products I'm dealing with vary greatly and they are bound to have similarly named variants. 
+ **UPDATE 2:**
+
+ Here's an example of how I see my data: 
+ 
+ I've boxed the variant   and its associated values. I want to make it clear that these are not considered to be duplicate data. The   variant for the 3 products is just happenstance. There is no need to normalize this, I think. Each product can have 0 or more variants -- and they are unknown to me. I expect "duplicates" (though they aren't really duplicates as they always are in the context of a particular product -- so, Widget 1's "Size" variant is not the same as Widget 2's "Size" variant). 
+ **UPDATE 3:**
+
+ I see now that, in my design, it is possible for a   to have multiple identical  . I think that can be resolved by making  .  and  .  a composite key. This means that Widget 1 can only have "Size" variant once. 
+ .   .  would also need to be a composite key. 
+ **UPDATE 4:**
+
+ By updating my   to include   (FK to  . ) and enforcing a UNIQUE constraint with  .  and  . , I think I was able to prevent the problem of having an SKU that is both "Small" and "Large". Is this right?  
+ 
+ 
+ 
+ You could have a design like: 
+ 
+ With the Primary, Unique and Foreign Keys: 
+ 
+ PRODUCTS
+ 
+ PK: product_id 
+ UK: product_name 
+ 
+ OPTIONS
+ 
+ PK: option_id 
+ UK: option_name 
+ 
+ OPTION_VALUES
+ 
+ PK: option_id, value_id 
+ UK: option_id, value_name 
+ FK: option_id REFERENCES OPTIONS (option_id) 
+ 
+ PRODUCT_OPTIONS
+ 
+ PK: product_id, option_id 
+ FK: product_id REFERENCES PRODUCTS (product_id) 
+ FK: option_id REFERENCES OPTIONS (option_id) 
+ 
+ PRODUCT_VARIANTS
+ 
+ PK: product_id, variant_id 
+ UK: sku_id 
+ FK: product_id REFERENCES PRODUCTS (product_id) 
+ 
+ VARIANT_VALUES
+ 
+ PK: product_id, variant_id, option_id 
+ FK: product_id, variant_id REFERENCES PRODUCT_VARIANTS (product_id, variant_id) 
+ FK: product_id, option_id REFERENCES PRODUCT_OPTIONS (product_id, option_id) 
+ FK: option_id, value_id REFERENCES OPTION_VALUES (option_id, value_Id) 
+ 
+ 
+ You have: 
+ 
+ PRODUCTS e.g. Shirt, Jumper, Trousers 
+ OPTIONS e.g. Size, Colour, Length 
+ OPTION_VALUES e.g Size - Small, Medium, Large; Colour - Red, White, Blue 
+ PRODUCT_OPTIONS e.g. Shirt - Size, Colour; Trousers - Length, Colour 
+ 
+ You then need to create a n-dimensional array, with the number of dimensions equalling the number of options for the product. Each element in the array corresponds to a product variant. There will always be at least one product variant for each product; as there is always the pseudo option of the product "as-is" 
+ 
+ PRODUCT_VARIANTS e.g Shirt 1, Shirt 2 
+ VARIANT_VALUES e.g Shirt 1: Small Red; Shirt 2: Small White 
+ 
+ You may wish to have validation to ensure a SKU is not assigned unless values have been specified for all options associated with a product. 
+ Based on the spreadsheet of how you see your data you could enter data in your tables as follows: 
+ 
+ There seems to be nothing in your design from stopping the addition of the entry of the record (product_variant_option_id: 2; sku_id 1) so that SKU W1SSCW has now both the options of Small and Large. There is nothing to stop the entry of the record  (product_variant_option_id: 7; sku_id: 1) so that SKU W1SSCW also has the option Amateur. 
+ Based on the spreadsheet of how you see your data you could enter data in my tables as follows: 
+ 
+ In my design you could not enter the additional VARIANT_VALUES record (product_id: 1; variant_id: 1; option_id: 1; value_id: 2) - so that SKU W1SSCW has now both the options of Small and Large - due to the primary key on VARIANT_VALUES and the existing VARIANT_VALUES record (product_id: 1; variant_id: 1; option_id: 1; value_id: 1). In my design you could not enter the VARIANT_VALUES record (product_id: 1; variant_id: 1; option_id: 4; value_id: 1) - so that SKU W1SSCW also has the option Amateur - due to the foreign key referencing PRODUCT_OPTIONS and the lack of a record in this table of (product_id: 1; option_id: 4) indicating that Class is a valid option for product Widget 1. 
+ **EDIT**
+: Design with no PRODUCT_OPTIONS table 
+ You could have a design like: 
+ 
+ With the Primary, Unique and Foreign Keys: 
+ 
+ PRODUCTS
+ 
+ PK: product_id 
+ UK: product_name 
+ 
+ OPTIONS
+ 
+ PK: product_id, option_id 
+ UK: product_id, option_name 
+ 
+ OPTION_VALUES
+ 
+ PK: product_id, option_id, value_id 
+ UK: product_id, option_id, value_name 
+ FK: product-id, option_id REFERENCES OPTIONS (product_id, option_id) 
+ 
+ PRODUCT_SKUS
+ 
+ PK: product_id, sku_id 
+ UK: sku_id 
+ FK: product_id REFERENCES PRODUCTS (product_id) 
+ 
+ SKU_VALUES
+ 
+ PK: product_id, sku_id, option_id 
+ FK: product_id, sku_id REFERENCES PRODUCT_SKUS (product_id, sku_id) 
+ FK: product_id, option_id REFERENCES OPTIONS (product_id, option_id) 
+ FK: product_id, option_id, value_id REFERENCES OPTION_VALUES (product_id, option_id, value_id) 
+ 
+ 
+ Based on the spreadsheet of how you see your data you could enter data in these tables as follows: 
+ 
+ 

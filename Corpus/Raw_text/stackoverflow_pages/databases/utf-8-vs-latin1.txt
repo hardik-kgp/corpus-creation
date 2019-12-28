@@ -1,0 +1,53 @@
+*** utf-8-vs-latin1 ***
+
+ What are the advantages/disadvantages between using utf8 as a charset against using latin1? 
+ If utf can support more chars and is used consistently wouldn't it always be the better choice? Is there any reason to choose latin1? 
+ 
+  has the advantage that it is a single-byte encoding, therefore it can store more characters in the same amount of storage space because the length of string data types in MySql is dependent on the encoding. The manual  states  that 
+ 
+ To calculate the number of bytes used to store a particular CHAR,
+  VARCHAR, or TEXT column value, you must take into account the
+  character set used for that column and whether the value contains
+  multi-byte characters. In particular, when using the utf8 (or utf8mb4)
+  Unicode character set, you must keep in mind that not all characters
+  use the same number of bytes and can require up to three (four) bytes
+  per character. For a breakdown of the storage used for different
+  categories of utf8 or utf8mb4 characters, see Section 10.1.10,
+  “Unicode Support”. 
+ 
+ Furthermore lots of string operations (such as taking substrings and collation-dependent compares) are faster with single-byte encodings. 
+ In any case, latin1 is not a serious contender if you care about internationalization at all. It can be an appropriate choice when you will be storing known safe values (such as percent-encoded URLs). 
+ 
+ UTF8 Advantages: 
+ 
+ Supports most languages, including RTL languages such as Hebrew. 
+ No translation needed when importing/exporting data to UTF8 aware components (JavaScript, Java, etc). 
+ 
+ UTF8 Disadvantages: 
+ 
+ Non-ASCII characters will take more time to encode and decode, due to their more complex encoding scheme. 
+ Non-ASCII characters will take more space as they may be stored using more than 1 byte (characters not in the first 127 characters of the ASCII characters set). A   or   field may need up to 30 bytes to store some UTF8 characters. 
+ Collations other than   will be slower as the sort order will not directly map to the character encoding order), and will require translation in some stored procedures (as variables default to   collation). 
+ If you need to   UTF8 and non-UTF8 fields, MySQL will impose a  SEVERE  performance hit. What would be sub-second queries could potentially take  minutes  if the fields joined are different character sets/collations. 
+ 
+ Bottom line: 
+ If you don't need to support non-Latin1 languages, want to achieve maximum performance, or already have tables using  , choose  . 
+ Otherwise, choose  . 
+ 
+ @Ross Smith II, Point 4 is worth gold, meaning inconsistency between columns can be dangerous.  
+ To add value to the already good answers, here is a small performance test about the difference between charsets: 
+ A modern 2013 server, real use table with 20000 rows, no index on concerned column. 
+ SELECT 4 FROM   WHERE 1 ORDER BY  ; (4 is cache buster) 
+ 
+ varchar(20) CHARACTER SET latin1 COLLATION latin1_bin: 15ms 
+ varbinary(20): 17ms 
+ utf8_bin: 20ms 
+ utf8_general_ci: 23ms 
+ 
+ For simple strings like numerical dates, my decision would be, when performance is concerned, using utf8_bin (CHARACTER SET utf8 COLLATE utf8_bin). This would prevent any adverse effects with other code that expects database charsets to be utf8 while still being sort of binary. 
+ 
+ Fixed-length encodings such as latin-1 are always more efficient in terms of CPU consumption. 
+ If the set of tokens in some fixed-length character set is known to be sufficient for your purpose at hand, and your purpose involves heavy and intensive string processing, with lots of LENGTH() and SUBSTR() stuff, then that could be a good reason for not using encodings such as UTF-8. 
+ Oh, and BTW.  Do not confuse, as you seem to do, between a character set and an  **encoding**
+ thereof.  A character set is some defined set of writeable glyphs.  The same character set can have multiple distinct encodings.  The various versions of the unicode standard each constitute a character set.  Each of them can be subjected to either UTF-8, UTF-16 and "UTF-32" (not an official name, but it refers to the idea of using full four bytes for any character) encoding, and the latter two can each come in a HOB-first or HOB-last flavour. 
+ 

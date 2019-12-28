@@ -1,0 +1,43 @@
+*** connection-pool-strategy-good-bad-or-ugly ***
+
+ I'm in charge of developing and maintaining a group of Web Applications that are centered around similar data. The architecture I decided on at the time was that each application would have their own database and web-root application. Each application maintains a connection pool to its own database and a central database for shared data (logins, etc.) 
+ A co-worker has been positing that this strategy will not scale because having so many different connection pools will not be scalable and that we should refactor the database so that all of the different applications use a single central database and that any modifications that may be unique to a system will need to be reflected from that one database and then use a single pool powered by Tomcat. He has posited that there is a lot of "meta data" that goes back and forth across the network to maintain a connection pool.  
+ My understanding is that with proper tuning to use only as many connections as necessary across the different pools (low volume apps getting less connections, high volume apps getting more, etc.) that the number of  pools  doesn't matter compared to the number of  connections  or more formally that the difference in overhead required to maintain 3 pools of 10 connections is negligible compared to 1 pool of 30 connections. 
+ The reasoning behind initially breaking the systems into a one-app-one-database design was that there are likely going to be differences between the apps and that each system could make modifications on the schema as needed. Similarly, it eliminated the possibility of system data bleeding through to other apps. 
+ Unfortunately there is not strong leadership in the company to make a hard decision. Although my co-worker is backing up his worries only with vagueness, I want to make sure I understand the ramifications of multiple small databases/connections versus one large database/connection pool. 
+ 
+ Your original design is based on sound principles. If it helps your case, this strategy is known as  horizontal partitioning or sharding . It provides: 
+ 1) Greater scalability - because each shard can live on separate hardware if need be.  
+ 2) Greater availability - because the failure of a single shard doesn't impact the other shards 
+ 3) Greater performance - because the tables being searched have fewer rows and therefore smaller indexes which yields faster searches. 
+ Your colleague's suggestion moves you to a single point of failure setup. 
+ As for your question about 3 connection pools of size 10 vs 1 connection pool of size 30, the best way to settle that debate is with a benchmark. Configure your app each way, then do some stress testing with ab (Apache Benchmark) and see which way performs better. I suspect there won't be a significant difference but do the benchmark to prove it. 
+ 
+ If you have a single database, and two connection pools, with 5 connections each, you have 10 connections to the database. If you have 5 connection pools with 2 connections each, you have 10 connections to the database. In the end, you have 10 connections to the database. The database has no idea that your pool exists, no awareness. 
+ Any meta data exchanged between the pool and the DB is going to happen on each connection. When the connection is started, when the connection is torn down, etc. So, if you have 10 connections, this traffic will happen 10 times (at a minimum, assuming they all stay healthy for the life of the pool). This will happen whether you have 1 pool or 10 pools. 
+ As for "1 DB per app", if you're not talking to an separate instance of the database for each DB, then it basically doesn't matter. 
+ If you have a DB server hosting 5 databases, and you have connections to each database (say, 2 connection per), this will consume more overhead and memory than the same DB hosting a single database. But that overhead is marginal at best, and utterly insignificant on modern machines with GB sized data buffers. Beyond a certain point, all the database cares about is mapping and copying pages of data from disk to RAM and back again. 
+ If you had a large redundant table in duplicated across of the DBs, then that could be potentially wasteful. 
+ Finally, when I use the word "database", I mean the logical entity the server uses to coalesce tables. For example, Oracle really likes to have one "database" per server, broken up in to "schemas". Postgres has several DBs, each of which can have schemas. But in any case, all of the modern servers have logical boundaries of data that they can use. I'm just using the word "database" here. 
+ So, as long as you're hitting a single instance of the DB server for all of your apps, the connection pools et al don't really matter in the big picture as the server will share all of the memory and resources across the clients as necessary. 
+ 
+ Excellent question. I don't know which way is better, but have you considered designing the code in such a way that you can switch from one strategy to the other with the least amount of pain possible? Maybe some lightweight database proxy objects could be used to mask this design decision from higher-level code. Just in case. 
+ 
+ Database- and overhead-wise, 1 pool with 30 connections and 3 pools with 10 connections are largely the same assuming the load is the same in both cases. 
+ Application-wise, the difference between having all data go through a single point (e.g. service layer) vs having per-application access point may be quite drastic; both in terms of performance and ease of implementation / maintenance (consider having to use distributed cache, for example). 
+ 
+ Well, excellent question, but it's not easy to discuss using a several data bases (A) approach or the big one (B): 
+ 
+ It depends on the database itself. Oracle, e.g. behaves differently from Sybase ASE regarding the LOG (and therefore the LOCK) strategy. It might be better to use several different & small data base to keep lock contention rate low, if there is a lot of parallel writes and the DB is using a pessimistic lock strategy (Sybase). 
+ If the table space of the small data bases aren't spread over several disks, it might better be using one big data base for using the (buffer/cache) memory only for one. I think this is rarely the case. 
+ Using (A) is scales better for a different reason than performance. You're able moving a hot spot data base on a different (newer/faster) hardware when needed without touching the other data bases.  In my former company this approach was always cheaper than variant (B) (no new licenses). 
+ 
+ I personally prefer (A) for reason 3. 
+ 
+ Design, architecture, plans and great ideas falls short when there is no common sense or a simple math behind the. Some more practice and/or experience helps ... Here is a simple math of why 10 pools with 5 connections is not the same as 1 pool with 50 connection: 
+each pool is configured with min & max open connections, fact is that it will usually use (99% of the time) 50% of the min number (2-3 in case of 5 min) if it is using more that that this pool is mis-configured since it is opening and closing connections all the time (expensive) ... so we 10 pools with 5 min connections each = 50 open connections... means 50 TCP connections; 50 JDBC connections on top of them ... (have you debug a JDBC connection? you will be surprise how much meta data flows both ways ...) 
+If we have 1 pool (serving the same infrastructure above) we can set the min to 30 simple because it will be able to balance the extras more efficiently ... this means 20 less JDBS connections. I don't know about you but for me this is a lot ...
+The devil s in the detail - the 2-3 connections that you leave in each pool to make sure it doesn't open/close all the time ...
+Don't even want to go in the overhead of 10 pool management ... (I do not want to maintain 10 pools every one ever so different that the other, do you?)
+Now that you get me started on this if it was me I would "wrap" the DB (the data source) with a single app (service layer anyone?) that would provide diff services (REST/SOAP/WS/JSON - pick your poison) and my applications won't even know about JDBC, TCP etc. etc. oh, wait google has it - GAE ...  
+ 

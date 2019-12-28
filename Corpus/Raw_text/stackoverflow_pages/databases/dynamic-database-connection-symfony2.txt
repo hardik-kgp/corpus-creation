@@ -1,0 +1,66 @@
+*** dynamic-database-connection-symfony2 ***
+
+ My symfony2 project has a main database and many child databases. Each child database is created for each user, the database credentials are stored in the main database. When the user logins, the user specific database credentials are fetched from the main database and the child database connection ideally should be established.
+I googled for the same, and I came accross a number of solutions and finally did the following: 
+ 
+ I created a default connection to connect to the main database and an empty connection for the child database, similarly I created entity managers.
+Then I created default event listener and added the following code to the 'onKernelRequest': 
+ 
+ The above code sets the child database parameters and resets the dynamic_em entity manager. 
+ When I do the following in some controller, it works fine and the data if fetched from the child database. 
+ 
+ But, when I use security context as seen in the following code, I get an error 'NO DATABASE SELECTED'. 
+ 
+ **How can I set database connection dynamically and use security context as well?**
+
+ **UPDATE:-**
+
+ After much time spent on trial and error, and googling around, I realized that   is set before the execution of  . Now the question is  **how**
+ to inject the database connection details into the security.context, and  **where**
+ to inject? 
+ We need to get to a point where the DBAL and security context is set and security token is created, and we can manipulate database connection details. 
+ Hence, as the person in the following link stated, I made changes to my code, as thats exactly what I would want to do.
+ http://forum.symfony-project.org/viewtopic.php?t=37398&p=124413 
+ That leaves me the following code add to my project: 
+ 
+ A compiler pass is created as follows: 
+ 
+ The compiler pass is as follows: 
+ 
+ The driver class code is as follows: 
+ 
+ The above code were added to my project, and I assume that this is the actual work around for to my problem. 
+ But now I get the following error: 
+ 
+ ServiceCircularReferenceException: Circular reference detected for
+  service "security.context", path: "profiler_listener -> profiler ->
+  security.context -> security.authentication.manager ->
+  fos_user.user_provider.username_email -> fos_user.user_manager ->
+  doctrine.orm.dynamic_manager_entity_manager ->
+  doctrine.dbal.dynamic_conn_connection". 
+ 
+ How, can I get my code to work? I bet that I am doing something wrong here and I would appreciate any hints and help. 
+ 
+ Here, you need to implement your own logic on your own, in your own business. 
+ Take a look at documentation of Doctrine on "how to create an entity manager". 
+ Then create a service with a clear API: 
+ 
+ You can't do it with default DoctrineBundle, it's not usable for dynamic features. 
+ 
+ And declare as a service. 
+ 
+ I'd like to propose different solution to your original problem.You can use  PhpFileLoader  to dynamically define parameters for your config.yml. 
+ 
+ Extract you main database connection parameters into separate file: 
+ 
+ Create new PHP script (say DynamicParametersLoader.php) which will inject new parameters in app container. I think you cannot use your symfony app in this script, but you can read main db credentials from $container variable. Like the following: 
+ 
+ Now you need to tell Symfony about your script and new parameters.yml file: 
+ 
+ At this step you can freely use injected parameters in you config: 
+ 
+ 
+ 
+ There is a very good solution using an event listener posted here: 
+ Symfony2, Dynamic DB Connection/Early override of Doctrine Service 
+ 

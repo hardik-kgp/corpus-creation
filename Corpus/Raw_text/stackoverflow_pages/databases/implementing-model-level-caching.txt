@@ -1,0 +1,132 @@
+*** implementing-model-level-caching ***
+
+ I was posting some comments in a  related question  about MVC caching and some questions about actual implementation came up. How does one implement a Model-level cache that works transparently without the developer needing to manually cache, yet still remains efficient? 
+ 
+ I would keep my caching
+  responsibilities firmly within the
+  model. It is none of the controller's
+  or view's business where the model is
+  getting data. All they care about is
+  that when data is requested, data is
+  provided - this is how the MVC
+  paradigm is supposed to work. 
+ 
+ (Source:  Post by Jarrod ) 
+ The reason I am skeptical is because caching should usually not be done unless there is a real need, and shouldn't be done for things like search results. So somehow the Model itself has to know whether or not the SELECT statement being issued to it is worthy of being cached. Wouldn't the Model have to be astronomically smart, and/or store statistics of what is being most often queried over a long period of time in order to accurately make a decision? And wouldn't the overhead of all this make the caching useless anyway? 
+ How would you uniquely identify a query from another query (or more accurately, a result set from another result set)? What about if you're using prepared statements, with only the parameters changing according to user input? 
+ Another poster said this: 
+ 
+ I would suggest using the md5 hash of
+  your query combined with a serialized
+  version of your input arguments. 
+ 
+ Is the minuscule chance of collision worth worrying about? 
+ Conceptually, caching in the Model seems like a good idea to me, but it seems in practicality and due to the nature of caching the developer should have direct control over it and explicity code it into the controller logic. 
+ 
+ **Update for Bounty**
+
+ I am indeed using an extremely lightweight ORM somewhat similar to ActiveRecord but is capable of doing complex joins and subqueries without the   problem. I built it myself, so it is flexible and isn't restrictive in terms of relations or column names, and I just want to understand how I should implement the caching mechanism. 
+ Following the advice of the helpful people, I would take a hash (probably md5) of the query concatenated with a list of its parameters, and use this as the key for that particular data store. Should I implement the caching individually in the Model classes that require it, or should it be part of the ORM layer? 
+ How do I know when it should be invalidated? Would I have to parse the UPDATE/DELETE/INSERT queries and sub in parameters manually to find out which records are being modified? Or worse, do additional queries whenever data is modified to keep track of which things have changed and what should be invalidated? 
+ I will award the bounty to whoever can give me a clear conceptual explanation (whether or not this is really necessary/efficient to be done transparently), and if so, has some implementation details for the Model caching. I am using PHP and MySQL if that helps to narrow your focus. 
+ 
+ Your post only makes any sense if the model is a trivial ORM. And there are lots of reasons why that's a bad thing. Try thinking about the model as if it were a web service. 
+ Caching  **is**
+ the responsiblity of the model. 
+ 
+ How would you uniquely identify a query from another query (or more accurately, a result set from another result set)? What about if you're using prepared statements, with only the parameters changing according to user input? 
+ 
+ But the inputs to the model uniquely define its output. 
+ If you're using the same model to retrieve the contents of a shopping basket and to run a search on your product catalog then there's something wrong with your code. 
+ Even in the case of the shopping basket, there may be merit in caching data with a TTL of less than the time taken to process a transaction which would change its contents, in the case of the catalog search, caching the list of matching products for a few hours will probably have no measurable impact on sales, but trade-off well in reducing database load. 
+ The fact that you are using a trivial ORM out of the box does not exclude you from wrapping it in your own code. 
+ 
+ Wouldn't the Model have to be astronomically smart, and/or store statistics 
+ 
+ No. You make the determination on whether to cache, and if you can't ensure that the cache is consistent then enforce a TTL based on the type of request. 
+ As a general rule of thumb, you should be able to predict appropriate TTLs based on the SELECT query  **before**
+ binding any variables and this needs to be implemented at design time - but obviously the results should be indexed based on the query after binding. 
+ 
+ Should I implement the caching individually in the Model classes that require it, or should it be part of the ORM layer? 
+ 
+ For preference I would implement this as a decorator on the model class - that way you can easily port it to models which implement a factory rather than trivial ORM. 
+ C. 
+ 
+ There are quite a few factors to consider with caching, such as hashing, invalidation, etc. But the goal of caching is always the same: to reduce response times and resource consumption. 
+ Here are a couple of quick thoughts off the top of my head for systems that  **do not**
+ use ORM: 
+ 
+ It never hurts to cache something using memcache if you have the memory for it 
+ You should only ever cache   queries since other types affect data 
+ All cached queries should be parametized 
+ The cache key should be an md5 of the query concatenated with a  'd version of the parameters (this identifies unique queries. Seralizing parameters is not an issue because the size of parameters generally passed to select queries is usually quite trivial). Serializing isn't as expensive as you think. And because you hashed your static query concatenated with your dynamic params, you should never have to worry about collisions.  
+ Modifications ( / / ) to rows in a model should invalidate (or set a TTL) on all items cached for that model 
+ The model should be extended to allow for cache TTL values to be sent along with a query 
+ Your model should have support for skipping the cache (probably by passing TTL of 0 along with the query) 
+ Even though a base query may be cached, it is generally more efficient to apply   /   type operations in a new (modified) query rather than to pull an entire rowset from cache and manipulate it through PHP to achieve the same thing (unless there is very high latency between your web and database servers).  
+ 
+ Attempting to manage cache validation for an ORM system is a completely different beast (due to relations), and should probably be handled on a case-by-case basis (in the controller). But if you're truly concerned with performance, chances are you wouldn't be using an ORM to begin with.  
+ **UPDATE:**
+
+ If you find yourself using multiple instances of the same model class within a single thread, I would suggest also potentially memcaching your instantiated model (depending on your constructor, deserializing and waking an object is sometimes more efficient than constructing an object). Once you have an intialized object (whether constructed or deserialized), it is  **worlds more efficient**
+ to   a basic instance of an object and set its new state rather than to reconstruct an object in PHP.  
+ 
+ 
+ The reason I am skeptical is because
+  caching should usually not be done
+  unless there is a real need, and
+  shouldn't be done for things like
+  search results. So somehow the Model
+  itself has to know whether or not the
+  SELECT statement being issued to it
+  worthy of being cached. Wouldn't the
+  Model have to be astronomically smart,
+  and/or store statistics of what is
+  being most often queried over a long
+  period of time in order to accurately
+  make a decision? And wouldn't the
+  overhead of all this make the caching
+  useless anyway? 
+ 
+ Who else is better suited to track any of that?  Multiple controllers will be using the same model to fetch the data they need.  So how in the world would a controller be able to make a rational decision? 
+ There are no hard and fast rules -- a smart caching strategy is almost completely driven by context.  The business logic (again, models!) is going to dictate what sorts of things ought to be in the cache, when the cache needs to be invalidated, etc.   
+ You're absolutely right that caching search results seems like a bad idea.  I'm sure it usually is.  It's possible that if your search results are very expensive to generate, and you're doing something like pagination, you might want a per-user cache that holds the most recent results, along with the search parameters.  But I think that's a fairly special case. 
+ It's difficult to give more specific advice without the context, but here are a couple of scenarios: 
+ 1) You have business objects that can have a category assigned.  The categories rarely change.  Your Category model ought to cache the full set of categories for read operations.  When the infrequent right operations occur, they can invalidate the cache.  Every view script in the system can now query the model and get the current categories back (for rendering select boxes, let's say) without concerning itself with the cache.  Any controller in the system can now add/update/delete categories without knowing about the cache. 
+ 2) You have some complex formula that consumes multiple inputs and creates a popularity rating for some kind of "products".  Some widget in your page layout shows the 5 most popular objects in summary form.  Your Product model would provide a getPopular() method, which would rely on the cache.  The model could invalidate the cache every X minutes, or some background process could run at regular intervals to invalidate/rebuild.  No matter what part of the system wants the popular products, they request it via the model, which transparently manages the cache. 
+ The exact caching implementation is highly dependent on the sort of data you're manipulating, combined with the typical use cases.   
+ The caveat here is that if you're abusing ActiveRecord, and/or composing SQL queries (or equivalents) in your controllers, you're probably going to have issues.  Doing smart caching is a lot easier if you've got a nice, rich, model layer that accurately models your domain, instead of flimsy models that just wrap database tables. 
+ It's not about the Models being smart, it's about the  developer  being smart. 
+ 
+ What we did, was building a cache layer as a replacement to the loading function of the MVC. This way, only the actual model calls that we want, will be cached.  If no caching is necessary or unwanted, the normal way of calling a model from the controller is being used. 
+ If a model is being called through the cachelayer, together with it's eventual parameters, the cache layer will first verify the requested data against the cache pool and return it if still valid. If so, the actual model is not loaded and cached data is just returned to the controller.  If not, the model is called as it normally would be. 
+ It's really great to have the possibility of doing this in a layer above the model, since it becomes very easy to introduce the usage of semaphore locks on a per-query / per-model level, to reduce server loads even further. 
+ The biggest advantage to me is though the fact that the models are designed as intended and contains nothing but pure database queries. This way, it is possible to modify a model in production without end users even noticing (assuming that the requested data that a model delivers does not need recreation during the update time, of course.. ) 
+ Update: We have also implemented namespacing inside our cachelayer on two levels, a per-model basis and an optional group-basis. Thanks to that, we can easily invalidate all previously invalidate all cached data that comes from a model upon update or deletion in the database. 
+ 
+ If you where interested in a more transparent caching system for an active records library. You could assign an id to each query then create an associative array of the result. You can store this relation ship statically or ironically in a database.(It's the kind of trade of of caching you have to use more computer power so you can use less computer power sometimes) 
+ Keeping track of every time the query is run the resulting hash if the result hash is different the new hash is updated. If the hash is the same then it adds to the number of duplicate results. If the desired number of repeat results come up then you cache the results and stop checking the table for an allotted amount of time and or subsequent runs of the query. 
+ You would have a class that controlled all of this going ons. Functions could include things like 
+ -start cache checking  
+-set threshold  
+-cache always  
+-cache time life  
+-force clear all cache  
+-clear this cache for this query  
+-we have been death hit with the death laser and need to catch everything(The I hate you wordpress I'm never using you again function I shouldn't have been so lazy and made my own website function) 
+ This would help to automate much of your process. Also cache rules can be implemented on a model by model basis or to the entire application as a whole.  
+ This might be slightly more overhead then some cache systems but if you just want to have caching doing its own thing I think it would work well; with out it running to much amok. 
+ 
+ This isn't really an answer, but your question reminded me I had seen  this chapter  which describes, I think, how to do what you want to do using the Doctrine ORM with Symfony.  You might want to compare with that approach/implementation. 
+ Basically, the approach there doesn't try for "astronomically smart" but allows the programmer to manually specify result sets to cache based on the volatility of the data and its performance impact... I suppose you could approximate that decision and recalculate it nightly based on actual metrics or something. 
+ 
+ I would recommend that you look  here  for a comprehensive look at caching in ORM's including the problems and solutions that can be applied. 
+ When dealing with caching data in an ORM, you generally have the following 3 problems to solve: 
+ 
+ Many ORM implementations store either the database resource or a non-serializable result set or both in the actual ORM objects. Since caching requires that all objects be serialized, this puts a serious road block in our way. 
+ How do you track one set of data versus another in the cache? 
+ How do you notify the cache that a particular data set has changed? 
+ 
+ 
+ You should have a seperate Model which does the SQL interfacing directly, eg. for a Customers table:   et cetera. Then, in those models, you can implement caching transparently without having to edit any of your existing MVCs. 
+ 

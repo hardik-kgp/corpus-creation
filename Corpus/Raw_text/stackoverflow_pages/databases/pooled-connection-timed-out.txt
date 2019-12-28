@@ -1,0 +1,27 @@
+*** pooled-connection-timed-out ***
+
+ On the production server sometimes randomly the connection fails to the ORacle database. I get a lot of    
+ 
+  I searched for some solutions but no luck. It's strange that the Exception has no Identifier like Ora-123... I use OracleDataAccess client. Sometimes this problem is for 5-10 seconds, sometimes I have to restart the IIS (6.1, Windows Server 2008 R2) to solve the problem. Is frustrating...  I cannot set pooling=false because we have a huge website. Any solutions?  
+ 
+ The most common cause of this that I am aware of is failing to properly handle IDisposable objects associated with Oracle.DataAccess.Client. 
+ There is probably some code that you have out there that is not properly disposing of some objects. This will cause Oracle to hold on to connections that are not actually in use causing you to run out of available connections in the pool. Restarting IIS solves it because it kills all those connections. 
+ Review your code carefully and make sure that all of the IDisposable objects are being properly disposed of or encapsulated in using statements. 
+ 
+ The most common connection issues that I have seen are: 
+ 
+ The application is leaving connections open. This is using up all the available connections and so connections are randomly being refused. The easiest code solution for this is to make sure the application closes the connections as quickly as possible (rather than waiting for variables to leave scope). A "using" statement in .NET works well for this. 
+ Your connection pool may need to be recycled. You might refer to this site for more information:  http://docs.oracle.com/cd/E11882_01/java.112/e12265/manage.htm#BABICIII 
+ You may just not have a large enough connection pool (default max size is 100). Try increasing this.  
+ 
+ One other site that might help is this one:  http://blog.ilab8.com/2011/09/02/odp-net-pooling-and-connection-request-timed-out/ 
+ 
+ The key is to call .Dispose() on your DbContext and/or make sure that your container is calling .Dispose() for you (by overriding dispose and ensuring that for each new DbContext you have a corresponding call to .Dispose()). 
+ You might like to use the destructor ~MyDbContext() as a quick hack just to check that calling Dispose() will fix the issue where your app is leaving connections open (i.e. not calling Dispose() on your DbContext). 
+ It seems that with the Oracle provider you  **MUST**
+ call Dispose yourself (or have the container do it for you), otherwise you will leak / run out of connections. 
+ I can provide some example code if you like? 
+ 
+ Make sure you are not connecting to the database recusively. Such as:   
+ 
+ 

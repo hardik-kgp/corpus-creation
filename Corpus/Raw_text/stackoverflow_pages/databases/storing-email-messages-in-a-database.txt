@@ -1,0 +1,46 @@
+*** storing-email-messages-in-a-database ***
+
+ What sort of database schema would you use to store email messages, with as much header information as practical/possible, into a database? 
+ Assume that they have been fed into a script from the MTA and parsed into the relevant headers/body/attachments. 
+ Would you store the message body whole in the database table, or split any MIME-parts apart?  What about attachments? 
+ 
+ You may want to check the  architecture  and the  DB schema  of "Archiveopteryx". 
+ 
+ You may want to use a schema where the message body and attachment records can be shared between multiple recipients on the message. It's not uncommon to see email servers where fully 50% of the disk storage is used by duplicate emails.  
+ A simple hash of the body/attachment would be enough to see if that record was already in the database. However, you would still need to keep separate headers. 
+ 
+ Depends on what you're going to be doing with it.  If you're going to need to do frequent searching against certain bits of it, you'll want to break it up in a way that makes sense for your usage case.  If it's just for something like storage of e-mail for Sarbanes-Oxley compliance, you'd probably be okay storing the whole thing - headers, parts, etc. - as one big text field. 
+ 
+ Suggestion: create a well defined table for storing e-mail with a column for each relevant part of a message: sender, header, subject, body. It is going to be much simpler later if you want to query, for example, by subject field. In the same table you can define a field to keep the path of a attachment and store the attached file on the file system, rather than storing it in blob fields. 
+ 
+ An important step in database schema design is to figure out what types of entity you want to model. For this application the entities might be: 
+ 
+ Messages 
+ E-mail addresses 
+ Conversation threads (perhaps: if you want to do efficient threading) 
+ Attachments (perhaps: as suggested in other answers) 
+ ... 
+ 
+ Once you know the entities, you can identify relationships between entities, which can be represented by tables: 
+ 
+ Messages have a many-many relationship to messages (  and   headers). 
+ Messages have a many-many relationship to e-mail addresses ( ,  ,   etc headers). 
+ Messages have a many-one relationship with threads. 
+ Messages have a many-many relationship with attachments. 
+ ... 
+ 
+ 
+ It all depends on what you want to do with the data, but in general I would want to store all data and also make sure that the semantics interpreted by the MUA are preserved in the db, so for example:
+- All headers that are parsed should have their own column
+- A column should contain the whole headers
+- The attachments (including body, multipart) should be in a many to one table with the email table. 
+ 
+ You'll probably want to at least store attachments separately to optimize storage.  It's astonishing to see the size and quantity of attachments (videos, etc.) that most users unhesitatingly attach to emails. 
+ In the case of outgoing emails you may have multiple emails sending the same attachment.  It's far more efficient to store a single copy of the attachment that is referenced by all emails that share it. 
+ Another reason for storing attachments separately is that it gives you some archiving options later on.  Should storage space become an issue, you can always go back and delete large attachments older than a given date in order to compact the database. 
+ 
+ If it is already split up, and you can be sure that the routine to split the data is sound, then I would split up the table as granular as possible.  You can always parse it back together in your middle tier.  If space is not an issue, you could always store it twice.  One, split up into the relevant fields, and another field that has the whole thing as one blob, if putting it back together is hard. 
+ 
+ It is not trivial to parse an email, so consider storing the email as a blob then parse it into whatever pieces you need afterwards. 
+ /Allan 
+ 

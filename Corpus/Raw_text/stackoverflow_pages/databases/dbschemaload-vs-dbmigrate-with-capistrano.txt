@@ -1,0 +1,33 @@
+*** dbschemaload-vs-dbmigrate-with-capistrano ***
+
+ I have a rails app that I'm moving to another server and I figure I should use db:schema:load to create the mysql database because it's recommended.  My problem is that I'm using capistrano to deploy and it seems to be defaulting to rake db:migrate instead. Is there a way to change this or is capistrano using db:migrate for a good reason? 
+ 
+ **Why to use db:schema:load**
+
+ I find that my own migrations eventually do some shuffling of data (suppose I combine first_name and last_name columns into a full_name column, for instance). As soon as I do any of this, I start using ActiveRecord to sift through database records, and your models eventually make assumptions about certain columns. My "Person" table, for instance, was later given a "position" column by which people are sorted. Earlier migrations now fail to select data, because the "position" column doesn't exist yet. 
+ **How to change the default behavior in Capistrano**
+
+ In conclusion, I believe    should  use   instead of  . I solved this problem by changing the middle step which Capistrano performs on a cold deploy. For Capistrano v2.5.9, the default task in the library code looks like this. 
+ 
+ I overrode the task in my   as follows. 
+ 
+ 
+ Climbing up on the shoulders of Andres Jaan Tack, Adam Spiers, and Kamiel Wanrooij, I've built the following task to overwrite deploy:cold. 
+ 
+ My enhancements here are... 
+ 
+ wrap it in  , so that Capistrano will do a proper rollback after aborting. 
+ doing   instead of  , so that if the database doesn't already exist, it will be created before loading the schema. 
+ 
+ 
+ That's a great answer from Andres Jaan Tack.  I just wanted to add a few comments. 
+ Firstly, here's an improved version of Andres'   task which includes a warning, and more importantly uses   and   to ensure that the environment is set up correctly: 
+ 
+ I have submitted  a feature request to have   implemented in Capistrano .  In that request, I noted that  the '  vs.  ' debate has already been covered in the Capistrano discussion group , and there was some reluctance to switch the   task to using   over  , since if run unintentionally, the former nukes the entire database whereas the latter would probably complain and bail harmlessly.  Nevertheless   is technically the better approach, so if the risk of accidental data loss could be mitigated, it would be worth switching. 
+ 
+ In Capistrano 3 / Rails 4, the default deploy syntax has changed.  You can do this instead: 
+ 
+ If you're cautious of invoking the standard deploy tasks manually in the   task (as they may change in upcoming version or if you have a custom deploy task), you can also simply call   before running  . 
+ To perform   instead of  , you can simply change the rake task, like so: 
+ 
+ 

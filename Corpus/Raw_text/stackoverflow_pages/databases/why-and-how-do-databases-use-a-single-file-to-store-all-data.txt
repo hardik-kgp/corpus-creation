@@ -1,0 +1,56 @@
+*** why-and-how-do-databases-use-a-single-file-to-store-all-data ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ Many databases I've encountered (Like SQL Server) use a single file to store the entire database.  This seems to be a pretty common approach. What are the advantages to storing the entire database in a single file, as opposed to breaking up the data into more logical units, such as a single table per file.   
+ Also, how does a database work internally. How does it handle concurrent writes to the same file by different threads.  In most applications I've seen you can only have 1 open write handle on a file at a time. How do the various database engines handle the concurrent writes. 
+ 
+ A single non-fragmented large file can be treated by the server application much like a raw disk is treated by the operating system: a random-seekable block of bytes. The database server could, if it chose to, implement an entire file system on top of that block of bytes, if there was a benefit to implementing tables as separate files. 
+ Concurrent writes to different sections of the same file are not a problem. The database uses locking strategies to make sure that multiple threads aren't trying to access the same section of the file, and this is one of the main reasons that database transactions exist: to isolate the visible effects of one transaction from another. 
+ For example, a database server might keep track of which rows in which tables have been accessed by which in-flight transactions; when a transaction retires, the rows which it had touched are released so that they can be freely accessed by other transactions. In this scenario, other transactions might simply block - i.e. wait - when they try to access rows that are currently being part of another transaction. If the other transaction doesn't complete within a reasonable (configurable) time, then the waiting transaction might be aborted. Often the reason for this is a deadlock. The application using the database can then choose, if it wants, to retry the transaction. 
+ This locking could be implemented using semaphores or other synchronization mechanisms, depending on the performance tradeoffs. 
+ 
+ Right, a given file might only have one process with an open file descriptor, otherwise the different processes could overwrite each other's work.  Typically all I/O on a database must be done by the RDBMS process.  All applications then submit their queries through some inter-process communication (including network), and get results.  The physical I/O of the database file is therefore centralized. 
+ It's also pretty common, in practice, for RDBMS implementations to have a lock manager thread to govern access to subsections of the file, either table, page, or row, depending on the RDBMS implementation.  That creates a "bottleneck" because while the RDBMS might have many threads executing queries and doing network communication, but concurrent access to a given section of the database still has to queue up to acquire locks.  It'd be very tricky to make lock management fully parallel. 
+ As for single file versus multiple file, the pros and cons also depend on the RDBMS implementation.  One example is MySQL's InnoDB which by default uses the single-file approach.  But it doesn't know how to shrink the file if you delete a bunch of data; it just marks some space in the file as "free," to be used by subsequent inserts.  Even if you drop a whole table, the file never shrinks.  But if you had chosen the file-per-table option when you set up your InnoDB table space, and you drop a table, InnoDB can remove the file for that table, and therefore free the disk space. 
+ 
+ I think Barry's answer is quite excellent. I'll just tag a few more thoughts. Note this kind of blurs between filesystem and raw devices, which are quite different but can be conceptually thought of the same thing. 
+ **Why would a DBMS vendor roll their own I/O management etc.??**
+
+ **Control**
+
+ When most DBMS systems grew up (Oracle, DB2, Sybase ASE {SQL Server is a cousin to Sybase ASE}) operating systems' file systems were not as advanced as they were today but were progressing rapidly (Oracle was written in 1979!!, Sybase in 1987). Assuming the OS could do all sorts of fancy things that were both fast and safe was not always a given. DBMS vendors wrote their own I/O libraries to help reduce the likelihood that they wouldn't be affected by operating system quirks or become obsolete as technology progressed. 
+ This is much less prevalent now (MySQL, PostgreSQL, SQLite, etc. don't do this) -- even SQL Server turned a large portion of the management back over to Windows because the Windows team worked closely with SQL Server team to optimize for a DBMS workload. 
+ **Security**
+
+ Keeping tight control of the entire data file allows the DBMS to ensure that writes happen when it wants it to and not when the OS feels like it. Keeping their own data caches ensures that the OS won't think that some low level log rotation job pages out important database data. 
+ **Consistency**
+
+ Oracle, Sybase ASE, etc. are  very  expensive systems that are very complex. If you spent $10M on a DBMS install and it ran slowly (or worse, corrupted data!) because of some crazy bug in your particular revision of your OS' kernel who would you blame? The DBMS vendor. Rolling your own I/O, lock management, concurrency control, threading, etc. is certainly the hard way to do it -- but when you absolutely need repeatable, consistent behavior from your DBMS across a wide range of operating systems you have to take the OS out of the equation as much as possible. 
+ Again, as OS have matured and grown, many of the newer systems have tried to use the OS-level features as much as possible, but even MySQL has some buffer pools that you can configure in my.cnf 
+ 
+ A related note.
+I believe it is a MSFT recommendation that you create a filegroup for your system tables and one for your other objects.  Another may also be created to store indexes.  We don't do this, as none of our applications demand such high performance.  It would also increase complexity of maintenance. 
+ 

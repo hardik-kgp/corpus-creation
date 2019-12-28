@@ -1,0 +1,118 @@
+*** best-method-to-store-enum-in-database ***
+
+ What is the best method of storing an Enum in a Database using C# And Visual Studio and MySQL Data Connector. 
+ I am going to be creating a new project with over 100 Enums, and majority of them will have to be stored in the database. Creating converters for each one would be a long winded process therefore I'm wondering if visual studio or someone has any methods for this that I haven't heard off. 
+ 
+ 
+ Works like a charm! No need to convert (int)Enum or (Enum)int in code. Just use the enum and ef code first will save the int for you. p.s.: "[EnumDataType(typeof(PhoneTypes))]" attribute is not required, just an extra if you want additional functionality. 
+ Alternatively you can do: 
+ 
+ 
+ We store ours as ints or longs and then we can just cast 'em back and forth.  Probably not the most robust solution, but that what we do. 
+ we are using typed DataSets, so, for example: 
+ 
+ 
+ In the end you will need a great way to deal with repetitious coding tasks such as enum converters. You can use a code generator such as  MyGeneration  or  CodeSmith  among many others or perhaps an  ORM mapper like nHibernate  to handle everything for you. 
+ As for the structure... with hundreds of enums I would first consider trying to organize the data into a single table that might look something like this: (pseudo sql) 
+ 
+ that would allow you to store your enum info in a single table. EnumType could also be a foreign key to a table that defines the different enums. 
+ Your biz objects would be linked to this table via EnumId. The enum type is there only for organization and filtering in the UI. Utilizing all of this of course depends on your code structure and problem domain. 
+ Btw, in this scenario you would want to set a clustered index on EnumType rather than leaving the default cluster idx that is created on the PKey. 
+ 
+ If you want a store of all of your enums values, you can try the below tables to store enums and their members, and the code snippet to add those values. I'd only do this at install time, however, since those values will never change until you recompile! 
+ DB Table: 
+ 
+ C# Snippet: 
+ 
+ 
+ Some things you should take in consideration.  
+ Is the enumeration column going to be used directly by other applications like for example reports. This will limit the possibility of the enumeration being stored in it's integer format because that value will have no meaning when present in a report unless the reports have custom logic. 
+ What are the i18n needs for your application? If it only supports one language you can save the enumeration as text and create a helper method to convert from a description string. You can use   for this and methods for the conversion can probably be found by searching SO. 
+ If on the other hand you have the need to support multiple language and external application access to your data you can start considering if enumeration are really the answer. Other option like lookup tables can be considered if the scenario is more complex. 
+ Enumerations are excellent when they are self contained in code... when they cross that border, things tend to get a bit messy. 
+ 
+ **Update:**
+
+ You can convert from an integer using   method. This implies that you know the type of the enumeration when converting. If you want to make it completely generic you need to store the type of the enumeration alongside it's value in the database. You could create data dictionary support tables to tell you which columns are enumerations and what type are them. 
+ 
+ If you need store in DB string values of enum field, better do like show below.
+For example,  it  can be needed if you are using SQLite, which don`t support enum fields. 
+ 
+ 
+ I'm not sure if it is the most flexible, but you could simply store the string versions of them.  It is certainly readable, but maybe difficult to maintain.  Enums convert from strings and back pretty easily: 
+ 
+ 
+ Why not try separating the enums altogether from the DB? I found this article to be a great reference while working on something similar: 
+ http://stevesmithblog.com/blog/reducing-sql-lookup-tables-and-function-properties-in-nhibernate/ 
+ The ideas in it should apply regardless of what DB you use. For example, in MySQL you can use the "enum" data type to enforce compliance with your coded enums: 
+ http://dev.mysql.com/doc/refman/5.0/en/enum.html 
+ Cheers 
+ 
+ A DB first approach can be used by creating a consistent table for each enum where the Id column name matches table name.  It's advantageous to have enum values available within the database to support foreign key constraints and friendly columns in views. We are currently supporting ~100 enum types scattered throughout numerous versioned databases.   
+ For a Code-First preference, the T4 strategy shown below could probably be reversed to write to the database. 
+ 
+ Each table can be imported into C# using a  T4 template (*.tt) script .  
+ 
+ Create an "Enumeration Project".  Add the .tt file shown below. 
+ Create a sub-folder for each Database Schema name.  
+ For each enum type, create a file whose name is SchemaName.TableName.tt. The file
+contents are always the same single line: <#@ include
+file="..\EnumGenerator.ttinclude" #> 
+ Then to create/update the enums, right click on 1 or more files and
+"Run Custom Tool" (we don't have auto update yet).  It will add/update a .cs file to the project: 
+ 
+ using System.CodeDom.Compiler;
+namespace TheCompanyNamespace.Enumerations.Config
+{
+    [GeneratedCode("Auto Enum from DB Generator", "10")]
+    public enum DatabasePushJobState
+    {     
+          Undefined = 0,
+          Created = 1,        
+    } 
+    public partial class EnumDescription
+    {
+       public static string Description(DatabasePushJobState enumeration)
+       {
+          string description = "Unknown";
+          switch (enumeration)
+          {                   
+              case DatabasePushJobState.Undefined:
+                  description = "Undefined";
+                  break;
+
+              case DatabasePushJobState.Created:
+                  description = "Created";
+                  break;                 
+           }
+           return description;
+       }
+    }
+    // select DatabasePushJobStateId, Name, coalesce(Description,Name) as Description
+    //    from TheDefaultDatabase.[SchName].[DatabasePushJobState]
+    //   where 1=1 order by DatabasePushJobStateId 
+ }
+ 
+ And finally, the somewhat gnarly T4 script (simplified from numerous workarounds).  It will need to be customized to your environment.  A debug flag can output messages into the C#.  There is also a "Debug T4 Template" option when right clicking the .tt file. 
+ **EnumGenerator.ttinclude**
+: 
+ 
+ Hopefully the entity framework will someday support a combination of these answers to offer the C# enum strong typing within records and database mirroring of values.   
+ 
+ You don't need to do anything if you want to store ints. Just map your property in EF.
+If you want to store them as strings use converter. 
+ Int (db type is smallint): 
+ 
+ String (db type is varchar(50)): 
+ 
+ If you want to save your db data usage use smallint as a column in db. But data won't be human readable and you should set an index against every enum item and never mess with them: 
+ 
+ If you want to make data in db more readable you can save them as strings (e.g. varchar(50)). You don't have to worry about indexes and you just need update strings in db when you change enum names. Cons: column size gets data usage more expensive. It means if you got a table within 1,000,000 rows it might have an impact on db size and performance. 
+ Also as a solution you can use short enum names: 
+ 
+ Or use your own converter to make names in db shorter: 
+ 
+ More info can be found here: 
+EF:  https://docs.microsoft.com/en-us/ef/ef6/modeling/code-first/data-types/enums 
+EFCore:  https://docs.microsoft.com/en-us/ef/core/modeling/value-conversions 
+ 

@@ -1,0 +1,37 @@
+*** haskell-shying-away-from-probabilistic-data-structures ***
+
+ If you search for skips lists implemented in Haskell, you won't find many. It is a probabilistic data structure needing a random number generator, meaning that any of these structures would need to run in the IO monad. 
+ Are Haskell folks staying away from these data structures because it's not possible to implement them purely? How can Haskell deal with them?  
+ 
+ A pseudo-random number generator can of course be used outside of  , by simply storing the current generator value along with the probabilistic pure data structure and updating it when constructing modified versions. The downside to this is that the PRNG will be  more obviously deterministic than in an impure program, since nothing outside of the single data structure will update it. If only the statistical properties matter this poses no issue, but could be cause for concern otherwise. 
+ On the other hand, hiding an impure PRNG is arguably a justified use of   as in  **Ganesh Sittampalam**
+'s answer. This blatantly violates referential transparency, but only to the extent that the PRNG will return unpredictable, inconsistent values--which is the whole point! Caution is still required, however, as the compiler may make incorrect assumptions about the code because it  looks  pure. 
+ But really, neither approach is terribly appealing. Using   is unsatisfying and potentially dangerous. Threading a PRNG state is easy, but imposes a (potentially spurious) strict sequencing on any computations that use it. Neither safety nor laziness are relinquished lightly by Haskell programmers (and rightly so!), and of course data structures restricted to   are of limited utility. So, to answer part of your question, that's why Haskell programmers are likely to avoid such structures. 
+ 
+ As for "how Haskell can deal with" such things, I would suggest that this is  **the wrong question to ask**
+. 
+ What it really comes down to is that many data structures and algorithms  implicitly  assume (and optimize for) an  imperative, impure, strict language , and while it's certainly  possible  to implement these in Haskell it's rarely  desirable , because (even ignoring the internal implementation) using them imposes on your code a structure and approach that is very much not idiomatic. Furthermore, because Haskell violates those implicit assumptions, performance is often degraded (sometimes badly so). 
+ The thing to realize is that  algorithms and data structures are a means, not an end . It's rarely the case that a single specific implementation is required--what  is  required is generally certain  **performance characteristics**
+. Finding data structures/algorithms that offer the desired characteristics while also being idiomatic Haskell is almost always a better plan, and is likely to perform better than trying to cram a strict imperative peg into a lazy functional hole. 
+ This mistake is perhaps most commonly found in the subset of programmers who never met a problem they couldn't solve with a hash table, but the habit is easy to fall into for many of us. The correct approach is to  **stop thinking "how do I implement this solution in Haskell", but instead "what is the best way to solve my problem in Haskell"**
+. You might be surprised how often the answers differ; I know I often am! 
+ 
+ Skip lists can be implemented purely -- just encapsulate the current seed in the state of the skip list itself. 
+ 
+ This may expose you to some complexity attacks that aren't practical against 'real' skip lists, since you could probe for degenerate insertion orders and replay attacks against the same seed, but it lets you derive the benefits of the structure when adversarial usage is not a problem. 
+ You could also fall back on   and a carefully crafted side-effect-oblivious seemingly-pure interface. While admittedly it is not pure internally, the interface gives the appearance of purity. 
+ That said, many of the classical performance benefits from skiplists come from when they can be implemented non-persistently, and that precludes a functional interface. 
+ 
+ Since skiplists have a pure interface, it would be valid to make an implementation using   internally and to wrap that with   for the interface. This simply moves the burden of "getting it right" from the language to the programmer (which is where the burden always lies in impure languages). 
+ 
+ I once had a go at implementing a skip list in Haskell.  Of course it was an immutable data structure (this is Haskell, after all).  But that meant that the need for randomness disappeared; "fromList" just counted items and built skip arrays of the right length for each item (2 pointers every 4th item, 3 every 16th, 4 every 64th, etc). 
+ At that point I realised I was just building a more complicated version of a tree with a lot less ability to mutate it.  So I gave up. 
+ 
+ Random generators don't require   operations. They follow their own monadic laws (kinda derived from the   monad) and are therefore representable through a   monad. 
+ In case of the skip list, you could define your own monad that's able to carry around the probabilistic computation or just use standard  . 
+ 
+ 
+ There is a new skip list implementation based on STM for haskell, see  tskiplist  on hackage. 
+ 
+ Well, first, the random number generator in the IO monad is there for convenience.  You can use random number generators outside the IO monad; see System.Random.  But, yes, you do need to maintain state; the ST monad is useful here.  And, yes, i'd say Haskell programmer's prefer the pure data structures. 
+ 

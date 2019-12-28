@@ -1,0 +1,65 @@
+*** purely-functional-data-structures-for-text-editors ***
+
+ What would be good purely functional data structures for text editors? I want to be able to insert single characters into the text and delete single characters from the text with acceptable efficiency, and I would like to be able to hold on to old versions, so I can undo changes with ease. 
+ Should I just use a list of strings and reuse the lines that don't change from version to version? 
+ 
+ A   would probably be a good bet. It is an   so has decent update / prepend / update performance, unlike the   you mention. If you look at  Performance Characteristics , it's the only immutable collection mentioned that has effective constant-time update. 
+ 
+ I don't know whether this suggestion is "good" for sophisticated definitions of "good", but it's easy and fun. I often set an exercise to write the core of a text editor in Haskell, linking with rendering code that I provide. The data model is as follows. 
+ First, I define what it is to be a cursor inside a list of  -elements, where the information available at the cursor has some type  . (The   will turn out to be   or  .) 
+ 
+ This   thing is just the backward "snoc-lists". I want to keep strong spatial intuitions, so I turn things around in my code, not in my head. The idea is that the stuff nearest the cursor is the most easily accessible. That's the spirit of The Zipper. 
+ 
+ I provide a gratuitous singleton type to act as a readable marker for the cursor... 
+ 
+ ...and I can thus say what it is to be somewhere in a  
+ 
+ Now, to represent a buffer of multiple lines, we need  s above and below the line with the cursor, and a   in the middle, for the line we're currently editing. 
+ 
+ This   type is all I use to represent the state of the edit buffer. It's a two layer zipper. I provide the students with code to render a viewport on the text in an ANSI-escape-enabled shell window, ensuring that the viewport contains the cursor. All they have to do is implement the code that updates the   in response to keystrokes. 
+ 
+ where   should return   if the keystroke is meaningless, but otherwise deliver   an updated   and a "damage report", the latter being one of 
+ 
+ (If you're wondering what the difference is between returning   and returning  , consider whether you also want the editor to go beep.) The damage report tells the renderer how much work it needs to do to bring the displayed image up to date. 
+ The   type just gives a readable dataype representation to the possible keystrokes, abstracting away from the raw ANSI escape sequences. It's unremarkable. 
+ I provide the students with a big clue about to go up and down with this data model by offering these pieces of kit: 
+ 
+ The   function is used to shift focus out of a  , giving you an ordinary list, but telling you where the cursor  was . The corresponding   function attempts to place the cursor at a given position in a list: 
+ 
+ I offer the students a deliberately incorrect and incomplete definition of  
+ 
+ which just handles ordinary character keystrokes but makes the text come out backwards. It's easy to see that the character   appears  right  of  . I invite them to fix the bug and add functionality for the arrow keys, backspace, delete, return, and so on. 
+ It may not be the most efficient representation ever, but it's purely functional and enables the code to conform concretely to our spatial intuitions about the text that's being edited. 
+ 
+ We use a text zipper in Yi, a serious text editor implementation in Haskell.  
+ The implementation of the immutable state types is described in the following, 
+ http://publications.lib.chalmers.se/records/fulltext/local_94979.pdf 
+ http://publications.lib.chalmers.se/records/fulltext/local_72549.pdf 
+ and other papers. 
+ 
+ 
+ Fingertrees 
+ Ropes 
+ scala.collection.immutable.IndexSeq 
+ 
+ 
+ I'd suggest to use  zippers  in combination with  Data.Sequence.Seq  which is based on  finger trees . So you could represent the current state as
+ 
+ 
+ This gives you  O(1)  complexity for moving cursor up/down a single line, and since   and   (union) have both  O(log(min(n1,n2)))  complexity, you'll get  O(log(L))  complexity for skipping  L  lines up/down. 
+ You could have a similar zipper structure for   to keep a sequence of character before, at and after the cursor. 
+  could be something space-efficient, such as  ByteString . 
+ 
+ I've implemented a zipper for this purpose for my   library.  You can take a look here: 
+ https://github.com/jtdaugherty/vty-ui/blob/master/src/Graphics/Vty/Widgets/TextZipper.hs 
+ 
+ The Clojure community is looking at  RRB Trees  (Relaxed Radix Balanced) as a persistent data strcuture for vectors of data that can be efficiently concatenated / sliced / inserted etc. 
+ It allows concatenation, insert-at-index and split operations in O(log N) time. 
+ I imagine a RRB Tree specialised for character data would be perfectly suited for large "editable" text data structures. 
+ 
+ The possibilities that spring to mind are: 
+ 
+ The "Text" type with a numerical index. It keeps text in a linked list of buffers (internal representation is UTF16), so while in theory its computational complexity is usually that of a linked list (e.g. indexing is O(n)), in practice its so much faster than a conventional linked list that you could probably just forget about the impact of n unless you are storing the whole of Wikipedia in your buffer. Try some experiments on 1 million character text to see if I'm right (something I haven't actually done, BTW). 
+ A text zipper: store the text after the cursor in one text element, and the text  before  the cursor in another. To move the cursor transfer text from one side to the other. 
+ 
+ 

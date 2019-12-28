@@ -1,0 +1,40 @@
+*** database-architecture-for-millions-of-new-rows-per-day ***
+
+ I need to implement a custom-developed web analytics service for large number of websites. The key entities here are: 
+ 
+ Website 
+ Visitor 
+ 
+ Each unique visitor will have have a single row in the database with information like landing page, time of day, OS, Browser, referrer, IP, etc. 
+ I will need to do aggregated queries on this database such as 'COUNT all visitors who have Windows as OS and came from Bing.com'  
+ I have hundreds of websites to track and the number of visitors for those websites range from a few hundred a day to few million a day. In total, I expect this database to grow by about a million rows per day. 
+ My questions are: 
+ 1) Is MySQL a good database for this purpose?  
+ 2) What could be a good architecture? I am thinking of creating a new table for each website. Or perhaps start with a single table and then spawn a new table (daily) if number of rows in an existing table exceed 1 million (is my assumption correct). My only worry is that if a table grows too big, the SQL queries can get dramatically slow. So, what is the maximum number of rows I should store per table? Moreover, is there a limit on number of tables that MySQL can handle. 
+ 3) Is it advisable to do aggregate queries over millions of rows? I'm ready to wait for a couple of seconds to get results for such queries. Is it  a good practice or is there any other way to do aggregate queries? 
+ In a nutshell,  **I am trying a design a large scale data-warehouse kind of setup which will be write heavy**
+. If you know about any published case studies or reports, that'll be great! 
+ 
+ If you're talking larger volumes of data, then look at  MySQL partitioning . For these tables, a partition by data/time would certainly help performance. There's a decent article about partitioning  here . 
+ Look at creating two separate databases: one for all raw data for the writes with minimal indexing; a second for reporting using the aggregated values; with either a batch process to update the reporting database from the raw data database, or use replication to do that for you. 
+ **EDIT**
+
+ If you want to be really clever with your aggregation reports, create a set of aggregation tables ("today", "week to date", "month to date", "by year"). Aggregate from raw data to "today" either daily or in "real time"; aggregate from "by day" to "week to date" on a nightly basis; from "week to date" to "month to date" on a weekly basis, etc. When executing queries, join (UNION) the appropriate tables for the date ranges you're interested in. 
+ **EDIT #2**
+
+ Rather than one table per client, we work with one database schema per client. Depending on the size of the client, we might have several schemas in a single database instance, or a dedicated database instance per client. We use separate schemas for raw data collection, and for aggregation/reporting for each client. We run multiple database servers, restricting each server to a single database instance. For resilience, databases are replicated across multiple servers and load balanced for improved performance. 
+ 
+ Some suggestions in a database agnostic fashion. 
+ The most simplest rational is to distinguish between read intensive and write intensive tables. Probably it is good idea to create two parallel schemas daily/weekly schema and a history schema. The partitioning can be done appropriately. One can think of a batch job to update the history schema with data from daily/weekly schema. In history schema again, you can create separate data tables per website (based on the data volume). 
+ If all you are interested is in the aggregation stats  **alone**
+ (which may  **not**
+ be true). It is a good idea to have a summary tables (monthly, daily) in which the summary is stored like total unqiue visitors, repeat visitors etc; and these summary tables are to be updated at the end of day. This enables on the fly computation of stats with out waiting for the history database to be updated. 
+ 
+ You should definitely consider splitting the data by site across databases or schemas - this not only makes it much easier to backup, drop etc an individual site/client but also eliminates much of the hassle of making sure no customer can see any other customers data by accident or poor coding etc. It also means it is easier to make choices about partitionaing, over and above databae table-level partitioning for time or client etc. 
+ Also you said that the data volume is 1 million rows per day (that's not particularly heavy and doesn't require huge grunt power to log/store, nor indeed to report (though if you were genererating 500 reports at midnight you might logjam). However you also said that some sites had 1m visitors daily so perhaps you figure is too conservative? 
+ Lastly you didn't say if you want real-time reporting a la chartbeat/opentracker etc or cyclical refresh like google analytics - this will have a major bearing on what your storage model is from day one. 
+ M 
+ 
+ You really should test your way forward will simulated enviroments as close as possible to the live enviroment, with "real fake" data (correct format & length). Benchmark queries and variants of table structures. Since you seem to know MySQL, start there. It shouldn't take you that long to set up a few scripts bombarding your database with queries. Studying the results of  your  database with  your kind of data  will help you realise where the bottlenecks will occur. 
+ Not a solution but hopefully some help on the way, good luck :) 
+ 

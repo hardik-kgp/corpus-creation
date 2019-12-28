@@ -1,0 +1,28 @@
+*** how-does-db-serialize-work-in-node-sqlite3 ***
+
+ Recently I'm learning to use node and  node-sqlite3  to manipulate sqlite3, here is a sample. 
+ 
+ The documentation said that   was used to ensure SQL lines were executed in order, but I was confused, why wouldn't they get executed in order without  , after all they would be pulled from the event queue and executed in order? How does it work here? 
+ And if there is only one sql to be executed, is it safe to run it without   as follows? 
+ 
+ 
+ Each command inside the   function is guaranteed to  **finish**
+ executing before the next one starts. 
+ In your example, the   will finish before the   gets run.  If you didn't use   then the   and   statements would be run in parallel.  They would start so quickly one after the other that the   may actually finish before the table has been created, giving you an error about trying to insert data into a table that doesn't exist. 
+ This is called a  race condition , because every time you run your program you might get a different winner.  If   wins the race then the program will work fine.  But if   wins the race, the program will break with an error.  Since you can't control who wins the race,   will stop   from even starting until   has reached the end, ensuring you get the same outcome every time. 
+ In your second example with only one statement then   is still required.  This is because   starts the SQL query but  **returns immediately**
+, leaving the query to run in the background.  Since your very next command is one to   the database, you'll cut it off while the query is still running. 
+ Since   doesn't return until the last of its internal queries has completed, using it will hold off the   until the query has completed. 
+ If you were using a different type of query (say in response to a user clicking a button on a web page, where the database is left open between calls) then you probably wouldn't need  .  It just depends whether the code that follows each query requires that the queries before it have completed or not. 
+ When deciding whether to use   or not, it can be helpful to think of any non-serialized queries as if they are commented out, and then see if the code would still work.  In your first example above, removing the   command would break the following   statement (because then there'd be no table to insert into), therefore these need to be serialised.  But if you had two   commands then removing one would not affect the other, so those two commands would not have to be serialized. 
+ (This tip doesn't apply to   however - the rule of thumb there is to only call   once everything has finished running.) 
+ 
+ I found this in the  SQLite documentation :  
+ 
+ the Database#close method will always run in exclusive mode, meaning
+  it waits until all previous queries have completed and node-sqlite3
+  will not run any other queries while a close is pending. 
+ 
+ So it looks like the answer to your final question is  **yes**
+. If you only have one query to run, there's no need for the serialize function.  You don't need to worry about your database getting closed before the query finishes because SQLite is smart enough not to do that! :) 
+ 

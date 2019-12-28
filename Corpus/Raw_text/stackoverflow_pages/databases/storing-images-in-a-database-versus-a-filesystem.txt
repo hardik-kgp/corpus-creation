@@ -1,0 +1,28 @@
+*** storing-images-in-a-database-versus-a-filesystem ***
+
+ Well we all know how many arguments and lives have been lost with the discussion of using databases for file storage (images specifically). I'm in a bit of a pickle when it comes to deciding on how to proceed with my project. 
+ I have a website that allows admins to upload employee pictures. For now, these pictures are stored in BLOB in my MySQL database. Also, I have a windows application that runs alongside the website. This application enables employees to punch in and have their pictures appear when they've successfully done so. The picture is retrieved via a mysql query within the application (from a non-local remote location) that converts the image content to a readable image that's being outputted in a picture box, confirming the identity of the employee.  
+ In my eyes, it is much much easier to have the images stored in the database and have them retrieved via a simple query. I found this a lot easier than storing image paths in the database and having to deal with the application downloading the images. I also don't have to deal with collisions, folder organization and security and paths being re-written for x,y reasons, etc etc.  
+ The images stored in the DB are a mere 20 kb  after being cropped to a certain size. My question is, is it still worth embedding the database with image paths or should they simply be stored as they are right now? If storing images in the database is still ill-advised in this case, is there a formal way to store image paths? 
+ Any help on this would be greatly appreciated. If this question doesn't belong here, I'll be happy to move it. 
+ 
+ If the images are user data, rather than part of your application's code or theme, then storing the images in the database is a good idea, because… 
+ 
+ Backups are easier to manage if all you have to back up is the database.  On the other hand, if you store some application data in the database and some in the filesystem, then you'll have to coordinate the backup schedules of your database and your filesystem to ensure that the two are consistent. 
+ If you have a database administrator at your disposal, then great!  Your backups should already be taken care of.  If not, then database backups may be slightly tricky to set up, but once you do have a backup system, it can be better than filesystem backups.  For example, many database systems have support for streaming replication. 
+ If your application is load-balanced and served by a pool of multiple webservers, then you'll either have to replicate the data to all of the machines, or share them among your servers using a network filesystem. 
+ 
+ Of course, having the images on a filesystem also has its advantages, namely in performance and simplicity, since most webservers are built to serve static files.  A hybrid approach could give you the best of both worlds: 
+ 
+ The images stored in the database would be the authoritative data. 
+ Your application can have a feature to extract them as files in their local filesystem as a kind of cache.  That cache can be rebuilt at any time, since it is not authoritative. 
+ The webserver can then serve the files directly from the filesystem. 
+ 
+ 
+ There are several reasons why I think storing images in a database is a bad idea: 
+ 1) The server will have timestamp info associated with files that the database won't keep track of. if you ever need to this for forensics reasons, the DB solution will likely be limited in this regard. Feel free to save info about images uploaded regarding IP info, timestamp, etc. in the DB though too. 
+ 2) If you ever want these files used by, say, another system/service you'll have to constantly reference the database and interact with it, when you could far more easily just target a specific folder. 
+ 3) Any time an image needs to be retrieved, you have to open a connection to the database just to generate it. This may add extra code and steps to things that could be easier to implement by pointing to a folder. 
+ To avoid naming collisions, if I were on a Linux box, I'd use something like a Unix timestamp as a prefix to the filename when it's saved, or simply use that (+ maybe a short random #) as the image ID altogether. So instead of 'jane-image.jpg', it'd be  '1407369600_img3547.jpg'. Then, just put a reference to that in the DB and viola, that's a random enough ID where there should never be a collision, unless time starts flowing backwards. Whatever the Windows timestamp equivalent is would be used, obviously. 
+ NOTE: What you're doing now isn't bad and from what it sounds like it may work best for you...but generally speaking I try not to put everything in the hands of a database, just because I can. But that's me :)  
+ 

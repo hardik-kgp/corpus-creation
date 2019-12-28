@@ -1,0 +1,37 @@
+*** mysql-question-how-to-handle-multiple-types-of-users-one-table-or-multiple ***
+
+ I'm designing a database for an organization that has multiple "types" of users. At first, I created only one user table. However, while all users share some common information (first name, last name, username, password, etc.), each user type requires one or two additional fields that are not applicable to all users. While I can create these additional fields and set them as NULL, I do not wish to do this, as the fields are foreign keys and its been causing problems for me. 
+ How is this situation normally handled? 
+ Thanks! 
+ 
+ Your instincts to not create a big table with lots of NULLS is right on.  That's a bad idea, from a storage/retrival/maintenance point of view, as well as a data validation point of view (more on that later). 
+ The two most common approcaches: 
+ 1) Have a user table with all the common fields in it, including a "userType" field.  Then have a separate table for each user type containing the extra fields.  All users have a row in the users table and one or more of the specific user type tables.  This is the most normalized and the most efficient for storage and quick logins.  This also lets you use contraints and foreign keys to assure that all required information for each user type is available. 
+ 2) Have a user table with all the common fields in it.  Have another table called something like  **UserAttributes**
+ that has fields for userid, key, and value.  Any extra metadata for a particular user can be stored in here.  This has the advantage of not requiring any database administration to add new user types or metadata to be stored for each user type.  However, it doesn't let you do any data validation at the DB level. 
+ 
+ The relational model, as such, does not support "inheritance", which might help solve this problem (though a few DB engines, such as PostgreSQL, do support inheritance). 
+ So, I would first ask myself -- do the different types of users need to be able to appear in the same context, at least in some cases?  If so, then you can't just copy and paste the "columns in common" to multiple tables (at least not without compromising the integrity checks that you could get in those cases via foreign keys onto a single table). 
+ Second question -- is it  **ever**
+ possible for a user to hold more than one role?  In many cases it would be  **unusual**
+ but not utterly impossible, e.g. an employee might also be a supplier or a customer. 
+ If I could get no sharp answers to such questions directing me otherwise, I'd set up a users table with only the common fields; and separate tables for suppliers, employees, beta-testers, customers, and whatever other kinds and roles I might have for users, each with just its own specialized columns plus a foreign key onto the users table to pick up the rest. 
+ I realize that normalized schemas are out of fashion now, but they've served me faithfully for decades and I have a deep fondness for them -- I only denormalize when I need specific optimizations, and it happens more rarely than one might think!-). 
+ One somewhat denormalization that may likely be useful here is an enumeration column in the users table indicating the "main" or "sole" role of each particular use (it could be nullable and maybe uniformly null at the start, if I was pushy enough to have it in from the beginning...;-)... but I'd likely wait to add it if and when performance of some specific queries needed it as a specific optimization, rather than design the schema that way from the start (note that this is a key reason to never use   in your queries -- if you   later to add a column, that   is the one bit that would break!-). 
+ 
+ This is the famous normalization question. 
+ Take a peek at this article or others like it to try to find an answer that fits the business needs. 
+ To normalize or not to normalize 
+ 
+ You didn't say if you were using a high-level language, so I'll just give a general example with DB-like example: 
+ Database design is hard. So, this will be a quick and simple answer. 
+ Your question is a basic question about data relationships, and database design. Search out some basic how-to guides to help this answer.  It may help to think of how your information is grouped, and link "back" to the primary set (table) from the other sets (tables).  
+ So, users are users -- thats your table. It should contain the main, common elements (columns) of data associated with a user. 
+ Then, this other set of information (e.g., permissions or something) is another table. 
+ Just make sure this other table has a value (column) that points back to the user, to which it refers. You will probably want to tell your database to create an "index" between them (to improve lookup performances, etc.) 
+ E.g., A kind of "permission" table for users: 
+ 
+ So, you could "SELECT * FROM user_table WHERE first_name = 'joe' (or such) ... to get a user. In there, I'd hope you have some kind of 'id' value to identify that row. 
+ Now, just do a 'SELECT * FROM permissions WHERE user_id = 'nnnn' (whatever that user's id is). 
+ If a user has only 1 permission set, then you could just have that user_id without the additional "id" column. 
+ 

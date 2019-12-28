@@ -1,0 +1,107 @@
+*** how-to-efficiently-utilize-10-computers-to-import-data ***
+
+ We have flat files (CSV) with >200,000,000 rows, which we import into a star schema with 23 dimension tables. The biggest dimension table has 3 million rows. At the moment we run the importing process on a single computer and it takes around 15 hours. As this is too long time, we want to utilize something like 40 computers to do the importing. 
+ My question 
+ **How can we efficiently utilize the 40 computers to do the importing. The main worry is that there will be a lot of time spent replicating the dimension tables across all the nodes as they need to be identical on all nodes. This could mean that if we utilized 1000 servers to do the importing in the future, it might actually be slower than utilize a single one, due to the extensive network communication and coordination between the servers.**
+  
+ Does anyone have suggestion?  
+ **EDIT:**
+
+ The following is a simplification of the CSV files:  
+ 
+ After importing, the tables look like this: 
+ dimension_table1 
+ 
+ dimension_table2 
+ 
+ Fact table 
+ 
+ 
+ Loading CSV data into a database is slow because it needs to read, split and validate the data. 
+ So what you should try is this: 
+ 
+ Setup a local database on each computer. This will get rid of the network latency. 
+ Load a different part of the data on each computer. Try to give each computer the same chunk. If that isn't easy for some reason, give each computer, say, 10'000 rows. When they are done, give them the next chunk. 
+ Dump the data with the DB tools 
+ Load all dumps into a single DB 
+ 
+ Make sure that your loader tool can import data into a table which already contains data. If you can't do this, check your DB documentation for "remote table". A lot of databases allow to make a table from another DB server visible locally. 
+ That allows you to run commands like  
+ If you need primary keys (and you should), you will also have the problem to assign PKs during the import into the local DBs. I suggest to add the PKs to the CSV file. 
+ **[EDIT]**
+ After checking with your edits, here is what you should try: 
+ 
+ Write a small program which extract the unique values in the first and second column of the CSV file. That could be a simple script like: 
+ 
+ This is a pretty cheap process (a couple of minutes even for huge files). It gives you ID-value files. 
+ Write a program which reads the new ID-value files, caches them in memory and then reads the huge CSV files and replaces the values with the IDs. 
+ If the ID-value files are too big, just do this step for the small files and load the huge ones into all 40 per-machine DBs. 
+ Split the huge file into 40 chunks and load each of them on each machine. 
+ If you had huge ID-value files, you can use the tables created on each machine to replace all the values that remained. 
+ Use backup/restore or remote tables to merge the results. 
+ Or, even better, keep the data on the 40 machines and use algorithms from parallel computing to split the work and merge the results. That's how Google can create search results from billions of web pages in a few milliseconds. 
+ 
+ See  here for an introduction . 
+ 
+ You could consider using a 64bit hash function to produce a   ID for each string, instead of using sequential IDs. 
+ With 64-bit hash codes, you can store 2^(32 - 7) or over 30 million items in your hash table before there is a 0.0031% chance of a collision. 
+ This would allow you to have identical IDs on all nodes, with no communication whatsoever between servers between the 'dispatch' and the 'merge' phases. 
+ You could even increase the number of bits to further lower the chance of collision; only, you would not be able to make the resultant hash fit in a 64bit integer database field. 
+ See: 
+ http://en.wikipedia.org/wiki/Fowler_Noll_Vo_hash 
+ http://code.google.com/p/smhasher/wiki/MurmurHash 
+ http://www.partow.net/programming/hashfunctions/index.html 
+ 
+ This is a very generic question and does not take the database backend into account. Firing with 40 or 1000 machines on a database backend that can not handle the load will give you nothing. Such a problem is truly to broad to answer it in a specific way..you should get in touch with people inside your organization with enough skills on the DB level first and then come back with a more specific question. 
+ 
+ Assuming N computers, X files at about 50GB files each, and a goal of having 1 database containing everything at the end. 
+ Question: It takes 15 hours now. Do you know which part of the process is taking the longest? (Reading data, cleansing data, saving read data in tables, indexing… you are inserting data into unindexed tables and indexing after, right?) 
+ To split this job up amongst the N computers, I’d do something like (and this is a back-of-the-envelope design): 
+ 
+ Have a “central” or master database. Use this to mangae the overall process, and to hold the final complete warehouse. 
+ It contains lists of all X files and all N-1 (not counting itself) “worker” databases 
+ Each worker database is somehow linked to the master database (just how depends on RDBMS, which you have not specified) 
+ When up and running, a "ready" worker database polls the master database for a file to process. The master database dolls out files to worker systems, ensuring that no file gets processed by more than one at a time. (Have to track success/failure of loading a given file; watch for timeouts (worker failed), manage retries.) 
+ Worker database has local instance of star schema. When assigned a file, it empties the schema and loads the data from that one file. (For scalability, might be worth loading a few files at a time?) “First stage” data cleansing is done here for the data contained within that file(s).  
+ When loaded, master database is updated with a “ready flagy” for that worker, and it goes into waiting mode. 
+ Master database has it’s own to-do list of worker databases that have finished loading data. It processes each waiting worker set in turn; when a worker set has been processed, the worker is set back to “check if there’s another file to process” mode. 
+ At start of process, the star schema in the master database is cleared. The first set loaded can probably just be copied over verbatim. 
+ For second set and up, have to read and “merge” data – toss out redundant entries, merge data via conformed dimensions, etc. Business rules that apply to all the data, not just one set at a time, must be done now as well. This would be “second stage” data cleansing. 
+ Again, repeat the above step for each worker database, until all files have been uploaded. 
+ 
+ Advantages: 
+ 
+ Reading/converting data from files into databases and doing “first stage” cleansing gets scaled out across N computers. 
+ Ideally, little work (“second stage”, merging datasets) is left for the master database 
+ 
+ Limitations: 
+ 
+ Lots of data is first read into worker database, and then read again (albeit in DBMS-native format) across the network 
+ Master database is a possible chokepoint. Everything has to go through here. 
+ 
+ Shortcuts: 
+ 
+ It seems likely that when a workstation “checks in” for a new file, it can refresh a local store of data already loaded in the master and add data cleansing considerations based on this to its “first stage” work (i.e. it knows code 5484J has already been loaded, so it can filter it out and not pass it back to the master database). 
+ SQL Server table partitioning or similar physical implementation tricks of other RDBMSs could probably be used to good effect. 
+ Other shortcuts are likely, but it totally depends upon the business rules being implemented. 
+ 
+ Unfortunately, without further information or understanding of the system and data involved, one can’t tell if this process would end up being faster or slower than the “do it all one one box” solution. At the end of the day it depends a lot on your data: does it submit to “divide and conquer” techniques, or must it all be run through a single processing instance? 
+ 
+ The simplest thing is to make one computer responsible for handing out new dimension item id's. You can have one for each dimension. If the dimension handling computers are on the same network, you can have them broadcast the id's. That should be fast enough. 
+ What database did you plan on using with a 23-dimensional starscheme? Importing might not be the only performance bottleneck. You might want to do this in a distributed main-memory system. That avoids a lot of the materalization issues. 
+ You should investigate if there are highly correlating dimensions. 
+ In general, with a 23 dimensional star scheme with large dimensions a standard relational database (SQL Server, PostgreSQL, MySQL) is going to perform extremely bad with datawarehouse questions. In order to avoid having to do a full table scan, relational databases use materialized views. With 23 dimensions you cannot afford enough of them. A distributed main-memory database might be able to do full table scans fast enough (in 2004 I did about 8 million rows/sec/thread on a Pentium 4 3 GHz in Delphi). Vertica might be an other option. 
+ Another question: how large is the file when you zip it? That provides a good first order estimate of the amount of normalization you can do. 
+ [edit] I've taken a look at your other questions. This does not look like a good match for PostgreSQL (or MySQL or SQL server). How long are you willing to wait for query results?  
+ 
+ Rohita, 
+ I'd suggest you eliminate a lot of the work from the load by sumarising the data FIRST, outside of the database. I work in a Solaris unix environment. I'd be leaning towards a korn-shell script, which  s the file up into more managable chunks, then farms those chunks out equally to my two OTHER servers. I'd process the chunks using a nawk script (nawk has an efficient hashtable, which they call "associative arrays") to calculate the distinct values (the dimensions tables) and the Fact table. Just associate each new-name-seen with an incrementor-for-this-dimension, then write the Fact. 
+ If you do this through named pipes you can push, process-remotely, and readback-back the data 'on the fly' while the "host" computer sits there loading it straight into tables. 
+ Remember, No matter WHAT you do with 200,000,000 rows of data (How many Gig is it?), it's going to take some time. Sounds like you're in for some fun. It's interesting to read how other people propose to tackle this problem... The old adage "there's more than one way to do it!" has never been so true. Good luck! 
+ Cheers. Keith. 
+ 
+ On another note you could utilize Windows Hyper-V Cloud Computing addon for Windows Server:http://www.microsoft.com/virtualization/en/us/private-cloud.aspx 
+ 
+ It seems that your implementation is very inefficient as it's loading at the speed of less than 1 MB/sec (50GB/15hrs). 
+ Proper implementation on a modern single server (2x Xeon 5690 CPUs + RAM that's enough for ALL dimensions loaded in hash tables + 8GB ) should give you at least 10 times better speed i.e at least 10MB/sec. 
+ 

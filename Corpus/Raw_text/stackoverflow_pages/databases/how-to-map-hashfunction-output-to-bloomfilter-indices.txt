@@ -1,0 +1,25 @@
+*** how-to-map-hashfunction-output-to-bloomfilter-indices ***
+
+ Can anyone help me by providing an outline on how the hash function output is mapped to bloom filter indices? Here is an overview on  bloomfilters . 
+ 
+ 
+ an outline on how the hash function output is mapped to a bloom filter indices 
+ 
+ For each of the  k  hash functions in use, they map onto a bit in the bloom filter just as hashes map onto hash buckets in a hash table.  So, very commonly you might have say a hash function generating 32 bit integers, then use the modulus   operator to get a bit index   where   is the number of bits in your bloom filter. 
+ To make this very concrete, let's say a hash function generates numbers from 0 to 2^32-1, and there are 1000 bits in your bloom filter: 
+ 
+ It's important to note here that 2^32-1 is massively greater than 1000.  Say the hash function instead generated pretty evenly distributed numbers but only between 0 and 1023 inclusive, then after the modulus operation it'd be twice as likely that bit_index would be in the 0..23 range as compared to 24..999 (because e.g. inputs 2 and 1002 both result in a post-modulus value of 2, but only an input of 25 produces an output of 25).  For that reason, if you have a hash function generating 32 bits, you might want to use a bloom filter sized to a number of bits that's a power of two, then slice out sections of the hash value to use as as if independent hash functions - all explained in the wikipedia article you link.  That requires a good quality hash function though, as any "clustering" flaws in the hash function will be passed through unmitigated to the output; having a prime number of bits is one way to mitigate such poor hashing.  Still, with good hash functions, powers of two also make it easy to extract bit indices using bitwise AND operations and - if needed - bit shifting, which can be faster than integer modulus, though the hash functions are probably going to dwarf that consideration in the overall performance profile. 
+ Edit - addressing comments... 
+ Assuming your MD5 function's returning an   "p" to   bytes of data, I suggested you try:  
+ 
+ That was actually  a particularly bad idea  - sorry - I'll explain the two reasons why in a moment.  First, to answer your question about what it does:   is designed to give you a compile error if the expression it's passed has evaluated to  .  Here, it's basically a way of documenting the requirement that   - which is the size in characters of the textual representation of the MD5 hash - be at least as long as the number of bytes your system uses for an   integer type.  (That size is probably 4 bytes, but might be 8.)  That requirement is intended to ensure that the   in the next line is safe.  What that does is read a value from the bytes at the start of the textual representation of the MD5 hash as if those bytes contained an  .  So, say your   size  is  4, MD5 hash is "0cc175b9c0f1b6a831c399e269772661" as in your comment: the first 4 bytes contain "0cc1".  The ASCII codes for that text are 48, 99, 99, 49 decimal.  When they're read into an  , depending on the endianness of the CPU the value could differ, but basically you'll get one of those numbers times 256^3 plus another one times 256^2 plus a third times 256 plus the final number. 
+ The reasons I said this was a particularly bad idea are: 
+ 
+ each character in the MD5 string is either a digit (ASCII codes 48-57) or a letter from "a" through "f" (97-102).  Those 16 values are ony a 16th of the variation that a byte can have, and while the   value you generate occupies 32 bits you really only get 2^16 distinct values. 
+ on some computers,  s must be aligned at a memory address that's a multiple of 2, 4, 8 etc..  The   - if the text happens to start at an incompatible address, could crash your computer.  Note: Intel & AMDs have no such alignment requirement, though it may be faster for them to operate on properly aligned data. 
+ 
+ So, another suggestion: 
+ 
+ Here, if the md5 representation was shorter than the data buffer, just the initial part of it would be safely copied, so the BOOST_STATIC_ASSERT isn't required. 
+ It's much easier to use a non-cryptographic hash function, as they'll generally just return you a number rather than a readble text buffer representation of the number, so you can avoid all this nonsense. 
+ 

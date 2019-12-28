@@ -1,0 +1,95 @@
+*** what-do-you-think-of-this-approach-for-logging-changes-in-mysql-and-have-some-ki ***
+
+ I've been reading through several topics now and did some research about logging changes to a mysql table. First let me explain my situation: 
+ I've a ticket system with a  **table: 'ticket'**
+
+ As of now I've created  triggers  which will enter a duplicate entry in my  **table: 'ticket_history'**
+ which has  "action"   "user"  and  "timestamp"  as additional columns. After some weeks and testing I'm somewhat not happy with that build since every change is creating a full copy of my row in the history table. I do understand that disk space is cheap and I should not worry about it but in order to retrieve some kind of log or nice looking history for the user is painful, at least for me. Also with the trigger I've written I get a new row in the history even if there is no change. But this is just a design flaw of my trigger!  
+ Here my trigger: 
+ 
+ 
+ **My new approach in order to avoid having triggers**
+
+ After spening some time on this topic I came up with an approach I would like to discuss and implement. But first I would have some questions about that: 
+ My idea is to create a new table: 
+ 
+ **The flow would look like this in my mind:**
+
+ At first I would select something or more from the DB: 
+ 
+ Then I display the data in 2 input fields: 
+ 
+ Hit submit and give it to my function:  
+ I would start with a SELECT again:  
+and make sure that the hidden input field == the value from the latest select. If so I can proceed and know that no other user has changed something in the meanwhile. If the hidden field does not match I bring the user back to the form and display a message.  
+ Next I would build the SQL Queries for the action and also the query to undo those changes.  
+ 
+ Having that I run the UPDATE on  **ticket**
+ and insert a new entry in my new table for logging.  
+ With that I can try to catch possible overwrites while two users are editing the same ticket in the same time and for my history I could simply look up the keys and values and generate some kind of list. Also having the SQL_BWD I simply can undo changes.  
+ My questions to that would be: 
+ 
+ Would it be noticeable doing an additional select everytime I want to update something?  
+ Do I lose some benefits I would have with triggers? 
+ Are there any big disadvantages  
+ Are there any functions on my mysql server or with php which already do something like that? 
+ Or is there might be a much easier way to do something like that 
+ Is maybe a slight change to my trigger I've now already enough? 
+ **If I understad this right MySQL is only performing an update if the value has changed but the trigger is executed anyways right?**
+
+ If I'm able to change the trigger, can I still prevent somehow the overwriting of data while 2 users try to edit the ticket the same time on the mysql server or would I do this anyways with PHP? 
+ 
+ Thank you for the help already 
+ 
+ I've answered a  similar  question before. You'll see some good alternatives in that question. 
+ In your case, I think you're merging several concerns - one is "storing an audit trail", and the other is "managing the case where many clients may want to update a single row".  
+ Firstly, I don't like triggers. They are a side effect of some other action, and for non-trivial cases, they make debugging much harder. A poorly designed trigger or audit table can really slow down your application, and you have to make sure that your trigger logic is coordinated between lots of developers. I realize this is personal preference and bias. 
+ Secondly, in my experience, the requirement is rarely "show the status of this one table over time" - it's nearly always "allow me to see what happened to the system over time", and if that requirement exists at all, it's usually fairly high priority. With a ticketing system, for instance, you probably want the name and email address of the users who created, and changed the ticket status; the name of the category/classification, perhaps the name of the project etc. All of those attributes are likely to be foreign keys on to other tables. And when something does happen that requires audit, the requirement is likely "let me see immediately", not "get a database developer to spend hours trying to piece together the picture from 8 different history tables. In a ticketing system, it's likely a requirement for the ticket detail screen to show this. 
+ If all that is true, then I don't think history tables populated by triggers are a good idea - you have to build all the business logic into two sets of code, one to show the "regular" application, and one to show the "audit trail". 
+ Instead, you might want to build "time" into your data model (that was the point of my answer to the other question). 
+ Since then, a new style of data architecture has come along, known as  CQRS . This requires a very different way of looking at application design, but it is explicitly designed for  reactive  applications; these offer much  nicer  ways of dealing with the "what happens if someone edits the record while the current user is completing the form" question. Stack Overflow is an example - we can see, whilst typing our comments or answers, whether the question was updated, or other answers or comments are posted. There's a  reactive library for PHP . 
+ 
+ Another approach... 
+ When a worker starts to make a change... 
+ 
+ Store the time and worker_id in the row. 
+ Proceed to do the tasks. 
+ When the worker finishes, fetch the last worker_id that touched the record; if it is himself, all is well.  Clear the time and worker_id. 
+ 
+ If, on the other hand, another worker slips in, then some resolution is needed.  This gets into your concept that some things can proceed in parallel. 
+ 
+ Comments could be added to a different table, hence no conflict. 
+ Changing the priority may not be an issue  by itself . 
+ Other things may be messier. 
+ 
+ It may be better to have another table for the time & worker_ids (& ticket_id).  This would allow for flagging that multiple workers are currently touching a single record. 
+ As for History versus Current, I (usually) like to have 2 tables: 
+ 
+ History -- blow-by-blow list of what changes were made, when, and by whom.  This is table is only   into. 
+ Current -- the current status of the ticket.  This table is mostly  . 
+ 
+ Also, I prefer to write the History directly from the "database layer" of the app, not via Triggers.  This gives me much better control over the details of what goes into each table and when.  Plus the 'transactions' are clear.  This gives me confidence that I am keeping the two tables in sync: 
+ 
+ 
+ 
+ I do understand that disk space is cheap and I should not worry about it but in order to retrieve some kind of log or nice looking history for the user is painful, at least for me.  
+ 
+ A large history table is not necessarily a problem. Huge tables only use disk space, which is cheap. They slow things down only when making queries on them. Fortunately, the history is not something you'd use all the time, most likely it is only used to solve problems or for auditing. 
+ It is useful to partition the history table, for example by month or week. This allows you to simply drop very old records, and more important, since the history of the previous months has already been backed up, your daily backup schedule only needs to backup the current month. This means a huge history table will not slow down your backups. 
+ 
+ With that I can try to catch possible overwrites while two users are editing the same ticket in the same time 
+ 
+ There is a simple solution: 
+ Add a column "version_number". 
+ When you select with intent to modify, you grab this version_number. 
+ Then, when the user submits new data, you do: 
+ 
+ If someone came in-between and modified it, then they will have incremented the version number, so the WHERE will not find the row. The query will return a row count of 0. Thus you know it was modified. You can then SELECT it, compare the values, and offer conflict resolution options to the user. 
+ You can also add columns like who modified it last, and when, and present this information to the user. 
+ If you want the user who opens the modification page to lock out other users, it can be done too, but this needs a timeout (in case they leave the window open and go home, for example). So this is more complex. 
+ Now, about history: 
+ You don't want to have, say, one large TEXT column called "comments" where everyone enters stuff, because it will need to be copied into the history every time someone adds even a single letter. 
+ It is much better to view it like a forum: each ticket is like a topic, which can have a string of comments (like posts), stored in another table, with the info about who wrote it, when, etc. You can also historize that. 
+ The drawback of using a trigger is that the trigger does not know about the user who is logged in, only the MySQL user. So if you want to record who did what, you will have to add a column with the user_id as I proposed above. You can also use Rick James' solution. Both would work. 
+ Remember though that MySQL triggers don't fire on foreign key cascade deletes... so if the row is deleted in this way, it won't work. In this case doing it in the application is better. 
+ 

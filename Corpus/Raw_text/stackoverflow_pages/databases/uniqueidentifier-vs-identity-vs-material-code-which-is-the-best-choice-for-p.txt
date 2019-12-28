@@ -1,0 +1,115 @@
+*** uniqueidentifier-vs-identity-vs-material-code-which-is-the-best-choice-for-p ***
+
+ **Which one is the best choice for primary key in SQL Server?**
+
+There are some example code: 
+ **Uniqueidentifiers**
+
+ **e.g.**
+
+ 
+ **Identity columns **
+
+ **e.g.**
+
+ 
+ **[Material Code](or Business Code,which identity of a material. e.g. customer identifier)**
+
+ **e.g.**
+
+ 
+ Please give me some advices for choosing the primary key from the three type identity columns,or other choices. 
+ Thanks! 
+ 
+  may seem to be a natural choice for your primary key - and if you really must, you could probably argue to use it for the PRIMARY KEY of the table. What I'd strongly recommend  **not to do**
+ is use the   column as the  **clustering key**
+, which SQL Server does by default, unless you specifically tell it not to. 
+ You really need to keep two issues apart: 
+ 
+ the  **primary key**
+ is a logical construct - one of the candidate keys that uniquely and reliably identifies every row in your table. This can be anything, really - an  , a  , a string - pick what makes most sense for your scenario. 
+ the  **clustering key**
+ (the column or columns that define the "clustered index" on the table) - this is a  physical  storage-related thing, and here, a small, stable, ever-increasing data type is your best pick -   or   as your default option.  
+ 
+ By default, the primary key on a SQL Server table is also used as the clustering key - but that doesn't need to be that way! I've personally seen massive performance gains when breaking up the previous GUID-based primary / clustered key into two separate keys - the primary (logical) key on the  , and the clustering (ordering) key on a separate   column.  
+ As  Kimberly Tripp  - the  Queen of Indexing  - and others have stated a great many times - a   as the clustering key isn't optimal, since due to its randomness, it will lead to massive page and index fragmentation and to generally bad performance. 
+ Yes, I know - there's   in SQL Server 2005 and up - but even that is not truly and fully sequential and thus also suffers from the same problems as the   - just a bit less prominently so. 
+ Then there's another issue to consider: the clustering key on a table will be added to each and every entry on each and every non-clustered index on your table as well - thus you really want to make sure it's as small as possible. Typically, an   with 2+ billion rows should be sufficient for the vast majority of tables - and compared to a   as the clustering key, you can save yourself hundreds of megabytes of storage on disk and in server memory.  
+ Quick calculation - using   vs.   as primary and clustering key: 
+ 
+ Base Table with 1'000'000 rows (3.8 MB vs. 15.26 MB) 
+ 6 nonclustered indexes (22.89 MB vs. 91.55 MB) 
+ 
+ **TOTAL: 25 MB vs. 106 MB**
+ - and that's just on a single table! 
+ Some more food for thought - excellent stuff by Kimberly Tripp - read it, read it again, digest it! It's the SQL Server indexing gospel, really. 
+ 
+ GUIDs as PRIMARY KEY and/or clustered key 
+ The clustered index debate continues 
+ Ever-increasing clustering key - the Clustered Index Debate..........again! 
+ Disk space is cheap - that's  **not**
+ the point! 
+ 
+ Unless you have a  **very good reason**
+, I would argue to use a   for almost every "real" data table as the default for their primary key - it's unique, it's stable (never changes), it's narrow, it's ever increasing - all the  **good properties**
+ that you want to have in a clustering key for fast and reliable performance of your SQL Server tables! 
+ If you have some "natural" key value that also has all those properties, then you might also use that instead of a surrogate key. But  **two**
+ variable-length strings of max. 20 chars each do not meet those requirements in my opinion.  
+ 
+ **IDENTITY**
+
+ PROS 
+ 
+ small storage footprint;  
+ optimal join / index performance (e.g. for time range queries, most rows recently inserted will be on a limited number of pages);  
+ highly useful for data warehousing;  
+ native data type of the OS, and easy to work with in all languages;  
+ easy to debug; 
+ generated automatically (retrieved through SCOPE_IDENTITY() rather than assigned);  
+ not updateable (though some consider this a disadvantage, strangely enough). 
+ 
+ CONS 
+ 
+ cannot be reliably "predicted" by applications — can only be retrieved after the INSERT;  
+ need a complex scheme in multi-server environments, since IDENTITY is not allowed in some forms of replication;  
+ can be duplicated, if not explicitly set to PRIMARY KEY. 
+ if part of the clustered index on the table, this can create an insert hot-spot; 
+ proprietary and not directly portable;  
+ only unique within a single table;  
+ gaps can occur (e.g. with a rolled back transaction), and this can cause chicken little-style alarms. 
+ 
+ **GUID**
+
+ PROS 
+ 
+ since they are {more or less} guaranteed to be unique, multiple tables/databases/instances/servers/networks/data centers can generate them independently, then merged without clashes;  
+ required for some forms of replication;  
+ can be generated outside the database (e.g. by an application);  
+ distributed values prevent hot-spot (as long as you don't cluster this column, which can lead to abnormally high fragmentation). 
+ 
+ CONS 
+ 
+ the wider datatype leads to a drop in index performance (if clustered, each insert almost guaranteed to 'dirty' a different page), and an increase in storage requirements;  
+ cumbersome to debug (where userid = {BAE7DF4-DDF-3RG-5TY3E3RF456AS10});  
+ updateable (need to propogate changes, or prevent the activity altogether);  
+ sensitive to time rollbacks in certain environments (e.g. daylight savings time rollbacks); 
+ GROUP BY and other set operations often require CAST/CONVERT;  
+ not all languages and environments directly support GUIDs; 
+ there is no statement like SCOPE_GUID() to determine the value that was generated, e.g. by NEWID(); 
+ 
+ 
+ One thing you'll need to consider in designing your tables is if you'll need to replicate, shard, or otherwise move your data from one place to another.  Maybe the data is being generated by other applications and which will need to be kept in sync with yours. An example of that would be a mobile app that creates data and then syncs it with a server. If anything like that is or might be true then   would the good choice use to use for your primary key. 
+ The   data type is terrible for performance when used as a clustered index.  Yes, you could use  , but that doesn't help you if the values are generated on other devices. The consensus seems to be that clustered indexes are best used with a sequential and narrow data type like an   or  . 
+ If you're not concerned with storage space issues then you might try using a combination of both an    cluster key  and   primary key. Create a  cluster key    column and use it for your clustered index (but not as a primary key). Inserts will still be made sequentially and it satisfies the desire for it to be a narrow data type. Now you can use a   as your primary key. This will allow you to move, replicate, and/or shard your data when you need to. 
+ The  cluster key  has no other purpose other than to keep your inserts sequential and to be what all the other non-clustered indexes point to when looking up data for a given query.  The  cluster key  is completely throw away and can be regenerated when data is moved, replicated, and/or sharded since uniqueness is handled by the   primary key. 
+ Here is a great article that demonstrates what happens internally when using an IDENTITY vs a UNIQUEIDENTIFIER for your clustered index. 
+ 
+ Effective Clustered Indexes 
+ 
+ 
+ GUIDs are large but have the advantage of being unique everywhere: this table or that, this server or that, if you have the GUID then everything else is knowable. If that is useful to you, then great, but you will pay for it in overhead, and continue to pay, and pay, and pay.... 
+ Material codes only really work for smaller immutable keys, like colors or classification codes and the like. R will always be red, G will be green, it is one byte, etc. 
+ Identity columns come into their own when there may not be a material code, or the natural key is composed of several material codes together, or the natural key is already composed of other identity columns and/or GUIDs, or the natural key is mutable. Yes you could use a GUID but an integer column is much more efficient in all regards. 
+ Another option available in SQL 2012 are sequences, kind of like a database-level identity column. This is a nice halfway house between GUIDs and identity columns, in the sense that a sequence can be used across many tables, so that from a given value, not just the row is knowable, but the table too--but you can still use an INT or BIGINT (or SMALLINT!) if you think that will be enough for your data. That's kind of nifty for certain purposes, kind of like an object id in the OO world. 
+ Be aware that many or the light-weight ORMs expect tables to have a single column primary key, preferably an integer column, and may not play well with anything but an INT IDENTITY PK. 
+ 

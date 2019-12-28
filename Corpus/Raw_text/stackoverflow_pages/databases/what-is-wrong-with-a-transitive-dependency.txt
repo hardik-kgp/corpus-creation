@@ -1,0 +1,71 @@
+*** what-is-wrong-with-a-transitive-dependency ***
+
+ I have some transitive dependencies in my database design. I have been told by my superiors that these can cause bugs. I am finding it difficult to find resources that will tell me how having these dependencies will cause bugs. What kind of problems will they cause? 
+ I am not disputing the fact, just eager to learn what kind of problems they can cause. 
+ Edit for more details: 
+ From wikipedia : 
+ Transitive dependency 
+A transitive dependency is an indirect functional dependency, one in which X→Z only by virtue of X→Y and Y→Z. 
+ 
+ I'll explain by an example: 
+ 
+ 
+ If you have a   you can easily get its   so  . 
+ If you have an   you can't get its   as he might be teaching different courses. 
+ If you have an   you can easily get his   so  . 
+ 
+ That means the if you have a   then you can get the   which means    (i.e. Transitive dependency) 
+ Now for the problems: 
+ 
+ If you delete both the   and   courses then you will delete their instructor   as well and his phone number will be lost forever. 
+ There is no way to add a new   to your database unless you add a   for him first, or you can duplicate the data in an   which is even worse. 
+ If Instructor   changes his phone number then you will have to update all Courses that he teaches with the new info which can be very prone to mistakes. 
+ You can't delete an Instructor from your database unless you delete all the courses he teaches or set all his fields to null. 
+ What if you decide to keep the birth date of your instructors? You will have to add a   field to the   table. Does this even sound logical? Why keep an instructor information in the courses table in the first place. 
+ 
+ 
+ One way to express the 3NF is: 
+ **All attributes should depend on the key, whole key and nothing but the key.**
+
+ The transitive dependency X->Y->Z violates that principle, leading to data redundancy and potential modification anomalies. 
+ 
+ Let us break this down: 
+ 
+ By definition , for a  functional  dependency X->Y->Z to also be  transitive , the X<-Y  must  **not**
+ hold. 
+ If Y was a key, the X<-Y would hold, so Y cannot be a key.  (FOOTNOTE1) 
+ Since Y is not a key, any given Y can be repeated in multiple rows. 
+ The Y->Z implies that all rows holding the same Y must also hold the same Z.  (FOOTNOTE2) 
+ Repeating the  same  (Y, Z) tuple in several rows does not contribute any useful information to the system. It is  **redundant**
+. 
+ 
+ In short, since Y is not a key and Y->Z, we have violated the 3NF. 
+ Redundancies lead to modification anomalies (e.g. updating some  but not all  of the Zs "connected" to the same Y essentially corrupts the data, since you no longer know which copy is correct). This is typically resolved by splitting the original table into two tables, one containing {X, Y} and the other other containing {Y, Z}, This way, Y can be a key in the second table and Z is not repeated. 
+ On the other hand, if the X<-Y does hold (i.e. X->Y->Z is not transitive), then we can retain a single table, where both X and Y are keys. Z won't be unnecessarily repeated in this scenario. 
+ (FOOTNOTE1) A key is a (minimal) set of attributes that functionally determine all of the attributes in a relation. Rationale: If K is a key, there cannot be multiple rows with the same value of K, so any given value of K is always associated to precisely one value of every other attribute (assuming 1NF). By definition (see FOOTNOTE2), "being associated to precisely one" is the same thing as "being in a functional dependency". 
+ (FOOTNOTE2)  By definition , Y->Z if, and only if, each Y value is associated with precisely one Z value. 
+ 
+ **Example:**
+
+ Assuming each message has exactly one author and each author has exactly one primary e-mail, attempting to represent messages and users in the same table would lead to repeating e-mails: 
+ 
+ (In reality, these would be  s, but let us keep things simple here.) 
+ Now, what happens if Jon decides to change his e-mail to, say, "jon2@gmail.com"? We would need to update  **both**
+ of Jon's rows. If we only update one, then we have the following situation... 
+ 
+ ...and we no longer know which one of the Jon's e-mails is correct. We have essentially lost the data! 
+ The situation is especially bad since there is no declarative constraint we could use to coerce the DBMS into enforcing both updates for us. The client code  will  have bugs and is probably written without much regard for complex interactions that can happen in the concurrent environment. 
+ However, if you split the table... 
+ 
+ ...there is now only one row that knows about Jon's e-mail, so ambiguity is impossible. 
+ BTW, all this can be viewed as just another expression of the  DRY principle . 
+ 
+ If there's transitive dependencies in your table then it's not compliant with 3NF; so there's a high probability that there is redundant data in your table. Check  this  to clarify this concept. 
+ 
+ Take a look at this link: 
+ http://en.wikipedia.org/wiki/Transitive_dependency 
+ Using the example, what would happen if I update the nationality of Jules Verne on one row, but not the other?   Author nationality is determined by author alone, not the combination of book and author.   So with the example data structure, I could potentially ask the database the nationality of Jules Verne.   If I ran the following SQL command 
+ SELECT TOP 1 author_nationality FROM books
+WHERE author='Jules Verne' 
+ I could get a different answer depending on how the database selects TOP 1.    
+ 

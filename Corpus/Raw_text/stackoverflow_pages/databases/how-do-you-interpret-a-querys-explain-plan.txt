@@ -1,0 +1,82 @@
+*** how-do-you-interpret-a-querys-explain-plan ***
+
+ When attempting to understand how a SQL statement is executing, it is sometimes recommended to look at the explain plan. What is the process one should go through in interpreting (making sense) of an explain plan? What should stand out as, "Oh, this is working splendidly?" versus "Oh no, that's not right." 
+ 
+ I shudder whenever I see comments that full tablescans are bad and index access is good. Full table scans, index range scans, fast full index scans, nested loops, merge join, hash joins etc. are simply access mechanisms that must be understood by the analyst and combined with a knowledge of the database structure and the purpose of a query in order to reach any meaningful conclusion. 
+ A full scan is simply the most efficient way of reading a large proportion of the blocks of a data segment (a table or a table (sub)partition), and, while it often can indicate a performance problem, that is only in the context of whether it is an efficient mechanism for achieving the goals of the query. Speaking as a data warehouse and BI guy, my number one warning flag for performance is an index based access method and a nested loop. 
+ So, for the mechanism of how to read an explain plan the Oracle documentation is a good guide:  http://download.oracle.com/docs/cd/B28359_01/server.111/b28274/ex_plan.htm#PFGRF009 
+ Have a good read through the Performance Tuning Guide also. 
+ Also have a google for "cardinality feedback", a technique in which an explain plan can be used to compare the estimations of cardinality at various stages in a query with the actual cardinalities experienced during the execution. Wolfgang Breitling is the author of the method, I believe. 
+ So, bottom line: understand the access mechanisms. Understand the database. Understand the intention of the query. Avoid rules of thumb. 
+ 
+ This subject is too big to answer in a question like this.  You should take some time to read  Oracle's Performance Tuning Guide 
+ 
+ The two examples below show a FULL scan and a FAST scan using an INDEX. 
+ It's best to concentrate on your Cost and Cardinality. Looking at the examples the use of the index reduces the Cost of running the query. 
+ It's a bit more complicated (and i don't have a 100% handle on it) but basically the Cost is a function of CPU and IO cost, and the Cardinality is the number of rows Oracle expects to parse. Reducing both of these is a good thing. 
+ Don't forget that the Cost of a query can be influenced by your query and the Oracle optimiser model (eg: COST, CHOOSE etc) and how often you run your statistics. 
+ **Example 1:**
+
+ SCAN http://docs.google.com/a/shanghainetwork.org/File?id=dd8xj6nh_7fj3cr8dx_b 
+ **Example 2 using Indexes:**
+
+ INDEX http://docs.google.com/a/fukuoka-now.com/File?id=dd8xj6nh_9fhsqvxcp_b 
+ And as already suggested, watch out for TABLE SCAN. You can generally avoid these. 
+ 
+ Looking for things like sequential scans can be somewhat useful, but the reality is in the numbers... except when the numbers are just estimates! What is usually  **far**
+ more useful than looking at a query  plan  is looking at the actual  execution . In Postgres, this is the difference between EXPLAIN and EXPLAIN ANALYZE. EXPLAIN ANALYZE actually executes the query, and gets real timing information for every node. That lets you see what's  actually  happening, instead of what the planner  thinks  will happen. Many times you'll find that a sequential scan isn't an issue at all, instead it's something else in the query. 
+ The other key is identifying what the actual expensive step is. Many graphical tools will use different sized arrows to indicate how much different parts of the plan cost. In that case, just look for steps that have thin arrows coming in and a thick arrow leaving. If you're not using a GUI you'll need to eyeball the numbers and look for where they suddenly get much larger. With a little practice it becomes fairly easy to pick out the problem areas. 
+ 
+ Really for issues like these, the best thing to do is  ASKTOM .  In particular his answer to that question contains links to the online Oracle doc, where a lot of the those sorts of rules are explained. 
+ One thing to keep in mind, is that explain plans are really best guesses. 
+ It would be a good idea to learn to use sqlplus, and experiment with the AUTOTRACE command.  With some hard numbers, you can generally make better decisions. 
+ But you should ASKTOM.  He knows all about it :) 
+ 
+ The output of the explain tells you how long each step has taken. The first thing is to find the steps that have taken a long time and understand what they mean. Things like a sequential scan tell you that you need better indexes - it is mostly a matter of research into your particular database and experience. 
+ 
+ One "Oh no, that's not right" is often in the form of a  **table scan**
+.  Table scans don't utilize any special indexes and can contribute to purging of every useful in memory caches.  In postgreSQL, for example, you will find it looks like this. 
+ 
+ Sometimes table scans are ideal over, say, using an index to query the rows.  However, this is one of those red-flag patterns that you seem to be looking for. 
+ 
+ Basically, you take a look at each operation and see if the operations "make sense" given your knowledge of how it should be able to work. 
+ For example, if you're joining two tables, A and B on their respective columns C and D (A.C=B.D), and your plan shows a clustered index scan (SQL Server term -- not sure of the oracle term) on table A, then a nested loop join to a series of clustered index seeks on table B, you might think there was a problem.  In that scenario, you might expect the engine to do a pair of index scans (over the indexes on the joined columns) followed by a merge join. Further investigation might reveal bad statistics making the optimizer choose that join pattern, or an index that doesn't actually exist. 
+ 
+ look at the percentage of time spent in each subsection of the plan, and consider what the engine is doing. for example, if it is scanning a table, consider putting an index on the field(s) that is is scanning for 
+ 
+ I mainly look for index or table scans. This usually tells me I'm missing an index on an important column that's in the where statement or join statement. 
+ From  http://www.sql-server-performance.com/tips/query_execution_plan_analysis_p1.aspx : 
+ 
+ If you see any of the following in an
+  execution plan, you should consider
+  them warning signs and investigate
+  them for potential performance
+  problems. Each of them are less than
+  ideal from a performance perspective. 
+ 
+ It is not always possible to avoid
+  these, but the more you can avoid
+  them, the faster query performance
+  will be. 
+ 
+ 
+ **Rules of Thumb**
+
+ (you probably want to read up on the details too: 
+ 
+ Oracle Docs   
+ ASKTOM   
+ SQL Server Docs 
+)   
+ 
+ **Bad**
+
+ Table Scans of Several Large Tables 
+ **Good**
+
+ Using a unique index 
+Index includes all required fields   
+ **Most Common Win**
+
+ In about 90% of performance problems I have seen, the easiest win is to break up a query with lots (4 or more) of tables into 2 smaller queries and a temporary table.   
+ 

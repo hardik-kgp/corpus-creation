@@ -1,0 +1,66 @@
+*** database-source-control-with-oracle ***
+
+ I have been looking during hours for a way to check in a database into source control. My first idea was a program for calculating database diffs and ask all the developers to imlement their changes as new diff scripts. Now, I find that if I can dump a database into a file I cound check it in and use it as just antother type of file.  
+ The main conditions are: 
+ 
+ Works for Oracle 9R2  
+ Human readable so we can use diff to see the diferences. (.dmp files doesn't seem readable) 
+ All tables in a batch. We have more than 200 tables. 
+ It stores BOTH STRUCTURE AND DATA 
+ It supports CLOB and RAW Types. 
+ It stores Procedures, Packages and its bodies, functions, tables, views, indexes, contraints, Secuences and synonims.  
+ It can be turned into an executable script to rebuild the database into a clean machine.  
+ Not limitated to really small databases (Supports least 200.000 rows) 
+ 
+ It is not easy. I have downloaded a lot of demos that does fail in one way or another. 
+ **EDIT**
+: I wouldn't mind alternatives aproaches provided that they allows us to check a working system against our release  DATABASE STRUCTURE AND OBJECTS + DATA in a batch mode. 
+ By the way. Our project has been developed for years. Some aproaches can be easily implemented when you make a fresh start but seem hard at this point. 
+ **EDIT**
+: To understand better the problem let's say that some users can sometimes do changes to the config data in the production eviroment. Or developers might create a new field or alter a view without notice in the realease branch. I need to be aware of this changes or it will be complicated to merge the changes into production.  
+ 
+ So many people try to do this sort of thing (diff schemas).  My opinion is  
+ 
+ Source code goes into a version control tool (Subversion, CSV, GIT, Perforce ...).  Treat it as if it was Java or C code, its really no different.  You should have an install process that checks it out and applies it to the database. 
+ DDL IS SOURCE CODE.  It goes into the version control tool too. 
+ Data is a grey area - lookup tables maybe should be in a version control tool.  Application generated data certainly should not. 
+ 
+ The way I do things these days is to create migration scripts similar to Ruby on Rails migrations.  Put your DDL into scripts and run them to move the database between versions.  Group changes for a release into a single file or set of files.  Then you have a script that moves your application from version x to version y. 
+ One thing I never ever do anymore (and I used to do it until I learned better) is use any GUI tools to create database objects in my development environment.  Write the DDL scripts from day 1 - you will need them anyway to promote the code to test, production etc.  I have seen so many people who use the GUIs to create all the objects and come release time there is a scrabble to attempt to produce scripts to create/migrate the schema correctly that are often not tested and fail! 
+ Everyone will have their own preference to how to do this, but I have seen a lot of it done badly over the years which formed my opinions above.   
+ 
+ Oracle SQL Developer has a "Database Export" function. It can produce a single file which contains all DDL and data.  
+ 
+ I use PL/SQL developer with a VCS Plug-in that integrates into Team Foundation Server, but it only has support for database objects, and not with the data itself, which usually is left out of source control anyways. 
+ Here is the link:  http://www.allroundautomations.com/bodyplsqldev.html 
+ 
+ It may not be as slick as detecting the diffs, however we use a simple ant build file.  In our current CVS branch, we'll have the "base" database code broken out into the ddl for tables and triggers and such.  We'll also have the delta folder, broken out in the same manner.  Starting from scratch, you can run "base" + "delta" and get the current state of the database.  When you go to production, you'll simply run the "delta" build and be done.  This model doesn't work uber-well if you have a huge schema and you are changing it rapidly.  (Note: At least among database objects like tables, indexes and the like.  For packages, procedures, functions and triggers, it works well.)  Here is a sample ant task: 
+ 
+ 
+ **I think this is a case of,**
+  
+ 
+ You're trying to solve a problem  
+ You've come up with a solution  
+ You don't know how to implement the solution  
+ so now you're asking for help on how to implement the solution 
+ 
+ **The better way to get help,**
+
+ 
+ Tell us what the problem is 
+ ask for ideas for solving the problem  
+ pick the best solution 
+ 
+ I can't tell what the problem you're trying to solve is. Sometimes it's obvious from the question, this one certainly isn't. But I can tell you that this 'solution' will turn into its own maintenance nightmare. If you think developing the database and the app that uses it is hard. This idea of versioning the entire database in a human readable form is nothing short of insane. 
+ 
+ Have you tried  Oracle's Workspace Manager ? Not that I have any experience with it in a production database, but I found some toy experiments with it promising. 
+ 
+ Don't try to diff the data. Just write a trigger to store whatever-you-want-to-get when the data is changed. 
+ 
+ Expensive though it may be, a tool like  TOAD for Oracle  can be ideal for solving this sort of problem.   
+ That said, my preferred solution is to start with all of the DDL (including Stored Procedure definitions) as text, managed under version control, and write scripts that will create a functioning database from source.  If someone wants to modify the schema, they must, must, must commit those changes to the repository, not just modify the database directly.  No exceptions!  That way, if you need to build scripts that reflect updates between versions, it's a matter of taking all of the committed changes, and then adding whatever DML you need to massage any existing data to meet the changes (adding default values for new columns for existing rows, etc.)  With all of the DDL (and prepopulated data) as text, collecting differences is as simple as diffing two source trees. 
+ At my last job, I had NAnt scripts that would restore test databases, run all of the upgrade scripts that were needed, based upon the version of the database, and then dump the end result to DDL and DML.  I would do the same for an empty database (to create one from scratch) and then compare the results.  If the two were significantly different (the dump program wasn't perfect) I could tell immediately what changes needed to be made to the update / creation DDL and DML.  While I did use database comparison tools like TOAD, they weren't as useful as hand-written SQL when I needed to produce general scripts for massaging data.  (Machine-generated code can be remarkably brittle.) 
+ 
+ Try RedGate's  Source Control for Oracle . I've never tried the Oracle version, but the MSSQL version is really great. 
+ 

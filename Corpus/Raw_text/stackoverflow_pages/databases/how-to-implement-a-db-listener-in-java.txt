@@ -1,0 +1,93 @@
+*** how-to-implement-a-db-listener-in-java ***
+
+ I have a requirement where if a record is inserted in a db table , then automatically a java process needs to be executed.What is the easiest way to implement a db listener ? 
+ 
+ I have a solution for Oracle. You don't need to create your own since now that Oracle bought Java it released a listener for it. As far as I know this does not use polling internally, instead notifications are pushed to the Java side (probably based on some trigger):  
+ 
+ And you can implement it like this (this is just a sample): 
+ 
+ **EDIT:**
+
+You can use the following class to register:  
+ 
+ Say you create a method somewhere: 
+ 
+ This example does not include try-catch clauses or any exception handling. 
+ 
+ A similar Answer here:  How to make a database listener with java? 
+ You can do this with a message queue that supports transactions and just fire off a message when the transaction is comitted or (connection closed) for databases that don't support notifications. That is for the most part you will have to manually notify and keep track of what to notify. 
+ Spring provides some auto transaction support for  **AMQP**
+ and  **JMS**
+. A simpler alternative you could use is  Guava's AsyncEventBus  but that will only work for one JVM.
+For all of the options below I recommend you notify the rest of your  platform with a message queue. 
+ **Option - Non-polling non-database specific**
+
+ **ORM Option**
+
+ Some libraries like  **Hibernate JPA**
+  have entity listeners  that make this easier but thats because they assume that they manage all of the CRUDing. 
+ For regular  **JDBC**
+ you'll have to do your own book keeping. That is after the connection is committed or closed you then send the message to MQ that something has been updated. 
+ **JDBC Parsing**
+
+ One complicated option for book keeping is to wrap/decorate your   and/or   in a custom one such that on   (and close) you then send a message. I believe some federated caching systems do this. You could trap the executed SQL and parse to see if its an INSERT or UPDATE but with out very complicated parsing and meta data you will not get row level listening. Sadly I have to admit this is one of the advantages an  **ORM**
+ provides in that it knows what your updating. 
+ **Dao Option**
+
+ The best option if your  not  using an ORM is to just manually send a message in your DAO after the transaction is closed that a row has been updated.  Just make sure the transaction is closed before you send the message. 
+ **Option - Polling non-database specific**
+
+ Somewhat follow @GlenBest recommendation. 
+ I couple of things that I would do differently. I would externalize the timer or make it so that only one server runs the timer (ie scheduler). I would just use   (preferable wrapping it in Guava's  ) instead of Quartz (IMHO using quartz for polling super overkill). 
+ Far all of your tables you want to watch you should add a "notified" column. 
+ Then you do something like: 
+ 
+ **Option - db specific**
+
+ With Postgres   you'll still need to poll to some extent so you'll be doing most of the above and then send the message to the bus. 
+ 
+ A general solution would probably consist in creating a trigger on the table of interest, notifying any listeners about   events. Some databases have formalised means for such inter-process notification. For instance: 
+ **Oracle:**
+
+ 
+ The   is a simple means for such notification 
+ Oracle AQ / Oracle Streams  provide more sophisticated queue mechanisms 
+ 
+ **Postgres:**
+
+ 
+ The   statement is a simple means for such notification 
+ 
+ **Others:**
+
+ 
+ There might be similar notification mechanisms in other databases, that I'm not aware of. 
+ You can always implement your own event notification queue tables by inserting an event in an event table, which is consumed / polled by a Java process. Getting this right and performant may be quite tricky, though. 
+ 
+ 
+ Assumptions:  
+ 
+ Having standard portable code is more important than instant realtime execution of the java program.  You want to allow portability to alternative future technology (e.g. avoid proprietary DB events, external triggers).  Java process can run slightly after record is added to table (e.g. 10 seconds later). i.e. Either schedule + polling or realtime trigger/message/event are both acceptable. 
+ If multiple rows are added to the table all at once, you want to run one process, not many. A DB trigger would start a java process for each row - inappropriate. 
+ Quality of Service is important.  Even if there is a hardware or software fatal error, you want the java program to run again and process the incomplete data.   
+ You want to apply strong security standards to your environment (e.g. avoid having java or DB execute OS commands directly) 
+ You want to minimise code 
+ 
+ Core Java Standard Code without dependency on proprietary DB functionality: 
+ 
+ Use ScheduledExecutorService or Quartz scheduler (or unix cron job or windows task scheduler) to run a java program every minute (or could do every 10 seconds).  This acts as both a scheduler and watchdog, ensuring program runs around the clock. Quartz can also be deployed in app server. 
+ Have your java program run for just 1 minute (or 10 seconds), looping, querying DB via JDBC and sleeping for a few seconds, then finally exiting.  
+ 
+ If you have app in an appserver:
+Create a Session Bean that uses the Timer Service and again query the table via JDBC  Session Bean Timer Service . 
+ Have a DB trigger that writes/appends to a file.  Use java 7 filewatcher to trigger logic whent the file changes  Java 7 File Watcher 
+ 
+ 
+ There is another option: using an open source ESB with a DB adaptor triggering logic (e.g. Fuse or Mule or OpenAdapter), but this gives powerful functionality beyond your stated requirements, and is time-consuming and complex to install and learn. 
+ EJB Timer Example using @Schedule: 
+ 
+ See Also:  See This Answer  for sending CDI Event Objects from EJB to Web container. 
+ 
+ I ma not sure how far this solution satisfy your need but can be considered as an option. If you are using oracle then oracle you can write a java program and compile it as an oracle function. you can call your java program from the post insert trigger. 
+ Java program in oracle DB 
+ 

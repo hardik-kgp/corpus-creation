@@ -1,0 +1,61 @@
+*** best-practices-for-storing-postal-addresses-in-a-database-rdbms ***
+
+ Are there any good references for best practices for storing postal addresses in an RDBMS?  It seems there are lots of tradeoffs that can be made and lots of pros and cons to each to be evaluated -- surely this has been done time and time again?  Maybe someone has at least written done some lessons learned somewhere? 
+ Examples of the tradeoffs I am talking about are storing the zipcode as an integer vs a char field, should house number be stored as a separate field or part of address line 1, should suite/apartment/etc numbers be normalized or just stored as a chunk of text in address line 2, how do you handle zip +4 (separate fields or one big field, integer vs text)? etc.  
+ I'm primarily concerned with U.S. addresses at this point but I imagine there are some best practices in regards to preparing yourself for the eventuality of going global as well (e.g. naming fields appropriately like region instead of state or postal code instead of zip code, etc. 
+ 
+ For more international use, one schema to consider is the one used by  Drupal Address Field . It's based on the  xNAL standard , and seems to cover most international cases. A bit of digging into that module will reveal some nice pearls for interpreting and validating addresses internationally. It also has a nice set of administrative areas ( province, state, oblast, etc ) with ISO codes.  
+ Here's the gist of the schema, copied from the module page: 
+ 
+ A lessons I've learned: 
+ 
+ Don't store anything numerically. 
+ Store country and administrative area as ISO codes where possible. 
+ When you don't know, be lax about requiring fields. Some country may not use fields you take for granted, even basic things like   &  . 
+ 
+ 
+ As an 'international' user, there is nothing more frustrating than dealing with a website that is oriented around only US-format addresses. It's a little rude at first, but becomes a serious problem when the validation is also over-zealous. 
+ If you are concerned with going global, the only advice I have is to keep things free-form. Different countries have different conventions - in some, the house number comes before the street name, in some it comes after. Some have states, some regions, some counties, some combinations of those. Here in the UK, the zipcode is not a zipcode, it's a postcode containing both letters and numbers. 
+ I'd advise simply ~10 lines of variable-length strings, together with a separate field for a postcode (and be careful how you describe that to cope with national sensibilities). Let the user/customer decide how to write their addresses. 
+ 
+ If you need comprehensive information about how other countries use postal addresses, here's a very good reference link (Columbia University): 
+ **Frank's Compulsive Guide to Postal Addresses**
+
+ Effective Addressing for International Mail 
+ 
+ You should definitely consider storing house number as a character field rather than a number, because of special cases such as "half-numbers", or my current address, which is something like "129A" — but the A is not considered as an apartment number for delivery services. 
+ 
+ I've done this (rigorously model address structures in a database), and I would never do it again.  You can't imagine how crazy the exceptions are that you'll have to take into account as a rule. 
+ I vaguely recall some issue with Norwegian postal codes (I think), which were all 4 positions, except Oslo, which had 18 or so. 
+ I'm positively sure that from the moment we started using the geographically correct ZIP codes for all of our own national addresses, quite a few people started complaining that their mail arrived too late.  Turned out those people were living near a borderline between postal areas, and despite the fact that someone really lived in postal area, say, 1600, in reality his mail should be addressed to postal area 1610, because in reality it was that neighbouring postal area that actually served him, so sending his mail to his correct postal area would take that mail a couple of days longer to arrive, because of the unwanted intervention that was required in the correct postal office to forward it to the incorrect postal area ... 
+ (We ended up registering those people with an address abroad in the country with ISO-code 'ZZ'.) 
+ 
+ You should certainly consult " Is this a good way to model address information in a relational database ", but your question is not a direct duplicate of that. 
+ There are surely a lot of pre-existing answers (check out the example data models at  DatabaseAnswers , for example).  Many of the pre-existing answers are defective under some circumstances (not picking on DB Answers at all). 
+ One major issue to consider is the scope of the addresses.  If your database must deal with international addresses, you have to be more flexible than if you only have to deal with addresses in one country. 
+ In my view, it is  often  (which does not mean  always ) sensible to both record the 'address label image' of the address and separately analyze the content.  This allows you to deal with differences between the placement of postal codes, for example, between different countries.  Sure, you can write an analyzer and a formatter that handle the eccentricities of different countries (for instance, US addresses have 2 or 3 lines; by contrast, British addresses can have considerably more; one address I write to periodically has 9 lines).  But it can be easier to have the humans do the analysis and formatting and let the DBMS just store the data. 
+ 
+ Unless you are going to do maths on the street numbers or zip / postal codes, you are just inviting future pain by storing them as numerics.   
+ You might save a few bytes here and there, and maybe get a faster index, but what do you when US postal, or whatever other country you are dealing with, decides the introduce alphas into the codes?    
+ The cost of disk space is going to be a lot cheaper than the cost of fixing it later on... y2k anybody? 
+ 
+ Ive found that listing all possible fields from smallest discrete unit to largest is the easiest way. Users will fill in the fields they see fit. My address table looks like this: 
+ 
+ 
+ Adding to what @ Jonathan Leffler  and @ Paul Fisher  have said 
+ If you ever anticipate having postal addresses for Canada or Mexico added to your requirements, storing   as a string is a must.  Canada has alpha-numeric postal codes and I don't remember what Mexico's look like off the top of my head. 
+ 
+ Where's the "trade off" in storing the ZIP as a NUMBER or VARCHAR? That's just a choice -- it's not a trade off unless there are benefits to both and you have to give up some benefits to get others. 
+ Unless the sum of zips has any meaning at all, Zips as number is not useful. 
+ 
+ This might be an overkill, but if you need a solution that would work with multiple countries and you need to programmatically process parts of the address: 
+ you could have country specific address handling using two tables: One generic table with 10 VARCHAR2 columns, 10 Number columns, another table which maps these fields to prompts and has a country column tying an address structure to a country. 
+ 
+ If you ever have to verify an address or use it to process credit card payments, you'll at least need a little structure.  A free-form block of text does not work very well for that. 
+ Zip code is a common optional field for validating payment card transactions without using the whole address.  So have a separate and generously sized field for that (at least 10 chars).  
+ 
+ Inspired by  Database Answers 
+ 
+ 
+ I would just put all the fields together in a large NVARCHAR(1000) field, with a textarea element for the user to enter the value for (unless you want to perform analysis on eg. zip codes). All those address line 1, address line 2, etc. inputs are just so annoying if you have an address that doesn't fit well with that format (and, you know, there are other countries than the US). 
+ 

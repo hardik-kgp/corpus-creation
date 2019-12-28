@@ -1,0 +1,54 @@
+*** storing-malicious-code-in-a-database-is-escape-on-output-always-the-correct-ap ***
+
+ Just want to understand the thinking here and arrive at a correct and accepted approach to this issue. For context this is in a web environment and we are talking about escaping on input to the database. 
+ I understand many of the reasons behind not escaping on input when taking user input and storing it into a database. You might want to use that input in a variety of different ways (as JSON, as SMS etc) and you also might want to show that input to the user in its original form. 
+ Before putting anything into the database we make sure there is no SQL injection attacks to protect the database. 
+ However  following the principals set out here  and  here , they suggest the approach of saving user input as is.  This user input might not be an SQL injection attack, but it could be other malicious code. In these cases is it OK to store Javascript based XSS attacks into the database? 
+ I just want to know if my assumptions here are correct, are we all fine with storing malicious code in the database so long as that malicious code doesn't directly affect the database? Is it a case of it not being the database's problem, it can hold this malicious code and its up to the output device to avoid the pitfalls of the malicious code? 
+ Or should we be doing more escaping on input than suggested by these principals - does the security concerns come before the idea of escaping on output? Should we take the approach that no malicious code enters the database? Why would we want to store malicious code anyway? 
+ What is the correct approach for saving malicious code into a database in the context of a web client/server environment? 
+ [For the purposes of this I am ignoring any sites that specifically allow code to be shared on them, I am thinking of "normal" inputs such as Name, Comment and Description fields.] 
+ 
+ Definition: I use the term "sanitize" instead of filter or escape, because there's a third option: rejecting invalid input. For example, returning an error to the user saying "character ‽ may not be used in a title" prevents ever having to store it at all. 
+ 
+ saving user input as is 
+ 
+ The security principle of "defense in depth" suggests that you should sanitize any potential malicious input as early and often as possible. Whitelist only the values and strings useful to your application. But even if you do, you'll have to encode/escape these values too. 
+ 
+ Why would we want to store malicious code anyway? 
+ 
+ There are times where accuracy is more important than paranoia. For example: user feedback may need to include potentially disruptive code. I could imagine writing user feedback that says, "Every time I use type   as part of a wiki title the application crashes."  Even if wiki titles don't need the   characters, the comment should still transmit them accurately. Failing to allow this in comments prevents operators from learning about a serious issue. See:  Null Byte Injection 
+ 
+ up to the output device to avoid the pitfalls of the malicious code 
+ 
+ If you need to store arbitrary data, the correct approach is to escape as you switch to any other encoding type. Note that you must decode (unescape) and then encode (escape); there is no such thing as non-encoded data -  even binary is at least Big-Endian or Small-Endian. Most folks use the language's built in strings as the 'most decoded' format, but even that can get wonky when considering Unicode vs ASCII. User input in web applications will be URLEncoded, HTTP Encoded, or encoded according to the "Content-Type" header. See:  http://www.ietf.org/rfc/rfc2616.txt 
+ Most systems now do this for you as part of templating or parameterized queries. For example, a parameterized query function like   would prevent the need to escape single quotes or anything else in the name. If you don't have a convenience like this, it helps to create objects that track data per encoding type, such as   with a constructor like   and   function.  
+ 
+ Should we take the approach that no malicious code enters the database? 
+ 
+ Because the database cannot determine all future possible encodings, it is impossible to sanitize against all potential injections. For example, SQL and HTML may not care about backticks, but JavaScript and bash do.  
+ 
+ 
+ This user input might not be an SQL injection attack, but it could be
+  other malicious code. In these cases is it OK to store Javascript
+  based XSS attacks into the database? 
+ 
+ It  **could**
+ be OK depending on your use-case. Theoretically, the database should be agnostic of the usage of the data it stores. As a result, it would be reasonable to store raw data in the database and escape them during output depending on the output media used. 
+ 
+ I just want to know if my assumptions here are correct, are we all
+  fine with storing malicious code in the database so long as that
+  malicious code doesn't directly affect the database? Is it a case of
+  it not being the database's problem, it can hold this malicious code
+  and its up to the output device to avoid the pitfalls of the malicious
+  code? 
+ 
+ As explained above, whether a piece of data is "malicious" is highly dependent to the context and the way it's used. To give an example,   as a piece of data can cause serious issues if rendered in an HTML webpage. However, it could potentially be considered an absolutely legit payload to be shown in a printed document/report. That's the rationale behind the generic suggestion of storing data in the raw form and escaping them accordingly depending on the output medium. To straightly answer to your question, yes one could argue that storing this data in the database is absolutely OK, as far as all the escaping mechanisms are in place for all the possible media. 
+ 
+ Or should we be doing more escaping on input than suggested by these
+  principals - does the security concerns come before the idea of
+  escaping on output? Should we take the approach that no malicious code
+  enters the database? Why would we want to store malicious code anyway? 
+ 
+ There is a small difference between sanitization and escaping. The former refers to the process of filtering invalid data before storing them, while the latter one refers to transforming data to the proper format before displaying to the selected medium. Following the principle of defense in depth, you could (and you should, if possible) perform an additional step of sanitization when receiving the data. However, in order to achieve this, a prerequisite is that you must know the character of the data you expect. For instance, if you expect a telephone number, then it would make sense to flag data containing   as invalid data to the user. That would not necessarily be true if you expected the report for a programming assignment. So, everything is dependent on the context. 
+ 

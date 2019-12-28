@@ -1,0 +1,44 @@
+*** poor-performance-when-using-spatial-indexes-in-mysql ***
+
+ I'm trying a little experiment at pushing a data set which is not geo-spatial but fits it quite well and am finding the results somewhat unsettling. The data set is genomic data e.g. the Human Genome where we have a region of DNA where elements like genes occupy specific start and stop coordinates (our X axis). We have multiple regions of DNA (chromosomes) which  occupy the Y axis. The goal is to bring back all the items which intersect two X coordinates along a single Y coordinate e.g. LineString(START 1, END 2). 
+ The theory seemed sound so I pushed it into an existing MySQL based genome project and came up with a table structure like: 
+ 
+  represents the identifier of the entity we have encoded into this table &   encodes the source of this. Everything looked good and I pushed in some preliminary data (30,000 rows) which seemed to work well. When this increased past the 3 million row mark MySQL refused to use the spatial index and was slower when it was forced to use it (40 seconds vs. 5 seconds using a full table scan). When more data was added the index started to be used but the performance penalty persisted. Forcing the index off brought the query down to 8 seconds. The query I'm using looks like: 
+ 
+ The data going into this is be very dense along the Y dimensions (think of it like you've  recorded the position of every building, telephone box, post box and pigeon on a very long road). I've done tests of how R-Indexes behave with this data in Java as well as others in the field have applied them to flat-file formats with success. However no one has applied them to databases AFAIK which is the goal of this test. 
+ Has anyone out there seen a similar behaviour when adding large quantities of data to a spatial model which is not very disparate along a particular axis? The problem persists if I reverse the coordinate usage. I'm running the following setup if that's a cause 
+ 
+ MacOS 10.6.6 
+ MySQL 5.1.46 
+ 
+ Help! 
+ Also bringing in explain plan in 
+ 
+ The re-written SQL looks like the following 
+ 
+ Still not highlighting why this query's performance is so poor 
+ After reading the article posted by @Fraser from  rickonrails  it seems like the problem is all to do with the index not being in memory. If I apply similar techniques to those mentioned in the article (making key buffer very big indeed) and I then force the query to use the index query times plumet. We still see a lag between querying a region & then searching for a subset of the region but it's all pointing to getting the load of the indexes correct. 
+ What's the moral of the story? R-Indexes in MySQL have quite poor performance until they are in memory and then they have excellent performance. Not really a good solution for what I wanted to do wit them but still it provides an interesting angle on MySQL. 
+ Thanks for all the help people. 
+ 
+ From the EXPLAIN planwe see that although the spatial might be used for the query ('possible_keys' column) , it is not used (NULL in 'key' column).
+I am not sure why it is not selected automatically, but you may explicitly instruct MySql to use the index by specifying it in the query using a 'force index' clause: 
+ 
+ 
+ 
+ The goal is to bring back all the
+  items which intersect two X
+  coordinates along a single Y
+  coordinate 
+ 
+ Have you considered using an index wit multiple fields? Like: 
+ 
+ If you are working with a limited set of   values this is the way to. 
+ 
+ I have a degree in Genetics and I am a programmer, you don't need be using an X and a Y as your nomenclature it'll get far too faffy... you need a start and a stop  position  (not an "axis") and a  chromosome  number. You index by the chromosome number first then the position and then you index the position then the chromosome. (Question: Are you dealing in eukaryotes or chromosomes that can have two reading frames?) 
+ EG: (where "x" = position and "y" = chromosome) 
+ 
+ Incidentally Chromosomes are very long strings (just like data) you can (to speed things up dump them as such as blobs (i.e. coding genes and junk DNA) 
+ 
+ Are you sure a relational database is the way to go?  If I were you I'd look at pushing your datasets to Solr or Elastic Search (probably storing the master datasets elsewhere).  These engines are built for indexing, you will notice the difference in response times. 
+ 

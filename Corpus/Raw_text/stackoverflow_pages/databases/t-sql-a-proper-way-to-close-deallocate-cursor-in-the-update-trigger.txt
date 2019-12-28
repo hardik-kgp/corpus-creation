@@ -1,0 +1,32 @@
+*** t-sql-a-proper-way-to-close-deallocate-cursor-in-the-update-trigger ***
+
+ Let's say I've got a trigger like this: 
+ 
+ I want to be sure that Cursor1 is always closed and deallocated. Even myProc1 or myProc2 fails. 
+ Shall I use try/catch block? 
+ 
+ Yes, use TRY/CATCH but make sure you deallocate etc after.
+Unfortunately, there is no finally in SQL Server. 
+ However, I suggest wrapping this in another try/catch 
+ 
+ Whether a cursor in a trigger is a good idea is a different matter... 
+ 
+ You could use the CURSOR_STATUS() function. 
+ 
+ **reference**
+:  http://msdn.microsoft.com/en-us/library/ms177609.aspx 
+ 
+ What you should do is never ever use a cursor in a trigger. Write correct set-based code instead. If someone did an import of data into your table of 100,000 new records you would lock up the table for hours and bring your database to a screaming halt. It is a very poor practice to use a cursor in a trigger. 
+ 
+ Ten years later, I figure I should add some information to this particular question. 
+ There are two primary solutions to your problem. First, use a   cursor declaration: 
+ 
+ This limits your particular cursor to only your active session, rather than the global context of the server, assuming no other action is calling into this cursor. Similar in principle is to use a Cursor Variable, which would look like this: 
+ 
+ In using a cursor variable, you can always overwrite it at anytime using the   syntax, in addition to managing the scope to being within your particular session like the previous example. By overwriting the cursor context, you effectively deallocate any past reference it had. That said, both of these approaches accomplish your original intention by linking the status of the cursor to the activity of the current connection. 
+ This might leave a lingering lock if your app context is using Connection Pooling, in which case you should use the   pattern as follows: 
+ 
+ Using the pattern in this way reduces the code duplication, or need to check the status of the cursor. Basically, the Cursor-initialization should be safe, as is the open statement. Once the cursor is open, you will want to always close-deallocate it from the session, and that should always be a safe action assuming the cursor has been opened (which we just established should always be a safe operation). As such, leaving those outside the confines of the   means that everything can be neatly closed at the end, after the   block. 
+ It's worth mentioning that I specified the   attribute of the cursor, as well as  , since your sample code didn't scroll back-and-forth between records in the set. If you are modifying the underlying rows in those procedures, you are probably better off using a   cursor to ensure you don't accidentally cause an infinite loop. That shouldn't be a problem since you're using the   table to manage your cursor context, but still worth mentioning for other potential use cases. 
+ If you want to learn more about cursors in SQL Server, I highly recommend reading  this blog post  on the subject, as he goes into great detail explaining what the various modifiers of a cursor are, and the effects they have within the Database Engine. 
+ 

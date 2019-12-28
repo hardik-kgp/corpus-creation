@@ -1,0 +1,28 @@
+*** database-sharding-and-rails ***
+
+ What's the best way to deal with a sharded database in Rails?  Should the sharding be handled at the application layer, the active record layer, the database driver layer, a proxy layer, or something else altogether?  What are the pros and cons of each? 
+ 
+ FiveRuns have a gem named  DataFabric  that does application-level sharding and master/slave replication. It might be worth checking out. 
+ 
+ I assume with shards we're talking about horizontal partitioning and not vertical partitioning ( here are the differences on Wikipedia ). 
+ First off,  **stretch vertical partitioning**
+ as far as you can take it before you consider horizontal partitioning.  It's easy in Rails to have different models point to different machines and for most Rails sites, this will bring you far enough. 
+ For horizontal partitioning, in an ideal world, this would be handled at the  **application layer**
+ in Rails.  But while it's not hard, it's not trivial in Rails, and by the time you need it, usually your application has grown beyond the point where this is feasible since you have ActiveRecord calls sprinkled all over the place.  And no one, developers or management, likes working on it before you need it since everyone would rather work on features users will use now rather than on partitioning which may not come into play for years after your traffic has exploded. 
+ **ActiveRecord layer**
+... not easy from what I can see.  Would require lots of monkey patching into Rails internals. 
+ At  Spock  we ended up handling this using a  **custom MySQL proxy**
+ and open sourced it on SourceForge as  Spock Proxy .  ActiveRecord thinks it's talking to one MySQL database machine when reality it's talking to the proxy, which then talks to one or more MySQL databases, merges/sorts the results, and returns them to ActiveRecord.  Requires only a few changes to your Rails code.  Take a look at the Spock Proxy SourceForge page for more details and for our reasons for going this route. 
+ 
+ For those of you like me who hadn't heard of sharding: 
+ http://highscalability.com/unorthodox-approach-database-design-coming-shard 
+ 
+ Connecting Rails to multiple databases is not a big deal- you simply have an ActiveRecord subclass for each shard that overrides the connection property.  That makes it pretty simple if you need to make cross-shard calls. You then just have to write a little code when you need to make calls between the shards.    
+ I don't like Hank's idea of splitting the rails instances, because it seems challenging to call the code between the instances unless you have a big shared library. 
+ Also you should look at doing something like  Masochism  before you start sharding. 
+ 
+ For rails to work with replicated environment, I would suggest using my_replication plugin which helps switch database connection to one of the slaves at run-time 
+ https://github.com/minhnghivn/my_replication 
+ 
+ To my mind, the simplest way is maintain a 1:1 between rails instances and DB shards. 
+ 

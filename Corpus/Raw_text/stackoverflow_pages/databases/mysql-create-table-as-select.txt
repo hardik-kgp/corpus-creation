@@ -1,0 +1,60 @@
+*** mysql-create-table-as-select ***
+
+ Everytime I use MySQL's   all the tables/indexes being selected from are  **locked for the duration**
+ of the query. I do not really understand why? Is there any way around this? 
+ **Using:**
+   and  
+ **Added Example:**
+
+ For example, the following query might take up to 10 minutes to complete: 
+ 
+ Trying to update values in tables a, b or c during the above query will wait for the above query to finish first. I want to avoid this lock, as I am not interested in the most complete data in the created temp table. 
+ p.s.   yields no change in behavior. 
+ 
+ See also 
+ http://www.mysqlperformanceblog.com/2006/07/12/insert-into-select-performance-with-innodb-tables/ 
+ if not using replication, can change innodb_locks_unsafe_for_binlog to change this locking behaviour.  
+ Or can dump the data to a file, then reload the data from a file. This also avoids the locks.  
+ 
+ Have you tried to do the operation in 2 phases (first Create the table, then Insert the values) and having set the lowest isolation level?: 
+ 
+ 
+ I didn't test this, but you might have a try with 
+ 
+ But be aware:  
+ 
+ Select statements are performed in a nonlocking fashion, but a
+  possible earlier version of a row might be used. Thus, using this
+  isolation level, such reads are not consistent. This is also called a
+  “dirty read.” 
+ 
+ Read more about it here: 
+ MySQL SET TRANSACTION manual entry 
+ EDIT: added the  
+ 
+ My psychic debugging skills suggest that you're trying to access the tables/indexes while you're debugging the query that uses them. 
+ In general, I'd not be too surprised if a CREATE TABLE query locks all the tables and indexes from which it is reading. 
+ If my psychic premonition is right, I'd suggest letting the query finish before accessing the tables and indexes it is using. 
+ (Please correct me if I made any wrong assumptions.) 
+ 
+ 
+ All InnoDB locks held by a transaction are released when the
+  transaction is committed or aborted. Thus, it does not make much sense
+  to invoke LOCK TABLES on InnoDB tables in autocommit=1 mode because
+  the acquired InnoDB table locks would be released immediately. 
+ 
+ As read  here 
+ **EDIT**
+ and this: 
+ 
+ You cannot lock additional tables in the middle of a transaction
+  because LOCK TABLES performs an implicit COMMIT and UNLOCK TABLES. 
+ 
+ 
+ If your engine is InnoDB than it uses automatic row-level locking. Update statements have higher priority then select statements so that's why you are having this problem. 
+ In order to workaround this issue you could   and then you should be able to run your command. But this does not fully fit your case. So you could also give higher priority to a   statement as well. To give a specific   statement higher priority, use the   attribute. 
+ 
+ For details please refer to this page  table-locking-issues  this page  select-syntax  and also this page:  option_mysqld_low-priority-updates 
+ 
+ I'm not as experienced in mysql but I ran into the same problem in mssql. The solution there was to run the "create table as select..." with zero rows so that it only creates the table with the appropriate structure and releases the locks immediately.  Then use "insert into" with the same select statement to populate the table, which won't hold any schema locks while it runs. 
+ 

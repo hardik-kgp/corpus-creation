@@ -1,0 +1,292 @@
+*** fundamental-difference-between-hashing-and-encryption-algorithms ***
+https://stackoverflow.com/questions/4948322/fundamental-difference-between-hashing-and-encryption-algorithms
+
+ I see a lot of confusion between hashes and encryption algorithms and I would like to hear some more expert advice about: 
+ 
+ When to use hashes vs encryptions 
+ What makes a hash or encryption algorithm different (from a theoretical/mathematical level)
+i.e. what makes hashes irreversible (without aid of a rainbow tree)  
+ 
+ Here are some  similar  SO Questions that didn't go into as much detail as I was looking for: 
+ What is the difference between Obfuscation, Hashing, and Encryption? 
+ Difference between encryption and hashing 
+ 
+ Well, you could look it up in  Wikipedia ...  But since you want an explanation, I'll do my best here: 
+ **Hash Functions**
+
+ They provide a mapping between an arbitrary length input, and a (usually) fixed length (or smaller length) output.  It can be anything from a simple crc32, to a full blown cryptographic hash function such as MD5 or SHA1/2/256/512.  The point is that there's a one-way mapping going on.  It's always a many:1 mapping (meaning there will always be collisions) since every function produces a smaller output than it's capable of inputting (If you feed every possible 1mb file into MD5, you'll get a ton of collisions). 
+ The reason they are hard (or impossible in practicality) to reverse is because of how they work internally.  Most cryptographic hash functions iterate over the input set many times to produce the output.  So if we look at each fixed length chunk of input (which is algorithm dependent), the hash function will call that the current state.  It will then iterate over the state and change it to a new one and use that as feedback into itself (MD5 does this 64 times for each 512bit chunk of data).  It then somehow combines the resultant states from all these iterations back together to form the resultant hash. 
+ Now, if you wanted to decode the hash, you'd first need to figure out how to split the given hash into its iterated states (1 possibility for inputs smaller than the size of a chunk of data, many for larger inputs).  Then you'd need to reverse the iteration for each state.  Now, to explain why this is VERY hard, imagine trying to deduce   and   from the following formula:  .  There are 10 positive combinations of   and   that can work.  Now loop over that a bunch of times:  . For 64 iterations, you'd have over 10^64 possibilities to try.  And that's just a simple addition where some state is preserved from iteration to iteration.  Real hash functions do a lot more than 1 operation (MD5 does about 15 operations on 4 state variables). And since the next iteration depends on the state of the previous and the previous is destroyed in creating the current state, it's all but impossible to determine the input state that led to a given output state (for each iteration no less).  Combine that, with the large number of possibilities involved, and decoding even an MD5 will take a near infinite (but not infinite) amount of resources. So many resources that it's actually significantly cheaper to brute-force the hash if you have an idea of the size of the input (for smaller inputs) than it is to even try to decode the hash.  
+ **Encryption Functions**
+
+ They provide a 1:1 mapping between an arbitrary length input and output.  And they are always reversible.  The important thing to note is that it's reversible using some method.  And it's always 1:1 for a given key.  Now, there are multiple input:key pairs that might generate the same output (in fact there usually are, depending on the encryption function).  Good encrypted data is indistinguishable from random noise.  This is different from a good hash output which is always of a consistent format. 
+ **Use Cases**
+
+ Use a hash function when you want to compare a value but can't store the plain representation (for any number of reasons).  Passwords should fit this use-case very well since you don't want to store them plain-text for security reasons (and shouldn't).  But what if you wanted to check a filesystem for pirated music files?  It would be impractical to store 3 mb per music file.  So instead, take the hash of the file, and store that (md5 would store 16 bytes instead of 3mb).  That way, you just hash each file and compare to the stored database of hashes (This doesn't work as well in practice because of re-encoding, changing file headers, etc, but it's an example use-case). 
+ Use a hash function when you're checking validity of input data.  That's what they are designed for.  If you have 2 pieces of input, and want to check to see if they are the same, run both through a hash function.  The probability of a collision is astronomically low for small input sizes (assuming a good hash function).  That's why it's recommended for passwords.  For passwords up to 32 characters, md5 has 4 times the output space.  SHA1 has 6 times the output space (approximately).  SHA512 has about 16 times the output space.  You don't really care what the password  was , you care if it's the same as the one that was stored.  That's why you should use hashes for passwords. 
+ Use encryption whenever you need to get the input data back out.  Notice the word  **need**
+.  If you're storing credit card numbers, you need to get them back out at some point, but don't want to store them plain text.  So instead, store the encrypted version and keep the key as safe as possible.  
+ Hash functions are also great for signing data.  For example, if you're using HMAC, you sign a piece of data by taking a hash of the data concatenated with a known but not transmitted value (a secret value).  So, you send the plain-text and the HMAC hash.  Then, the receiver simply hashes the submitted data with the known value and checks to see if it matches the transmitted HMAC.  If it's the same, you know it wasn't tampered with by a party without the secret value.  This is commonly used in secure cookie systems by HTTP frameworks, as well as in message transmission of data over HTTP where you want some assurance of integrity in the data. 
+ **A note on hashes for passwords:**
+
+ A key feature of cryptographic hash functions is that they should be very fast to create, and  **very**
+ difficult/slow to reverse (so much so that it's practically impossible).  This poses a problem with passwords.  If you store  , you're not doing a thing to guard against rainbow tables or brute force attacks. Remember, the hash function was designed for speed.  So it's trivial for an attacker to just run a dictionary through the hash function and test each result. 
+ Adding a salt helps matters since it adds a bit of unknown data to the hash.  So instead of finding anything that matches  , they need to find something that when added to the known salt produces   (which is very much harder to do).  But it still doesn't solve the speed problem since if they know the salt it's just a matter of running the dictionary through. 
+ So, there are ways of dealing with this.  One popular method is called  key strengthening  (or key stretching).  Basically, you iterate over a hash many times (thousands usually).  This does two things.  First, it slows down the runtime of the hashing algorithm significantly.  Second, if implemented right (passing the input and salt back in on each iteration) actually increases the entropy (available space) for the output, reducing the chances of collisions.  A trivial implementation is: 
+ 
+ There are other, more standard implementations such as  PBKDF2 ,  BCrypt .  But this technique is used by quite a few security related systems (such as PGP, WPA, Apache and OpenSSL). 
+ The bottom line,   is not good enough.    is better, but still not good enough...  Use a stretched hash mechanism to produce your password hashes... 
+ **Another note on trivial stretching**
+
+ **Do not under any circumstances feed the output of one hash directly back into the hash function**
+: 
+ 
+ The reason for this has to do with collisions.  Remember that all hash functions have collisions because the possible output space (the number of possible outputs) is smaller than then input space.  To see why, let's look at what happens.  To preface this, let's make the assumption that there's a 0.001% chance of collision from   (it's  **much**
+ lower in reality, but for demonstration purposes). 
+ 
+ Now,   has a probability of collision of 0.001%.  But when we do the next  ,  **all collisions of **
+** automatically become collisions of **
+.  So now, we have hash1's rate at 0.001%, and the 2nd   call adds to that.  So now,   has a probability of collision of 0.002%.  That's twice as many chances!  Each iteration will add another   chance of collision to the result.  So, with 1000 iterations, the chance of collision jumped from a trivial 0.001% to 1%.  Now, the degradation is linear, and the real probabilities are  **far**
+ smaller, but the effect is the same (an estimation of the chance of a single collision with   is about 1/(2 128 ) or 1/(3x10 38 ).  While that seems small, thanks to  the birthday attack  it's not really as small as it seems). 
+ Instead, by re-appending the salt and password each time, you're re-introducing data back into the hash function.  So any collisions of any particular round are no longer collisions of the next round.  So: 
+ 
+ Has the same chance of collision as the native   function.  Which is what you want.  Use that instead. 
+ 
+ A hash function could be considered the same as baking a loaf of bread. You start out with inputs (flour, water, yeast, etc...) and after applying the hash function (mixing + baking), you end up with an output: a loaf of bread. 
+ Going the other way is extraordinarily difficult - you can't really separate the bread back into flour, water, yeast - some of that was lost during the baking process, and you can never tell exactly how much water or flour or yeast was used for a particular loaf, because that information was destroyed by the hashing function (aka the oven). 
+ Many different variants of inputs will theoretically produce identical loaves (e.g. 2 cups of water and 1 tsbp of yeast produce exactly the same loaf as 2.1 cups of water and 0.9tsbp of yeast), but given one of those loaves, you can't tell exactly what combo of inputs produced it. 
+ Encryption, on the other hand, could be viewed as a safe deposit box. Whatever you put in there comes back out, as long as you possess the key with which it was locked up in the first place. It's a symmetric operation. Given a key and some input, you get a certain output. Given that output, and the same key, you'll get back the original input. It's a 1:1 mapping. 
+ 
+ Use hashes when you don't want to be able to get back the original input, use encryption when you do. 
+ Hashes take some input and turn it into some bits (usually thought of as a number, like a 32 bit integer, 64 bit integer, etc).  The same input will always produce the same hash, but you PRINCIPALLY lose information in the process so you can't reliably reproduce the original input (there are a few caveats to that however). 
+ Encryption principally preserves all of the information you put into the encryption function, just makes it hard (ideally impossible) for anyone to reverse back to the original input without possessing a specific key. 
+ **Simple Example of Hashing**
+
+ Here's a trivial example to help you understand why hashing can't (in the general case) get back the original input.  Say I'm creating a 1-bit hash.  My hash function takes a bit string as input and sets the hash to 1 if there are an even number of bits set in the input string, else 0 if there were an odd number.   
+ Example: 
+ 
+ Note that there are many input values that result in a hash of 0, and many that result in a hash of 1.  If you know the hash is 0, you can't know for sure what the original input was. 
+ By the way, this 1-bit hash isn't exactly contrived... have a look at  parity bit . 
+ **Simple Example of Encryption**
+
+ You might encrypt text by using a simple letter substitution, say if the input is A, you write B.  If the input is B, you write C.  All the way to the end of the alphabet, where if the input is Z, you write A again. 
+ 
+ Just like the simple hash example, this type of encryption has  been used historically . 
+ 
+ Basic overview of hashing and encryption/decryption techniques are. 
+ 
+ **Hashing:**
+
+ If you  **hash**
+ any  **plain text**
+ again you  **can not get the same plain
+  text from hashed text**
+. Simply, It's a one-way process. 
+   
+ 
+ **Encryption and Decryption:**
+
+ If you  **encrypt**
+ any  **plain text**
+ with a key again you  **can
+  get same plain text**
+ by doing  **decryption**
+ on encrypted text with same(symetric)/diffrent(asymentric) key. 
+ 
+ 
+ 
+ **UPDATE:**
+
+To address the points mentioned in the edited question. 
+ 
+ 
+ **1. When to use hashes vs encryptions**
+
+ 
+ **Hashing**
+ is useful if you want to send someone a file. But you are afraid that someone else might intercept the file and change it. So a
+  way that the recipient can make sure that it is the right file is if
+  you post the hash value publicly. That way the recipient can compute
+  the hash value of the file received and check that it matches the hash
+  value.  
+ **Encryption**
+ is good if you say have a message to send to someone. You encrypt the message with a key and the recipient decrypts with the
+  same (or maybe even a different) key to get back the original message.
+   credits 
+ 
+ 
+ **2. What makes a hash or encryption algorithm different (from a theoretical/mathematical level) i.e. what makes hashes irreversible
+    (without aid of a rainbow tree)**
+  
+ 
+ Basically  **hashing is an
+  operation that loses information but not encryption**
+. Let's look at
+  the difference in simple mathematical way  for our easy understanding ,
+  of course both have much more complicated mathematical operation with
+  repetitions involved in it 
+ 
+ **Encryption/Decryption (Reversible):**
+
+ **Addition**
+:   
+ 
+ This can be reversed by taking the sum and subtracting one of the
+    addends 
+ 
+ **Multiplication**
+: 
+ 
+ This can be reversed by taking the product and dividing by one of the
+    factors 
+ 
+ So, here we could assume one of the addends/factors is a decrpytion key and result(7,20) is an excrypted text. 
+ 
+ **Hashing (Not Reversible):**
+
+ **Modulo division**
+: 
+ 
+ This can not be reversed because there is no operation that you can do to the quotient and the dividend to
+    reconstitute the divisor (or vice versa).    
+ Can you find an operation to fill in where the '?' is?    
+ 
+ So hash functions have the same mathematical quality as modulo division and looses the information. 
+ 
+ credits 
+ 
+ 
+ My one liner... generally Interviewer wanted the below answer. 
+ Hashing is one way . You can not get convert your data/ string from a hash code. 
+ Encryption is 2 way - you can decrypt again the encrypted string if you have the key with you.  
+ 
+ A  **Hash function**
+ turns a variable-sized amount of text into a fixed-sized text. 
+ 
+ Source:  https://en.wikipedia.org/wiki/Hash_function 
+ 
+ **Hash functions in PHP**
+
+ A hash turns a string to a hashed string. See below.  
+ HASH: 
+ 
+ Passwords are usually stored in their hashed representation instead as readable text. When an end-user wants gain access to an application protected with a password then a password must be given during authentication. When the user submits his password, then the valid authentication system receives the password and hashes this given password. This password hash is compared to the hash known by the system. Access is granted in case of equality. 
+ DEHASH: 
+ SHA1 is a one-way hash. Which means that you can't dehash the hash.  
+ However, you can brute-force the hash. Please see:  https://hashkiller.co.uk/sha1-decrypter.aspx .  
+ MD5, is another hash. A MD5 dehasher can be found on this website:  https://www.md5online.org/ . 
+ To hamper brute-force attacks on hashes a salt can be given. 
+In php you can use   for creating a password hash. 
+The function   automatically creates a salt.
+To verify a password on a password hash (with a salt) use  . 
+ 
+ One password can be represented by more then one hash.
+When you verify the password with different password hashes by using  , then the password will be accepted as a valid password.   
+ 
+ 
+ 
+ 
+ An  **Encryption function**
+  transforms a text into a nonsensical ciphertext by using an encryption key, and vice versa.
+ 
+ Source:  https://en.wikipedia.org/wiki/Encryption 
+ 
+ **Encryption in PHP**
+
+ Let's dive into some PHP code that handles encryption.  
+ --- The Mcrypt extention --- 
+ ENCRYPT: 
+ 
+ DECRYPT: 
+ 
+ --- The OpenSSL extention --- 
+ The Mcrypt extention was deprecated in 7.1. and removed in php 7.2. 
+The OpenSSL extention should be used in php 7. See the code snippets below:  
+ 
+ 
+ **Symmetric Encryption:**
+
+ Symmetric encryption may also be referred to as shared key or shared secret encryption. In symmetric encryption, a single key is used both to encrypt and decrypt traffic. 
+ 
+ **Asymmetric Encryption:**
+
+ Asymmetric encryption is also known as public-key cryptography. Asymmetric encryption differs from symmetric encryption primarily in that two keys are used: one for encryption and one for decryption. The most common asymmetric encryption algorithm is  . 
+ Compared to symmetric encryption, asymmetric encryption imposes a high computational burden, and tends to be much slower. Thus, it isn't typically employed to protect payload data. Instead, its major strength is its ability to establish a secure channel over a nonsecure medium (for example, the Internet). This is accomplished by the exchange of public keys, which can only be used to encrypt data. The complementary private key, which is never shared, is used to decrypt. 
+ 
+ **Hashing:**
+
+ Finally, hashing is a form of cryptographic security which differs from encryption. Whereas encryption is a two step process used to first encrypt and then decrypt a message, hashing condenses a message into an irreversible fixed-length value, or hash. Two of the most common hashing algorithms seen in networking are   and  . 
+ 
+ Read more here: http://packetlife.net/blog/2010/nov/23/symmetric-asymmetric-encryption-hashing/ 
+ 
+ 
+ Use hashes when you only need to go one way.  For example, for passwords in a system, you use hashing because you will only ever verify that the value a user entered, after hashing, matches the value in your repository.  With encryption, you can go two ways. 
+ hashing algorithms and encryption algorithms are just mathematical algorithms.  So in that respect they are not different -- its all just mathematical formulas.  Semantics wise, though, there is the very big distinction between hashing (one-way) and encryption(two-way).  Why are hashes irreversible?  Because they are designed to be that way, because sometimes you want a one-way operation. 
+ 
+ 
+ Encryption and hash algorithms work in similar ways.  In each case, there is a need to create  confusion and diffusion  amongst the bits.  Boiled down,  confusion  is creating a complex relationship between the key and the ciphertext, and  diffusion  is spreading the information of each bit around. 
+ Many hash functions actually use encryption algorithms (or primitives of encryption algorithms.  For example, the SHA-3 candidate  Skein  uses Threefish as the underlying method to process each block.  The difference is that instead of keeping each block of ciphertext, they are destructively, deterministically merged together to a fixed length 
+ 
+ when it comes to security for transmitting data i.e Two way communication you use encryption.All encryption requires a key 
+ when it comes to authorization you use hashing.There is no key in hashing 
+ Hashing takes any amount of data (binary or text) and creates a constant-length hash representing a checksum for the data. For example, the hash might be 16 bytes. Different hashing algorithms produce different size hashes. You obviously cannot re-create the original data from the hash, but you can hash the data again to see if the same hash value is generated. One-way Unix-based passwords work this way. The password is stored as a hash value, and to log onto a system, the password you type is hashed, and the hash value is compared against the hash of the real password. If they match, then you must've typed the correct password  
+ why is hashing irreversible : 
+ **Hashing isn't reversible because the input-to-hash mapping is not 1-to-1.**
+
+Having two inputs map to the same hash value is usually referred to as a "hash collision". For security purposes, one of the properties of a "good" hash function is that collisions are rare in practical use.  
+ 
+ Cryptography deals with numbers and strings. Basically every digital thing in the entire universe are numbers. When I say numbers, its 0 & 1. You know what they are, binary. The images you see on screen, the music that you listen through your earphone, everything are binaries. But our ears and eyes will not understand binaries right? Only brain could understand that, and even if it could understand binaries, it can’t enjoy binaries. So we convert the binaries to human understandable formats such as mp3,jpg,etc. Let’s term the process as  **Encoding**
+. It’s  two way process and can be easily decoded back to its original form. 
+ **Hashing**
+
+ **Hashing**
+ is another cryptography technique in which a data once converted to some other form can never be recovered back. In Layman’s term, there is no process called  **de-hashing**
+. There are many  **hash functions**
+ to do the job such as sha-512, md5 and so on.  
+ If the original value cannot be recovered, then where do we use this? Passwords! When you set up a password for your mobile or PC, a hash of your password is created and stored in a secure place. When you make a login attempt next time, the entered string is again hashed with the same algorithm (hash function) and the output is matched with the stored value. If it’s the same, you get logged in. Otherwise you are thrown out. 
+ Credits: wikimedia
+By applying hash to the password, we can ensure that an attacker will never get our password even if he steal the stored password file. The attacker will have the hash of the password. He can probably find a list of most commonly used passwords and apply  **sha-512**
+ to each of it and compare it with the value in his hand. It is called the  **dictionary attack**
+. But how long would he do this? If your password is random enough, do you think this method of cracking would work?
+All the passwords in the databases of Facebook, Google and Amazon are hashed, or at least they are supposed to be hashed. 
+ **Then there is Encryption**
+
+ Encryption lies in between hashing and encoding. Encoding is a two way process and should not be used to provide security. Encryption is also a two way process, but original data can be retrieved if and only if the encryption key is known. If you don’t know how encryption works, don’t worry, we will discuss the basics here. That would be enough to understand the basics of SSL. So, there are two types of Encryption namely Symmetric and Asymmetric encryption. 
+ **Symmetric Key Encryption**
+
+ I am trying to keep things as simple as I could. So, let’s understand the symmetric encryption by means of a shift algorithm. This algorithm is used to encrypt alphabets by shifting the letters to either left or right. Let’s take a string CRYPTO and consider a number +3. Then, the encrypted format of CRYPTO will be FUBSWR. That means each letter is shifted to right by 3 places.
+Here, the word CRYPTO is called  **Plaintext**
+, the output FUBSWR is called the  **Ciphertext**
+, the value +3 is called the  **Encryption**
+  **key**
+ (symmetric key) and the whole process is a  **cipher**
+. This is one of the oldest and basic symmetric key encryption algorithm and its first usage was reported during the time of Julius Caesar. So, it was named after him and it is the famous  **Caesar Cipher**
+. Anyone who knows the encryption key and can apply the reverse of Caesar’s algorithm and retrieve the original Plaintext. Hence it is called a  **Symmetric Encryption**
+. 
+ **Asymmetric Key Encryption**
+
+ We know that, in Symmetric encryption same key is used for both encryption and decryption. Once that key is stolen, all the data is gone. That’s a huge risk and we need more complex technique. In 1976, Whitfield Diffie and Martin Hellman first published the concept of Asymmetric encryption and the algorithm was known as  **Diffie–Hellman key exchange**
+. Then in 1978, Ron Rivest, Adi Shamir and Leonard Adleman of MIT published the  **RSA**
+ algorithm. These can be considered as the foundation of Asymmetric cryptography. 
+ As compared to Symmetric encryption, in  **Asymmetric encryption**
+, there will be two keys instead of one. One is called the  **Public key**
+, and the other one is the  **Private key**
+. Theoretically, during initiation we can generate the  **Public-Private**
+ key pair to our machine. Private key should  be kept in a safe place and it should never be shared with anyone. Public key, as the name indicates, can be shared with anyone who wish to send encrypted text to you. Now, those who have your public key can encrypt the secret data with it. If the key pair were generated using RSA algorithm, then they should use the same algorithm while encrypting the data. Usually the algorithm will be specified in the public key. The encrypted data can only be decrypted with the private key which is owned by you. 
+ Source: SSL/TLS for dummies part 1 : Ciphersuite, Hashing,Encryption | WST ( https://www.wst.space/ssl-part1-ciphersuite-hashing-encryption/ ) 
+ 
+ 
+ **Encryption**
+The Purpose of encryption is to transform data in order to keep it secret E.g (Sending someone a secret text that they only should able to read,sending passwords through Internet). 
+ Instead of focusing the usability the goal is to ensure the  data send can be sent secretly and it can only seen by the user whom you sent. 
+ It Encrypts the data into another format of transforming it into unique pattern it can be encrypt with the secret key and those users who having the secret key can able to see the message by reversible the process.
+  E.g(AES,BLOWFISH,RSA) 
+ The encryption may simply look like this  **FhQp6U4N28GITVGjdt37hZN**
+
+ **Hashing**
+ In technically we can say it as takes a arbitary input and produced a fixed length string. 
+ Most important thing in these is you can't go from the output to the input.It produces the strong output that the given information has not been modified.
+  The process is to take a input and hash it and then send with the sender's private key once the receiver received they can validate it with sender's public key. 
+ If the hash is wrong and did't match with hash we can't see any of the information. E.g(MD5,SHA.....) 
+ 
+ 

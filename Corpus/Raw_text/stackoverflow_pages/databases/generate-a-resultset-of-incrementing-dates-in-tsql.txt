@@ -1,0 +1,116 @@
+*** generate-a-resultset-of-incrementing-dates-in-tsql ***
+
+ Consider the need to create a resultset of dates. We've got start and end dates, and we'd like to generate a list of dates in between. 
+ 
+ Consider the current implementation with a   loop: 
+ 
+ **Question:**
+ How would you create a set of dates that are within a user-defined range using T-SQL? Assume SQL 2005+. If your answer is using SQL 2008 features, please mark as such. 
+ 
+ If your dates are no more than 2047 days apart: 
+ 
+ I updated my answer after several requests to do so. Why? 
+ The original answer contained the subquery 
+ 
+ which delivers the same result, as I tested them on SQL Server 2008, 2012, and 2016.  
+ However, as I tried to analyze the code that MSSQL internally when querying from  , I found that the   statements always contain the clause  . 
+ Therefore I decided that although the query returns the correct result, it delivers the correct result for wrong reasons: 
+ There may be a future version of SQL Server which defines a different   value which also has   as values for  , outside the range of 0-2047, or even non-contiguous, in which case the result would be simply wrong. 
+ 
+ Tthe following uses a recursive CTE (SQL Server 2005+): 
+ 
+ 
+ For this method to work, you need to do this one time table setup: 
+ 
+ Once the Numbers table is set up, use this query: 
+ 
+ to capture them do: 
+ 
+ output: 
+ 
+ 
+ @KM's answer creates a numbers table first, and uses it to select a range of dates. To do the same without the temporary numbers table: 
+ 
+ Test of course, if you are doing this often, a permanent table may well be more performant. 
+ The query above is a modified version from  this article , which discusses generating sequences and gives many possible methods. I liked this one as it does not create a temp table, and is not limited to the number of elements in the   table. 
+ 
+ Try this.  No Looping, CTE limits, etc. and you could have just about any no. of records generated. Manage the cross-join and top depending upon what is required. 
+ 
+ Please note the nesting is for easier control and conversion into views, etc. 
+ 
+ This solution is based on marvelous answer of the same question for MySQL. It is also very performant on MSSQL.  https://stackoverflow.com/a/2157776/466677 
+ 
+ works only for dates in the past, for dates in future change minus sign in DATEADD function. Query works only for SQL Server 2008+ but could be rewritten also for 2005 by replacing "select from values" construct with unions. 
+ 
+ Another option is to create corresponding function in .NET. Here's how it looks like: 
+ 
+ This is basically a prototype and it can be made a lot smarter, but illustrates the idea. From my experience, for a small to moderate time spans (like a couple of years) this function performs better than the one implemented in T-SQL. Another nice feature of CLR version is that it does not creates temporary table. 
+ 
+ **Overview**
+
+ Here's my version (2005 compatible).  The advantages of this approach are: 
+ 
+ you get a general purpose function which you can use for a number of similar scenarios; not restricted to just dates 
+ the range isn't limited by the contents of an existing table 
+ you can easily change the increment (e.g. get the date every 7 days instead of every day) 
+ you don't require access to other catalogs (i.e. master) 
+ the sql engine's able to do some optimisation of the TVF that it couldn't with a while statement 
+ generate_series is used in some other dbs, so this may help make your code instinctively familiar to a wider audience 
+ 
+ SQL Fiddle:  http://sqlfiddle.com/#!6/c3896/1 
+ **Code**
+
+ A reusable function for generating a range of numbers based on given parameters: 
+ 
+ Putting this to use for your scenario: 
+ 
+ **2005 Compatible**
+
+ 
+ Common Table Expressions:  http://technet.microsoft.com/en-us/library/ms190766(v=sql.90).aspx 
+ Option MaxRecursion Hint:  http://technet.microsoft.com/en-us/library/ms181714(v=sql.90).aspx 
+ Table Valued Functions:  http://technet.microsoft.com/en-us/library/ms191165(v=sql.90).aspx 
+ Default Parameters:  http://technet.microsoft.com/en-us/library/ms186755(v=sql.90).aspx 
+ DateTime:  http://technet.microsoft.com/en-us/library/ms187819(v=sql.90).aspx 
+ Casting:  http://technet.microsoft.com/en-us/library/aa226054(v=sql.90).aspx 
+ 
+ 
+ I like CTE as it's easy to read and maintenance  
+ 
+ **Don't forget to set MAXRECURSION**
+  
+ 
+ create a temp table with integers from 0 to the difference between your two dates. 
+ 
+ 
+ I use the following: 
+ 
+ It isn't all that different from many of the solutions proposed already but there are several things I like about it: 
+ 
+ No tables required 
+ Arguments can be passed in any order 
+ Limit of 65,536 dates is arbitrary and can easily be expanded by swapping to a function such as RangeInt 
+ 
+ 
+ This one should work. 
+ select Top 1000 DATEADD(d, ROW_NUMBER() OVER(ORDER BY Id),getdate()) from sysobjects 
+ 
+ What I'd recommend: create an auxiliary table of numbers and use it to generate your list of dates. You can also use a recursive CTE, but that may not perform as well as joining to an auxiliary table of numbers. See  SQL, Auxiliary table of numbers  for info on both options.   
+ 
+ While I really like KM's solution above (+1), I must question your "no loop" assumption - given the plausible date ranges that your app will work with, having a loop should not really be all that expensive. The main trick is to strore the results of the loop in staging/cache table, so that extremely large sets of queries do not slow down the system by re-calculating the same exact dates. E.g. each query only computes/caches the date ranges that are NOT already in cache and that it needs (and pre-populate the table with some realistic date range like ~2 years in advance, with range determined by your application business needs). 
+ 
+ The best answer is probably to use the CTE, but there is no guarantee you are able to use that. In my case, I had to insert this list inside an existing query created dinamically by a query generator...couldn't use CTE nor stored procedures. 
+ So, the answer from Devio was really useful, but I had to modify it to work in my environment. 
+ In case you don't have access to the master db, you may use another table in your database. As for the example before, the maximum date range is given by the number of rows inside the table choosen.  
+ In my example tough, using the row_number, you can use tables without an actual int column.  
+ 
+ 
+ Really like Devio's solution as I needed exactly something like this that needs to run on SQL Server 2000 (so cannot use CTE) however, how could it be modified to ONLY generate dates that align with a given set of days of the week. For example, I only want the dates that fall in line with Monday, Wednesday and Friday or whatever particular sequence I choose based on the following number Scheme: 
+ 
+ Example:  
+ 
+ What I'm trying to code is to add two additional fields: day,day_code
+Then filter the generated list with a condition... 
+ I came up with the following: 
+ 
+ 

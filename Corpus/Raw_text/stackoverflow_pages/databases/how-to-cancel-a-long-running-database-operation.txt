@@ -1,0 +1,45 @@
+*** how-to-cancel-a-long-running-database-operation ***
+
+ Currently working with Oracle, but will also need a solution for MS SQL. 
+ I have a GUI that allows users to generate SQL that will be executed on the database.  This can take a very long time, depending on the search they generate.  I want the GUI/App to responsive during this search and I want the user to be able to cancel the search. 
+ I'm using a Background Worker Thread. 
+ My problem is that, when the user cancels the search, I can't interrupt the call to the database.  It waits until it is finished and then, it can poll the 'CancelationPending' property.  Not only does this waste resources on the database, but it creates problems for my code. 
+ If the user hits 'Search' on a very long query, then clicks 'Cancel' and then 'Search' again - the first search is still chugging away on the database.  The background worker is still busy when they hit search again.  The only solution I've got to this problem is to make a new background worker. 
+ It seems like a really ugly way to do things.  The database keeps working I'm creating new instances of background workers....when I really want to STOP the database call and re-use the same worker.  
+ How can I do that? 
+ 
+ I dont think it is possible. Here is a link to a discussion on Oracle's website about this topic:
+ http://forums.oracle.com/forums/thread.jspa?threadID=400492&start=15&tstart=0 
+ 
+ If you're using ADO.NET and SQL data provider, take a look at SqlCommand.Cancel method. That does what you're looking for. However, it tries to cancel and the cancellation may take time. Basically, it's up to SQL Server to decide when to grant your cancellation request. When the query is cancelled, you should get a SqlException that indicates that the operation was cancelled by user. Apparently, you don't want to treat this exception as exception and handle it specially such as if SqlException is due to user cancelling the operation, just swallow it. 
+ 
+ I also noticed command.Cancel() doesn't really abort the command. What worked for me is closing the connection (rollback transaction if you use one) when the user aborts. This will raise an exception in your background thread while the command is executing, so you have to catch it and check the CancellationPending property there and not rethrow the exception in that case... 
+ 
+ 
+ I am pretty sure it is  **possible**
+- we use TOAD for Oracle, and it lets you cancel long-running queries,  as described here .  I'm not sure how they do it though. 
+ 
+ You could have the background worker fire off the actual database call on a different thread, and then periodically check to see if either the database call has finished, or cancel has been pressed, at which point you could kill off the database thread.  This wouldn't actually help the database load any (as your query has been sent and is still processing) but it does release your local resources related to it. 
+ 
+ I think the best solution seems to kill sessions via monitoring table. 
+ With Oracle you can make it as says Burnsys 
+ In Firebird 2.5 it will looks the  same 
+ I hope something similar exist in Ms SQL  
+ 
+ If you're using an SQLCommand, you could try calling it's  Cancel  method. 
+ 
+ What about opening a new connection to the database, login in as sysdba and sending a "ALTER SYSTEM KILL SESSION 'sid,serial#' IMMEDIATE" command specifying the SID of the process you want to terminate. 
+ To get the sessionID: select sid from v$mystat where rownum = 1 
+ To get Serial#: select sid, serial# from v$session where sid = :SID 
+ http://www.oracle-base.com/articles/misc/KillingOracleSessions.php 
+ EDIT:  WW idea for not Login as sysdba here:   http://forums.oracle.com/forums/thread.jspa?threadID=620578 
+ 
+ I have tried both Cancel and Close with ADO 2.8 and SQLOLEDB or SQL Server native client. With Cancel, the recordset stops fetching data, but in the backround the reading from the server continues and consumes memory from the application. In a 32 bit application it can happen that you get an "out of memory" message some minutes later. When I close the recordset (or the connection, with or without Cancel before), ADO 2.8 waits until all records are fetched.  
+ I don't know if ADO.NET does it better, but I think it's a good idea to monitor memory and network access after Cancel/Close to be sure that ADO really stops reading data. 
+ 
+ KILL SESSION was the only working way for me to cancel the long running query. I am using the managed oracle provided and OracleCommand.Cancel() works some times but usually it's not working. Also OracleCommand.CommandTimeout is not respected according to my tests. Some time ago when i was using the unmanaged oracle provided i managed to cancel commands but not any more with the managed one. Any way killing the session was the only option. The query is not running on the UI thread but on a seperate thread. The cancel command is send from the UI thread. Its a little more complex because the application uses a middletier using WCF but at the end of the day i am killing the session. Of cource when running the query i have to find and save the session in order to kill it if necessary. There are many ways to find sid and serial# in order to kill the oracle session and i want waste your time explaining something you already know. 
+ 
+ Oracle introduced   in 18c. You would need to add some kind of comment with UID to your SQL and then look for it something like this 
+ 
+ And then run another operation from .NET  
+ 

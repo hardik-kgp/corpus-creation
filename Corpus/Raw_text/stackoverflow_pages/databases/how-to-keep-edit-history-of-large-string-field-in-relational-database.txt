@@ -1,0 +1,62 @@
+*** how-to-keep-edit-history-of-large-string-field-in-relational-database ***
+
+ N.B.  I think answers are likely to be design-focused and therefore basically implementation agnostic, but I'm using Java+Hibernate with Postgres if there's some particularly well-suited solution using those technologies. 
+ I have a table with a particular field which will hold large strings, let's say blog posts which on average are +10000 characters. 
+ In my app, you can edit blog posts as many times as you like, and the latest version will always be displayed instantly after an update. However, the app needs to keep a full version history of these edits, so they can be viewed. 
+ An obvious strategy is to keep a separate table, something like  , where blog post rows are inserted in duplicate on creation and each subsequent update to the main 'live'   table, with an incrementing version number, so these versions are all available if needed in future. I was considering using something like Hibernate Envers to set this up. 
+ However it seems remarkably inefficient to store (and - maybe more importantly - transmit), multiple versions of a 10000 character block of text where the only difference between each one might be fixing typos, adding a few words, etc. Due to the nature of edits to blog posts, there are likely to be many small incremental changes like this, rather than fewer, larger changes. 
+ **Is there a better way?**
+  
+ I'm thinking something along the lines of storing only deltas between the current and previous version when an edit is made, and then reconstructing the version history from these deltas programatically when it's requested, perhaps on the client so the data sent over the wire is minimised.  
+ I would most likely store the latest version as full-text, as I'd want to optimise for requesting this most frequently, then store a chain of deltas going  backwards  from the current version to reconstruct historical versions, as and when they are requested. 
+ 
+ A solution I'm working on right now, which is working well so far, implements the design I proposed in the question 
+ 
+ I'm thinking something along the lines of storing only deltas between the current and previous version when an edit is made, and then reconstructing the version history from these deltas programatically when it's requested, perhaps on the client so the data sent over the wire is minimised. 
+ I would most likely store the latest version as full-text, as I'd want to optimise for requesting this most frequently, then store a chain of deltas going backwards from the current version to reconstruct historical versions, as and when they are requested. 
+ 
+ **I'll share the specifics of my implementation here**
+
+ For creating deltas and using the to reconstruct the full-text I am using the fantastic  google-diff-match-patch library . You can read the implementation agnostic  API documentation  to better understand the code examples below, though it's pretty readable anyway. 
+ google-diff-match-patch  has Java and JS implementations so I can use it to compute the deltas  with Java on the server. I chose to convert each delta to a String both so it can be easily stored in the database, and easily consumed by the JS library on the client. More on this below. 
+ 
+ **N.B.**
+ something it took me a while to figure out was how to pull down the the official build of  google-diff-match-patch  using maven. It's not in the maven central repo, but on their own repo on googlecode.com. Just to note, some people have forked it and put their forked versions in maven central, but if you really want the official version you can get by adding the repo and dependency in your   as follows 
+ 
+ For the front end, I pass the latest blog post full-text, along with a chain of deltas going backwards in time representing each edit, and then reconstruct the full text of each version in the browser in JS.  
+ To get the library, I'm using npm + browserify.  The library is available on npm  as  diff-match-patch . Version 1.0.0 is the only version. 
+ 
+ And that's it, it works fantastically. 
+ In terms of storing the edits of the blog posts, I just use a table   where I store the blog post id, a timestamp of when the edit was made (which I later use to order the edits correctly to make the chain when reconstructing the full-text versions on the client), and the backwards delta between the current live blog post in the   table, and the incoming edited version of the blog post. 
+ I chose to store a 'chain' of deltas because it suits my use case well, and is simpler on the server code end of things. It does mean in order to reconstruct version M of N, I have to send the client a chain of N-(M-1) deltas back from the live blog post full-text to version M. But in my use case I happen to want to send the whole chain each time, anyway, so this is fine.  
+ For slightly better over-the-wire efficiency for requesting specific versions, all deltas could be recalculated from the new edited blog post version back to each (restored) version each time an edit is made, but this would mean more work and complexity on the server. 
+ 
+ I don't reply about storing diff or full changes even if in my opinion just a performance test can actually reply for what solution is better because full log of content means bigger database but less work for server. 
+ I want to share on the contrary, my experience for keep history with postgresql.
+I did it very successfully working on server site, just on postgresql without write any code out of it.
+Using this set of functions, triggers and extension on Postgresql  
+ http://andreas.scherbaum.la/blog/archives/100-Log-Table-Changes-in-PostgreSQL-with-tablelog.html 
+ They are simple and easy to implement and you can forget of history on your code but just you can read from the log table to present difference on the content. 
+ So my application was written in php with YII framework with db schemes and structure designed by me for data, with just few table as service for framework itself (users, roles and general log) and this is important because if the data structure in the db is too complicated the approach summarised below is still valid but more complicated. 
+ After installed the postgresql extension tablelog you find here
+ http://pgfoundry.org/projects/tablelog/ 
+ You can proceed this way:
+First you must select the table (mytable) with the content you need to keep history of.
+You duplicate this mytable (I did into a new schema log.mytable) adding some new columns to keep track of history (as describe into README into tablelog extension).  
+ You must create some simple functions on postgresl in pgplsql  
+ 
+ 
+ 
+ Now you must create a trigger on your mytable as 
+ 
+ CREATE TRIGGER mytable_trg AFTER UPDATE OR INSERT OR DELETE ON mytable
+  FOR EACH ROW EXECUTE PROCEDURE table_log('log.mytable'); 
+ 
+ That's all, on every INSERT, UPDATE or DELETE you will keep track of history and you can easily restore old versions with the function you create before and so in your app code just executing and SQL calling the function itself. 
+ In my app I added an icon for History in several point where needed and with a click I open a dialog with form and a options in table to present all history and select the version you could restore. 
+ In the form creation, selecting content form log.mytable, you could place, in my opinion, a function that extract the difference from all version with the current but it's easy if you store the full content for every version in the db because on contrary it could be difficult to restore a version near to the last. In fact if you keep differences consider that they are compared with the next not with the current. 
+ Another advantage it that all is server side and no delay for writing extra data could be sensed on client side. 
+ The function for presenting just the difference mentioned below could also be a pgplsql function to avoiding, this way, to send to client all version in full content that could be big sometimes but this must depend on type of content, easily for text less for html and more complex for other type of content. 
+ My app was quite complex but keeping the history for changes this way has done a easy and clean and I forgot of it after done because always it worked smoothly. 
+ Luca 
+ 

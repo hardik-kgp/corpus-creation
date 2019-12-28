@@ -1,0 +1,36 @@
+*** postgres-timestamp ***
+
+ We are having a debate about the best way to store a timestamp in postgres. Currently all time stamps are stored as +00 and we have a timezone associated with each client. We look up the timezone and convert the time that something happened which increases complexity as we need to do more joins and a more complex query.  
+ Another method is connecting to Postgres and setting the timezone of the connection and it changes all the times to be that timezone.  
+ My problem with this is that in ANZ there are 4-5 timezones. When we try and do our invoices we need to know what day certain transactions happened, and across three timezones there is no perfect solution.  
+ I was thinking of including the timezone in the timestamp to make it easier - TIMESTAMP '1999-01-15 8:00:00 -8:00' 
+ I was under the impression that this was best practice, but some people say this is a bad idea. We will have customers across ANZ that we need to do accurate invoices for, what is the best solution and most elegant?  
+ Cheers
+Scott  
+ 
+ There are no bulletproof solutions here. 
+ My first advice: never rely on the default timezone of the server. 
+ My second advice: choose between  -  according to the (predominant) semantics of the data. 
+ In more detail: 
+PostgresSQL has two timestamp variants, confusingly named   and  . Actually,  **neither**
+ stores a timezone, nor even an offset. Both datatypes occupy the same width (4 bytes), and their difference is subtle - and, worse, can bite you if you don't fully understand them and your server changes the timezone. My sanity ruleset is: 
+ 
+ Use   for storing events that are predominantly related to the  **"physical" time**
+, for which you are mainly interested in querying whether   was before   (regardless of timezones), or computing time intervals (in "physical units", eg, seconds; not in "civil" units as days-months, etc). The typical example are record creation/modification time - what one usually means by the word " Timestamp ". 
+ Use   for storing events for which the relevant information is the  **"civil time"**
+  (that is, the fields   as a whole), and the queries involve calendar calculations. In this case, you would store here only the "local time", i.e., the date-time relative to some unspecified (irrelevant, or implied, or stored somewhere else) timezone. 
+ 
+ The second option makes you easier to query for, say, "all events that happened on day '2013-01-20'" (in each corresponding region/country/timezone) - but makes it more difficult to query for "all events that ocurred (physically) before a reference event" (unless we know they are in the same timezone). You choose. 
+ If you need the full thing, neither is enough, you need either to store the timezone or the offset in an additional field. Another option, which wastes a few bytes but can be more efficient for queries is to store both fields. 
+ See also  this answer . 
+ 
+ Use   (or   for standard SQL syntax) for your input fields, you can then set a custom time offset for every insert using either the timezone or time offset to whatever suits your preference. 
+ Example… 
+ 
+ ...and your times will be adjusted accordingly 
+ 
+ or better still, try the following... 
+ 
+ Finally, to get an idea of list of the timezones availalble to your database try: 
+ 
+ 

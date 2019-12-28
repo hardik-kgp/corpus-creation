@@ -1,0 +1,59 @@
+*** do-database-transactions-prevent-race-conditions ***
+
+ It's not entirely clear to me what transactions in database systems do. I know they can be used to rollback a list of updates completely (e.g. deduct money on one account and add it to another), but is that all they do? Specifically, can they be used to prevent race conditions? For example: 
+ 
+ (I know this could probably be written as a single update query, but that's not alway the case) 
+ Is this code protected against race conditions? 
+ I'm mostly interested in MySQL5 + InnoDB, but general answers are welcome too. 
+ 
+ TL/DR: Transactions do  not  inherently prevent all race conditions. You still need locking, abort-and-retry handling, or other protective measures in all real-world database implementations.  Transactions are not a secret sauce you can add to your queries to make them safe from all concurrency effects . 
+ **Isolation**
+
+ What you're getting at with your question is the  **I**
+ in  **ACID**
+ -  isolation . The academically pure idea is that transactions should provide perfect isolation, so that the result is the same as if every transaction executed serially. In reality that's rarely the case in real RDBMS implementations; capabilities vary by implementation, and the rules can be weakened by use of a weaker  isolation level  like  . In practice  you cannot assume that transactions prevent all race conditions , even at   isolation. 
+ Some RDBMSs have stronger abilities than others. For example, PostgreSQL 9.2 and newer have quite good   isolation that detects  most  (but not all) possible interactions between transactions and  aborts all but one of the conflicting transactions . So it can run transactions in parallel quite safely. 
+ Few, if any 3 , systems have truly perfect   isolation that prevents all possible races and anomalies, including issues like lock escalation and lock ordering deadlocks. 
+ Even with strong isolation some systems (like PostgreSQL) will abort conflicting transactions, rather than making them wait and running them serially. Your app must remember what it was doing and re-try the transaction. So while the transaction has prevented concurrency-related anomalies from being stored to the DB, it's done so in a manner that is not transparent to the application. 
+ **Atomicity**
+
+ Arguably the primary purpose of a database transaction is that it provides for  atomic commit . The changes do not take effect until you commit the transaction. When you commit, the changes all take effect at the same instant as far as other transactions are concerned. No transaction can ever see just  some  of the changes a transaction makes 1,2 . Similarly, if you  , then none of the transaction's changes ever get seen by any other transaction; it's as if your transaction never existed. 
+ That's the  **A**
+ in  **ACID**
+. 
+ **Durability**
+
+ Another is durability - the  **D**
+ in  **ACID**
+. It specifies that when you commit a transaction it must truly be saved to storage that will survive a fault like power loss or a sudden reboot. 
+ **Consistency:**
+
+ See  wikipedia 
+ **Optimistic concurrency control**
+
+ Rather than using locking and/or high isolation levels, it's common for ORMs like Hibernate, EclipseLink, etc to use  optimistic concurrency control  (often called "optimistic locking") to overcome the limitations of weaker isolation levels while preserving performance. 
+ A key feature of this approach is that it lets you span work across multiple transactions, which is a big plus with systems that have high user counts and may have long delays between interactions with any given user. 
+ 
+ In addition to the in-text links, see  the PostgreSQL documentation chapter on locking, isolation and concurrency . Even if you're using a different RDBMS you'll learn a lot from the concepts it explains. 
+ 
+ 1 I'm ignoring the rarely implemented   isolation level here for simplicity; it permits dirty reads. 
+ 2 As @meriton points out, the corollary isn't necessarily true.  Phantom reads  occur in anything below  . One part of an in-progress transaction doesn't see some changes (by a not-yet-committed transaction), then the next part of the in-progress transaction  does  see the changes when the other transaction commits. 
+ 3  Well, IIRC SQLite2 does by virtue of locking the whole database when a write is attempted, but that's not what I'd call an ideal solution to concurrency issues. 
+ 
+ The database tier supports atomicity of transactions to varying degrees, called isolation levels. Check the documentation of your database management system for the isolation levels supported, and their trade-offs. The strongest isolation level,  Serializable , requires transactions to execute as if they were executed one by one. This is typically implemented by using exclusive locks in the database. This can be cause deadlocks, which the database management system detects and fixes by rolling back some involved transactions. This approach is often referred to as  pessimistic locking . 
+ Many object-relational mappers (including JPA providers) also support  optimistic locking , where update conflicts are not prevented in the database, but detected in the application tier, which then rolls back the transaction. If you have optimistic locking enabled, a typical execution of your example code would emit the following sql queries: 
+ 
+ Let's say this returns (123, 13, 100). 
+ 
+ The database tells us how many rows where updated. If it was one, there was no conflicting update. If it was zero, a conflicting update occurred, and the JPA provider will do 
+ 
+ and throw an exception so application code can handle the failed transaction, for instance by retrying. 
+ Summary: With either approach, your statement can be made safe from race conditions. 
+ 
+ It depends on isolation level (in serializable it will prevent race condition, since generally in serializable isolation level transactions are processed in sequence, not in paralell (or at least exclusive locking is used, so transactions, that modify the same rows, are performed in sequence).
+In order to prevent the race condition, better manually lock the record (mysql for example supports 'select ... for update' statement, which aquires write-lock on the selected records) 
+ 
+ It depends on the specific rdbms. Generally, transactions acquire locks as decided during the query evaluation plan. Some can request table level locks, other column level, other record level, the second is preferred for performance. The short answer to your question is yes. 
+ In other words, a transaction is meant to group a set of queries and represent them as an atomic operation. If the operation fails the changes are rolledback. I don't exactly know what the adapter you're using does, but if it conforms to the definition of transactions you should be fine. 
+ While this guarantees prevention of race conditions, it doesn't explicitly prevent starvation or deadlocks. The transaction lock manager is in charge of that. Table locks are sometime used, but they come with a hefty price of reducing the number of concurrent operations. 
+ 

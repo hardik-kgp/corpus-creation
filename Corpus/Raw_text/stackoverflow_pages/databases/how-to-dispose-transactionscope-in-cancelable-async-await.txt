@@ -1,0 +1,37 @@
+*** how-to-dispose-transactionscope-in-cancelable-async-await ***
+
+ I'm trying to use the new async/await feature to asynchronously work with a DB. As some of the requests can be lengthy, I want to be able to cancel them. The issue I'm running into is that   apparently has a thread affinity, and it seems that when canceling the task, its   gets ran on a wrong thread. 
+ Specifically, when calling   I get the following   containing   on  : 
+ 
+ Here's the code: 
+ 
+ UPDATED: the commented out part is to show there's something to be done — asynchronously — with the connection once it's open, but that code is not required to reproduce the issue. 
+ 
+ In .NET Framework 4.5.1, there is a set of  new constructors for TransactionScope  that take a  **TransactionScopeAsyncFlowOption**
+ parameter. 
+ According to the MSDN, it enables transaction flow across thread continuations. 
+ My understanding is that it is meant to allow you to write code like this: 
+ 
+ I have not tried it yet, so I don't know if it will work. 
+ 
+ The problem stems from the fact that I was prototyping the code in a console application, which I did not reflect in the question. 
+ The way async/await continues to execute the code after   is dependent on the presence of  , and console application don't have one by default, which means the continuation gets executed using the current  , which is a  , so it ( potentially? ) executes on a different thread. 
+ Thus one simply needs to have a   that will ensure   is disposed on the same thread it was created. WinForms and WPF applications will have it by default, while console applications can either use a custom one, or borrow   from WPF. 
+ Here are two great blog posts that explain the mechanics in detail: 
+ Await, SynchronizationContext, and Console Apps 
+ Await, SynchronizationContext, and Console Apps: Part 2 
+ 
+ I know this is an old thread, but if anyone has run into the problem System.InvalidOperationException : A TransactionScope must be disposed on the same thread that it was created. 
+ The solution is to upgrade to .net 4.5.1 at a minimum and use a transaction like the following: 
+ 
+ Now the transaction is shared between methods.  Take a look at the link below.  It provide a simple example and more detail 
+ For complete details, take a look at  This 
+ 
+ Yep, you have to keep you transactionscope on a single thread. Since you are creating the transactionscope before the async action, and use it in the async action, the transactionscope is not used in a single thread. The TransactionScope was not designed to be used like that. 
+ A simple solution I think would be to move the creation of the TransactionScope object and the Connection object  **into**
+ the async action. 
+ UPDATE 
+ Since the async action is inside the SqlConnection object, we cannot alter that.
+What we can do, is  enlist the connection in the transaction scope . I would create the connection object in an async fashion, and then create the transaction scope, and enlist the transaction. 
+ 
+ 

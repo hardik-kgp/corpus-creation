@@ -1,0 +1,116 @@
+*** is-there-a-difference-between-select-and-select-list-each-col ***
+
+ 
+ 
+ 
+ 
+ 
+ This question already has answers here :
+                            
+                         
+ 
+ 
+ 
+ Which is faster/best? SELECT * or SELECT column1, colum2, column3, etc 
+ 
+                                    (47 answers)
+                                 
+ 
+ Closed  5 years ago . 
+ 
+ 
+ I'm using MS SQL Server 2005.  Is there a difference, to the SQL engine, between 
+ 
+ and 
+ 
+ When ColA, ColB, and ColC represent every column in the table? 
+ If they are the same, is there a reason why you should use the 2nd one anyway? I have a project that's heavy on LINQ, and I'm not sure if the standard SELECT * it generates is a bad practice, or if I should always be a .Select() on it to specify which cols I want. 
+ EDIT: Changed "When ColA, ColB, and ColC are all the columns to the table?" to "When ColA, ColB, and ColC represent every column in the table?" for clarity. 
+ 
+ Generally, it's better to be explicit, so   is better. The reason being that at some point, an extra column may be added to that table, and would cause unneeded data to be brought back from the query. 
+ This isn't a hard and fast rule though.  
+ 
+ 1) The second one is more explicit about which columns are returned. The value of the 2nd one then is how much you value explicitly knowing which columns come back.  
+ 2) This involves potentially less data being returned when there are more columns than the ones explicitly used as well. 
+ 3) If you change the table by adding a new column, the first query changes and the second does not. If you have code like "for all columns returned do ..." then the results change if you use the first, but not the 2nd. 
+ 
+ I'm going to get a lot of people upset with me, but especially if I'm adding columns later on, I usually like to use the SELECT * FROM table. I've been called lazy for this reason, because if I make any modifications to my tables, I'd like not to track down all the stored procs that use that table, and just change it in the data access layer classes in my application.  There are cases in which I will specify the columns, but in the case where I'm trying to get a complete "object" from the database, I'd rather just use the "*".  And, yes, I know people will be hating me for this, but it has allowed me to be quicker and less bug free while adding fields to my applications. 
+ 
+ The two sides of the issue are this: Explicit column specification gives better performance as new columns are added, but * specification requires no maintenance as new columns are added. 
+ Which to use depends on what kind of columns you expect to add to the table, and what the point of the query is.  
+ If you are using your table as a backing store for an object (which seems likely in the LINQ-to-SQL case), you probably want any new columns added to this table to be included in your object, and vice-versa. You're maintaining them in parallel. For this reason, for this case, * specification in the SELECT clause is right. Explicit specification would give you an extra bit of maintenance every time something changed, and a bug if you didn't update the field list correctly. 
+ If the query is going to return a lot of records, you are probably better off with explicit specification for performance reasons. 
+ If both things are true, consider having two different queries. 
+ 
+ You should specify an explicit column list. SELECT * will bring back more columns than you need creating more IO and network traffic, but more importantly it might require extra lookups even though a non-clustered covering index exists (On SQL Server). 
+ 
+ Some reasons  **not to use**
+ the first statement (select *) are: 
+ 
+ If you add some large fields (a BLOB column would be  very  bad) later to that table, you could suffer  **performance problems**
+ in the application 
+ If the query was a JOIN query with two or more tables, some of the fields could have the  **same name**
+. It would be better to assure that your field names are different. 
+ The  **purpose**
+ of the query is clearer with the second statement from an programming esthetics viewpoint 
+ 
+ 
+ When you select each field individually, it is more clear which fields are actually being selected.  
+ 
+ SELECT * is a bad practice in most places. 
+ 
+ What if someone adds a 2gb BLOB column to that table? 
+ What is someone adds really any column to that table? 
+ 
+ It's a bug waiting to happen.  
+ 
+ A couple things: 
+ 
+ A good number of people have posted here recommending against using *, and given several good reasons for those answers.  Out of 10 other responses so far only one doesn't recommend listing columns. 
+ People often make exceptions to that rule when posting to help sites like StackOverflow, because they often don't know what columns are in your table or are important to your query.  For that reason, you'll see a lot of code here and elsewhere on the web that uses the * syntax, even though the poster would tend to avoid it in his own code. 
+ 
+ 
+ Its good for forward-compatiblity. 
+ When you use 
+ 
+ and in "myTable" are 3 columns. You get same results as 
+ 
+ But if you add new column in future, you get a diferent results. 
+ Of course, if you change name one of existing column, in first case you get results and in the second case you get a error ( I think, this is correct behaviour of application ). 
+ 
+ If your code relies on certain columns being in a certain order, you need to list the columns.  If not, it doesn't really make a difference if you use "*" or write the column names out in the select statement. 
+ An example is if you insert a column into a table. 
+ Take this table:
+ColA  ColB  ColC 
+ You might have a query: 
+ 
+ Then the code might be: 
+ 
+ If you add a column between ColB and ColC, the query wouldn't return what you're looking for. 
+ 
+ For LinqToSql, if you plan to modify those records later, you should pull the whole record into memory. 
+ 
+ It depends on what you mean by "difference". There is the obvious syntax difference, but the real difference is one of performance. 
+ When you say  , you are telling the SQL query engine to return a data set with  **all**
+ of the columns from that table, while   tells the query engine to return a data set with  **only**
+ ColA, ColB, and ColC from the table. 
+ Say you have a table with 100 columns defined as CHAR[10].   will return 100 columns * 10 bytes worth of data while   will return 3 columns * 10 bytes worth of data. This is a huge size difference in the amount of data that is being passed back across the wire. 
+ Specifying the column list also makes it much clearer what columns you are interested in. The drawback is that if you add/remove a column from the table you need to ensure that the column list is updated as well, but I think that's a small price compared to the performance gain. 
+ 
+ 
+ select * is dependent on the column order in the schema so if you refer to the result set by the index # of the collection you will be looking at the wrong column. 
+ 
+ this query will give you a collection that stays the same over time, but how often are you changing the column order anyways? 
+ 
+ A quick look at the query execution plan shows that the querys are the same. 
+ The general rule of thumb is that you will want to limit your queries to only the fields that you need returned. 
+ 
+ selecting each column is better than just * because in case you add or delete a new row you HAVE to look at the code and take a look what you were doing with the retrieved data. 
+Also, it helps you understand your code better and allows you to use aliases as column names (in case you're performing a join of tables with a column sharing the name) 
+ 
+ An example as to why you never (imho) should use SELECT *. This does not relate to MSSQL, but rather MySQL. Versions prior to 5.0.12 returned columns from certain types of joins in a none-standard manner. Of course, if your queries defines which columns you want and in which order you have no problem. Imagine the fun if they don't. 
+ (One possible exception: Your query SELECTs from just one table  **and**
+ you identify columns in your programming language of choice by name rather than position.) 
+ 
+ Using "SELECT *" optimizes for programmer typing.  That's it.  That's the only advantage. 
+ 

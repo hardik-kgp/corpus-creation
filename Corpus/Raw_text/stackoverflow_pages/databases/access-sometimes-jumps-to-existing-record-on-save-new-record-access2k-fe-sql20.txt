@@ -1,0 +1,77 @@
+*** access-sometimes-jumps-to-existing-record-on-save-new-record-access2k-fe-sql20 ***
+
+ I am really posting this out of desperation after searching around a lot for an answer and trying a few different things with no success.  
+ I have an Access database where I have recently migrated the tables to SQL 2005, Access continues to function to the users as a front-end providing forms, reports, and queries.  
+ However, since moving to the Access FE/SQL BE setup, the users have been reporting that  sometimes , when they are entering a new record, they click into a subform (saving the record) or click save on the menu itself, it jumps to an existing record. The new record has been saved, but for some reason access switches to a different record as it refreshes. The user then has to close out, find the saved record, and continue editing it.  
+ 
+ **Scenario**
+: A user is entering a quote and fills out all the quote details, customer,
+  date, etc,  then clicks in the line-items subform to add a product (or clicks save in the menu), and suddenly
+  the quote form (and line-item subform) is showing the details of some random quote. The random quote could be recent, or from years ago, and has nothing in common with the quote they were entering. 
+ 
+ This weird behavior only happens on inserting a new record, never on editing an existing record. Users tell me that it happens ' more often ' when they go to add a new (quote, customer, whatever)  after opening the database. 
+ I have noticed it is only happening on forms that have subforms, so my first thought is that it had to do with Access sending through the subform data before the form data is saved, causing a PK violation. But this doesn't appear to be happening: there are no errors on the SQL server, and the record is successfully saved. Forcing the users to save the main form record before adding subform records (i.e. on a quote, forcing them to save the quote before they can add line items) didn't work, it just causes the jump (sometimes) on the save.  
+ It isn't vba running on the save or on current, I have set breakpoints on all the event handlers as it jumps and no vba is being executed. Some of the 'jumping' forms have no vba on the form. But all have subforms. I suspect it has to do with record locking. 
+ The server running the tables is SQL Server 2005, the users are using a mix of Access 2000 and 2003, mostly XP SP3 with a couple of old Win2k boxes. They are using Merge replication and a couple of users are running replicated SSEE2005 editions and subscribing to the main server. Most users are not replicated, just connecting directly to the server via ODBC or SQL native client connections. But I have verified that this is happening to all users, usually once or twice a day, and it has happened to me before. So it isn't a user issue. 
+ The worst part about this behavior is that it only happens some of the time and I haven't managed to find a scenario that will  **always**
+ cause it to happen.  
+ If anyone has experienced anything like this before, please let me know how you sorted it out, or even suggestions would be welcome. 
+ **Update:**
+ 
+(1/10/09) Problem solved, thanks to David Fenton. Setting the form to Data Entry mode (Form.DataEntry = true) before opening it to add records does indeed prevent the jumping. Client reports no issues at all since I changed this a week ago. 
+ 
+ A client is reporting occasional similar problems.  It started immediately after they started using merge replication. 
+ I've informed several contacts within the Microsoft Access product group as well as my fellow Access and SQL Server MVPs.   
+ Please email me your email address so I can forward that to my contacts at Microsoft as I would assume they would want to contact you directly.  tony at granite.ab.ca 
+ BTW excellent trouble shooting and detailed problem description.   
+ 
+ It definitely sounds like a record locking issue. Are you using autonumbers as PK? Have you tried 2 computers adding a record on the same form at the same time (meaning one of them will fire the insert event while the other has added a new record on the form one but is still editing it)?  
+ Could you check in a way or another if the PK of the inserted record  after  insertion in the table stays similar to the PK given before the insertion (by adding for example a few 'debug.print's to your code)?  
+ A scenario could be 2 pending inserts been given by the machine the same PK, the second one being then automatically changed at insert time, resulting in your form loosing the 'active' record. 
+ 
+ I'm wondering about the scenario where you are using a form to add records that has any other records for the user to jump to. 
+ That is, I don't believe in using the same form to edit records as is used to create them. 
+ Instead, I use an unbound dialog to collect all the required fields, insert the record in SQL, then open the main editing form to that single record (not a form with the whole table navigated to the record that was just added). 
+ Keep in mind that in a main form/subform scenario, creating a record in the subform when the parent form is unsaved causes the parent record to be saved. You might want to check if there is any code in the Insert and Update events of the main form that would cause a requery of the main form on the insert of a new record (triggered by editing the subform). 
+ But I would still suggest that the best architecture is to avoid this kind of possible scenario by loading only single records, so there is no other record to jump to. That would certainly limit the possibilities of where the user could end up when the problem occurs. 
+ 
+ I have seen behavior 'like' this when there are multiple ways of doing the same thing. (i.e.  tabbing out of the textbox triggering the lostfocus vs clicking a button) So make sure that this isn't the case, if you haven't already. 
+ 
+ This problem is coused by merge replication trigger. In this trigger (this problem strart from sql 2005 server , in SQL 2000 server this not nake problems) replication insert some data in replication tables with identities and access get this number of identity instead real form indentity insert. I read that access use @@IDENTITY insetad of SCOPE_IDENTITY and this is problem . To avoid this you should change merge trigger in way that in insert trigger on begining you save current value from @@identity in variable and on the end of trigger insert value in temp table as identity with start value of what is written in variable. this will correct @@iddentity and acces will get right value. 
+ at begin of trigger
+ DECLARE @identity int
+ DECLARE @strsql varchar(128)
+ set @identity=@@IDENTITY
+ar end something like
+ set @strsql='select identity(int,'+CAST(@identity as varchar(15)) +',1) as id into #temp'
+ exec(@strsql)
+et the and it should be placed between
+    if @@error <> 0 
+        goto FAILURE 
+and
+    return 
+ Problem in acces will erace not only on form but directly in ODBC link table too. 
+ I'm looking for way how to add this automaticly to merge replication trigger (mainly insert). 
+ 
+ This is bug in Access and SQL comunication. Access take identity of new record from @@IDENTITY and when you finish entering record it reload data based on value from @@IDENTITY value from SQL. In SQL 200 inserted merge trigger and Acces usualy work ok. From SQL 2005 merge trigger have some part in which data are entered in some merge replication table which have identity to and change value of @IDDENTITY form that of newly entered rcord from Access. 
+ One solution is to chanege all merege insert trigger to save @IDDENTITY on begining of it in variable and at the end of trigger insert dumy record in #temp table as identity column with starting value of variable previosly saved. 
+ This solution I found somewhere the net when before week I was affected with this problem too. I was moving database from SQL 200 to SQL 2008 and then I found this problem with identity in Access. I suspect replication because when I was removing one of subscription all start to work well but after recreating it erased again. 
+ I use this for solving problem (takem from somewhere on net). 
+ at the begining of merge insert trigger 
+ DECLARE @identity int 
+ DECLARE @strsql varchar(128) 
+ set @identity=@@IDENTITY 
+ and at the end of merge insert trigger 
+ set @strsql='select identity(int,'+CAST(@identity as varchar(15)) +',1) as id into #temp' 
+ exec(@strsql) 
+ last code should be placed on the place of /*insert end on this place */ in merge replication code 
+ if @@error <> 0  
+ goto FAILURE  
+ /*insert end on this place */ 
+ return 
+ But I'm searching for a way to do that automaticly for all existing merge trigger on publication and on all existing merge trigger on existing and future subscriptions. 
+ 
+ 0I have found this 
+ http://jagbarcelo.blogspot.com/search/label/identity 
+ but I don't know can I use it on SQL 2008. 
+ 

@@ -1,0 +1,67 @@
+*** hibernate-multiple-connections-dynamically-changing ***
+
+ I know there are similar questions about this scenario, however none of them I have found matches my case and I'll like to have a solution that doesn't impact performance. I have to do multiple connections to different databases (all postgresql) and the problem is that the databases can be many as they are continuously being created.  
+ At the moment I will only have one known database which will be used to store the connection strings from the other databases. These databases can be 1, 2, 5, 10 or N, the tricky part is that from my end I'll never know how many they will be and what their location and credentials will be (all stored on my central DB). The use case works in a way where in order to do an operation on one of these databases, I have to first fetch from the central database the location for the DB we need and then perform the operation.  
+ At the moment, I have been able to perform the operation by sing SessionFactory, but the operation is too slow even for a simple select/update, and my concern is that when multiple requests are made, we might get from Hibernate an Out of Memory Exception. 
+ Any ideas on what would be the best approach for this case? 
+ 
+ We have similar things:
+1..N databases as different customer. Each customer has same schema so we have only 1 entity manager. 
+SO you need to provide for hibernete via spi 2 implementation class and handen via properties: 
+ **hibernate.multi_tenant_connection_provider**
+
+ **org.hibernate.engine.jdbc.connections.spi.MultiTenantConnectionProvider**
+
+ and 
+ **hibernate.tenant_identifier_resolver**
+
+ **org.hibernate.context.spi.CurrentTenantIdentifierResolver**
+
+ **"hibernate.multiTenancy", "SCHEMA"**
+
+ Here is example how to do it with spring framework 
+ 
+ 
+ In my experience I worked with many schemas from a a single database. 
+Hibernate need to create a many EntityManagerFactory for every single schema, and also for every database.    
+You need one EntityManagerFactory for every schema or every database you are working.  
+And you know get an EntityManagerFactory is very very expensive in terms of resources and time.  
+After that get a single EntityManager is very cheap. 
+ So, in your case, You must to create a N EntityManagerFactory, one of them for every different Database or different schema from the same databases. 
+ As it is expensive to create EntityManagerFactory, you must create them only if necessary and when is necessary, and You know that You must wait almost 30 seconds or more to get everyone of them. 
+ In order to avoid a Out of Memory Exception you could try to test to create from 1 to N, the maximum number of EntityManagerFactory and see if your resources can support this. 
+ If You see that when You arrive to a X number and beyound this always system crash, so you  ** can limit the  simultaneous  number of EntityManagerFactory to this X limit number.**
+
+ Try and let me know your results or if you need some code example 
+ 
+ I was thinking about the problem in a little bit different way. 
+ As per my understanding  
+ 
+ Your requirement is to fetch the data from different databases , even
+  you don't know at the time of development. 
+ 
+ So  **why you are trying to put all this load on hibernate to manage the connections with so many databases.**
+
+ You are well aware of master database that's it. 
+ Let master database do rest of the things. 
+ 
+ You should only communicate to master database and all burden to fetch
+  data from rest of the databases should be kept on master database. 
+ **Create the DBLinks for different databases inside master database.**
+  
+ 
+ And maintain required metadata as well in master database. 
+ 
+ Whenever you need to fetch data from any newly added database or so,
+  just asked from master database. 
+ 
+ **Problems that can be solved by using DBLinks**
+
+ 
+ You don't have to expose database credentials (of different databases) in any table  
+ Hibernate will be kept light weighted 
+ You Java code will be kept clean 
+ Any changes made in any database (structure, credentials) will reflect immediately (In other approach you need to restart your application after any such changes in database) 
+ 
+ A reference for DBLink in postgres 
+ 

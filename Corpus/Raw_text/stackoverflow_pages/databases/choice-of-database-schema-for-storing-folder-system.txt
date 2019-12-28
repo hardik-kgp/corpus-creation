@@ -1,0 +1,30 @@
+*** choice-of-database-schema-for-storing-folder-system ***
+
+ I'm trying to implement an SQLite-based database that can store the full structure of a 100GB folder with a complex substructure (expecting 50-100K files). The main aim of the DB would be to get rapid queries on various aspects of this folder (total size, size of any folder, history of a folder and all it's contents, etc).  
+ However, I realized that finding  all  the files inside a folder, including all of it's sub-folders is not possible without recursive queries if I just make a "file" table with just a parent_directory field. I consider this as one of the most important features I want in my code, so I have considered two schema options for this as shown in the figure below. 
+ 
+ In schema 1, I store all the file names in one table and directory names in another table. They both have a "parentdir" item, but also have a text (apparently text/blob are the same in sqlite) field called "FullPath" that will save the entire path from the root to the particular file/directory (like /etc/abc/def/wow/longpath/test.txt). I'm not assuming a maximum subfolder limit so this could  theoretically  be a field that allows up to 30K characters. My idea is that then if I want all the files or directories belonging to any parent I just query the fullpath of the parent on this field and get the fileIDs 
+ In schema 2, I store only filenames, fileIDs and DirNames, DirIDs in the directories and files tables, respectively. But in a third table called "Ancestors", I store for each file a set of entries for each directory that is it's ancestor (so in the above example, test.txt will have 5 entries, pointing to the DirIDs of the folders etc,abc,def,wow and longpath respectively). Then if I want the full contents of any folder I just look for the DirID in this table and get all the fileIDs. 
+ 
+ I can see that in schema 1 the main limit might be full-text search of variable length text column and in schema 2 the main limit being that I might have to add a ton of entries for files that are buried deep within 100 directories or something.  
+ What would be the best of these solutions? Is there any better solution that I did not think of? 
+ 
+ 
+ 
+ Your first schema will work just fine.
+When you put an index on the   column, use either the case-sensitive   operator for queries, or use   with either   on the index or with  . 
+ Please note that this schema  also  stores all parents, but the IDs (the names) are all concatenated into one value. 
+ Renaming a directory would require updating all its subtree entries, but you mention history, so it's possible that old entries should stay the same. 
+ Your second schema is essentially the  Closure Table  mentioned in Dan D's comment.
+Take care to not forget the entries for depth 0. 
+ This  will  store lots of data, but being IDs, the values should not be too large. 
+ (You don't actually need  , do you?) 
+ Another choice for storing trees is the  nested set model , or the similar nested interval model.
+The nested set model allows to retrieve subtrees by querying for an interval, but updates are hairy.
+The nested interval model uses fractions, which are not a native data type and therefore cannot be indexed. 
+ 
+ I'd estimate that the first alternative would be easiest to use.
+I should also be no slower than the others if lookups are properly indexed. 
+ 
+ My personal favourite is the  visitation number  approach, which I think would be especially useful for you since it makes it pretty easy to run aggregate queries against a record and its descendants. 
+ 

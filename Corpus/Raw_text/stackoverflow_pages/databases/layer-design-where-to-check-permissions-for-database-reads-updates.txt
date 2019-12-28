@@ -1,0 +1,74 @@
+*** layer-design-where-to-check-permissions-for-database-reads-updates ***
+
+ In most scenarios, you want a user only to be able to access entities in a database that was created by the user themselves. For example if there is a calendar that was created by  User1 , then only  User1  should be able to read, update or delete this particular calendar and its contents in the database. This is not about authorization in general - in my project, there already is a role-based authorization component which checks if users belong to the "calendar-editor" role, but it doesn't check if a specific user is allowed to access a specific calendar. 
+ So eventually there has to be a comparison between the user-id of the current request and the user-id that represents the owner of the calendar that is requested. But I'm wondering where to do this. My thoughts: 
+ 
+ I could do it on the the DAO-level. But then every DAO-method needs an additional parameter that represents the user-id which makes these methods more verbose and decreases re-usability. 
+ E.g.  
+   
+ becomes 
+ 
+ An advantage would be that the permission check is basically done on the query-level which means that if a user has no access to a calendar, no calendar is returned from the database. But then again: if no calendar is returned in some cases, how do you distinguish between a calendar that does not exist and an existing calendar that cannot be accessed by the current user? Two different scenarios, producing the same outcome. 
+ Another option could be to keep the DAO out of this and to do the check in a service layer or something similar. This would mean that the check is performed AFTER the requested calendar is returned by the DAO. This approach sounds more flexible than the other one, but it also means that in case a user has no access to the requested calendar, the requested calendar still consumes bandwidth and memory since it is fetched from the Database in either case. 
+ 
+ Maybe there are additional options I didn't even consider. Are there any best practices? 
+ Btw: there are no calendars in my web application, this was just an example to illustrate the issue. 
+ 
+ I think, the key is to think about what exactly you mean when you say that the DAO approach "decreases reusability". If your requirement to enforce user access rights is universal to all applications of your DAO, then doing this at the DAO level actually  increases  reusability rather than reducing it: everybody using the DAO would be able to benefit from these checks rather than having to implement them on their own.  
+ You can make the user id an implicit parameter to make these methods more friendly to upstream user. You could also make it return a Try (or, perhaps, an Either) to address your concern about distinguishing between a missing and an inaccessible object cases: 
+ 
+ Then, the caller could do something like this: 
+ 
+ On the other hand, if there are possible cases where the DAO would be used without a user context (an "admin" application perhaps), then you might consider either subclassing it to provide the access control to your "regular applications", or, perhaps, simply making an additional role that would allow a user access to all calendars regarding of ownership, and then using that "superuser" in your admin application. 
+ I would not worry about the cost of having to load the object before checking the access (even if the object is really expensive to load, it should be a rare enough occurrence that someone tries to access an object he does not own). I think, a stronger argument against the service layer approach is exactly reusability and modularity of the code: the very existence of the DAO class with a public interface suggests that it can, at least potentially, be reused by more than one component. It seems silly having to require all such components implement their own access checks, especially, considering that such contract would not be enforceable: there is no way to make sure that somebody, who decides to use your DAO class a couple of years from now, will remember about this requirement (or care to read the comment). If you are producing a layer for accessing the database anyway, you might as well make it useful for something. 
+ 
+ I use the second approach. I will go only from an architectural point of view which I feel is more important than a usually small cost of query. 
+ Some reasons include: 
+ 
+ It is cleaner to have all validations/verifications in a single place.  The code has a structure. There will be cases when some validations can not be performed in the DAO layer. And then it becomes ad-hoc, what are the validations go into the service layer and what in the DAO layer.   
+ The method   should only return   by id using an id. It is more reusable. What if tomorrow you need a functionality that an admin can see all the calendars irrespective of the owner. You will end up writing another query for this feature. It will be more easy to add this check in a service layer.  
+ Assuming someday you have another data store which returns the record, then you end up having validations in multiple places. It will not happen if there is a service layer to do the validations. The service layer will not change as it will not care from where the record comes. 
+ Onboarding a new colleague becomes easier. Assuming a new guy who specializes in the DB domain starts to work with you. He will be more productive if he is only concerned with the records that the DB should return forgetting about how the application uses this data. (separation of concern applies in real life too :)).   
+ 
+ 
+ You have raised a very interesting question here. As others have already emphasized, correct approach depends on the meaning of your question. 
+ 
+ how to distinguish between a calendar that does not exist and an
+  existing calendar that cannot be accessed by the current user? 
+ 
+ When you start thinking about implementing the filtering logic in DAO vs in Services, you effectively start solving the multi-tenancy problem, which probably is  already solved . This sounds like multi-tenancy because you think how to isolate the data between different users that use the same application. The problem is narrowed down since you want to have the shared database - that's a given (cannot change). You also mention that data is not always isolated (admin can see what everybody else see in their isolation). If so, then the implementation place is actually  irrelevant , and for each use case you can have a different choice - whichever makes sense for that specific use case. It would matter if you didn't have mixed use cases though, but you do have (admin vs regular user). So, your multi-tenancy is not that complex - it's just use-case-based. 
+ One thing that I see going awkward in this conversation is - you consider your database in separation from your application, which actually defeats the purpose of the database. Your database is an  application's database . I also saw signs of considering your data access logic in separation from other layers, which actually makes your data access a different application, but it's not - all layers  together  form your application. It's this holistic view of the application that makes the implementation place irrelevant [in this very specific case]. 
+ Here is how I see this for several use cases that can exist in your application: 
+ 
+ User is authenticated, which decides access rights for calendars per authenticated user (it can be either "View only user's calendars", or it can be "View all calendars"). 
+ User accesses screen for viewing only user's calendars - user's calendars are displayed. If you think Admin should also use this same screen, then you can either map different service for admin, or call different DAO method for admin, or pass different parameters to DAO for admin. 
+ User accesses screen for viewing all calendars (well, this page probably is protected for only Admin's access). Then display all calendars. If you think regular user should also use this same screen, then you can either map different service for user, or call different DAO method for user, or pass different parameters to DAO for user. 
+ 
+ 
+ Filtering result on DAO-level is good approach for a few reasons: 
+ 
+ you save resources on application server 
+ filtering on database level is faster 
+ filtering as soon as possible reduce bug risk on higher app layers 
+ 
+ 
+ how to distinguish between a calendar that does not exist and an existing
+  calendar that cannot be accessed by the current user? 
+ 
+ For security reasons you should't show unaccessible object at all, but sometimes usability is more imortant. Distinguish possibility should depend on your app specific. 
+ 
+ Filtering on the Data Access Layer would be my choice. Normaly i separate my access to the database in a separate class Library called DAL. Inside that Library, i define an Interface with the methods that return the data. When you create an instance of that Interface, there will be a constructor that will have a user parameter. So the interface will filter data for you without having to pass user info on every method. 
+ 
+ Usage of the interface 
+ 
+ 
+ Filtering the result in DAO layer is preferred to me.  
+ As a way to reduce parameter list, since the calendar is retrieved from owner point of view, there is no need to pass in calendar ID. 
+Instead of doing:
+ , I will do: .  
+ Regarding: 
+ 
+ How to distinguish between a calendar that does not exist and an existing calendar that cannot be accessed by the current user? 
+ 
+ With the   method, you don't even need to differentiate the two cases. Because from user/owner point of view, DAO just need to return the calendar if it is present. 
+ 

@@ -1,0 +1,42 @@
+*** how-to-change-database-design-in-a-deployed-application ***
+
+ **Situation**
+
+ I'm creating a C#/WPF 4 application using a SQL Compact Edition database as a backend with the Entity Framework and deploying with ClickOnce. 
+ I'm fairly new to applications using databases, though I don't suspect I'll have much problem designing and building the original database. However, I'm worried that in the future I'll need to add or change some functionality which will require me to change the database design after the database is already deployed and the user has data in the database. 
+ **Questions**
+
+ 
+ Is it even possible to push an updated database design out to users via a clickonce update in the same way it is for code changes? 
+ If I did, how would the user's data be affected? 
+ How is this sort of thing done in real situations? What are some best-practices? 
+ 
+ I figure that in the worst case, I'd need to build some kind of "version" number into the database or program settings and create some routine to migrate the user's current version of the database to the new one. 
+ I appreciate any insight into my problem. Thanks a lot. 
+ 
+ There are some 'tricks' that are employed when designing databases to allow for design changes. 
+ Firstly, many database designers create views to code against, rather than coding directly to the tables.  This allows tables to be altered (split or merged, etc) while only requiring that the views are updated. You may want to investigate  database refactoring  techniques for this. 
+ Secondly, you can indeed add versioning information to the database (commonly done as a 'version' table with a single field).  Updating the database can be done through code or through scripts.  One system I worked on would automatically check the database version and then progressively update the schema through versions in code until it matched the required version for the runtime.  This was quite an undertaking. 
+ 
+ I think your "worst" case is actually a pretty good route to go in this situation.  Maintain a database version in the DB and have your application check and update the DB as necessary.  If you build your updater correctly, it should be able to maintain the user's data.  Depending on the update this might involve creating temporary tables to hold the existing data and repopulating new versions of the tables from them.  You might be able to  include a new SDF file  with the new schema in place in the update process and simply transfer the data.  It might be slightly easier that way -- you could use file naming to differentiate versions and trigger the update code that way. 
+ 
+ Unfortunately version control and change management for databases is desperately,  desperately  far from what you can do with the rest of your code.  
+ If you have an internal-only environment there are a number of tools which will help you (DBGhost, Red Gate has a newish app, some deployment management apps) but all of them are less than full solutions imho, but they are mostly good enough. 
+ For client-shipped solutions you really don't have anything better than your worst case I'm afraid. Just try and design with flexibility in mind - see Dr.Herbie's answer. 
+ This is not a solved problem basically. 
+ 
+ "Smart Client Deployment with ClickOnce" by Brian Noyes has an excellent chapter on this issue. (Chapter 5)
+ISBN 978-0-32-119769-6 
+ He suggests something like this: 
+ 
+ 
+ A common solution is to include a version number somewhere in the database. If you have a table with miscellaneous system data, throw it in there, or create a table with one record just to hold the DB version number. Then whenever the program starts up, check if the database version is less than the expected version. If so, execute the required SQL CREATE, ALTER, etc, commands to bring it up to speed. Have a script or function for each version change. So if you see the database is currently at version 6 and the code expects version 8, execute the 6 to 7 update and the 7 to 8 update. 
+ Another method we used on one project I worked was to ship a schema-only, no data database with the code. Every time you installed a new version the installer would also install the latest copy of this new blank database. Then when the program started it up it would compare the user's current database schema with the new database schema, and determine what database changes were needed on the fly. Like, if in the "reference schema" table Foo had a column named Bar, and there was no column Bar in the user's current database, we would generate a "alter table Foo add Bar ..." and execute it. While writing the first draft of the program to do this was a fair amount of work, once we'd done it there was pretty much zero maintenance to keep the DB schema up to date. The conversion was just done on the fly. 
+ Note that this scheme doesn't handle DB changes that require changing data values, like if you add a new column that must be initially populated by doing some computation on data from other tables or some such. But if you can generate new data from old data, that must mean that the new data is redundant and your database is not normalized. I don't think the situation ever came up for us. 
+ 
+ I had the same issue with an app in Android with an SQLite database adding a table. I changed the name of the database to include a version extension, like: theDataBaseV1, deleted the previous one and the app works fine. 
+ I just changed the name of the database and the name in this line of code 
+ 
+ in the DBManager when its going to open. 
+ Does anybody knows if this trivial solution has any unintended consequences? 
+ 

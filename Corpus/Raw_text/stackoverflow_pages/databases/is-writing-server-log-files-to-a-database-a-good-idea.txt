@@ -1,0 +1,31 @@
+*** is-writing-server-log-files-to-a-database-a-good-idea ***
+
+ After reading  an article about the subject from O'Reilly , I wanted to ask Stack Overflow for their thoughts on the matter. 
+ 
+ Write locally to disk, then batch insert to the database periodically (e.g. at log rollover time). Do that in a separate, low-priority process. More efficient and more robust... 
+ (Make sure that your database log table contains a column for "which machine the log event came from" by the way - very handy!) 
+ 
+ I'd say no, given that a fairly large percentage of server errors involve problems communicating with databases.  If the database were on another machine, network connectivity would be another source of errors that couldn't be logged. 
+ If I were to log server errors to a database, it would be critical to have a backup logger that wrote locally (to an event log or file or something) in case the database was unreachable. 
+ 
+ Log to DB if you can and it doesn't slow down your DB :) 
+ It's way way way faster to find anything in DB then in log files. Especially if you think ahead what you will need. Logging in db let's you query log table like this: 
+ 
+ then after you find error you can see the whole path that lead to this error 
+ 
+ How will you get this info if you log it in text files?  
+ **Edit:**
+
+As JonSkeet suggested this answer would be better if I stated that one should consider making logging to db asynchronous. So I state it :) I just didn't need it. For example how to do it you can check "Ultra Fast ASP.NET" by Richard Kiessig. 
+ 
+ If the database is production database, this is a horrible idea.
+You  will  have issues with backups, replication, recovery. Like more storage for DB itself, replicas, if any, and backups. More time to setup and restore replication, more time to verify backups, more time to recover DB from backups. 
+ 
+ It probably isn't a bad idea if you want the logs in a database but I would say not to follow the article's advice if you have a lot of log file entries. The main issue is that I've seen file systems have issues keeping up with logs coming from a busy site let alone a database. If you really want to do this I would look at loading the log files into the database after they are first written to disk. 
+ 
+ Think about a properly setup database that utilizes RAM for reads and writes? This is so much faster than writing to disk and would not present the disk IO bottleneck you see when serving large numbers of clients that occurs when threads start locking down due to the OS telling them to wait on currently executing threads that are using all available IO handles. 
+ I don't have any benchmarks to prove this data, although my latest application is rolling with database logging.  This will have a failsafe as mentioned in one of these responses.  If the database connection can not be created, create local database (h2 maybe?) and write to that.  Then we can have a periodic check of database connectivity that will re-establish the connection, dump the local database, and push it to the remote database.  
+ This could be done during off hours if you do not have a H-A site. 
+ Sometime in the future I hope to develop benchmarks to demonstrate my point. 
+ Good Luck! 
+ 

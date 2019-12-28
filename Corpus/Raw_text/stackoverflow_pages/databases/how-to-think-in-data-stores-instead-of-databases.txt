@@ -1,0 +1,58 @@
+*** how-to-think-in-data-stores-instead-of-databases ***
+
+ As an example, Google App Engine uses Google Datastore, not a standard database, to store data.  Does anybody have any tips for using Google Datastore instead of databases?  It seems I've trained my mind to think 100% in object relationships that map directly to table structures, and now it's hard to see anything differently.  I can understand some of the benefits of Google Datastore (e.g. performance and the ability to distribute data), but some good database functionality is sacrificed (e.g. joins). 
+ Does anybody who has worked with Google Datastore or BigTable have any good advice to working with them? 
+ 
+ There's two main things to get used to about the App Engine datastore when compared to 'traditional' relational databases: 
+ 
+ The datastore makes no distinction between inserts and updates. When you call put() on an entity, that entity gets stored to the datastore with its unique key, and anything that has that key gets overwritten. Basically, each entity kind in the datastore acts like an enormous map or sorted list. 
+ Querying, as you alluded to, is much more limited. No joins, for a start. 
+ 
+ The key thing to realise - and the reason behind both these differences - is that Bigtable basically acts like an enormous ordered dictionary. Thus, a put operation just sets the value for a given key - regardless of any previous value for that key, and fetch operations are limited to fetching single keys or contiguous ranges of keys. More sophisticated queries are made possible with indexes, which are basically just tables of their own, allowing you to implement more complex queries as scans on contiguous ranges. 
+ Once you've absorbed that, you have the basic knowledge needed to understand the capabilities and limitations of the datastore. Restrictions that may have seemed arbitrary probably make more sense. 
+ The key thing here is that although these are restrictions over what you can do in a relational database, these same restrictions are what make it practical to scale up to the sort of magnitude that Bigtable is designed to handle. You simply can't execute the sort of query that looks good on paper but is atrociously slow in an SQL database. 
+ In terms of how to change how you represent data, the most important thing is precalculation. Instead of doing joins at query time, precalculate data and store it in the datastore wherever possible. If you want to pick a random record, generate a random number and store it with each record.  There's a whole cookbook of these sort of tips and tricks  here  Edit: The cookbook is no longer in existence. 
+ 
+ The way I have been going about the mind switch is to forget about the database altogether.  
+ In the relational db world you always have to worry about data normalization and your table structure.  Ditch it all.  Just layout your web page.  Lay them all out.  Now look at them.  You're already 2/3 there.   
+ If you forget the notion that database size matters and data shouldn't be duplicated then you're 3/4 there and you didn't even have to write any code!  Let your views dictate your Models.  You don't have to take your objects and make them 2 dimensional anymore as in the relational world.  You can store objects with shape now. 
+ Yes, this is a simplified explanation of the ordeal, but it helped me forget about databases and just make an application.  I have made 4 App Engine apps so far using this philosophy and there are more to come. 
+ 
+ I always chuckle when people come out with - it's not relational. I've written cellectr in django and here's a snippet of my model below. As you'll see, I have leagues that are managed or coached by users. I can from a league get all the managers, or from a given user I can return the league she coaches or managers.  
+ Just because there's no specific foreign key support doesn't mean you can't have a database model with relationships. 
+ My two pence. 
+ 
+ 
+ 
+ I came from Relational Database world then i found this Datastore thing. it took several days to get hang of it. well there are some of my findings. 
+ You must have already know that Datastore is build to scale and that is the thing that separates it from  RDMBS. to scale better with large dataset, App Engine has done some changes(some means lot of changes). 
+ **RDBMS VS DataStore**
+
+ Structure 
+In database, we usually structure our data in Tables, Rows which is in Datastore it becomes  Kinds and Entities .  
+ Relations 
+In RDBMS, Most of the people folllows the One-to-One, Many-to-One, Many-to-Many relationship, In Datastore, As it has "No Joins" thing but still we can achieve our normalization using " ReferenceProperty " e.g.  One-to-One Relationship Example  . 
+ Indexes 
+Usually in RDMBS we make indexes like Primary Key, Foreign Key, Unique Key and Index key to speed up the search and boost our database performance. In datastore, you have to make atleast one index per kind(it will automatically  generate  whether you like it or not) because datastore search your entity on the basis of these indexes and believe me that is the best part, In RDBMS you can search using non-index field though it will take some time but it will. In Datastore you can not search using non-index property. 
+ Count 
+In RDMBS, it is much easier to count(*) but in datastore, Please dont even think it in normal way(Yeah there is a count function) as it has  1000 Limit  and it will cost as much  small opertion  as the entity which is not good but we always have good choices, we can use  Shard Counters . 
+ Unique Constraints 
+In RDMBS, We love this feature right? but Datastore has its own way. you cannot define a property as unique :(.  
+ Query 
+GAE Datatore provides a better feature much  LIKE (Oh no! datastore does not have LIKE Keyword) SQL which is  GQL . 
+ Data Insert/Update/Delete/Select 
+This where we all are interested in, as in RDMBS we require one query for Insert, Update, Delete and Select just like RDBMS, Datastore has put, delete, get(dont get too excited) because Datastore put or get in terms of  Write, Read, Small Operations (Read  Costs for Datastore Calls ) and thats where Data Modeling comes into action. you have to minimize these operations and keep your app running. For Reducing  Read operation  you can use  Memcache . 
+ 
+ Take a look at the Objectify documentation. The first comment at the bottom of the page says:  
+ "Nice, although you wrote this to describe Objectify, it is also one of the most concise explanation of appengine datastore itself I've ever read. Thank you." 
+ https://github.com/objectify/objectify/wiki/Concepts 
+ 
+ If you're used to thinking about ORM-mapped entities then that's basically how an entity-based datastore like Google's App Engine works. For something like joins, you can look at  reference properties . You don't really need to be concerned about whether it uses BigTable for the backend or something else since the backend is abstracted by the GQL and Datastore API interfaces. 
+ 
+ The way I look at datastore is, kind identifies table, per se, and entity is individual row within table. If google were to take out kind than its just one big table with no structure and you can dump whatever you want in an entity. In other words if entities are not tied to a kind you pretty much can have any structure to an entity and store in one location (kind of a big file with no structure to it, each line has structure of its own). 
+ Now back to original comment, google datastore and bigtable are two different things so do not confuse google datastore to datastore data storage sense. Bigtable is more expensive than bigquery (Primary reason we didn't go with it). Bigquery does have proper joins and RDBMS like sql language and its cheaper, why not use bigquery. That being said, bigquery does have some limitations, depending on size of your data you might or might not encounter them. 
+ Also, in terms of thinking in terms of datastore, i think proper statement would have been "thinking in terms of NoSQL databases". There are too many of them available out there these days but when it comes to google products except google cloud SQL (which is mySQL) everything else is NoSQL. 
+ 
+ Being rooted in the database world, a data store to me would be a giant table (hence the name "bigtable").  BigTable is a bad example though because it does a lot of other things that a typical database might not do, and yet it is still a database.  Chances are unless you know you need to build something like Google's "bigtable", you will probably be fine with a standard database.  They need that because they are handling insane amounts of data and systems together, and no commercially available system can really do the job the exact way they can demonstrate that they need the job to be done. 
+ (bigtable reference:  http://en.wikipedia.org/wiki/BigTable ) 
+ 

@@ -1,0 +1,221 @@
+*** proper-hibernate-annotation-for-byte ***
+
+ I have an application using hibernate 3.1 and JPA annotations.  It has a few objects with byte[] attributes (1k - 200k in size).  It uses the JPA @Lob annotation, and hibernate 3.1 can read these just fine on all major databases -- it seems to hide the JDBC Blob vendor peculiarities (as it should do). 
+ 
+ We had to upgrade to 3.5, when we discovered that hibernate 3.5   breaks (and won't fix)  this annotation combination in postgresql (with no workaround).  I have not found a clear fix so far, but I did notice that if I just remove the @Lob, it uses the postgresql type bytea (which works, but only on postgres). 
+ 
+ I am looking for a way to have a single annotated class (with a blob property) which is portable across major databases. 
+ 
+ What is the portable way to annotate a byte[] property? 
+ Is this fixed in some recent version of hibernate? 
+ 
+ **Update:**
+
+After reading  this blog  I have finally figured out what the original workaround in the JIRA issue was: Apparently you are supposed to drop @Lob and annotate the property as: 
+ 
+ However, this does not work  for me  -- I still get OIDs instead of bytea; it did however work for the author of the JIRA issue, who seemed to want oid. 
+ After the answer from A. Garcia, I then tried this combo, which actually does work on postgresql, but not on oracle. 
+ 
+ What I really need to do is control which @org.hibernate.annotations.Type the combination (@Lob + byte[] gets mapped) to (on postgresql). 
+ 
+ Here is the snippet from 3.5.5.Final from MaterializedBlobType (sql type Blob).  According to Steve's blog, postgresql wants you to use Streams for bytea (don't ask me why) and postgresql's custom Blob type for oids.  Note also that using setBytes() on JDBC is also for bytea (from past experience).  So this explains why use-streams has no affect they both assume 'bytea'. 
+ 
+ This results in: 
+ 
+ **Update**
+
+The next logical question is: "why not just change the table definitions manually to bytea" and keep the (@Lob + byte[])?  This  does  work,  **UNTIL**
+ you try to store a null byte[].  Which the postgreSQL driver thinks is an OID type expression and the column type is bytea -- this is because hibernate (rightly) calls JDBC.setNull() instead of JDBC.setBytes(null) which PG driver expects.  
+ 
+ The type system in hibernate is currently a 'work in progress' (according to 3.5.5 deprecation comment).  In fact so much of the 3.5.5 code is deprecated, it is hard to know what to look at when sub-classing the PostgreSQLDialect).   
+ AFAKT, Types.BLOB/'oid' on postgresql should be mapped to some custom type which uses OID style JDBC access (i.e. PostgresqlBlobType object and NOT MaterializedBlobType).  I've never actually successfully used Blobs with postgresql, but I do know that bytea just simply works as one / I would expect. 
+ I am currently looking at the BatchUpdateException -- its possible that the driver doesn't support batching.   
+ 
+ Great quote from 2004:
+ "To sum up my ramblings, I'd say they we should wait for the JDBC driver to do LOBs properly before changing Hibernate." 
+ **References:**
+
+ 
+ https://forum.hibernate.org/viewtopic.php?p=2393203 
+ https://forum.hibernate.org/viewtopic.php?p=2435174 
+ http://hibernate.atlassian.net/browse/HHH-4617 
+ http://postgresql.1045698.n5.nabble.com/Migration-to-Hibernate-3-5-final-td2175339.html 
+ https://jira.springframework.org/browse/SPR-2318 
+ https://forums.hibernate.org/viewtopic.php?p=2203382&sid=b526a17d9cf60a80f13d40cf8082aafd 
+ http://virgo47.wordpress.com/2008/06/13/jpa-postgresql-and-bytea-vs-oid-type/ 
+ 
+ 
+ 
+ What is the portable way to annotate a byte[] property? 
+ 
+ It depends on what you want. JPA can persist a non annotated  . From the JPA 2.0 spec:  
+ 
+ **11.1.6 Basic Annotation**
+
+ The   annotation is the simplest
+  type of mapping to a database column.
+  The   annotation can be applied
+  to a persistent property or instance
+  variable of any of the following
+  types: Java primitive, types, wrappers
+  of the primitive types,
+   ,
+   ,
+   ,
+   ,
+   ,  ,
+   ,  ,
+   **, **
+,  ,  , enums, and any other
+  type that implements  .
+  As described in Section 2.8, the use
+  of the   annotation is optional
+  for persistent fields and properties
+  of these types. If the Basic
+  annotation is not specified for such a
+  field or property, the default values
+  of the Basic annotation will apply. 
+ 
+ And Hibernate will map a it "by default" to a SQL   (or a SQL   depending on the   size?) that PostgreSQL handles with a  . 
+ But if you want the   to be stored in a Large Object, you should use a  . From the spec: 
+ 
+ **11.1.24 Lob Annotation**
+
+ A   annotation specifies that a
+  persistent property or field should be
+  persisted as a large object to a
+  database-supported large object type.
+  Portable applications should use the
+    annotation when mapping to a
+  database   type. The   annotation
+  may be used in conjunction with the
+  Basic annotation or with the
+    annotation when the
+  element collection value is of basic
+  type. A   may be either a binary or
+  character type. The   type is
+  inferred from the type of the
+  persistent field or property and,
+  except for string and character types,
+  defaults to Blob. 
+ 
+ And Hibernate will map it to a SQL   that PostgreSQL handles with a  
+. 
+ 
+ Is this fixed in some recent version of hibernate? 
+ 
+ Well, the problem is that I don't know what the problem is exactly. But I can at least say that nothing has changed since 3.5.0-Beta-2 (which is where a changed has been introduced)in the 3.5.x branch. 
+ But my understanding of issues like  HHH-4876 ,  HHH-4617  and of  PostgreSQL and BLOBs  (mentioned in the javadoc of the   ) is that you are supposed to set the following property 
+ 
+ if you want to use   i.e.   with   (which is my understanding since   is not what you want with Oracle). Did you try this? 
+ As an alternative,  HHH-4876  suggests using the deprecated   to get the old behavior (pre Hibernate 3.5). 
+ 
+ 
+ JPA 2.0 Specification
+
+ 
+ Section 2.8 "Mapping Defaults for Non-Relationship Fields or Properties" 
+ Section 11.1.6 "Basic Annotation" 
+ Section 11.1.24 "Lob Annotation" 
+ 
+ 
+ **Resources**
+
+ 
+ http://opensource.atlassian.com/projects/hibernate/browse/HHH-4876 
+ http://opensource.atlassian.com/projects/hibernate/browse/HHH-4617 
+ http://relation.to/Bloggers/PostgreSQLAndBLOBs 
+ 
+ 
+ Here goes what O'reilly Enterprise JavaBeans, 3.0 says 
+ 
+ JDBC has special types for these very large objects.  **The java.sql.Blob type represents binary data**
+, and java.sql.Clob represents character data. 
+ 
+ Here goes PostgreSQLDialect source code 
+ 
+ So what you can do 
+ Override PostgreSQLDialect as follows 
+ 
+ Now just define your custom dialect 
+ 
+ And use your portable JPA @Lob annotation 
+ 
+ **UPDATE**
+
+ Here has been extracted  here 
+ 
+ I have an application running in  hibernate 3.3.2 and the applications works fine , with all blob fields using oid (byte[] in java) 
+ 
+ ...  
+ 
+ Migrating to  hibernate 3.5 all blob fields not work anymore , and the server log shows: ERROR org.hibernate.util.JDBCExceptionReporter - ERROR: column is of type oid but expression is of type bytea 
+ 
+ **which can be explained**
+  here 
+ 
+ This generaly  is not bug in PG JDBC ,  **but change of default implementation of Hibernate in 3.5 version**
+. In my situation  **setting compatible property on connection
+  did not helped**
+.  
+ 
+ ... 
+ 
+ Much more this what I saw in 3.5 - beta 2, and i do not know if this was fixed is Hibernate - without @Type annotation -  **will auto-create column of type oid, but will try to read this as bytea**
+  
+ 
+ Interesting is because when he maps Types.BOLB as bytea (See CustomPostgreSQLDialect) He get 
+ 
+ Could not execute JDBC batch update  
+ 
+ when inserting or updating 
+ 
+ I'm using the Hibernate 4.2.7.SP1 with Postgres 9.3 and following works for me: 
+ 
+ as Oracle has no trouble with that, and for Postgres I'm using custom dialect: 
+ 
+ the advantage of this solution I consider, that I can keep hibernate jars untouched. 
+ For more Postgres/Oracle compatibility issues with Hibernate, see my  blog post . 
+ 
+ I have finally got this working.  It expands on the solution from A. Garcia, however, since the problem lies in the hibernate type MaterializedBlob type just mapping Blob > bytea is not sufficient, we need a replacement for MaterializedBlobType which works with hibernates broken blob support.  This implementation only works with bytea, but maybe the guy from the JIRA issue who wanted OID could contribute an OID implementation. 
+ Sadly replacing these types at runtime is a pain, since they should be part of the Dialect.
+If only  this JIRA enhanement  gets into 3.6 it would be possible. 
+ 
+ Much of this could probably be static (does getBinder() really need a new instance?), but I don't really understand the hibernate internal so this is mostly copy + paste + modify. 
+ 
+ 
+ i fixed My issue by adding the annotation of @Lob which will create the byte[] in oracle as blob , but this annotation will create the field as oid which not work properly , To make byte[] created as bytea i made customer Dialect for postgres as below  
+ 
+ Also need to override parameter for the Dialect 
+ spring.jpa.properties.hibernate.dialect=com.ntg.common.DBCompatibilityHelper.PostgreSQLDialectCustom 
+ more hint can be found her :  https://dzone.com/articles/postgres-and-oracle 
+ 
+ I got it work by overriding annotation with XML file for Postgres. Annotation is kept for Oracle. In my opinion, in this case it would be best we override the mapping of this trouble-some enity with xml mapping. We can override single / multiple entities with xml mapping. So we would use annotation for our mainly-supported database, and a xml file for each other database. 
+ Note: we just need to override one single class , so it is not a big deal.
+Read more from my example 
+ Example to override annotation with XML 
+ 
+ On Postgres @Lob is breaking for byte[] as it tries to save it as oid, and for String also same problem occurs. Below code is breaking on postgres which is working fine on oracle. 
+ 
+ and  
+ 
+ In order to fix above on postgres have written below custom hibernate.dialect  
+ 
+ Now configure custom dialect in hibernate  
+ 
+ X.Y.Z is package name.  
+ Now it working fine. 
+NOTE- My Hibernate version - 5.2.8.Final 
+      Postgres version- 9.6.3 
+ 
+ Thanks Justin, Pascal for guiding me to the right direction. I was also facing the same issue with Hibernate 3.5.3. Your research and pointers to the right classes had helped me identify the issue and do a fix. 
+ For the benefit for those who are still stuck with Hibernate 3.5 and using oid + byte[] + @LoB combination, following is what I have done to fix the issue. 
+ 
+ I created a custom BlobType extending MaterializedBlobType and overriding the set and the get methods with the oid style access. 
+ 
+ 
+ Register the CustomBlobType with Hibernate. Following is what i did to achieve that. 
+ 
+ 
+ 
+ 

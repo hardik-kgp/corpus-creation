@@ -1,0 +1,42 @@
+*** mocking-database-in-node-js ***
+
+ How would I mock out the database in my node.js application, which in this case uses   as the backend for a blog REST API ? 
+ Sure, I could set the database to a specific   -database, but I would still save data and not test my code only, but also the database, so I am actually not doing unit testing but integration testing. 
+ So what should one do? Create database wrappers as a middle layer between application and db and replace the DAL when in testing? 
+ 
+ 
+ 
+ 
+ I don't think database related code can be properly tested without testing it with the database software. That's because the code you're testing is not just javascript but also the database query string. Even though in your case the queries look simple you can't rely on it being that way forever. 
+ So any database emulation layer will necessarily implement the entire database (minus disk storage perhaps). By then you end up doing integration testing with the database emulator even though you call it unit testing. Another downside is that the database emulator may end up having a different set of bugs compared to the database and you may end up having to code for both the database emulator and the database (kind of like the situation with IE vs Firefox vs Chrome etc.). 
+ Therefore, in my opinion, the only way to correctly test your code is to interface it with the real database. 
+ 
+ There is a general rule of thumb when it comes to mocking which is 
+ Don't mock anything you don't own. 
+ If you want to mock out the db hide it behing an abstracted service layer and mock that layer. Then make sure you integration test the actual service layer. 
+ Personally I've gone away from using mocks for testing and use them for top to bottom design helping me drive development from the top towards the bottom mocking out service layers as I go and then eventually implementing those layers and writing integration tests. Used as a test tool they tend to make your test very brittle and in the worst case leads to a divergence between actual behavior and mocked behavior. 
+ 
+ I don't agree with the selected answer or other replies so far. 
+ Wouldn't it be awesome if you could catch errors spawned by the chaotic and many times messy changes made to DB schemas and your code BEFORE it gets to QA?  I bet the majority would shout heck yes! 
+ You most certainly can and should isolate and test you DB schemas.  And you don't do it based on an emulator or heavy image or recreation of you DB and machine.  This is what stuff like SQLite is for just as one example.  You mock it based on an in memory lightweight instance running and with static data that does not change in that in memory instance which means you are truly testing your DB in isolation and you can trust your tests as well. And obviously it's fast because it's in memory, a skeleton, and is scrapped at the end of a test run. 
+ So yes you should and you should test the SCHEMA that is exported into a very lightweight in memory instance of whatever DB engine/runtime you are using, and that along with adding a very small amount of static data becomes your isolated mocked DB. 
+ You export your real schemas from your real DB periodically (in an automated fashion) and import/update those into your light in memory DB instance before every push to QA and you will know instantly if any latest DB changes done by your DB admins or other developers who have changed the schema lately have broken any tests . 
+ While I applaud the effort to try your best to answer I would down-vote the current answer if I could but I am new and have not built up enough reputation yet to enable my ability to do so yet.  
+ As for the person who replied with the "don't mock anything you don't own".  I think he meant to say "don't test anything you don't own".  But you DO mock things you do not own!  Because those are the things not under test that need to be isolated! 
+ I plan on sharing the HOW with you and will update this post in a future point in time with real example JS code! 
+ This is what many test driven teams do all the time.  You just have to understand the how. 
+ 
+ My preferred approach to unit test DB code in any language is to access Mongo through a Repository abstraction (there's an example here  http://iainjmitchell.com/blog/?p=884 ). Implementations will vary in terms of DB specific functionality exposed but by removing all the Mongo code from your own logic you're in a position to Unit Test. Simply replace the Mongo Repository implementation with a stubbed out version which is trivially easy. For instance, just store objects in a simple in-memory dictionary collection. 
+ You'll get the benefits of unit testing your own code this way without DB dependencies but you'll still need to do integration tests against the main DB because you'll probably never be able to emulate the idiosyncrasies of the real database as others have said here. The kind of things I've found are as simple as indexing in safe mode vs without safe mode. Specifically, if you have a unique index your dummy memory implementation might honour that in all cases, but Mongo won't without safe-mode. 
+ So whilst you'll still need to test against the DB for some operations, you'll certainly be able to unit test your own logic properly with a stubbed out Repository implementation.  
+ 
+ The purpose of mocking is to skip the complexity and unit test own code.  If you want to write e2e tests then use the db.   
+ Writing code to setup/teardown a testing DB for unit testing is technical debt and incredibly unsatisfying. 
+ There are mock libraries in npm: 
+ mongo -  https://www.npmjs.com/package/mongomock 
+ mongoose -  https://www.npmjs.com/package/mockgoose 
+ If those don't support the features you need, then yes you may need to use the real thing. 
+ 
+ I had this dilemma and chosen to work with a test DB and clean it every time the test begins. (how to drop everything:  https://stackoverflow.com/a/25639377/378594 ) 
+ With NPM you can even make a test script that creates the db file and cleans it up after. 
+ 

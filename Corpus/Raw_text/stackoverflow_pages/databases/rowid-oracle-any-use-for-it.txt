@@ -1,0 +1,53 @@
+*** rowid-oracle-any-use-for-it ***
+
+ My understanding is that the ROWID is a unique value for each row in the result returned by a query. 
+ Why do we need this ROWID? There is already the ROWNUM in ORACLE. 
+ Have any one used ROWID in a SQL query? 
+ 
+ ROWID is the physical location of a row.  Consequently it is the fastest way of locating a row, faster even than a primary key lookup.  So it can be useful in certain types of transaction where we select some rows, store their ROWIDs and then later on use the ROWIDs in   clauses for DML against those same rows.  
+ The Oracle SELECT ... FOR UPDATE syntax implicitly uses ROWID, when we update the locked row using WHERE CURRENT OF. Also the EXCEPTIONS table (referenced when applying constraints with the EXCEPTIONS INTO clause) has a column ROW_ID.  This allows us to quickly identify the rows which are breaking our constraint.   
+ That latter example points to another general usage: when we are writing some generic piece of code and need a mechanism for storing UIDs without concerns regarding data type, composite keys, etc.  
+ ROWNUM on the other hand is a pseudo-column which tags a row in a given result set.  It has no permanent significance.  
+ **edit**
+
+ The ROWID for a given record can change over the lifetime of a system, for instance through a table rebuild.  Also if one record is deleted a new record could be given that ROWID.  Consequently ROWIDs are not suitable for use as UIDs in the long term.  But they are good enough for use within a transaction. 
+ 
+ I now know an example for this. 
+ suppose you have table with no primary keys. so this table can have duplicate rows. How would you delete duplicate rows but keep exactly one of that kind?  
+ Oracle provides ROWID as a kind of substitute for primary key. You can write a nested query which is of correlated type [(group by all columns in the row and take MIN(ROWID) in each group in inner query, for each group delete the other rows in the group in outerquery)] 
+ Example 
+ 
+ 
+ note that ROWID does not persist across a database EXPORT and IMPORT cycle.
+you should NEVER store a rowid in your tables as a key value. 
+ 
+ ROWID uniquely identifies a row within a table. ROWNUM gives you the row number of a result for a specific query. The two are very different and are not interchangeable. 
+ Also there is ROW_NUMBER which is a more modern version of ROWNUM, and behaves slightly differently. Check out  this article  which explains the difference. 
+ 
+ A ROWID consists of (but not necessarily in that order, although the ROWNUM part is the last part of ROWID as far as I remember): 
+ 
+ OBJID
+The unique indentifier of the object. 
+ FILENO 
+The relative number of the datafile in the tablespace. 
+ the BLOCKNO 
+The relative block number in the datafile after the fileheader. 
+ the ROWNUM
+The relative rownum within the block. 
+ 
+ You can easily break down the ROWID into it's composite fields (OBJID, FILENO, BLOCKNO, ROWNUM) by using the ROWIDTOCHAR() SQL-function, or use: 
+ 
+ Note that the field ROWNUM (or ROW in the above query) is  **not**
+ the same ROWNUM as the SQL pseudo column ROWNUM you use in SELECT query, which is just the dynamically generated rownumber of the row in the result set. 
+ Note that because of this implementation, rows, blocks, extents and segments are not transportable without breaking the ROWID, which invalidates indexes. 
+ The ROWID is the most direct access path to the block in which the row resides and uniquely indentifies the row, because it encodes the unique file and unique block within that file and unique row within that block. 
+ More information: 
+ **See: **
+**DBMS notes on ROWID format**
+
+ Note: 
+ If you have a little understanding of the way oracle structures database files and blocks, and know some C programming, you could quite easily make a program that displays the contents of the block given by ROWID (an 8k, or whatever block size is used in the database, block that starts at fileheadersize + BLOCKNO * BLOCK_SIZE. The block contains the block header and thereafter (assuming the table is not clustered) the rowdir, which for each row gives the relative offset within the block for each row. So for example at position 0 within the rowdir is the relative offset of the 0-th row within the block, at position 1 within the rowdir the relative position of the 1-st row, etc. The number of rows itself is stored somewhere in the block header (See orale documentation on the block layout). 
+ With a little bit of programming knowledge and looking up the documentation on oracle database files an blocks for the exact layout of blocks, you can see how rows are stored on disk, and even reconstruct all the values the row stores for each column. Each row contains metadata for the length of the row and the number of columns, and for each column, an indication for the type of the column and the bytesize and therafter the value. Bytesize 0 means that the column data is empty (or: NULL). 
+ 
+ ROWID basically allows you to have two rows with the exact same data.  While, you typically want your Primary Key to be a little more meaningful than a RowID, it is just a simple way of automatically ensuring uniqueness between rows. 
+ 

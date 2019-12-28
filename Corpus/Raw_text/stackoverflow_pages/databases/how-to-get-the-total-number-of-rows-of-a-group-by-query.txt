@@ -1,0 +1,89 @@
+*** how-to-get-the-total-number-of-rows-of-a-group-by-query ***
+
+ From the PDO manual: 
+ 
+ PDOStatement::rowCount() returns the
+   **number of rows**
+ affected by the last
+   **DELETE, INSERT, or UPDATE**
+ statement
+  executed by the corresponding
+  PDOStatement object. 
+ If the last SQL statement executed by
+  the associated PDOStatement was a
+   **SELECT**
+ statement,  **some databases may
+  return the number of rows returned by
+  that statement**
+. However, this
+  behaviour is  **not guaranteed for all
+  databases**
+ and should not be relied on
+  for portable applications. 
+ 
+ I found that out only very recently. I had just changed my db abstraction layer to not use   anymore, because just quering the actual rows and then counting the result would be much more efficient. And now PDO doesn't support that!? 
+ I don't use PDO for MySQL and PgSQL, but I do for SQLite. Is there a way (without completely changing the dbal back) to count rows like this in PDO? In MySQL, this would be something like this: 
+ 
+ With the MySQLi and PgSQL drivers, this is possible. With all PDO it isn't!? 
+ PS. My initial solution was to extend the SQLResult->count method (my own) to replace   by   and just return that number (very inefficient, but only for SQLite PDO). That's not good enough though, because in the example query above is a  , which would change the meaning/function of the  . 
+ 
+ Here is the solution for you 
+ 
+ 
+ It's a little memory-inefficient but if you're using the data anyway, I use this frequently: 
+ 
+ 
+ The method I ended up using is very simple: 
+ 
+ Might not be the most efficient, but it seems to be foolproof, because it actually counts the original query's results. 
+ 
+ 
+ I don't use PDO for MySQL and PgSQL, but I do for SQLite. Is there a way (without completely changing the dbal back) to count rows like this in PDO? 
+ 
+ Accordingly to  this comment , the SQLite issue was introduced by an API change in 3.x. 
+ That said, you might want to inspect how PDO actually implements the functionality before using it. 
+ I'm not familiar with its internals but I'd be suspicious at the idea that PDO parses your SQL (since an SQL syntax error would appear in the DB's logs) let alone tries to make the slightest sense of it in order to count rows using an optimal strategy. 
+ Assuming it doesn't indeed, realistic strategies for it to return a count of all applicable rows in a select statement include string-manipulating the limit clause out of your SQL statement, and either of: 
+ 
+ Running a select count() on it as a subquery (thus avoiding the issue you described in your PS); 
+ Opening a cursor, running fetch all and counting the rows; or 
+ Having opened such a cursor in the first place, and similarly counting the remaining rows. 
+ 
+ A much better way to count, however, would be to execute the fully optimized query that will do so. More often than not, this means rewriting meaningful chunks of the initial query you're trying to paginate -- stripping unneeded fields and order by operations, etc. 
+ Lastly, if your data sets are large enough that counts any kind of lag, you might also want to investigate returning the estimate derived from the  statistics  instead, and/or periodically caching the result in Memcache. At some point, having precisely correct counts is no longer useful... 
+ 
+ Keep in mind that a   is  . Given a query:  
+ 
+ It can be iterated over: 
+ 
+ Or you can do something like this: 
+ 
+ 
+ If you're willing to give up a hint of abstraction, then you could use a custom wrapper class which simply passes everything through to the PDO.  Say, something like this: (Warning, code untested) 
+ 
+ 
+ Maybe this will do the trick for you? 
+ 
+ 
+ You have to use rowCount — Returns the number of rows affected by the last SQL statement 
+ 
+ 
+ What about putting the query results in an array, where you can do a count($array) and use the query resulting rows after? Example: 
+ 
+ 
+ That's yet another question, which, being wrongly put, spawns A LOT of terrible solutions, all making things awfully complicated to solve a non-existent problem. 
+ The extremely simple and obvious rule for any database interaction is 
+ Always select the only data you need. 
+ From this point of view, the question is wrong and the accepted answer is right. But other proposed solutions are just terrible. 
+ The question is "how to get the count wrong way". One should never answer it straightforward, but instead, the only proper answer is "One should never select the rows to count them. Instead, ALWAYS ask the database to count the rows for you." This rule is so obvious, that it's just improbable to see so many tries to break it. 
+ After learning this rule, we would see that this is an  **SQL question**
+, not even PDO related. And, were it asked properly, from SQL perspective, the answer would appeared in an instant -  . 
+ 
+ is the right answer to this particular question. 
+ The opening poster's own solution is also acceptable from the perspective of the aforementioned rule, but would be less efficient in general terms. 
+ 
+ There are two ways you can count the number of rows.  
+ 
+ Or second way is 
+ 
+ 

@@ -1,0 +1,66 @@
+*** rethinkdb-updating-nested-array ***
+
+ I have a survey table that looks like so: 
+ 
+ I need to updated the   and   fields under a specific contact.  Currently, I am running the update like this: 
+ 
+ When I look at the  update  method, it specifies how to update nested key:value pairs.  However, I can't find any examples to update an individual item in an array. 
+ Is there a better and hopefully cleaner way to update items in a nested array? 
+ 
+ You might need to get the array,   out the desired value in the array and then append it again to the array. Then you can pass the updated array to the   method.  
+ **Example**
+
+ Let's say you have a document with two clients that both have a   and a   and you want to update the score in one of them: 
+ 
+ You can get that specific document, run the   command with an annonymous function and then pass in the new, updated array into the   property. 
+ 
+ I do think this is a bit cumbersome and there's probably a nicer, more elegant way of doing this, but this should solve your problem. 
+ **Database Schema**
+
+ Maybe it's worth it to create a   table for all your contacts and then do a some sort of join on you data. Then your   property in your   array would look something like:  
+ 
+ 
+ it works  for  me  
+ 
+ 
+ **database schema**
+
+ 
+ then you can do like this using   and   query . 
+ 
+ 
+ **ReQL solution**
+
+ Creating a query to update a JSON array of objects in-place, is a rather complicated process in ReThinkDB (and most query languages). The best (and only) solution in ReQL that I know about, is to use a combination of  , , , , and   functions. This solution will retain the order of objects in the array, and only modify values on objects which match in the   methods. 
+ The following code (or something similar) can be used to update an array of objects (i.e.  ) which contain an array of objects (i.e.  ). 
+ 
+ Where  ,  ,  ,  , and   must be provided. 
+ 
+ 
+ **Why go through the trouble of forming this into ReQL?**
+
+ 
+ While the code provided by Jacob (the user who asked the question here on Stack Overflow - shown above) might look simpler to write, the performance is probably not as good as the ReQL solution. 
+ 1) The ReQL solution runs on the query-server (i.e. database side) and therefore the code is optimized during the database write (higher performance). Whereas the code above, does not make full use of the query-server, and makes a read and write request   and  , and data is processed on the client-request side (i.e. NodeJs side) after the   query is run (lower performance). 
+ 2) The above code requires the query-server to send back all the data to the client-request side (i.e. NodeJs side) and therefore the response payload (internet bandwidth usage / download size) can be several megabytes. Whereas the ReQL solution is processed on the query-server, and therefore the response payload typically just confirms that the write was completed, in other words only a few bytes are sent back to the client-request side. Which is done in a single request. 
+ **ReQL is too complicated**
+
+ However, ReQL (and especially SQL) seem overly complicated when working with JSON, and it seems to me that JSON should be used when working with JSON. 
+ I've also proposed that the ReThinkDB community adopt an alternative to ReQL that uses JSON instead ( https://github.com/rethinkdb/rethinkdb/issues/6736 ). 
+ The solution to updating nested JSON arrays should be as simple as... 
+ 
+ 
+ tfmontague is on the right path but I think his answer can be improved a lot. Because he uses   there's a possibility for his answer to throw errors. 
+ zabusa also provides a ReQL solution using   and   but doesn't show the complete nested update. I will expand on this technique. 
+ ReQL expressions are composable so we can isolate complexity and avoid repetition. This keeps the code flat and clean. 
+ First write a simple function  
+ 
+ Now we can write the simplified   function 
+ 
+ Use it like this 
+ 
+ Here's a concrete example you can run in  
+ 
+ The result will be 
+ 
+ 

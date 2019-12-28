@@ -1,0 +1,112 @@
+*** proper-strategy-to-version-control-database ***
+
+ I am reading this  blog  and I have a question regarding the 5 posts that is written.
+From what I understand you create on big baseline script that includes all SQL DDL statments. After this is done you track each change in separate scripts. 
+ However I don't understand how the name of the script file can be related to a specific build of your application? He says that if a user reports a bug in 3.1.5.6723 you can re-run the scripts to that version. And would you track changes to a table etc in a own file or have all DLL changes in the same script file and then have views etc in own files as he says?  
+ 
+ First of all, DB upgrades are evil, but that  blog  describes a total nightmare. 
+ The one can create a Programmer Competency Matrix based on the upgrade approach:  
+ 
+ Level 0: No upgrades at all. Customers are terrified and move data manually using either UI provided by an application or third-party DB management solutions (believe me, it is really possible).  
+ Level 1: There is a script to upgrade a DB dump. Customers feel safe, but they will fix tiny and very irritating issues for the next 1-2 years. System is working, but no changes allowed. 
+ Level 2: Table altering. Monstrous downtime, especially in case of an issue during upgrade. Huge problems and virtually no guarantees to get 100% safe result. Data conversion is managed  by a buggy script. Customers are not happy.  
+ Level 3: Schema-less design: One-two hours downtime to let buggy scripts to translate the configuration in the DB (this step may damage the DB in many cases). Support guys have all coffee reserves completely exhausted. 
+ Level 4: Lazy transparent upgrades: Zero downtime, but still some issues are possible. Customers are almost happy, but still remember previous experience. 
+ Level 5: Ideal architecture, no explicit upgrade is needed. Total happiness. Customers do not know what upgrade procedure is about. Developers are productive and calm.   
+ 
+ I will describe all technical issues, but before that let me state the following (please forgive me quite a long answer): 
+ 
+ nowadays development cycles are very compressed and DBs are big 
+ virtually any feature may introduce scheme changes and break compatibility so either we have a simple and stable upgrade procedure or we may postpone a feature 
+ an issues may be identified by a customer, so there is a chance to have an urgent hot-fix build with some upgrade steps needed 
+ generally speaking, it is much better to avoid any barriers between you and your customer 
+ 
+ **Level 0 and Level 1**
+ 
+Both cases are obvious and stupid. Anybody should avoid that. 
+ **Level 2**
+ 
+Altering is not that bad for a small tables, but it can be a problem for the big one. On really big tables (>1Gb) it will probably take several hours or even days for ALTER TABLE to complete. Moreover, it does solve only schema upgrade issue, but what about stored data? I also suggest to think about physical data layout to understand the actual impediments behind this approach. The whole procedure can be unsafe, so make sure you have backups.  
+ Solutions: 
+ 
+ copy and rename:  http://www.rndblog.com/don%E2%80%99t-alter-table-do-copy-and-rename/ 
+ table splitting (application level partitioning):  http://www.mysqlperformanceblog.com/2006/10/08/small-things-are-better/ 
+ partitioning (has some limitations) 
+ 
+ **Level 3**
+
+The problem with schema upgrade is solved by moving schema on to the higher layer. Schema-less solution is somewhat limited, mainly because it disables the whole power behind a relational model. A hybrid approach can be proposed to have both fast upgrades and ability to use relational algebra. There are some interesting articles:  
+ 
+ http://backchannel.org/blog/friendfeed-schemaless-mysql 
+ http://yoshinorimatsunobu.blogspot.com/2010/10/using-mysql-as-nosql-story-for.html 
+ 
+ Please note, the complexity of upgrade procedure is still there, it just moved to the application level. There are many relevant scenarios, but I'm going to describe one hybrid system I've been working with for a several years. I can describe a data model as "Entities with relations". Relations between entities were represented on the DB level, entities itself were stored as XML blobs.  
+ This system was mature and had enough customers. There were a lot of feature requests, so R&D and QA teams were a little bit stressed. Initially upgrade procedure was implemented as a standalone Java application reading XML blobs from the DB, upgrading it using DOM API and writing it back to the DB. The actual approach looks pretty straightforward, but there are several hidden issues behind:  
+ 
+ the upgrade logic can be a somewhat buggy, so there is a chance to write a wrong XML data significantly increasing downtime for a customer 
+ it can take some time to read-transform-write 1-2GBs of XMLs 
+ all upgrade procedure steps should be covered with automated tests (I would say CI is a MUST) 
+ hidden glitches might be found in a day or two, so backups are not helpful any more, because of the new data inserted 
+ upgrade code can became a little bit messy especially if you want/need to have upgrades between builds (normal requirement for any agile team) 
+ 
+ I've tried to mitigate all potential risks by using more strict upgrade procedure definition, validation rules and extensive tests performed by the CI system against real-life data (collected across all customers). I was surprised to see some steps failing because of the old issues introduces long time ago by an old upgrade scripts. Separate upgrade steps were developed in order to fix that hidden issues. Some optimization was also performed to decrease upgrade time to reasonable 20-30 minutes. Console-based progress-bar implementation did the rest.  
+ Quick note: any end-user is eager to see a progress for any long-running (>2 min) operation. Please do not forget to implement such a "pleasure". 
+ Initially DB version was stored in the separate table. Please do not use this approach, because it is much better to have entities versioned separately and avoid entire DB locking during upgrade.  
+ Will show one upgrade procedure as an example (all validation and verification steps are hidden behind   and   processing logic). '-' means less, '*' - any build 
+ 
+ Each script is a small Java or Groovy implementation (XSLT was used too).
+Later a downgrade procedure was also developed, but this is totally different story. 
+ **Level 4**
+
+Data scheme on the application layer allows to do quite a lot of interesting stuff. For example, it is possible to replace XML with  protobuf . As usual there are several reasons for doing that (it is simpler, faster, etc). If you do not like builders concept you can use  thrift  instead.  
+ Anyway, protobuf allows to create a backward compatible system (in terms of a stored data) almost without a headache. Good advantage, by the way. Having your system backward compatible you can easily implement lazy and fully transparent upgrade. It can be a background process or upgrade upon a request, etc. The good news is zero-downtime, happy users and ability to do upgrades more frequently. Which means you can develop rapidly, promptly respond on customers requests, be more successful in the other words. 
+ **Level 5**
+
+Sorry, not for this time. Please be careful with upgrade strategies. It is qutie easy to sell a system with some schema defined and lock yourself out. No new features -- no customers. 
+ Simple but extremely useful checklist: 
+ 
+ Will you be able to promptly solve an issue coming from the customer side?  
+ Will it be safe for the customer to upgrade the system (what if it is at least mission critical)? 
+ How much time will be needed to identify a problem? 
+ Is there any automated verification? 
+ 
+ Thank you for reading. 
+ 
+ I, personally, use  liquibase . Very handful tool. 
+Allows very complicated workflows, like  tutorial, using oracle and complicated versioning scheme   
+ 
+ The changes to tables and views will not be maintained in their own file. You will create a new change script for every change you do. So if you change table 'X' 5 times , you will have 5 different change scripts for each of those changes.  
+ When you want to create the schema as of certain release version, you will get the source code labelled for that release. Create the database from baseline. Then run the change scripts in that version of code, in chronological order.
+e.g. 
+ 
+ Now lets say you want to recreate database as of version 1.2: 
+ 
+ you would sync the code to label version_1.2 
+ run the scripts in the order baseline.sql, add_publisher.sql, add_publish_date.sql 
+ 
+ 
+ Instead of Liquibase, you could use Flyway ( http://flywaydb.org/ ) which allows you to write your own upgrade/downgrade SQL scripts. This provides more flexibility and also works for views and stored procedures. 
+ Liquibase requires you to make schema changes using their own XML-based language, which might be somewhat limiting. 
+ 
+ Keeping a version number in the database, and applying update scripts on startup, is an important part of this strategy. 
+ Here's how startup works: 
+ 
+ checks DB_VERSION record in database, 
+ finds updates > current version;  maybe by code. 
+ runs each applicable "update",  script or programmatic actions.. 
+ DB_VERSION is updated after each, so a failure partway thru can be re-run. 
+ 
+ Example: 
+ 
+ find DB_VERSION currently = 789; 
+ sophisticated code, or a big long IF chain, finds updates 790 and up. 
+ update #790, upgrade Customer & Account tables; 
+ update #791, upgrade Email table; 
+ update #792, restructure Order table; 
+ database version now = 792. 
+ 
+ There are a few caveats. This works  reasonably  well;  people claim it should be 100% reliable, but it's not. 
+ Issues of incomplete scripts, variations in field lengths or differences in server versions can occasionally cause scripts/SQL to pass on some databases, but fail on others. 
+ Finding the scripts to run, can be as simple as a big single method with many IF statements. Or you could load the scripts via discovery or metadata, more elegantly. Sometimes it's useful to be able to include programmatic code, not just SQL. 
+ 
+ 

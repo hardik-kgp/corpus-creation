@@ -1,0 +1,290 @@
+*** how-should-you-build-your-database-from-source-control ***
+
+ There has been some discussion on the SO community wiki about whether database objects should be version controlled. However,  **I haven't seen much discussion about the best-practices for creating a build-automation process for database objects.**
+  
+ This has been a contentious point of discussion for my team - particularly since developers and DBAs often have different goals, approaches, and concerns when evaluating the benefits and risks of an automation approach to database deployment. 
+ **I would like to hear some ideas from the SO community about what practices have been effective in the real world.**
+
+ I realize that it is somewhat subjective which practices are really best, but I think a good dialog about what work could be helpful to many folks. 
+ **Here are some of my teaser questions about areas of concern in this topic. These are not meant to be a definitive list - rather a starting point for people to help understand what I'm looking for.**
+
+ 
+ Should both test and production environments be built from source control? 
+ 
+ Should both be built using automation - or should production by built by copying objects from a stable, finalized test environment? 
+ How do you deal with potential differences between test and production environments in deployment scripts? 
+ How do you test that the deployment scripts will work as effectively against production as they do in test? 
+ 
+ What types of objects should be version controlled? 
+
+ 
+ Just code (procedures, packages, triggers, java, etc)? 
+ Indexes? 
+ Constraints? 
+ Table Definitions? 
+ Table Change Scripts? (eg. ALTER scripts) 
+ Everything? 
+ 
+ Which types of objects shouldn't be version controlled?
+
+ 
+ Sequences? 
+ Grants? 
+ User Accounts? 
+ 
+ How should database objects be organized in your SCM repository?
+
+ 
+ How do you deal with one-time things like conversion scripts or ALTER scripts? 
+ How do you deal with retiring objects from the database? 
+ Who should be responsible for  promoting  objects from development to test level? 
+ How do you coordinate changes from multiple developers? 
+ How do you deal with branching for database objects used by multiple systems? 
+ 
+ What exceptions, if any, can be reasonable made to this process?
+
+ 
+ Security issues? 
+ Data with de-identification concerns? 
+ Scripts that can't be fully automated? 
+ 
+ How can you make the process resilient and enforceable?
+
+ 
+ To developer error? 
+ To unexpected environmental issues? 
+ For disaster recovery?  
+ 
+ How do you convince decision makers that the benefits of DB-SCM truly justify the cost?
+
+ 
+ Anecdotal evidence?  
+ Industry research? 
+ Industry best-practice recommendations? 
+ Appeals to recognized authorities? 
+ Cost/Benefit analysis? 
+ 
+ Who should "own" database objects in this model?
+
+ 
+ Developers? 
+ DBAs? 
+ Data Analysts? 
+ More than one? 
+ 
+ 
+ 
+ **Here are some some answers to your questions:**
+
+ 
+ Should both test and production environments be built from source control?  **YES**
+
+ 
+ Should both be built using automation - or should production by built by copying objects from a stable, finalized test environment? 
+ **Automation for both. Do NOT copy data between the environments**
+
+ How do you deal with potential differences between test and production environments in deployment scripts? 
+ **Use templates, so that actually you would produce different set of scripts for each environment (ex. references to external systems, linked databases, etc)**
+
+ How do you test that the deployment scripts will work as effectively against production as they do in test? 
+ **You test them on pre-production environment: test deployment on exact copy of production environment (database and potentially other systems)**
+
+ 
+ What types of objects should be version controlled?
+
+ 
+ Just code (procedures, packages, triggers, java, etc)? 
+ Indexes? 
+ Constraints? 
+ Table Definitions? 
+ Table Change Scripts? (eg. ALTER scripts) 
+ Everything? 
+ **Everything, and:**
+
+ 
+ **Do not forget static data (lookup lists etc), so you do not need to copy ANY data between environments**
+
+ **Keep only current version of the database scripts (version controlled, of course), and**
+
+ **Store ALTER scripts: 1 BIG script (or directory of scripts named liked 001_AlterXXX.sql, so that running them in natural sort order will upgrade from version A to B)**
+
+ 
+ 
+ Which types of objects shouldn't be version controlled?
+
+ 
+ Sequences? 
+ Grants? 
+ User Accounts? 
+ **see 2. If your users/roles (or technical user names) are different between environments, you can still script them using templates (see 1.)**
+
+ 
+ How should database objects be organized in your SCM repository?
+
+ 
+ How do you deal with one-time things like conversion scripts or ALTER scripts? 
+ **see 2.**
+
+ How do you deal with retiring objects from the database? 
+ **deleted from DB, removed from source control trunk/tip**
+
+ Who should be responsible for promoting objects from development to test level? 
+ **dev/test/release schedule**
+
+ How do you coordinate changes from multiple developers? 
+ **try NOT to create a separate database for each developer. you use source-control, right? in this case developers change the database and check-in the scripts. to be completely safe, re-create the database from the scripts during nightly build**
+
+ How do you deal with branching for database objects used by multiple systems? 
+ **tough one: try to avoid at all costs.**
+
+ 
+ What exceptions, if any, can be reasonable made to this process?
+
+ 
+ Security issues? 
+ **do not store passwords for test/prod. you may allow it for dev, especially if you have automated daily/nightly DB rebuilds**
+
+ Data with de-identification concerns? 
+ Scripts that can't be fully automated? 
+ **document and store with the release info/ALTER script**
+
+ 
+ How can you make the process resilient and enforceable?
+
+ 
+ To developer error? 
+ **tested with daily build from scratch, and compare the results to the incremental upgrade (from version A to B using ALTER). compare both resulting schema and static data**
+  
+ To unexpected environmental issues? 
+ **use version control and backups**
+
+ **compare the PROD database schema to what you think it is, especially before deployment. SuperDuperCool DBA may have fixed a bug that was never in your ticket system :)**
+
+ For disaster recovery? 
+ 
+ How do you convince decision makers that the benefits of DB-SCM truly justify the cost?
+
+ 
+ Anecdotal evidence? 
+ Industry research? 
+ Industry best-practice recommendations? 
+ Appeals to recognized authorities? 
+ Cost/Benefit analysis? 
+ **if developers and DBAs agree, you do not need to convince anyone, I think (Unless you need money to buy a software like a **
+**dbGhost**
+** for MSSQL)**
+
+ 
+ Who should "own" database objects in this model?
+
+ 
+ Developers? 
+ DBAs? 
+ Data Analysts? 
+ More than one? 
+ **Usually DBAs approve the model (before check-in or after as part of code review). They definitely own performance related objects. But in general the team own it [and employer, of course :)]**
+
+ 
+ 
+ 
+ **I treat the SQL as source-code when possible**
+
+ If I can write it in  **standard's compliant SQL**
+ then it generally goes in a file in my source control. The file will define as much as possible such as SPs, Table CREATE statements. 
+ I also include dummy data for testing in source control: 
+ 
+ proj/sql/setup_db.sql 
+ proj/sql/dummy_data.sql 
+ proj/sql/mssql_specific.sql 
+ proj/sql/mysql_specific.sql 
+ 
+ And then I abstract out all my SQL queries so that I can build the entire project for MySQL, Oracle, MSSQL or anything else. 
+ Build and test automation uses these build-scripts as  **they are as important as the app source**
+ and tests everything from integrity through triggers, procedures and logging. 
+ 
+ We use continuous integration via TeamCity. At each checkin to source control, the database and all the test data is re-built from scratch, then the code, then the unit tests are run against the code. If you're using a code-generation tool like CodeSmith, it can also be placed into your build process to generate your data access layer fresh with each build, making sure that all your layers "match up" and do not produce errors due to mismatched SP parameters or missing columns. 
+ Each build has its own collection of SQL scripts that are stored in the $project\SQL\ directory in source control, assigned a numerical prefix and executed in order. That way, we're practicing our deployment procedure at every build. 
+ Depending on the lookup table, most of our lookup values are also stored in scripts and run to make sure the configuration data is what we expect for, say, "reason_codes" or "country_codes". This way we can make a lookup data change in dev, test it out and then "promote" it through QA and production, instead of using a tool to modify lookup values in production, which can be dangerous for uptime. 
+ We also create a set of "rollback" scripts that undo our database changes, in case a build to production goes screwy. You can test the rollback scripts by running them, then re-running the unit tests for the build one version below yours, after its deployment scripts run. 
+ 
+ +1 for  **Liquibase**
+:
+ LiquiBase  is an open source (LGPL), database-independent library for tracking, managing and applying database changes. It is built on a simple premise: All database changes (structure and data) are stored in an XML-based descriptive manner and checked into source control.
+The good point, that DML changes are stored semantically, not just diff, so that you could track the purpose of the changes.  
+ It could be combined with  **GIT**
+ version control for better interaction. I'm going to configure our dev-prod enviroment to try it out.  
+ Also you could use  Maven, Ant  build systems for building production code from scripts.  
+ Tha minus is that LiquiBase doesnt integrate into widespread SQL IDE's and you should do basic operations yourself.  
+ In adddition to this you could use  **DBUnit**
+ for DB testing - this tool allows data generation scripts to be used for testing your production env with cleanup aftewards.  
+ IMHO: 
+ 
+ Store DML in files so that you could
+version them. 
+ Automate schema build process from
+source control. 
+ For testing purposes developer could
+use local DB builded from
+    source control via build system +
+    load testing Data with scripts, or
+    DBUnit scripts (from Source
+    Control). 
+ LiquiBase allows you to provide "run
+sequence" of scripts to respect
+    dependences. 
+ There should be DBA team that checks master
+brunch with ALL changes
+    before production use. I mean they
+    check trunk/branch from other DBA's
+    before committing into MASTER trunk.
+    So that master is always consistent
+    and production ready. 
+ 
+ We faced all mentioned problems with code changes, merging, rewriting in our billing production database. This topic is great for discovering all that stuff.  
+ 
+ By asking "teaser questions" you seem to be more interested in a discussion than someone's opinion of final answers.  The active (>2500 members) mailing list  agileDatabases  has addressed many of these questions and is, in my experience, a sophisticated and civil forum for this kind of discussion. 
+ 
+ I basically agree with every answer given by  van . Fore more insight, my baseline for database management is  K. Scott Allen series  (a must read, IMHO. And  Jeff's opinion  too it seems). 
+ 
+ Database objects can always be rebuilt from scratch by launching a single SQL file (that can itself call other SQL files) :  . This can include  static  data insertion (lists...). 
+ The SQL scripts are parameterized so that no environment-dependent and/or sensitive information is stored in plain files. 
+ I use a custom batch file to launch   :  . Its goal is mainly to check for pre-requisites (tools, environment variables...) and send parameters to the SQL script. It can also  bulk-load  static data from CSV files for performance issues. 
+ Typically, system user credentials would be passed as a parameter to the   file. 
+ 
+ IMHO,  dynamic  data loading should require another step, depending on your environment. Developers will want to load their database with test, junk or no data at all, while at the other end production managers will want to load production data. I would consider storing test data in source control as well (to ease unit testing, for instance). 
+ Once the first version of the database has been put into production, you will need not only build scripts (mainly for developers), but also upgrade scripts (based on the same principles) : 
+ 
+ There must be a way to retrieve the version from the database (I use a stored procedure, but a table would do as well). 
+ Before releasing a new version, I create an   file (that can call other ones) that allows upgrading version N-1 to version N (N being the version being released). I store this script under a folder named  . 
+ I have a batch file that does the upgrade :  . It can retrieve the current version (CV) of the database via a simple SELECT statement, launch the   script stored under the   folder, and loop until no folder is found. This way, you can automatically upgrade from, say, N-3 to N. 
+ 
+ Problems with this are : 
+ 
+ It is difficult to automatically compare database schemas, depending on database vendors. This can lead to incomplete upgrade scripts. 
+ Every change to the production environment (usually by DBAs for performance tuning) should find its way to the source control as well. To make sure of this, it is usually possible to log every modification to the database via a trigger. This log is reset after every upgrade. 
+ More ideally, though, DBA initiated changes should be part of the release/upgrade process when possible. 
+ 
+ As to what kind of database objects do you want to have under source control ? Well, I would say as much as possible, but not more ;-) If you want to create users with passwords, get them a default password (login/login, practical for unit testing purposes), and make the password change a manual operation. This happens a lot with Oracle where schemas are also users... 
+ 
+ We have our Silverlight project with MSSQL database in Git version control. The easiest way is to make sure you've got a slimmed down database (content wise), and do a  complete  dump from f.e. Visual Studio. Then you can do 'sqlcmd' from your build script to recreate the database on each dev machine. 
+ For deployment this is not possible since the databases are too large: that's the main reason for having them in a database in the first place. 
+ 
+ I strongly believe that a DB should be part of source control and to a large degree part of the build process.  If it is in source control then I have the same coding safe guards when writing a stored procedure in SQL as I do when writing a class in C#.  I do this by including a DB scripts directory under my source tree.  This script directory doesn't necessarily have one file for one object in the database.  That would be a pain in the butt!  I develop in my db just a I would in my code project.  Then when I am ready to check in I do a diff between the last version of my database and the current one I am working on.  I use SQL Compare for this and it generates a script of all the changes.  This script is then saved to my db_update directory with a specific naming convention 1234_TasksCompletedInThisIteration where the number is the next number in the set of scripts already there, and the name describes what is being done in this check in.  I do this this way because as part of my build process I start with a fresh database that is then built up programatically using the scripts in this directory.  I wrote a custom NAnt task that iterates through each script executing its contents on the bare db.  Obviously if I need some data to go into the db then I have data insert scripts too.  This has many benefits too it.  One, all of my stuff is versioned.  Two, each build is a fresh build which means that there won't be any sneaky stuff eking its way into my development process (such as dirty data that causes oddities in the system).  Three, when a new guy is added to the dev team, they simply need to get latest and their local dev is built for them on the fly.  Four, I can run test cases (I didn't call it a "unit test"!) on my database as the state of the database is reset with each build (meaning I can test my repositories without worrying about adding test data to the db). 
+ This is not for everyone. 
+ This is not for every project.  I usually work on green field projects which allows me this convenience!  
+ 
+ Rather than get into white tower arguments, here's a solution that has worked very well for me on real world problems. 
+ Building a database from scratch can be summarised as managing sql scripts.  
+ **DBdeploy**
+ is a tool that will check the current state of a database - e.g. what scripts have been previously run against it, what scripts are available to be run and therefore what scripts are needed to be run.  
+ It will then collate all the needed scripts together and run them. It then records which scripts have been run. 
+ It's not the prettiest tool or the most complex - but with careful management it can work very well. It's open source and easily extensible. Once the running of the scripts is handled nicely adding some extra components such as a shell script that checks out the latest scripts and runs dbdeploy against a particular instance is easily achieved. 
+ See a good introduction here: 
+ http://code.google.com/p/dbdeploy/wiki/GettingStarted 
+ 
+ You might find that  Liquibase  handles a lot of what you're looking for. 
+ 
+ Every developer should have their own local database, and use source code control to publish to the team.  My solution is here :  http://dbsourcetools.codeplex.com/ 
+Have fun,
+- Nathan 
+ 

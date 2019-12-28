@@ -1,0 +1,30 @@
+*** continuing-a-transaction-after-primary-key-violation-error ***
+
+ I am doing a bulk insert of records into a database from a log file. Occasionally (~1 row out of every thousand) one of the rows violates the primary key and causes the transaction to fail. Currently, the user has to manually go through the file that caused the failure and remove the offending row before attempting to re-import. Given that there are hundreds of these files to import it is impractical. 
+ **My question:**
+ How can I skip the insertion of records that will violate the primary key constraint, without having to do a   statement before each row to see if it already exists? 
+ Note: I am aware of the very similar question  #1054695 , but it appears to be a SQL Server specific answer and I am using PostgreSQL (importing via Python/psycopg2). 
+ 
+ You can also use SAVEPOINTs in a transaction. 
+ Pythonish pseudocode is illustrate from the application side: 
+ 
+ Edit:  Here's an actual example of this in action in psql based on a slight variation of the example in the documentation (SQL statements prefixed by ">"): 
+ 
+ Note that the value 3 was inserted after the error, but still inside the same transaction! 
+ The documentation for SAVEPOINT is at  http://www.postgresql.org/docs/8.4/static/sql-savepoint.html . 
+ 
+ I would use a stored procedure to catch the exceptions on your unique violations. Example: 
+ 
+ 
+ You can do a   to the transaction or a rollback to a save point just before the code that raises the exception (cr is the cursor): 
+ 
+ This code assumes there is running transaction, otherwise you would not receive that error message. 
+ Django postgresql backend  creates cursors  directly from  psycopg . Maybe in the future they make a proxy class for the Django cursor, similar to the  cursor of odoo . They extend the cursor with the  following code  (self is the cursor): 
+ 
+ That way the context makes your code easier, it will be: 
+ 
+ and the code is more readable, because the transaction stuff is not there. 
+ 
+ Or you can use SSIS and have the failed rows take a differnt path than the successful ones. 
+ SInce you are usinga differnt database can you bulk insert the files to a staging table and then use SQL code to select only those records which do not have an exisitng id? 
+ 

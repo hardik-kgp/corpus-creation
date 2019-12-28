@@ -1,0 +1,248 @@
+*** fastest-way-to-count-exact-number-of-rows-in-a-very-large-table ***
+
+ I have come across articles that state that   will be slow when the table has lots of rows and lots of columns. 
+ I have a table that might contain even billions of rows [it has approximately 15 columns]. Is there a better way to get the  **EXACT**
+ count of the number of rows of a table? 
+ Please consider the following before your answer: 
+ 
+ I am looking for a database vendor
+independent solution. It is OK if it
+covers  **MySQL**
+,  **Oracle**
+,  **MS SQL Server**
+.
+But if there is  **really**
+ no database
+vendor independent solution then I
+will settle for different solutions
+for different database vendors. 
+ I cannot use any other external tool
+to do this. I am mainly looking for a
+SQL based solution. 
+ I cannot normalize my database design
+any further. It is already in 3NF and moreover a 
+lot of code has already been written
+around it. 
+ 
+ 
+ **Simple answer:**
+
+ 
+ Database vendor independent solution = use the standard =  
+ There are  approximate  SQL Server solutions but don't use COUNT(*) = out of scope 
+ 
+ **Notes:**
+
+ COUNT(1) = COUNT(*) = COUNT(PrimaryKey)  just in case 
+ **Edit:**
+
+ SQL Server example (1.4 billion rows, 12 columns) 
+ 
+ 1 runs, 5:46 minutes, count = 1,401,659,700 
+ 
+ 2 runs, both under 1 second, count = 1,401,659,670 
+ The second one has less rows = wrong. Would be the same or more depending on writes (deletes are done out of hours here)  
+ 
+ The fastest way by far on MySQL is: 
+ 
+ You will instantly get all your tables with the row count (which is the total) along with plenty of extra information if you want. 
+ 
+ 
+ I have come across articles that state that SELECT COUNT(*) FROM TABLE_NAME will be slow when the table has lots of rows and lots of columns. 
+ 
+ That depends on the database. Some speed up counts, for instance by keeping track of whether rows are live or dead in the index, allowing for an index only scan to extract the number of rows. Others do not, and consequently require visiting the whole table and counting live rows one by one. Either will be slow for a huge table. 
+ Note that you can generally extract a good estimate by using query optimization tools, table statistics, etc. In the case of PostgreSQL, for instance, you could parse the output of   and get a reasonably good estimate of the number of rows. Which brings me to your second question. 
+ 
+ I have a table that might contain even billions of rows [it has approximately 15 columns]. Is there a better way to get the EXACT count of the number of rows of a table? 
+ 
+ Seriously? :-) You really mean the  **exact**
+ count from a table with billions of rows? Are you really sure? :-) 
+ If you  really  do, you could keep a trace of the total using triggers, but mind concurrency and deadlocks if you do. 
+ 
+ You can try this  sp_spaceused (Transact-SQL) 
+ 
+ 
+ Displays the number of rows, disk
+  space reserved, and disk space used by
+  a table, indexed view, or Service
+  Broker queue in the current database,
+  or displays the disk space reserved
+  and used by the whole database. 
+ 
+ 
+ 
+ Is there a better way to get the EXACT count of the number of rows of a table? 
+ 
+ To answer your question simply,  **No**
+. 
+ If you need a DBMS independent way of doing this, the  fastest  way will always be: 
+ 
+ Some DBMS vendors may have quicker ways which will work for their systems only. Some of these options are already posted in other answers. 
+  should be optimized by the DBMS (at least any PROD worthy DB) anyway, so don't try to bypass their optimizations. 
+ On a side note: 
+I am sure many of your other queries also take a long time to finish because of your table size. Any performance concerns should probably be addressed by thinking about your schema design with speed in mind. I realize you said that it is not an option to change but it might turn out that 10+ minute queries aren't an option either. 3rd NF is not always the best approach when you need speed, and sometimes data can be partitioned in several tables if the records don't  **have**
+ to be stored together. Something to think about... 
+ 
+ If SQL Server edition is 2005/2008, you can use DMVs to calculate the row count in a table: 
+ 
+ For SQL Server 2000 database engine, sysindexes will work, but it is strongly advised to avoid using it in future editions of SQL Server as it may be removed in the near future. 
+ Sample code taken from:  How To Get Table Row Counts Quickly And Painlessly 
+ 
+ I use  
+ 
+ 
+ I'm nowhere near as expert as others who have answered but I was having an issue with a procedure I was using to select a random row from a table (not overly relevant) but I needed to know the number of rows in my reference table to calculate the random index. Using the traditional Count(*) or Count(1) work but I was occasionally getting up to 2 seconds for my query to run. So instead (for my table named 'tbl_HighOrder') I am using: 
+ 
+ It works great and query times in Management Studio are zero. 
+ 
+ Well, late by 5 years and unsure if it helps : 
+ I was trying to count the no. of rows in a SQL Server table using  **MS SQL Server Management Studio**
+ and ran into some overflow error, then I used the below : 
+ select  **count_big**
+(1)  FROM [dbname].[dbo].[FactSampleValue]; 
+ The result : 
+ 24296650578 rows 
+ 
+ I got this script from another StackOverflow question/answer: 
+ 
+ My table has 500 million records and the above returns in less than 1ms.
+Meanwhile, 
+ 
+ takes a full 39 minutes, 52 seconds! 
+ They yield the exact same number of rows (in my case, exactly 519326012). 
+ I do not know if that would always be the case. 
+ 
+ I found this good article  SQL Server–HOW-TO: quickly retrieve accurate row count for table  from   which gives a good recap for each scenarios. 
+ I need this to be expanded where I need to provide a count based on a specific condition and when I figure this part, I'll update this answer further. 
+ In the meantime, here are the details from article: 
+ **Method 1:**
+
+ Query:   
+ 
+ Comments:   
+ Performs a full table scan. Slow on large tables.  
+ **Method 2:**
+
+ Query: 
+ 
+ Comments: 
+ Fast way to retrieve row count. Depends on statistics and is inaccurate.  
+ Run DBCC UPDATEUSAGE(Database) WITH COUNT_ROWS, which can take significant time for large tables.  
+ **Method 3:**
+
+ Query: 
+ 
+ Comments: 
+ The way the SQL management studio counts rows (look at table properties, storage, row count). Very fast, but still an approximate number of rows.  
+ **Method 4:**
+
+ Query: 
+ 
+ Comments: 
+ Quick (although not as fast as method 2) operation and equally important, reliable.  
+ 
+ I don't think there is a general always-fastest solution: some RDBMS/versions have a specific optimization for   that use faster options while others simply table-scan. You'd need to go to the documentation/support sites for the second set, which will probably need some more specific query to be written, usually one that hits an index in some way. 
+ EDIT: 
+ Here's a thought that might work, depending on your schema and distribution of data: do you have an indexed column that references an increasing value, a numeric increasing ID, say, or even a timestamp or date? Then, assuming deletes don't happen, it should be possible to store the count up to some recent value (yesterday's date, highest ID value at some recent sample point) and add the count beyond that, which should resolve very quickly in the index. Very dependent on values and indices, of course, but applicable to pretty much any version of any DBMS. 
+ 
+ I am late to this question, but here is what you can do with MySQL (as I use MySQL). I am sharing my observations here: 
+ 
+ **Result**
+  
+Row Count:  **508534**
+
+Console output: Affected rows: 0  Found rows: 1  Warnings: 0  Duration for 1 query: 0.125 sec. 
+Takes a while for a table with large number of rows, but the row count is very exact. 
+ 
+ **Result**
+  
+Row count:  **511235**
+
+Console output: Affected rows: 0  Found rows: 1  Warnings: 0  Duration for 1 query: 0.250 sec
+Summary: Row count is not exact. 
+ 
+ **Result**
+  
+Row count:  **507806**
+
+Console output: Affected rows: 0  Found rows: 48  Warnings: 0  Duration for 1 query: 1.701 sec. 
+Row count is not exact. 
+ I am not a MySQL or database expert, but I have found that for very large tables, you can use option 2 or 3 and get a 'fair idea' of how many rows are present. 
+ I needed to get these row counts for displaying some stats on the UI. With the above queries, I knew that the total rows were more than 500,000, so I came up with showing stats like "More than 500,000 rows" without showing exact number of rows.  
+ Maybe I have not really answered the OP's question, but I am sharing what I did in a situation where such statistics were needed. In my case, showing the approximate rows was acceptable and so the above worked for me. 
+ 
+ Not exactly a DBMS-agnostic solution, but at least your client code won't see the difference... 
+ Create another table T with just one row and one integer field N 1 , and create INSERT TRIGGER that just executes: 
+ 
+ Also create a DELETE TRIGGER that executes: 
+ 
+ A DBMS worth its salt will guarantee the atomicity of the operations above 2 , and N will contain the accurate count of rows at all times, which is then super-quick to get by simply: 
+ 
+ While triggers are DBMS-specific, selecting from T isn't and your client code won't need to change for each supported DBMS. 
+ However, this can have some scalability issues if the table is INSERT or DELETE-intensive, especially if you don't COMMIT immediately after INSERT/DELETE. 
+ 
+ 1  These names are just placeholders - use something more meaningful in production. 
+ 2  I.e. N cannot be changed by a concurrent transaction between reading and writing to N, as long as both reading and writing are done in a single SQL statement. 
+ 
+ A literally insane answer, but if you have some kind of replication system set up (for a system with a billion rows, I hope you do), you can use a rough-estimator (like  ), divide that value by the number of slaves you have, run several queries in parallel.  
+ For the most part, you'd partition the queries across slaves based on the best key (or the primary key I guess), in such a way (we're going to use 250000000 as our Rows / Slaves): 
+ 
+ But you need SQL only. What a bust. Ok, so let's say you're a sadomasochist.
+On the master (or closest slave) you'd most likely need to create a table for this: 
+ 
+ So instead of only having the selects running in your slaves, you'd have to do an insert, akin to this: 
+ 
+ You may run into issues with slaves writing to a table on master. You may need to get even more sadis- I mean, creative: 
+ 
+ You should in the end have a slave that exists last in the path traversed by the replication graph, relative to the first slave. That slave should now have all other counter values, and should have its own values. But by the time you've finished, there probably are rows added, so you'd have to insert another one compensating for the recorded max pk in your counter_table and the current max pk. 
+ At that point, you'd have to do an aggregate function to figure out what the total rows are, but that's easier since you'd be running it on at most the "number of slaves you have and change" rows. 
+ If you're in the situation where you have separate tables in the slaves, you can   to get all the rows you need. 
+ 
+ Or you know, be a bit less insane and migrate your data to a distributed processing system, or maybe use a Data Warehousing solution (which will give you awesome data crunching in the future too). 
+ Do note, this does depend on how well your replication is set up. Since the primary bottleneck will most likely be persistent storage, if you have cruddy storage or poorly segregated data stores with heavy neighbor noise, this will probably run you slower than just waiting for a single  
+ But if you have good replication, then your speed gains should be directly related to the number or slaves. In fact, if it takes 10 minutes to run the counting query alone, and you have 8 slaves, you'd cut your time to less than a couple minutes. Maybe an hour to iron out the details of this solution.  
+ Of course, you'd never really get an amazingly accurate answer since this distributed solving introduces a bit of time where rows can be deleted and inserted, but you can try to get a distributed lock of rows at the same instance and get a precise count of the rows in the table for a particular moment in time.  
+ Actually, this seems impossible, since you're basically stuck with an SQL-only solution, and I don't think you're provided a mechanism to run a sharded and locked query across multiple slaves, instantly. Maybe if you had control of the replication log file... which means you'd literally be spinning up slaves for this purpose, which is no doubt slower than just running the count query on a single machine anyway. 
+ So there's my two 2013 pennies. 
+ 
+ **If **
+**insert trigger**
+** is too expensive to use, but a **
+**delete trigger**
+** could be afforded, and there is an auto-increment **
+, then after counting entire table once, and remembering the count as   and the  , 
+ then  **each day**
+ just need to count for   >  , add that to  , and store the new  . 
+ The delete trigger would decrement last-count, if id of deleted record <= last-counted-id. 
+ 
+ If you have a typical table structure with an auto-incrementing primary key column in which rows are never deleted, the following will be the fastest way to determine the record count and should work similarly across most ANSI compliant databases: 
+ 
+ I work with MS SQL tables containing billions of rows that require sub-second response times for data, including record counts.  A similar SELECT COUNT(*) would take minutes to process by comparison. 
+ 
+ For Sql server try this 
+ 
+ 
+ select rows from sysindexes
+where id = Object_ID('TableName') and indid <2 
+ 
+ Put an index on some column.  That should allow the optimizer to perform a full scan of the index blocks, instead of a full scan of the table.   That will cut your IO costs way down. Look at the execution plan before and after.  Then measure wall clock time both ways. 
+ 
+ If you are using Oracle, how about this (assuming the table stats are updated): 
+ 
+ last_analyzed will show the time when stats were last gathered. 
+ 
+ With PostgreSQL: 
+ 
+ 
+ In SQL server 2016, I can just check table properties and then select 'Storage' tab - this gives me row count, disk space used by the table, index space used etc. 
+ 
+ If you have a primary key (unique value) somewhere on your table, you can use   to essentially give you the count of total rows. Below is sample snippet: 
+ 
+ 
+ Maybe a bit late but this might help others for MSSQL 
+ 
+ ;WITH RecordCount AS (    SELECT      ROW_NUMBER() OVER (ORDER BY
+  COLUMN_NAME) AS [RowNumber]   FROM        TABLE_NAME )  SELECT
+  MAX(RowNumber) FROM RecordCount 
+ 
+ 

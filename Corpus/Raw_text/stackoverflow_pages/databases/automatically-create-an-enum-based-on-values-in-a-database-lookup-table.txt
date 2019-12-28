@@ -1,0 +1,99 @@
+*** automatically-create-an-enum-based-on-values-in-a-database-lookup-table ***
+
+ How do I automatically create an enum and subsequently use its values in C# based on values in a database lookup table (using enterprise library data layer)? 
+ For example, If I add a new lookup value in the database, I don't want to have to manually add the extra static enum value declaration in code - I'd like to keep the enum in sync with the database. 
+ Is there such a thing as this?  
+ 
+ I don't want to create a code generated static enum (as per  The Code Project  article  Enum Code Generator - Generating enum code automatically from database look up tables ) and would prefer it to be completely automatic. 
+ 
+ I'm doing this exact thing, but you  need  to do some kind of code generation for this to work. 
+ In my solution, I added a project "EnumeratedTypes". This is a console application which gets all of the values from the database and constructs the enums from them. Then it saves all of the enums to an assembly. 
+ The enum generation code is like this: 
+ 
+ My other projects in the solution reference this generated assembly. As a result, I can then use the dynamic enums in code, complete with intellisense. 
+ Then, I added a post-build event so that after this "EnumeratedTypes" project is built, it runs itself and generates the "MyEnums.dll" file. 
+ By the way, it helps to change the  build order  of your project so that "EnumeratedTypes" is built first. Otherwise, once you start using your dynamically generated .dll, you won't be able to do a build if the .dll ever gets deleted. (Chicken and egg kind of problem -- your other projects in the solution need this .dll to build properly, and you can't create the .dll until you build your solution...) 
+ I got most of the above code from  this msdn article . 
+ Hope this helps! 
+ 
+ Enums must be specified at compile time, you can't dynamically add enums during run-time - and why would you, there would be no use/reference to them in the code? 
+ From Professional C# 2008: 
+ 
+ The real power of enums in C# is that behind the scenes they are instantiated as structs derived from the base class, System.Enum . This means it is possible to call methods against them to perform some useful tasks. Note that because of the way the .NET Framework is implemented there is no performance loss associated with treating the enums syntactically as structs. In practice, once your code is compiled, enums will exist as primitive types, just like int and float . 
+ 
+ So, I'm not sure you can use Enums the way you want to. 
+ 
+ Does it have to be an actual enum? How about using a   instead? 
+ for example  
+ 
+ 
+ I've done this with a  T4  template. It is fairly trivial to drop a .tt file into your project, and set up Visual Studio to run the T4 template as a pre-build step.  
+ The T4 generates a .cs file, which means you can have it just query the database and build an enum in a .cs file from the result. Wired up as a pre-build task, it would re-create your enum on every build, or you can run the T4 manually as needed instead. 
+ 
+ Let's say you have the following in your DB:   
+ 
+ Construct a select to get the values you need: 
+ 
+ Construct the source code for the enum and you'll get something like: 
+ 
+ (obviously this is constructed in a loop of some kind.) 
+ Then comes the fun part, Compiling your enum and using it: 
+ 
+ Now you have the type compiled and ready for use. 
+To get a enum value stored in the DB you can use: 
+ 
+ where value can be either the integer value (0, 1, etc.) or the enum text/key (Apple, Banana, etc.) 
+ 
+ Just showing the   answer  of Pandincus with "of the shelf" code and some explanation:
+You need two solutions for this example ( I know it could be done via one also ; ), let the advanced students present it ... 
+ So here is the DDL SQL for the table :  
+ 
+ So here is the console program producing the dll:  
+ 
+ Here is the Console programming printing the output ( remember that it has to reference the dll ). Let the advance students present the solution for combining everything in one solution with dynamic loading and checking if there is already build dll.  
+ 
+ 
+ Aren't we coming to this from the wrong direction? 
+ If the data is likely to change at all during the lifetime of the deployed release then an enum is just not appropriate, and you need to use a dictionary, hash or other dynamic collection. 
+ If you know the set of possible values is fixed for the life of the deployed release, then an enum is preferable. 
+ If you  must  have something in your database that replicates the enumerated set, then why not add a deployment step to clear and repopulate the database table with the definitive set of enum values? 
+ 
+ **You want System.Web.Compilation.BuildProvider**
+
+ I also doubt the wisdom of doing this, but then there maybe a good use case that I can't think of. 
+ What you're looking for are  Build Providers  i.e. System.Web.Compilation.BuildProvider 
+ They're used  **very**
+ effectively by  SubSonic , you can download the source and see how they use them, you won't need anything half as intricate as what they're doing. 
+ Hope this helps. 
+ 
+ I always like to write my own "custom enum". Than I have one class that is a little bit more complex, but I can reuse it: 
+ 
+ Now I just need to create my enum I want to use: 
+ 
+ At last I can use it like I want: 
+ 
+ And my output would be: 
+ 
+ 
+ You could use CodeSmith to generate something like this: 
+ http://www.csharping.com/PermaLink,guid,cef1b637-7d37-4691-8e49-138cbf1d51e9.aspx 
+ 
+ I don't think there is a good way of doing what you want. And if you think about it I don't think this is what you really want. 
+ If you would have a dynamic enum, it also means you have to feed it with a dynamic value when you reference it. Maybe with a lot of magic you could achieve some sort of  IntelliSense  that would take care of this and generate an enum for you in a DLL file. But consider the amount of work it would take, how uneffective it would be to access the database to fetch IntelliSense information as well as the nightmare of version controlling the generated DLL file. 
+ If you really don't want to manually add the enum values (you'll have to add them to the database anyway) use a code generation tool instead, for example  T4  templates. Right click+run and you got your enum statically defined in code and you get all the benefits of using enums. 
+ 
+ Using dynamic enums is bad no matter which way. You will have to go through the trouble of "duplicating" the data to ensure clear and easy code easy to maintain in the future. 
+ If you start introducing automatic generated libraries, you are for sure causing more confusion to future developers having to upgrade your code than simply making your enum coded within the appropriate class object. 
+ The other examples given sound nice and exciting, but think about the overhead on code maintenance versus what you get from it. Also, are those values going to change that frequently? 
+ 
+ One way to keep the Enums and to create a Dynamic list of values at the same time is to use the Enums that you currently have with a Dynamically created Dictionary. 
+ Since most Enums are used in the context that they are defined to be used, and the "dynamic enums" will be supported by dynamic processes, you can distinguish the 2. 
+ The first step is to create a table/collection that houses the IDs and References for the Dynamic Entries.  In the table you will autoincrement much larger than your largest Enum value. 
+ Now comes the part for your dynamic Enums, I am assuming that you will be using the Enums to create a set of conditions that apply a set of rules, some are dynamically generated. 
+ 
+ 
+ enum builder class  
+ 
+ create an object 
+ 
+ 

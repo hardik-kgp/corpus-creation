@@ -1,0 +1,32 @@
+*** specflow-integration-testing-with-database-patterns ***
+
+ I'm attempting to set up SpecFlow for integration/acceptance testing.  Our product has a backing database (not a huge one though) in Sqlite.   
+ This is actually proving to be a slightly sticky point though; how do I model the database for the tests?   
+ I would like to know what patterns others out there use for doing integration/acceptance testing with backing databases. 
+ I can think of the following approaches: 
+ 
+ Compile a database into the assembly with the tests, then shadow-copy it for each test.  Seems slow though. 
+ I could create the database in memory and populate it with pre-determined data. 
+ I could create the database in memory and somehow have Givens populate the database.  This seems like it would bloat the tests horribly, but might give them more control and make the tests less fragile. 
+ I could abstract every database interaction and use mocks.  Not in love with this idea since I'd like to use this to test the database interactions as well. 
+ Compile the database into the tests and rely on clean-up code to return it to the base state (this one seems dodgy to me).  Don't want to do it with transactions since there will be multiple interactions with some tests (so write an item then attempt to read it back with different privileges). 
+ 
+ 
+ Before considering the  How  to test, I think you might find it valuable to look at  What  you want to test. 
+ Starting with  what data , I find that it really helps to take a single element, or a small number, and imagine a set of events around them in order to give you the right test data to run your tests with. For example; 
+ 
+ If you were working on a healthcare system, you might define a person "Bob" and then produce his life events. Bob was born 37 years ago today, fell off his bike as a child and broke his arm, got married, and has two children. 
+ If you are working on a financial trading system, you might look at a day between opening and closing for a couple of stocks, e.g. "MSFT" and "APPL". On this day you might see one starting low and climbing, the other starting high and falling. A piece of news comes out that reverses their fortunes. 
+ 
+ Now you have the what you can actually evaluate which of your scenarios actually work for your data, e.g. “MSFT” and “APPL” could have 1,000s of price changes throughout the day, so generating the Givens and Mocks would be very time consuming. This data lends itself to being pre-captured. On the other hand the “Bob” data works particularly well when using generated data because the data can always change so that it is his birthday today. 
+ One thing your question doesn’t seem to need to consider is updating your data. For example you might want to have a set of tests that work at various stages of your entities life cycle, e.g. Some tests deal with “Baby Bob”, others with “10yr old Bob”,or “Married Bob” etc. If your DB is read only then this isn’t a problem if you can write your tests so that they just don’t  see  the other data, but sometimes you want build a story through your tests. If your tests do change the data, then you will have problems with ensuring that either your tests run in order (see  MSTest OrderedTest  or mbUnit DependsOn), or that you can separate your tests so they each deal with an isolated data entity (this is fine if your entity can be described in a single row, but gets harder when you have to read many tables to get it). 
+ You also might want to consider  what code  you are testing, you can vary the approach inside your different test sets. I currently work on a multi-tier application that has a UI Views, View Models, Client Models, multiple communication systems, and server models. I also have different sets of tests for these. I have some tests that work in a single tier, mocking out other tiers to keep my tests small. Other tests fire up a local server and local client and wire the two up directly. Finally I have some tests that launch a full server process, communicate via EMS and run some simple client side operations using everything but the UI Views. 
+ So now to actually answer your question, 
+ 
+ Shadow copy your database  - Yes, I’ve done this once with SQLServer Developer and had an xxx.mdb that got copied in before running the tests. However some modern testing frameworks will run tests in parallel e.g.  NCrunch , so this just breaks. 
+ Create the database and pre-populate  - Not done this one, but my concerns would be what happens where a test changes the database to an unexpected state. Other tests will fail when they have done nothing wrong.  
+ Create the database and use Givens  - I’ve done this with NUnit via  on top of a Linq-to-sql DB.You still have concerns about parallel test runs and you have to balance the granularity of your givens (see  StackOverflow-When do BDD scenarios become too specific ), and you have the data update ordering/data isolation problem, but this can work really well to allow you to work through your data stories and grow the data throughout your tests. On the other hand, should one test fail and leave the data in a bad state you can end up with lots of failures, but at least you simply need to look at the one that fails first. This kind of testing will also be not play very nicely for developers on their workstation as they can’t just run a single test, particularly with tools such as NCrunch, which can just run tests whose code has changed. 
+ Mock the database  This is how I choose to do things now. The trick is that if you are personally following a reasonably strict TDD process where you only test the method you are working on, then you actually end up with some tiers that test the database interaction, e.g.  , but most others that used mocked data to test what actually happens e.g.  .  
+ Use clean up code  - Never tried it, it sounds dodgy :-) 
+ 
+ 

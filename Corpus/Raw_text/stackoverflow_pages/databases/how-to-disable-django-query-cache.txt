@@ -1,0 +1,38 @@
+*** how-to-disable-django-query-cache ***
+
+ In my Django application, I repeatedly run the same query on my database (e.g. every 10 seconds).
+I then create an MD5 sum over the queryset I receive and compare that to the MD5 sum I created in the previous run. If both are equal, the data has not changed and the web page does not need updating. 
+ While I do this, the data in the DB might change. 
+ However, the query returns the same queryset, apparently due to  query caching . 
+ How can I disable the query cache and explicitely execute the query on the DB ? 
+ 
+ I came across behavior that I thought was some kind of caching, but it turned out to be database transactions fooling me. 
+ I had the problem where in another process, items were get added to the database, and I wanted to monitor progress of the other process, so I opened up a django shell and issued the following: 
+ 
+ The value wasn't changing, even though it actually was in the database.  I realized that at least with the way I had MySQL & django setup that I was in a transaction and would only see a "snapshot" of the database at the time I opened the transaction. 
+ Since with views in django, I had autocommit behavior defined, this was fine for each view to only see a snapshot, as the next time a view was called it would be in a different transaction. But for a piece of code that was not automatically committing, it would not see any changes in the db except those that were made in this transaction. 
+ Just thought I would toss this answer in for anyone who may come upon this situation. 
+ To solve, commit your transaction, which can be manually done like so: 
+ 
+ 
+ Query caching only applies  within  a QuerySet. In other words, if you evaluate the same queryset object twice, query caching will operate. But if you are doing a query every 10 seconds, presumably this is via a cron that spawns a new process each time, so there is no way Django will cache anything. 
+ It is possible that your database's own cache will come into operation if you're repeatedly performing exactly the same query. You should look at the documentation for your DBMS to see how to manage that properly. 
+ 
+ The link you provide to the Django Documentation implies that the following: 
+ 
+ creates two queries to the database, whilst: 
+ 
+ uses the query cache, as you are accessing the same evaluation results. 
+ 
+ Thank you very much for your answers, your replies made me take a few steps back and rethink. 
+ In order to test caching on a DBMS level, I went away from Django and used a shell script I anyway had handy to periodically query data from a SQLite db, while I added data in a second shell session. The new data showed up in the periodic queries right after I added them, so no query caching here. 
+ This narrowed it down to the Django part. The code involved is not very complex and a little log output and a code review revealed the problem: The query used to obtain the queryset used in turn to create the MD5 sum had an error and was always empty. Therefore, the MD5 sum was always the same. Did indeed look like a cached result - data is changing, but the queryset stays the same.
+The problem did not show in the application, as a different query was used to obtain data displayed there. 
+ Lesson learned: If you're completely puzzled, take a step back and re-think your assumptions. 
+ Thanks again! :-) 
+ 
+ I met this problem on django version 1.8. There is not direct way to do it, but there are some ways to make the queryset re-evaluated and executed by accessing db instead of cache. I found it in  Django Queryset Documentation   
+ I used one of them to handle my problem. It is   function of querysets.   and   can also be used. They worked for me too. 
+ Example 
+ 
+ 

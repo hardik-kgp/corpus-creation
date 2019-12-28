@@ -1,0 +1,106 @@
+*** operationalerror-database-is-locked ***
+
+ I have made some repetitive operations in my application (testing it), and suddenly I’m getting a weird error:  
+ 
+ I've restarted the server, but the error persists. What can it be all about? 
+ 
+ From django doc: 
+ 
+ SQLite is meant to be a lightweight
+  database, and thus can't support a
+  high level of concurrency.
+  OperationalError: database is locked
+  errors indicate that your application
+  is experiencing more concurrency than
+  sqlite can handle in default
+  configuration. This error means that
+  one thread or process has an exclusive
+  lock on the database connection and
+  another thread timed out waiting for
+  the lock the be released. 
+ Python's SQLite wrapper has a default
+  timeout value that determines how long
+  the second thread is allowed to wait
+  on the lock before it times out and
+  raises the OperationalError: database
+  is locked error. 
+ If you're getting this error, you can
+  solve it by: 
+ 
+ Switching to another database backend. At a certain point SQLite becomes too "lite" for real-world applications, and these sorts of concurrency errors indicate you've reached that point. 
+ Rewriting your code to reduce concurrency and ensure that database transactions are short-lived. 
+ Increase the default timeout value by setting the timeout database option 
+ 
+ 
+ http://docs.djangoproject.com/en/dev/ref/databases/#database-is-locked-errorsoption 
+ 
+ The practical reason for this is often that the python or django shells have opened a request to the DB and it wasn't closed properly; killing your terminal access often frees it up.  I had this error on running command line tests today.   
+ Edit:  I get periodic upvotes on this.  If you'd like to kill access without rebooting the terminal, then from commandline you can do:  
+ 
+ 
+ In my case, It was because I open the database from SQLite Browser. When I close it from the browser, the problem is gone. 
+ 
+ I disagree with @Patrick's answer which, by quoting this doc, implicitly links OP's problem ( ) to this: 
+ 
+ Switching to another database backend. At a certain point SQLite becomes too "lite" for real-world applications, and these sorts of concurrency errors indicate you've reached that point. 
+ 
+ This is a bit "too easy" to incriminate SQlite for this problem (which is  very powerful  when correctly used; it's not only a toy for small databases, fun fact:  ).  
+ Unless you have a very busy server with thousands of connections at the same second,  **the reason for this **
+** error is probably more a bad use of the API, than a problem inherent to SQlite which would be "too light"**
+. Here are more informations about  Implementation Limits for SQLite . 
+ 
+ Now the solution: 
+ I had the same problem when I was using two scripts using the same database at the same time: 
+ 
+ one was accessing the DB with write operations 
+ the other was accessing the DB in read-only 
+ 
+ Solution:  **always do **
+** as soon as possible after having done a (even read-only) query.**
+
+ Here are more details . 
+ 
+ As others have told, there is another process that is using the SQLite file and has not closed the connection. In case you are using Linux, you can see which processes are using the file (for example  ) using the   command as follows: 
+ 
+ If you want to stop the processes to release the lock, use   which sends the   signal to all processes accessing the file: 
+ 
+ Note that this is dangerous as it might stop the web server process in a production server. 
+ Thanks to @cz-game for pointing out  ! 
+ 
+ I encountered this error message in a situation that is not (clearly) addressed by the help info linked in patrick's answer. 
+ When I used   to wrap a call to   and called that code simultaneously from two different threads, only one thread would succeed, while the other would get the "database is locked" error. Changing the timeout database option had no effect on the behavior. 
+ I think this is due to the fact that sqlite  cannot handle multiple simultaneous writers , so the application must serialize writes on their own. 
+ I solved the problem by using a   object instead of   when my Django app is running with a sqlite backend. That's not entirely equivalent, so you may need to do something else in your application. 
+ Here's my code that runs   simultaneously from two different threads, in case it is helpful: 
+ 
+ 
+ For me it gets resolved once I closed the django shell which was opened using  
+ 
+ I've got the same error! One of the reasons was the DB connection was not closed. 
+Therefore, check for  **unclosed DB connections**
+. Also, check if you have  **committed**
+ the DB before closing the connection. 
+ 
+ This also could happen if you are connected to your sqlite db via dbbrowser plugin through pycharm. Disconnection will solve the problem 
+ 
+ In my case, I had not saved a database operation I performed within the SQLite Browser. Saving it solved the issue. 
+ 
+ **UPDATE**
+ django version 2.1.7 
+ I got this error   using   with  . 
+ Solution: 
+ If we are using   decorator. What it does is create a   for testing.  
+ Named:   We can get this name with: 
+ 
+ To access this database and also edit it, do: 
+ Connect to the data base: 
+ 
+ Use   to specifies the disk file that is the SQLite database to be opened. 
+ To avoid the error activate transactions in the decorator: 
+ 
+ Final function: 
+ 
+ 
+ try this command: 
+ 
+ 

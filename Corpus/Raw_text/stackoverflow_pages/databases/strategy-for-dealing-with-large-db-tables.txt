@@ -1,0 +1,33 @@
+*** strategy-for-dealing-with-large-db-tables ***
+
+ I'm looking at building a Rails application which will have some pretty
+large tables with upwards of 500 million rows.  To keep things snappy
+I'm currently looking into how a large table can be split to more
+manageable chunks.   I see that as of MySQL 5.1 there is a partitioning
+option and that's a possible option but I don't like the way the column
+that determines the partitioning has to be part of the primary key on
+the table. 
+ What I'd really like to do is split the table that a AR model writes to
+based upon the values written but as far as I am aware there is no way
+to do this - does anyone have any suggestions as to how I might
+implement this or any alternative strategies? 
+ Thanks 
+ Arfon 
+ 
+ Partition columns in MySQL are not limited to primary keys. In fact, a partition column does not have to be a key at all (though one will be created for it transparently). You can partition by RANGE, HASH, KEY and LIST (which is similar to RANGE only that it is a set of discrete values). Read the MySQL manual for  an overview  of partioning types. 
+ There are alternative solutions such as  HScale  - a middleware plug-in that transparently partitions tables based on certain criteria.  HiveDB  is an open-source framework for horizontal partioning for MySQL. 
+ In addition to sharding and partioning you should employ some sort of clustering. The simplest setup is a replication based setup that helps you spread the load over several physical servers. You should also consider more advanced clustering solutions such as MySQL cluster (probably not an option due to the size of your database) and clustering middleware such as  Sequioa .  
+ I actually asked a relevant question regarding  scaling with MySQL  here on stack-overflow some time ago, which I ended up answering myself several days later after collecting a lot of information on the subject. Might be relevant for you as well. 
+ 
+ If you want to split your datas by time, the following solution may fit to your need. You can probably use  MERGE  tables; 
+ Let's assume your table is called MyTable and that you need one table per week  
+ 
+ Your app always logs in the same table  
+ A weekly job atomically renames your table and recreates an empty one: MyTable is renamed to MyTable-Year-WeekNumber, and a fresh empty MyTable is created 
+ Merge tables are dropped and recreated. 
+ 
+ If you want to get all the datas of the past three months, you create a merge table which will include only the tables from the last 3 months. Create as many merge tables as you need different periods. If you can  not  include the table in which datas are currently inserted (MyTable in our example), you'll be even more happy, as you won't have any read / write concurrency  
+ 
+ You can handle this entirely in Active Record using  DataFabric .  
+ It's not that complicated to implement similar behavior yourself if that's not suitable. Google sharding for a lot of discussion on the architectural pattern of handling table partitioning within the app tier. It has the advantages of avoiding middleware or depending on db vender specific features. On the other hand it is more code in your app that you're responsible for. 
+ 

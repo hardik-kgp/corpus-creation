@@ -1,0 +1,100 @@
+*** what-did-mongodb-not-being-acid-compliant-before-v4-really-mean ***
+
+ I am not a database expert and have no formal computer science background, so bear with me.  I want to know the kinds of  real world  negative things that can happen if you use an old  MongoDB version prior to v4 , which were not  ACID  compliant.  This applies to any ACID noncompliant database. 
+ I understand that MongoDB can perform  Atomic Operations , but that they don't "support traditional locking and complex transactions", mostly for performance reasons.  I also understand the importance of database transactions, and the example of when your database is for a bank, and you're updating several records that all need to be in sync, you want the transaction to revert back to the initial state if there's a power outage so credit equals purchase, etc. 
+ But when I get into conversations about MongoDB, those of us that don't know the technical details of how databases are actually implemented start throwing around statements like: 
+ 
+ MongoDB is way faster than MySQL and Postgres, but there's a tiny chance, like 1 in a million, that it "won't save correctly". 
+ 
+ That "won't save correctly" part is referring to this understanding: If there's a power outage right at the instant you're writing to MongoDB, there's a chance for a particular record (say you're tracking pageviews in documents with 10 attributes each), that one of the documents only saved 5 of the attributes… which means over time your pageview counters are going to be "slightly" off.  You'll never know by how much, you know they'll be 99.999% correct, but not 100%.  This is because, unless you specifically made this a  mongodb atomic operation , the operation is not guaranteed to have been atomic. 
+ So my question is, what is the correct interpretation of when and why MongoDB may not "save correctly"?  What parts of ACID does it not satisfy, and under what circumstances, and how do you know when that 0.001% of your data is off?  Can't this be fixed somehow?  If not, this seems to mean that you shouldn't store things like your   table in MongoDB, because a record might not save.  But then again, that 1/1,000,000 user might just need to "try signing up again", no? 
+ I am just looking for maybe a list of when/why negative things happen with an ACID noncompliant database like MongoDB, and ideally if there's a standard workaround (like run a background job to cleanup data, or only use SQL for this, etc.). 
+ 
+ One thing you lose with MongoDB is multi-collection (table) transactions.  Atomic modifiers in MongoDB can only work against a single document. 
+ If you need to remove an item from inventory and add it to someone's order at the same time - you can't.  Unless those two things - inventory and orders - exist in the same document (which they probably do not). 
+ I encountered this very same issue in an application I am working on and had two possible solutions to choose from: 
+ 1) Structure your documents as best you can and use atomic modifiers as best you can and for the remaining bit, use a background process to cleanup records that may be out of sync.  For example, I remove items from inventory and add them to a reservedInventory array of the same document using atomic modifiers.   
+ This lets me always know that items are NOT available in the inventory (because they are reserved by a customer).  When the customer check's out, I then remove the items from the reservedInventory.  Its not a standard transaction and since the customer could abandon the cart, I need some background process to go through and find abandoned carts and move the reserved inventory back into the available inventory pool. 
+ This is obviously less than ideal, but its the only part of a large application where mongodb does not fit the need perfectly.  Plus, it works flawlessly thus far.  This may not be possible for many scenarios, but because of the document structure I am using, it fits well. 
+ 2) Use a transactional database in conjunction with MongoDB.  It is common to use MySQL to provide transactions for the things that absolutely need them while letting MongoDB (or any other NoSQL) do what it does best. 
+ If my solution from #1 does not work in the long run, I will investigate further into combining MongoDB with MySQL but for now #1 suits my needs well. 
+ 
+ It's actually not correct that MongoDB is not ACID-compliant.  On the contrary, MongoDB is ACID-compilant  **at the document level**
+.   
+ Any update to a single document is  
+ 
+ Atomic: it either fully completes or it does not 
+ Consistent: no reader will see a "partially applied" update 
+ Isolated: again, no reader will see a "dirty" read  
+ Durable: (with the appropriate write concern) 
+ 
+ What MongoDB doesn't have is  **transactions**
+ -- that is, multiple-document updates that can be rolled back and are ACID-compliant.   
+ Note that you can build transactions on top of the ACID-compliant updates to a single document, by  using two-phase commit . 
+ 
+ A good explanation is contained in  "Starbucks Does Not Use Two Phase Commit" .   
+ It's not about NoSQL databases, but it does illustrate the point that sometimes you can afford to lose a transaction or have your database in an inconsistent state temporarily. 
+ I wouldn't consider it to be something that needs to be "fixed".  The fix is to use an ACID-compliant relational database.  You choose a NoSQL alternative when its behavior meets your application requirements. 
+ 
+ I think other people gave good answers already. 
+However i would like to add that there are ACID NOSQL DBs (like  http://ravendb.net/  ). So it is not only decision NOSQL - no ACID vs Relational with ACID.... 
+ 
+ "won't save correctly" could mean: 
+ 
+ By default MongoDB does not save your changes to the drive immediately. So there is a possibility that you tell a user "update is successful", power outage happens and the update is lost. MongoDB provides options to control level of update "durability". It can wait for the other replica(s) to receive this update (in memory), wait for the write to happen to the local journal file, etc. 
+ There is no easy "atomic" updates to multiple collections and even multiple documents in the same collection. It's not a problem in most cases because it can be circumvented with  Two Phase Commit , or restructuring your schema so updates are made to a single document. See this question:  Document Databases: Redundant data, references, etc. (MongoDB specifically) 
+ 
+ 
+ As of MongoDB v4.0, multi-document ACID transactions are to be supported. Through snapshot isolation, transactions will provide a globally consistent view of data, and enforce all-or-nothing execution to maintain data integrity.  
+ They feel like transactions from the relational world, e.g.: 
+ 
+ See  https://www.mongodb.com/blog/post/multi-document-transactions-in-mongodb 
+ 
+ The only reason atomic modifies work against a single-collection is because the mongodb developers recently exchanged a database lock with a collection wide write-lock.  Deciding that the increased concurrency here was worth the trade-off.  At it's core, mongodb is a memory-mapped file: they've delegated the buffer-pool management to the machine's vm subsystem.  Because it's always in memory, they're able to get away with very course grained locks: you'll be performing in-memory only operations while holding it, which will be extremely fast.  This differs significantly from a traditional database system which is sometimes forced to perform I/O while holding a pagelock or a rowlock. 
+ 
+ Please read about the  ACID properties  to gain better understanding. 
+ Also in the MongoDB documentation you can find a  question and answer . 
+ 
+ MongoDB is not ACID compliant. Read below for a discussion of the ACID
+  compliance. 
+ 
+ 
+ MongoDB is  tomic on document level only. It does not comply with the definition of atomic that we know from relational database systems, in particular the link above. In this sense MongoDB does not comply with the A from ACID. 
+ MongoDB is  onsitent by default.
+ **However, you can**
+ read from secondary servers in a replica set. You can only  **have eventual consistency**
+ in this case. This is useful if you don't mind to read slightly outdated data. 
+ MongoDB does not guarantee  solation (again according to above definition): 
+ 
+ 
+ 
+ For systems with multiple concurrent readers and writers, MongoDB will
+  allow clients to read the results of a write operation before the
+  write operation returns. 
+ If the mongod terminates before the journal commits, even if a write
+  returns successfully, queries may have read data that will not exist
+  after the mongod restarts. 
+ 
+ **However**
+, MongoDB modifies each document in isolation (for inserts and
+  updates); on document level only, not on multi-document transactions. 
+ 
+ 
+ In regards to  urability - you can configure this behaviour with the   option, not sure though. Maybe someone knows better. 
+ 
+ I believe some research is ongoing to move NoSQL towards ACID constraints or similar. This is a challenge because NoSQL databases are usually fast(er) and ACID constraints can slow down performance significantly. 
+ 
+ "In MongoDB, an operation on a single document is atomic" -  That's the thing for past 
+ In the new version of MongoDB  **4.0**
+ you CAN : 
+ 
+ However, for situations that require atomicity for updates to multiple documents or consistency between reads to multiple documents, MongoDB provides the ability to perform multi-document transactions against replica sets. Multi-document transactions can be used across multiple operations, collections, databases, and documents. Multi-document transactions provide an “all-or-nothing” proposition. When a transaction commits, all data changes made in the transaction are saved. If any operation in the transaction fails, the transaction aborts and all data changes made in the transaction are discarded without ever becoming visible. Until a transaction commits, no write operations in the transaction are visible outside the transaction. 
+ 
+ Though there are few limitations for  How  and  What  operations can be performed. 
+ Check the Mongo Doc.
+ https://docs.mongodb.com/master/core/transactions/ 
+ 
+ You can implement atomic multi-key updates (serializable transaction) on the client side if your storage supports per key linearizability and compare and set (which is true for MongoDB). This approach is used in  Google's Percolator  and in the  CockroachDB  but nothing prevents you from using it with MongoDB. 
+ I've created a  step-by-step visualization  of such transactions. I hope it will help you to understand them. 
+ If you're fine with read committed isolation level then it makes sense to take a look on  RAMP transactions  by Peter Bailis. They also can be implemented for MongoDB on the client side. 
+ 

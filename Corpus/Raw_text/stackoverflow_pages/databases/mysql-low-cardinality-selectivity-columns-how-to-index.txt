@@ -1,0 +1,54 @@
+*** mysql-low-cardinality-selectivity-columns-how-to-index ***
+
+ I need to add indexes to my table (columns) and stumbled across this post:  
+ How many database indexes is too many? 
+ Quote: 
+“Having said that, you can clearly add a lot of pointless indexes to a table that won't do anything. Adding B-Tree indexes to a column with 2 distinct values will be pointless since it doesn't add anything in terms of looking the data up. The more unique the values in a column, the more it will benefit from an index.” 
+ Is an Index really pointless if there are only two distinct values? Given a table as follows (MySQL Database, InnoDB) 
+ 
+ Further conditions: 
+ 
+ The Database contains 300 Million records 
+ Status can only be “enabled” and “disabled”   
+ 150 Million records have status= enabled and 150 Million records have
+stauts= disabled 
+ 
+ My understanding is, without having an index on status, a select with   would result in a full tablescan with 300 Million Records to process? 
+ How efficient is the lookup when I use a BTREE index on status?  
+ Should I index this column or not?  
+ What alternatives (maybe any other indexes) does MySQL InnoDB provide to efficiently look records up by the "where status="enabled" clause in the given example with a very low cardinality/selectivity of the values?  
+ 
+ The index that you describe is pretty much pointless. An index is best used when you need to select a  **small**
+ number of rows in comparison to the total rows. 
+ The reason for this is related to how a database accesses a table. Tables can be assessed either by a full table scan, where each block is read and processed in turn. Or by a rowid or key lookup, where the database has a key/rowid and reads the exact row it requires. 
+ In the case where you use a where clause based on the primary key or another unique index, eg.  , the database can use the index to get an exact reference to where the row's data is stored. This is clearly more efficient than doing a full table scan and processing every block. 
+ Now back to your example, you have a where clause of  , the index will return 150m rows and the database will have to read each row in turn using separate small reads. Whereas accessing the table with a full table scan allows the database to make use of more efficient larger reads. 
+ There is a point at which it is better to just do a full table scan rather than use the index. With mysql you can use   as part of your query to allow comparisons between each table access method. 
+ Reference:
+ http://dev.mysql.com/doc/refman/5.5/en/how-to-avoid-table-scan.html 
+ 
+ I'm sorry to say that I do not agree with Mike. Adding an index is meant to limit the amount of full records searches for MySQL, thereby limiting IO which usually is the bottleneck. 
+ This indexing is not free; you pay for it on inserts/updates when the index has to be updated and in the search itself, as it now needs to load the index file (full text index for 300M records is probably not in memory). So it might well be that you get  extra  IO in stead of limitting it. 
+ I do agree with the statement that a binary variable is best stored as one, a bool or tinyint, as that decreases the length of a row and can thereby limit disk IO, also comparisons on numbers are faster. 
+ If you need speed and you seldom use the disabled records, you may wish to have 2 tables, one for enabled and one for disabled records and move the records when the status changes. As it increases complexity and risk this would be my very last choice of course. Definitely do the move in 1 transaction if you happen to go for it. 
+ It just popped into my head that you can check wether an index is actually  used  by using the  explain   statement. That should show you how MySQL is optimizing the query. I don't really know hoe MySQL optimizes queries, but from postgresql I do know that you should explain a query on a database approximately the same (in size and data) as the real database. So if you have a copy on the database, create an index on the table and see wether it's actually used. As I said, I doubt it, but I most definitely don't know everything:) 
+ 
+ If the data is distributed like 50:50 then query like where   will avoid half scanning of the table. 
+ Having index on such tables is completely depends on distribution of data, i,e : if entries having status enabled is 90% and other is 10%. and for query where   it scans only 10% of the table. 
+ so having index on such columns depends on distribution of data. 
+ 
+ You will hardly need all 150 mln records at once, so I guess "status" will always be used in conjunction with other columns. Perhaps it'd make more sense to use a compound index like (status, fullname) 
+ 
+ Jan, you should definitely index that column. I'm not sure of the context of the quote, but everything you said above is correct. Without an index on that column, you are most certainly doing a table scan on 300M rows, which is about the worst you can do for that data. 
+ Jan, as asked, where your query involves simply "where status=enabled" without some other limiting factor, an index on that column apparently won't help (glad to SO community showed me what's up). If however, there is a limiting factor, such as "limit 10" an index may help. Also, remember that indexes are also used in group by and order by optimizations. If you are doing "select count(*),status from table group by status", an index would be helpful.  
+ You should also consider converting status to a tinyint where 0 would represent disabled and 1 would be enabled. You're wasting tons of space storing that string vs. a tinyint which only requires 1 byte per row! 
+ 
+ @a'r answer is correct, however it needs to be pointed out that the usefulness of an index is given not only by its cardinality but also by the distribution of data and the queries run on the database. 
+ In OP's case, with 150M records having   and 150M having  , the index is unnecessary and a waste of resource. 
+ In case of 299M records having   and 1M having  , the index is useful (and will be used) in queries of type  . 
+Queries of type   will still run with a full table scan.  
+ 
+ I have a similar column in my MySQL database.  Approximately 4 million rows, with the distribution of 90% 1 and 10% 0. 
+ I've just discovered today that my queries ( ) actually run significantly faster WITHOUT the index. 
+ Foolishly I deleted the index.  I say foolishly, because I now suspect the queries ( ) may have still benefited from it.  So, instead I should explicitly tell MySQL to ignore the index when I'm searching for 1, and to use it when I'm searching for 0.  Maybe. 
+ 

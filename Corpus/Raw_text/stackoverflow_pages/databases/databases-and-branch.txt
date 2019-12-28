@@ -1,0 +1,226 @@
+*** databases-and-branch ***
+
+ We are currently developping an application which use a database. 
+ Every time we update the database structure, we have to provide a script to update the database from the previous version to the current one. 
+ So the database has currently a number that gave us it's current version and then our software make an update when we want to use an "old" database. 
+ The issue we are encountering is when we have branches: 
+ When we create a new big feature, that will not be available for users(and not included in releases), we create a branch. 
+ The main branch(trunk) will be merged regularly to ensure that the create brunch has the latest bug corrections. 
+ Here is some illustration:
+ 
+ The issue is with our update scripts. They update from the previous version to the current one, then update the version number of the database. 
+ Imagine that we have the DB version 17 when creating the branch.  
+ We then do the branch, and make changes on the Trunk DB. The DB has now the version 18. 
+ Then we make a db change on the branch. Since we know there has already been a new version "18", we create the version 19 and the updater 18->19. 
+ Then the trunk is merged on the branch. 
+ At this very moment we may have some updaters that will never runs. 
+ If someone updated his database before the merge, his database will be flagged has having the version 19, the the update 17->18 will never be done. 
+ We want to change this behavior but we can't find how: 
+ Our constraints are: 
+ 
+ We are unable to make all changes on the same branch 
+ Sometimes we have more than just 2 branchs, and we can only merge from the trunk to the feature branch until the feature is finished 
+ 
+ What can we do to ensure a continuity between our database branch? 
+ 
+ I think the easiest way is to use the Ruby-on-rails approach. Every DB change is a separate script file, no matter how small. Each script file is numbered, and when you do an upgrade you simply run each script from the number your DB currently is to the last one.  
+ What this means in practice is that your DB version system stops being v18 to v19, and starts being v18.0 to v18.01, then v18.02 etc. What you release to the customer may get rolled up into a big v19 upgrade script, but as you develop, you will be making many, many small upgrades.  
+ You'll have to modify this slightly to work for your system, each script will either have to be renumbered as it gets merged to the branch or you will have to ensure the upgrade scripts don't simply track the last upgrade number, but track each upgrade number so missing holes will still get filled in as the script gets merged across.  
+ You will also have to roll up these little upgrades into the next major number as you create the release tag (on the trunk first) to keep things sane. 
+ 
+ edit: so fundamentally you first havew to get rid of the notion of using a upgrade sdcript to go from version to version. For example, if you start with a table, and trunk adds column A and the branch adds column B, then you merge trunk to branch - you cannot realistically "upgrade" to the version with both, unless the branch version number is always greater than the trunk's upgrade script, and that doesn't work if you subsequently merge trunk to the branch. So you must therefore scrap the idea of a "version" that applies to development branches. The only way round that is to update each change independently, and track each change individually. Then you can say you need the "last main release plus colA plus colB" (admittedly if you merge trunk in, you can take the current main release from trunk whether its v18 or v19, but you still need to apply each branch update individually). 
+ So you start with trunk at DB v18. Branch and make changes. Then you merge trunk later, where the DB is at v19. Your earlier branch changes still need to be applied (or should already be applied, but you may need to write a branch-update script with all branch changes in it, if you re-create your DB). Note the branch does not have a "v20" version number at all, and the branches changes are not made to a single update script like you have on trunk. You can add these changes you make on branch as a single script if you like (or 1 script of 'since the last trunk merge' changes) or as many little scripts. 
+When the branch is complete, the very last task is to take all the DB changes made for the branch and toll them up into a script that can be applied to the master upgrader, and when it is merged onto trunk, that script is merged into the current upgrade script and the DB version number bumped. 
+ There is an alternative that may work for you, but I found it to be a little flaky when you try to update DBs with data, sometimes it just couldn't manage to do the update and the DB had to be wiped and re-created (which, to be fair, is probably what would have had to happen if I used SQL scripts at the time). That's to use Visual Studio Database project. This stores every part of the schema as a file, so you'll have 1 script per table. These will be hidden from you by Visual Studio itself that will show you designers instead of scripts but they're stored as files in version control. VS can deploy the project and will try to upgrade your DB if it already exists. Be careful of the options, many defaults say "drop and create" instead of using alter to update an existing table.  
+ These projects can generate a (largely machine-readable) SQL script for deployment, we used to generate these and deliver them to a DBA team who didn't use VS and only accepted SQL. 
+ And lastly, there's  Roundhouse  which is not something I've used but it might help you to become the new upgrader "script". Its a free project and I've read its more powerful and easier to use than VS DB projects. Its a DB versioning and change management tool, integrates with VS, and uses SQL scripts. 
+ 
+ We use the following procedure for about 1.5 years now. I don't know if this is the best solution, but we didn't have any trouble with it (except some human errors in a delta-file like forgetting a  -statement). 
+ It has some simularities with the answer that Krumia gave, but differs in the point that in this approach only new change scripts/delta files are executed. This makes it a lot easier to write those files. 
+ **Delta files**
+
+ Write all the DB-changes you make for a feature in a delta-file. You can have multiple statements in one delta-file or split them up into multiple. Once committed that file it's best (and once merged it's necessary) to start a new one and leave the old one untouched. 
+ Put all the delta-files in one directory and give them a name-pattern like  . It's essential that you can sort them in time (therefore the timestamp) so you know what file needs to be executed first. Besides that you don't want to have a merge conflict with those files so it should be unique (over all branches). 
+ **Merging/pulling**
+
+ Create a merge-script (for examlpe a bash-script) that performs the following actions: 
+ 
+ Note the current commit-hash 
+ Do the actual merge (or pull) 
+ Get a list of all the delta-files that are added with this merge ( ) 
+ Execute those delta-files, in the order specified by the timestamp 
+ 
+ By using git to determine what files are new (and thus what database-actions aren't executed yet on the current branch) you are not longer bound to version-numbering. 
+ **Alternating delta-files**
+
+ It might happen that within one merge delta-files from different branches may be 'new to execute' and that those files alternate like this: 
+ 
+ 2014-08-04-delta-from-feature_A.sql 
+ 2014-08-05-delta-from-feature_B.sql 
+ 2014-08-06-delta-from-feature_A.sql 
+ 
+ As the timestamp determines the execution-order there will be first added something from feature A, then feature B, then back again to feature A. When you write proper delta-files, that are executable by themself/stand-alone, that shouldn't be a problem. 
+ 
+ We recently have started using the  Sql Server Data Tools  (SSDT), which replaced the Visual Studio Database Project type, to version control our SQL databases. It creates a project for each database, with items for views and stored procedures and the ability to create  Data-Tier Applications  (DACPAC) that can be deployed to SQL Server instances. SSDT also supports  Unit Testing  and  Static Data , and offers developers the option of quick sandbox  testing using a LocalDB instance . There is a a good TechEd video overview of the  SSDT tools  and a lot more resources online. 
+ In your situation you would use SSDT to manage your database objects in version control along side your application code, using the same merging process to push features between branches. When it comes time to upgrade an existing install you would create the DACPACs and use the  Data-Tier Application upgrade process  to apply the changes. Alternatively you could also use database synchronization tools such as  DBGhost  or  RedGate  to apply updates to the existing schema. 
+ 
+ You want database migrations. Many frameworks have plugins for this. For instance CakePHP uses a plugin from CakeDC to manage. Here are some generic tools:  http://en.wikipedia.org/wiki/Schema_migration#Available_Tools . 
+ If you want to roll your own, perhaps instead of keeping the current DB version in the database, you keep a list of which patches have been applied. So instead of   table with one row with value  , you instead have a   table with multiple rows: 
+ 
+ Looking at this you need to apply patches 6 and 7. 
+ 
+ I just stumbled upon an older article written in 2008 by Jeff Atwood; hopefully it is still relevant to your problem. 
+ Get Your Database Under Version Control 
+ It mentiones five part series written by K. Scott Allen: 
+ 
+ Three rules for database work 
+ The Baseline 
+ Change Scripts 
+ Views, Stored Procedures and the Like 
+ Branching and Merging 
+ 
+ 
+ There are tools specifically designed to deal with this type of problems.  
+ One is  DBSourceTools 
+ 
+ DBSourceTools is a GUI utility to help developers bring SQL Server
+  databases under source control. A powerful database scripter, code
+  editor, sql generator, and database versioning tool. Compare Schemas,
+  create diff scripts, edit T-SQL with ease. Better than Management
+  Studio. 
+ 
+ Another one: 
+ neXtep Designer 
+ 
+ NeXtep designer is an Integrated Development Environment for database
+  developers. The main concept behind the product is to take advantage
+  of versioning in order to compute the incremental SQL scripts you need
+  to deliver your developments. 
+ This project aims at building a development platform that provides all
+  tools which a database developer needs while automating the tasks of
+  generating the deliveries (= SQL resulting from a development). 
+ To learn more about the problematic of delivering database updates, we
+  invite you to read the Delivering database updates article which will
+  present you our vision of best and worst practices. 
+ 
+ 
+ I think an approach which will satisfy most of your requirements is to embrace the "Database Refactoring" concept. 
+ There is a good book on this topic  Refactoring Databases: Evolutionary Database Design 
+ 
+ A database refactoring is a small change to your database schema which
+  improves its design without changing its semantics (e.g. you don't add
+  anything nor do you break anything).  The process of database
+  refactoring is the evolutionary improvement of your database schema so
+  as to improve your ability to support the new needs of your customers,
+  support evolutionary software development, and to fix existing legacy
+  database design problems. 
+ The book describes database refactoring from the point of view of: 
+ 
+ Technology.  It includes full source code for how to implement each refactoring at the database level and for most refactorings we
+  show how the application would change to reflect the change in the
+  database.  Our code examples are in Oracle, Java, and Hibernate
+  meta-data (the refactorings are easy to translate to other
+  environments, and sometimes we discuss vendor-specific features which
+  simplify some refactorings).  
+ Process.  It describes in detail the process of database refactoring in both the simple situation of a single application
+  accessing the database as well as the situation of the database being
+  accessed by many programs, many of which are out of the scope of your
+  authority.  The technical examples assume the latter situation, so if
+  you're in the simple situation you may find some of our solutions to
+  be a little more complicated than you need (lucky you!). 
+ Culture.  Although it is technically simple to implement individual refactorings, and clearly possible (albeit a little
+  complicated) to adapt your internal processes to support database
+  refactoring, the fact is that cultural challenges within your
+  organization will likely prove to be the most difficult hurdle to
+  overcome. 
+ 
+ 
+ 
+ This idea may or may not work, but reading about your work so far and the previous answer looks like reinventing the wheel. The "wheel" is source control, with it's branch, merge and version tracking features. 
+ At the moment, for each DB schema change, you have a SQL file containing the changes from the previous one. You already mention the significant issues you have with this approach. 
+ Replace your method with this one: Maintain ONE (and only ONE!) SQL file, which stores all DDL command for creating tables, indexes, and so on from scratch. You need to add a new field? Add a "ALTER TABLE" line in your SQL file. This way your source control tool will in effect manage your database schema, and each branch can have a different. 
+ All of a sudden, the source code is in sync with the database schema, branching and merging works, and so on. 
+ Note: Just to clarify the purpose of the script mentioned here is to recreate the database from scratch up to a specific version, every single time. 
+ EDIT: I spent some time looking for material to support this approach. Here is one that looks particularly good, with a proven track record: 
+ Database Schema Versioning Management 101 
+ 
+ Have you seen this situation before? 
+ 
+ Your team is writing an enterprise application around a database 
+ Since everyone is building around the same database, the schema of the database is in flux 
+ Everyone has their own "local" copies of the database 
+ Every time someone changes the schema, all of these copies need the latest schema to work with the latest build of the code 
+ Every time you deploy to a staging or production database, the schema needs to work with the latest build of the code 
+ Factors such as schema dependencies, data changes, configuration changes, and remote developers muddy the water 
+ 
+ How do you currently address this problem of keeping the database
+  versions in working order? Do you suspect this is taking more time
+  than necessary? There are many ways to approach this problem, and the
+  answer depends on the workflow in your environment. The following
+  article describes a distilled and simplistic methodology you can use
+  as a starting point. 
+ 
+ **Since it can be implemented with ANSI SQL, it is database agnostic**
+
+ **Since it depends on scripting, it requires negligible storage management, and it can fit in your current code version management
+  program**
+
+ 
+ 
+ 
+ The database versioning method you are using is certainly wrong, in my opinion. If anything has to have versions, it should be the source code. The  **source code**
+ has versions. Your live environment is only an  instance  of the source code. 
+ 
+ The answer is to apply database changes using  **redeployable change scripts**
+. 
+ 
+ All changes, no matter which branch it is on (even in master/trunk) should be done in a separate script. 
+ Sequence your scripts, so that newer ones will not get executed first. Having a prefix with date in the format YYYYMMDD for filename has worked for us. 
+ When this happens, the change is made to the source code,  not  the database. You can have as many instances/builds for various tags/branches in the VCS as you like. For example, separate live builds for each branch. 
+ Then you only have to do the build for each instance (probably every day). The build should fetch the files from the relevant branch and perform compiling/deploying. Since the scripts are redeployable, old scripts make no effect on the database. Only the recent changes are deployed to the database. 
+ 
+ **But, how to **
+**make**
+** redeployable scripts?**
+
+ This is a question that is hard to answer, since you have not specified which database you are using. So I will give you an example about how my organization does it. 
+ Let me take a simple example: if we need to add a column to a particular table,  we do not just write  . We write code to add a column,  if and only if  that column does not exist in the given table. 
+ Now, we have separate API to handle all that existence-checking boilerplate code. So our scripts are simply calls to those APIs. You will have to write your own. These API's are not actually that hard (we're using Oracle RDBMS). But they give us a huge gain in version control and deployment. 
+ **But, that's only one scenario, there are **
+**gazillion**
+** ways a schema definition can change**
+
+ Yes indeed. Data type of a column can change; A new table can be added; An attribute column can be merged into a primary key (very rare); Sequences can change; Constraints; Foreign keys; They all can change. 
+ But it turns out that all this can be handled by API's with special privileges to read metadata tables. I am not saying it's easy, but I am saying that it is a one time cost. 
+ **But, how do you rollback a database change?**
+
+ My personal experience is, if you put some real effort into designing before banging the keyboard to write   statements, this scenario is extremely rare. And if there ever is a rollback, you should manually handle it. (e.g. manually remove added column). 
+ Normally, changes to views and stored procedures are rather common, and changes to table definitions is rare. 
+ **Building the Database**
+
+ As I said before, building the database can be done by running all the redeployable scripts. Pre-deployed scripts has no effect. 
+ Your database deployment script  should not  start with  . Your database has lots of data which was used for unit tests. Unless you make a really really simple system, these data will be valuable in the future for testing. Your testers will not be too happy about adding ten thousand records to various tables every time a database is upgraded. 
+ Put testers aside, how are you planning to upgrade your client/customers production database without annihilating all their production data? This is why you must use redeployable change scripts. 
+ 
+ You can try version number schemes such as   etc... But they are really going to utterly fail. Because you can merge your source, not it's instances. 
+ 
+ I think that the way you pose the problem is impossible to solve, but if change part of your process there is a solution. Let's start with the first part: why it is impossible to solve using just deltas. In the following I assume you have the  main  trunk and two branches  dev-a  and  dev-b ; both branches stem from the same point-in-time. 
+ **Why cannot work**
+
+ Say Alice add a delta script to dev-a: 
+ 
+ and Bob add another script in dev-b 
+ 
+ The two scripts are clearly incompatible and you end up in breaking code in main when you merge back from any of the two. The merge tool cannot be of help if the script files have different names. 
+ **Possible solution**
+
+ My suggestion is to describe your database in terms of both baseline  and  deltas: the delta scripts must always refer to a specific baseline, so you are able to compute a new baseline schema resulting from the application of successive deltas to a specific baseline. 
+ An example 
+ 
+ note that after branching you immediately spin-off a new baseline, same before every merge. This way you may check that the baselines are compatible. 
+ **Final comment**
+
+ Managing deltas in version control is kind of reinventing the wheel, as each delta script is functionally equivalent to saving different versions of the baseline script. That said I agree with you that they in practice they convey more value and force people to think what happens in production when you change the database. 
+ If you opt store only baseline, you have plenty of tools to support. 
+ Another option is to serialize work on the database, as a whole or partitioning the schema in separate areas with unique owners. 
+ 

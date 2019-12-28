@@ -1,0 +1,39 @@
+*** why-use-singleton-to-manage-db-connection ***
+
+ I know this has been asked before here there and everywhere but i can't get a clear explanation so i'm going to pitch it again. So what is all of the fuss about using a singleton to control the db connection in your web app? Some like it some hate it i don't understand it. From what I've read, "it's to ensure that there is always only one active connection to your DB". I mean why is that a good thing? 1 active DB connection on a data driven web app processing multiple requests per second spells trouble doesn't it? For whatever reason nobody can properly explain this. I've been all over the web. I know i'm thick. 
+ 
+ Assuming Java here, but is relevant to most other technologies as well. 
+ I'm not sure whether you've confused the use of a plain singleton with a  service locator . Both of them are design patterns. The service locator pattern is used by applications to ensure that there is a single class entrusted with the responsibility of obtaining and providing access to databases, files, JMS queues, etc. 
+ Most service locators are implemented as singletons, since there is no need for multiple service locators to do the same job. Besides, it is useful to cache information obtained from the first lookup that can be later used by other clients of the service locator. 
+ By the way, the argument about  
+ 
+ "it's to ensure that there is always
+  only one active connection to your DB" 
+ 
+ is false and misleading. It is quite possible that the connection can be closed/reclaimed if left inactive for quite a long period of time. So caching a connection to the database is frowned upon. There is one deviation from this argument; "re-using" the connection obtained from the connection pool is encouraged as long as you do so with the same context, i.e. within the same HTTP request, or user request (whichever is applicable). This done obviously, from the point of view of performance, since establishing new connections can prove to be an expensive operation. 
+ 
+ High-performance (or even medium-performance) web apps use database  connection pooling , so one DB connection can be shared among many web requests. The singleton is usually the object which manages this pool. I think the motivation for using a singleton is to idiot-proof against maintenance programmers that might otherwise instantiate many of these objects needlessly. 
+ 
+ "it's to ensure that there is always only one active connection to your DB." I think that would be better stated as to ensure each CLIENT has only one active connection to your DB. The reason why this is incredibly important is because you want to prevent deadlocks. If I have TWO open database connections (as a client) I might be updating on one connection, then I might try to update the same row in another connection. This will a deadlock which the database cannot detect. So, the idea of the singleton is basically to make sure that there is ONE object who is charge of handing out database connections to each client. Basically. You don't HAVE to have a singleton for this, but most people will tell you it just makes sense that the system only has one. 
+ 
+ You're right--usually this isn't what you want. 
+ However, there are plenty of cases where you need to throttle yourself down to a single connection. By serializing your access to the database through a singleton, you can address other issues or constraints like load, bandwidth, etc. 
+ I've done something similar in the past for a bulk processing app. Instead, though, I used a semaphore to synchronize access to the database so I could allow n concurrent db operations. 
+ 
+ One might want to use a singleton due to database server constraints, for example, a server might limit the number of connections. 
+ My main conscious reason is that you know what connections can be managed/closed etc., just makes things a bit more organised when you don't have unnecessary, redundant connections. 
+ 
+ I don't think it's a simple answer.  For instance on ASP.NET, the platform implements connection pooling by default, so it will automatically adjust a "pool" of connections and re-use them so you're not constantly creating and destroying expensive objects. 
+ However, let's say you were writing a data collection application that monitored 200 separate input sources.  Every time one of those inputs changed, you fire off a thread that records the event to the database.  I would say that could be a bad design if there's a chance that even a fraction of those could fire off at the same time.  Suddenly having 20 or 40 active database connections is inefficient.  It might be better to queue the updates, and as long as there are updates left in the queue, a singleton connection picks them off the queue and executes them on the server.   It's more efficient because you only have to negotiate the connection and authentication once.  Once there's no activity for a while you could choose to close down the connection.  This kind of behavior would be hard to implement without a central resource manager like a singleton. 
+ 
+ "only one active connection" is a very narrow statement for illustration. It could just as well be a singleton managing a pool of connection. The point of a singleton for database connections is that you don't want every consumer making it's own connection or set of connections. 
+ 
+ I think you might want to be more specific about, "using a singleton to control the db connection in your web app." Ideally, a java.sql.Connection object will  **not**
+ be thread safe, but your javax.sql.DataSource may want to pool connections, so you should go to a single instance of it to share the pooling. 
+ 
+ you are more looking for one connection per request, not one connection for the entire application. you can still control access to it through a singleton though (storing the connection in the HttpContext.Items collection). 
+ 
+ It guarantees that each client using your site only gets one connection to the db.
+You really do not want a new connection being made everytime a user does an action that will create a db query. Not only for performance reasons with the connection handshaking involved, but to decrease load on the db server. 
+ DB connections are a precious commodity, and this technique helps minimize the amount used at any given time. 
+ 

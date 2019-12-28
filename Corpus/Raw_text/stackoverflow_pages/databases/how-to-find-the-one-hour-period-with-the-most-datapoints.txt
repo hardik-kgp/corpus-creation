@@ -1,0 +1,86 @@
+*** how-to-find-the-one-hour-period-with-the-most-datapoints ***
+
+ I have a database table with hundreds of thousands of forum posts, and I would like to find out what hour-long period contains the most number of posts. 
+ I could crawl forward one minute at a time, keeping an array of timestamps and keeping track of what hour had the most in it, but I feel like there is a much better way to do this. I will be running this operation on a year of posts so checking every minute in a year seems pretty awful. 
+ Ideally there would be a way to do this inside a single database query. 
+ 
+ Given a table filled with every minute in the year you are interested in   and a table   with a   column: 
+ 
+ To solve generating the minutes table, you can use a function like  ufn_GenerateIntegers. 
+Then the function becomes  
+ 
+ I just did a test run with about 5000 random posts and it took 16 seconds on my machine.  So, not trivial, but not rediculous for the occasional one-off query.  Fortunately, this is a data-point you can calculate one a day or even once a month and cache if you want to display the value frequently. 
+ Take a look at  lassevk's improvement . 
+ 
+ Binning will work if you want to look at intervals such as 10:00 - 11:00.  However if you had a sudden flurry of interest from 10:30 - 11:30 then it will be split across two bins, and hence may be hidden by an smaller number of hits that happened to fit entirely within a single clock hour. 
+ The only way to avoid this problem is to generate a list sorted by time and step through it.  Something like this: 
+ 
+ That way you only need to hold a 1 hour window in memory rather than the whole list. 
+ 
+ Treat the timestamp of every post as the start of such an hour, and count all other posts that fall within that hour, including the post that started it. Sort the resulting hours in descending order by the number of posts in each of them. 
+ Having done that, you'll find the topmost single "hour" that has the most posts in it, but this period of time might not be exactly one hour long, it might be shorter (but never longer). 
+ To get a "prettier" period, you can calculate how long it really is, divide by two, and adjust the start of the period back by that amount and the end forward, this will "center" the posts inside the hour. This adjustment is guaranteed to not include any new posts, so the count is still valid. If posts are close enough to suddenly be included in the period after you have expanded it to one hour, then an earlier point would've had "the most posts" in it instead of the one you picked. 
+ If this is an SQL question, you can reuse the SQL that Josh posted  here , just replace the Minutes table with another link to your posts table. 
+ 
+ **Another method**
+ you can use is to use a sliding window. 
+ First sort all the posts according to the timestamp. Keep track of posts using a list, a linked list could be used for this. 
+ Now, for each post, add it to the end of the list. Then, for each post from the start of the list, if that post is more than one hour before the post you just added, remove it from the list. 
+ After doing that 2-step operation for a single new post in the list, check if the number of posts in the list is more than a previous maximum, and if it is, either make a copy of the list or at least store the post you just added. 
+ After you're finished, you've got the "copy of the list" with the most posts in an hour, or you got the post that is the end of a 1-hour window that contains the most posts. 
+ Pseudo-code: 
+ 
+ 
+ This worked on a small test MS-SQL database. 
+ 
+ This is not very efficient, checks based on an hour from each post.  
+ 
+ 
+ Here's a slight variation on the other Josh's implementation this forgoes the immediate table and uses a self join on itself looking for any posts within an hour of that one post. 
+ 
+ From a performance perspective on a table with only 6 rows his method which used the function to generate the intermiadte table took 16 seconds vs this one which was subsecond.  
+ I'm not positive if it would be possible using this to miss a valid timeframe since the timespan is based off of the offset of each post.  
+ 
+ This results in an O(n) database query, and an O(n) greatest time search, for a total complexity of O(2n) (which, of course, is still O(n)): 
+ Use a count distinct command in SQL which will 'bin' items for you in minute increments. 
+ So you'd run the count query on this table: 
+ 
+ And it would return: 
+ 
+ By counting each item. 
+ I suspect you can do the same thing with your table, and bin them by the minute, then run an algorithm on that. 
+ 
+ From this tutorial on count:  http://www.techonthenet.com/sql/count.php  (near the end). 
+ Here is a similar page from MySQL's manual:  http://dev.mysql.com/doc/refman/5.1/en/counting-rows.html 
+ So if you have a table with a timedate in it (to the minute, allowing binning to happen by minutes): 
+ 
+ Then the SQL 
+ 
+ should return 
+ 
+ You will still need to post process this, but the hard work of grouping and counting is done, and will only result in just over 500k rows per year (60 minutes, 24 hours, 365 days) 
+ The post processing would be: 
+ 
+ -Adam 
+ 
+ This will do it. 
+ SELECT DateOfEvent HourBegin, DATEADD(hh, 1, DateOfEvent)) HourEnd, COUNT(*) AS NumEventsPerHour
+FROM tEvents AS A
+JOIN tEvents AS B
+ON A.DateOfEvent >= B.DateOfEvents AND DATEADD(hh, 1, A.DateOfEvent) <= B.DateOfEvent
+GROUP BY A.DateOfEvent 
+ 
+ If mysql: 
+ 
+ edit: not sure if original question means any possible 60-minute period 
+ 
+ If using MySQL: 
+ 
+ 
+ 
+SELECT  DATEPART(hour, PostDateTime) AS HourOfDay,
+        COUNT(*) AS ForumPosts
+FROM    Posts
+GROUP BY DATEPART(hour, PostDateTime)
+ 
+ 

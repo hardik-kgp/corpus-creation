@@ -1,0 +1,144 @@
+*** when-should-i-use-stored-procedures ***
+
+ When should I be using stored procedures instead of just writing the logic directly in my application? I'd like to reap the benefits of stored procedures, but I'd also like to not have my application logic spread out over the database and the application.  
+ Are there any rules of thumb that you can think of in reference to this? 
+ 
+ Wow... I'm going to swim directly against the current here and say, "almost always".  There are a laundry list of reasons - some/many of which I'm sure others would argue.  But I've developed apps both with and without the use of stored procs as a data access layer, and it has been my experience that well written stored procedures make it so much easier to write your application.  Then there's the well-documented performance and security benefits. 
+ 
+ This depends entirely on your environment. The answer to the question really isn't a coding problem, or even an analysis issue, but a business decision. 
+ If your database supports just one application, and is reasonably tightly integrated with it, then it's better, for reasons of flexibility, to place your logic inside your application program. Under these circumstances handling the database simply as a plain data repository using common functionality looses you little and gains flexibility - with vendors, implementation, deployment and much else - and many of the purist arguments that the 'databases are for data' crowd make are demonstratively true. 
+ On the other hand if your are handling a corporate database, which can generally be identified by having multiple access paths into it, then it is highly advisable to screw down the security as far as you can. At the very least all appropriate constraints should enabled, and if possible access to the data should be through views and procedures only. Whining programmers should be ignored in these cases as... 
+ 
+ With a corporate database the asset is valuable and invalid data or actions can have business-threatening consequences. Your primary concern is safeguarding the business, not how convenient access is for your coders. 
+ Such databases are by definition accessed by more than one application. You need to use the abstraction that stored procedures offer so the database can be changed when application A is upgraded and you don't have the resource to upgrade application B. 
+ Similarly the encapsulation of business logic in SPs rather than in application code allows changes to such logic to be implemented across the business more easily and reliably than if such logic is embedded in application code. For example if a tax calculation changes it's less work, and more robust, if the calculation has to be changed in one SP than multiple applications. The rule of thumb here is that the business rule should be implemented at the closest point to the data where it is unique - so if you have a specialist application then the logic for that app can be implemented in that app, but logic more widely applicable to the business should be implemented in SPs. 
+ 
+ Coders who dive into religious wars over the use or not of SPs generally have worked in only one environment or the other so they extrapolate their limited experience into a cast-iron position - which indeed will be perfectly defensible and correct in the context from which they come but misses the big picture. As always, you should make you decision on the needs of the business/customers/users and not on the which type of coding methodology you prefer. 
+ 
+ I said this in a comment, but I'm going to say it again here. 
+ **Security, Security, SECURITY**
+. 
+ When sql code is embedded in your application, you have to expose the underlying tables to direct access.  This  might  sound okay at first.  Until you get hit with some sql injection that scrambles all the varchar fields in your database. 
+ Some people might say that they get around this by using magic quotes or some other way of properly escaping their embedded sql.  The problem, though, is the one query a dev didn't escape correctly.  Or, the dev that forgot to not allow code to be uploaded.  Or, the web server that was cracked which allowed the attacker to upload code. Or,... you get the point.  It's hard to cover all your bases. 
+ My point is, all modern databases have security built in.  You can simply deny direct table access (select, insert, update, and deletes) and force everything to go through your s'procs.  By doing so generic attacks will no longer work.  Instead the attacker would have to take the time to learn the intimate details of your system.  This increases their "cost" in terms of time spent and stops drive by and worm attacks. 
+ I know we can't secure ourselves against everything, but if you take the time to architect your apps so that the cost to crack it far outweighs the benefits then you are going to serious reduce your potential of data loss.  That means taking advantage of all the security tools available to you. 
+ Finally, as to the idea of not using s'procs because you might have to port to a different rdbms: First, most apps don't change database servers.  Second, in the event that it's a real possibility, you have to code using ANSI sql anyway; which you can do in your procs.  Third, you would have to reevaluate all of your sql code no matter what and it's a whole lot easier when that code is in one place.  Fourth, all modern databases now support s'procs.  Fifth, when using s'proc's you can custom tune your sql for the database it's running under to take advantage of that particular database's sql extensions. 
+ 
+ I tend to avoid stored procedures. The debugging tools tend to be more primitive. Error reporting can be harder (vs your server's log file) and, to me at least, it just seems to add another language for no real gain. 
+ There are cases where it can be useful, particularly when processing large amounts of data on the server and of course for database triggers that you can't do in code. 
+ Other than that though, I tend to do everything in code and treat the database as a big dump of data rather than something I run code on. 
+ Consider  Who Needs Stored Procedures, Anyways? : 
+ 
+ For modern databases and real world
+  usage scenarios, I believe a Stored
+  Procedure architecture has serious
+  downsides and little practical
+  benefit.  **Stored Procedures should be
+  considered database assembly language:
+  for use in only the most performance
+  critical situations.**
+
+ 
+ and  Why I do not use Stored Procedures : 
+ 
+ The absolute worst thing you can do,
+  and it's horrifyingly common in the
+  Microsoft development world, is to
+   split related functionality between
+  sproc's and middle tier code . 
+  Grrrrrrrr.  You just make the code
+  brittle and you increase the
+  intellectual overhead of understanding
+  a system. 
+ 
+ 
+ Basically when you have to perform operations involving data that do not need to get out of the database. For example, you want to update one table with data from another, it makes little sense to get the data out and then back in if you can do it all in one single shot to the db. 
+ Another situation where it may be acceptable to use stored procedures is when you are 100% sure you will never deploy your application to another database vendor. If you are an Oracle shop and you have lots of applications talking to the same database it may make sense to have stored procedures to make sure all of them talk to the db in a consistent manner. 
+ 
+ Complicated database queries for me tend to end up as stored procs. Another thought to consider is that your database might be completely separate and distinct from the application. Lets say you run an Oracle DB and you essentially are building an API for other application developers at your organization to call into. You can hide the complicated stuff from them and provide a stored proc in its place. 
+ A very simple example: 
+ 
+ might end up running a few different queries (check if it exists, create entries in a preference table, etc) and you might want to encapsulate them. 
+ Of course, different people will have different perspectives (a DBA versus a Programmer). 
+ 
+ I used stored procs in 1 of 3 scenarios: 
+ **Speed**
+
+When speed is of the utmost importance, stored procedures provide an excellent method 
+ **Complexity**
+
+When I'm updating several tables and the code logic might change down the road, I can update the stored proc and avoid a recompile. Stored procedures are an excellent black box method for updating lots of data in a single stroke. 
+ **Transactions**
+
+When I'm working an insert, delete or update that spans multiple tables. I wrap the whole thing in a transaction. If there is an error, it's very easy to roll back the transaction and throw an error to avoid data corruption. 
+ The bottom 2 are very do-able in code. However, stored procedures provide an black-box method of working when complex and transaction level operations are important. Otherwise, stick with code level database operations.  
+ Security used to be one of the reasons. However, with LINQ and other ORMs out there, code level DAL operations are much more secure than they've been in the past. Stored procs ARE secure but so are ORMs like LINQ. 
+ 
+ It can also be very useful as a matter of encapsulation and in the philosophy of DRY. For instance I use stored functions for calculations inside a table that I need for several queries inside the code. This way I use the better performance as well as the ensuring that the calculation is always done the same way. 
+ I would not use it for higher functionality or logic the should be in the business logic layer of an architecture, but focused on the model layer, where the functionality is clearly focused on the database design and possible flexibility of changing the database design without breaking the API to the other layers. 
+ 
+ We use stored procedures for all of our reporting needs. They can usually retrieve the data faster and in a way that the report can just spit out directly instead of having to do any kind of calculations or similar. 
+ We also will use stored procedures for complex or complicated queries we need to do that would be difficult to read if they were otherwise inside of our codebase. 
+ 
+ I tend to always use stored procedures.  Personally, I find it makes everything easier to maintain.  Then there is the security and performance considerations. 
+ Just make sure you write clean, well laid out and well documented stored procedures. 
+ 
+ When all the code is in a stored proc, it is far easier to refactor the database when needed. Changes to logic are far easier to push as well. It is also far far easier to performance tune and sooner or later performance tuning becomes necessary for most database applications.  
+ 
+ On top of the speed and security considerations, I tend to stick as much in Stored Procedures as possible for ease of maintenance and alterations.  If you put the logic in your application, and find later that sql logic has an error or needs to work differently in some manner, you have to recompile and redeploy the whole app in many cases (especially if it's a client side app such as WPF, Win-Forms, etc).  If you keep the logic in the stored proc, all you have to do is update the proc and you never have to touch the application. 
+ 
+ I'd argue that you should avoid stored procedures. 
+ Why might we avoid it? 
+ 
+ To avoid tight-coupling between applications and databases. If we use stored procedures, we won't be able to easily change our underlying database in the future because we'd have to either: 
+ 
+ Migrate stored procedures from one database (e.g. DB2) to another (e.g. SQL Server) which could be painstakingly time-consuming or... 
+ Migrate all the queries to the applications themselves (or potentially in a shared library) 
+ 
+ Because code-first is a thing. There a several ORMs which can enable us to target any database and even manage the table schemas without ever needing to touch the database. ORMs such as Entity Framework or Dapper allow developers to focus on building features instead of writing stored procedures and wiring them up in the application. 
+ It's yet another thing that developers need to learn in order to be productive. Instead, they can write the queries as part of the applications which makes the queries far simpler to understand, maintain, and modify by the developers who are building new features and/or fixing bugs. 
+ 
+ I know of a company which was heavily reliant on stored procedures. As the number of microservices grew and as the original database-oriented developers left, the company was left with a black box that no one was allowed to touch for fear that it would take everything down. Now that they want to move to a different database and move to the cloud, it's much more difficult than it needs to be and they are moving the stored procedure logic into their applications anyways. 
+ 
+ The stored procedures are a method of collecting operations  **that should be done together on database side**
+, while still  **keeping them on database side**
+. 
+ This includes: 
+ 
+ Populating several tables from one rowsource 
+ Checking several tables against different business rules 
+ Performing operations that cannot be efficiently performed using set-based approach 
+ 
+ etc. 
+ The main problem with stored procedures is that they are hard to maintain. 
+ You, therefore, should make stored procedures  **as easy to maintain as all your other code**
+. 
+ I have an article on this in my blog: 
+ 
+ **Schema junk**
+
+ 
+ 
+ I've had some very bad experiences with this. 
+ I'm not opposed to stored procedures in their place, but gratuitous use of stored procedures can be very expensive. 
+ First, stored procedures run on the database server. That means that if you have a multi-server environment with 50 webservers and one database server, instead of spreading workloads over 50 cheap machines, you load up one expensive one (since the database server is commonly built as a heavyweight server). And you're risking creating a single-point-of-failure. 
+ Secondly, it's not very easy to write an application solely in stored procedures, although I ran into one that made a superhuman effort to try to. So you end up with something that's expensive to maintain: It's implemented in 2 different programming languages, and the source code is often not all in one place either, since stored procedures are definitively stored in the DBMS and not in a source archive. Assuming that someone ever managed/bothered o pull them out of the database server and source-archive them at all. 
+ So aside from a fairly messy app architecture, you also limit the set of qualified chimpanzees who can maintain it, as multiple skills are required. 
+ On the other hand, stored procedures are extremely useful, IF: 
+ 
+ You need to maintain some sort of data integrity across multiple systems. That is, the stored logic doesn't belong to any single app, but you need consistent behavior from all participating apps. A certain amount of this is almost inevitable in modern-day apps in the form of foreign keys and triggers, but occasionally, major editing and validation may be warranted as well. 
+ You need performance that can only be achieved by running logic on the database server itself and not as a client. But, as I said, when you do that, you're eating into the total system resources of the DBMS server. So it behooves you to ensure that if there are significant bits of the offending operation that CAN be offloaded onto clients, you can separate them out and leave the most critical stuff for the DBMS server. 
+ 
+ 
+ A particular scenario you're likely to benefit involves the situation around the "(n+1)" scalability problem. Any kind of multidimensional/hierarchical situation is likely to involve this scenario. 
+ Another scenario would involve use cases where it does some protocol when handling the tables (hint: defined steps which transactions are likely to be involved), this could benefit from locality of reference: Being in the server, queries might benefit. OTOH, you could supply a batch of statements directly into the server. Specially when you're on a XA environment and you have to access federated databases. 
+ 
+ If you are talking business logic rather than just "Should I use sprocs in general" I would say you should put business logic in sprocs when you are carrying out large set based operations or any other time executing the logic would require a large number of calls to the db from the app. 
+ 
+ It also depends on your audience. Is ease of installation and portability across DBMSs important to you? 
+ If your program should be easy to install and easy to run on different database systems then you should stay away from stored procedures and also look out for non-portable SQL in your code. 
+ 
+ I agree that they should be used often and well.  
+ The use case I think is extremely compelling and extremely useful is if you are taking in a lot of raw information that should be separated out into several tables, where the some of the data may have records that already exist and need to be connected by foreign key id, then you can just IF EXISTS checks and insert if it doesn't or return key if it does, which makes everything more uniform, succinct, and maintainable in the long run. 
+ The only case where I would suggest  against  using them is if you are doing a lot of logic or number crunching between queries which is best done in the app server OR if you are working for a company where keeping  all  of the logic in the code is important for maintainability/understanding what is happening. If you have a git repository full of everything anyone would need and is easily understandable, that can be very valuable. 
+ 

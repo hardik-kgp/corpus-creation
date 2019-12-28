@@ -1,0 +1,43 @@
+*** when-to-add-an-index-on-a-sql-table-field-mysql ***
+
+ I've been told that if you know you will be frequently using a field for joins, it may be good to create an index on it.  
+ I generally understand the concept of indexing a table (much like an index in a paper book allows you to look up a particular term without having to search page by page). But I'm less clear about when to use them.  
+ Let's say I have 3 tables: a USERS, COMMENTS, and a VOTES table. And I want to make a Stackoverflow-like commenting thread where the query returns comments as well as the numbers of up/down votes on those comments. 
+ 
+ Here's the query and SQLFiddle to return the votes on topic_id=1 : 
+ 
+ Let's assume the number of comments and votes goes in to the millions. To speed up the query, my question is should I put an index on  ,   and  ? 
+ 
+ Here's an update with some keys that get used  http://www.sqlfiddle.com/#!2/94daa/1 
+ The engine has to compare the cost of using an index with the cost of not doing so. You'll notice I've had to add some more rows in to get the indexes used. 
+ With an index, the engine has to use the index to get matching values, which is fast. Then it has to use the matches to look up the actual rows in the table. If the index doesn't narrow down the number of rows, it can be faster to just look up all the rows in the table.  
+ I'm not sure if mysql has something similar to SQL Server clustered indexes. In this case the index and table data are in the same structure, so you don't have the second step of the index lookup. 
+ I introduced indexes in two different ways, firstly on the users table by defining a primary key. This will implicitly create a unique index on the user_id column. A unique index means if you cannot insert the same set of values twice. For a single column index, this just means you can't have the same value twice. 
+ If you imagine a book of users for the table, with one user per page, then the index created gives you a sorted list of user_id, each with the page number of the user. The list is usually stored in some kind of tree form to make looking up a particular number fast. Think about the way you look up a name in a phone book, you don't just scan all the pages until you find it, you make a guess where it will be, and then skip back or forward chunks of pages until you get close. You can normally look up values in an index in O(log 2  n) time, where n is the number of rows, and you need to read a similar number of index pages. 
+ Now if the DB engine is given the query  , it has two choices. it can read each data page, and look for the right value (it might use the fact there is a primary key to stop at the first). The alternative is to read the index to get the right data page, and then look up the data page. 
+ For concreteness and simplicity, assume the table has 1024 entries. Assume each entry takes one data page. Assume each entry in the index tree takes one index page. Assume the index is balanced, so it has 10 levels, and a total of 2047 pages. (all these assumptions are suspect, but they get the point accross, in particular index pages are almost always smaller than data pages, as you don't tend to index all columns at once). 
+ To do the table scan approach will required reading 1024 data pages. To use the index will required reading 10 index pages and one data page. Almost all database performance is about minimising the amount of pages read. 
+ Multi column indexes allow looking up sets of data quickly. If you have an index with (col1, col2), even just matching on col1 is improved. 
+ The   statement just says what columns are indexed, and whether or not duplicate values are allowed. 
+ Using the book analogy again,   will create an ordered list of comment_id then voter_id with the reference to the corresponding data row. 
+ 
+ 
+ It is not always a clear cut where to use indexes in SQL tables. But there are some general rules of thumb that might help you decide in most cases. 
+ 
+ Put index on columns that are being used in where clauses 
+ Put index on columns that you use to join on. 
+ Try not to use more than 4-5 indexes on columns in the same table. 
+ 
+ And the general concepts that you should keep in mind are: 
+ 
+ Any index that you use will make searches on those columns faster. 
+ Any index that you add causing inserting to this table to be a bit more slower. 
+ From the previous two. It is your responsibility to decide upon how many insertions and queries you do on tables to decide if to use index and on which columns or not. 
+ 
+ **EDIT**
+
+ @AndrewLazarus comment is really important and I decided to add it to the answer: 
+ 
+ Don't use indexes on columns with only few different values. For example, a column that hold a state, when there are only few states, or a boolean value. The reason not to do so is that the index doesn't really help you since it only will be divided by the number of values, and since you have only a few of them, there won't be any real benefit. The table would consume more space with the index and preform slower on insertion, but you won't get significant better performance while querying  
+ 
+ 

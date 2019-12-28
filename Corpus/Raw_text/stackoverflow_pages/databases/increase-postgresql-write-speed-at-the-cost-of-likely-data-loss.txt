@@ -1,0 +1,100 @@
+*** increase-postgresql-write-speed-at-the-cost-of-likely-data-loss ***
+
+ I love that PostgreSQL is crash resistant, as I don't want to spend time  fixing a database . However, I'm sure there must be some things I can disable/modify so that inserts/updates will work faster even if I  lose a couple records  prior to a power-outage / crash. I'm not worried about a couple records - just the database as a whole. 
+ I am trying to optimize PostgreSQL for large amounts of writes. It currently takes 22 minutes to insert 1 million rows which seems a bit slow.  
+ **How can I speed up PostgreSQL writes?**
+
+ Some of the options I have looked into (like full_page_writes), seem to also run the risk of corrupting data which isn't something I want. I don't mind lost data - I just don't want corruption. 
+ **Update 1**
+
+ Here is the table I am using - this since most of the tables will contain ints and small strings this "sample" table seems to be the best example of what I should expect. 
+ 
+ I have about 10 scripts each issuing 100,000 requests at a time using prepared statements. This is to simulate a real-life load my application will be giving the database. In my application each page has 1+ inserts. 
+ **Update 2**
+
+ I am using asynchronous commits already, because I have 
+ 
+ synchronous_commit = off 
+ 
+ in the main configuration file. 
+ 
+ 1M records inserted in 22 minutes works out to be 758 records/second.  Each INSERT here is an individual commit to disk, with both write-ahead log and database components to it eventually.  Normally I expect that even good hardware with a battery-backed cache and everything you will be lucky to hit 3000 commit/second.  So you're not actually doing too bad if this is regular hardware without such write acceleration.  The normal limit here is in the 500 to 1000 commits/second range in the situation you're in, without special tuning for this situation. 
+ As for what that would look like, if you can't make the commits include more records each, your options for speeding this up include: 
+ 
+ Turn off synchronous_commit (already
+done)  
+ Increase wal_writer_delay.  When
+synchronous_commit is off, the
+database spools commits up to be
+written every 200ms.  You can make
+that some number of seconds instead
+if you want to by tweaking this
+upwards, it just increases the size
+of data loss after a crash. 
+ Increase wal_buffers to 16MB, just to
+make that whole operation more
+efficient. 
+ Increase checkpoint_segments, to cut
+down on how often the regular data is
+written to disk.  You probably want
+at least 64 here. Downsides are higher disk space use and longer recovery time
+after a crash. 
+ Increase shared_buffers.  The default
+here is tiny, typically 32MB. You
+have to increase how much UNIX shared
+memory the system has to allocate. 
+Once that's done, useful values are
+typically >1/4 of total RAM, up to
+8GB.  The rate of gain here falls off
+above 256MB, the increase from the
+default to there can be really
+helpful though. 
+ 
+ That's pretty much it.  Anything else you touched that might help could potentially cause data corruption in a crash; these are all completely safe. 
+ 
+ 22 minutes for 1 million rows doesn't seem  that  slow, particularly if you have lots of indexes. 
+ How are you doing the inserts? I take it you're using batch inserts, not one-row-per-transaction. 
+ Does PG support some kind of bulk loading, like reading from a text file or supplying a stream of CSV data to it? If so, you'd probably be best advised to use that. 
+ Please post the code you're using to load the 1M records, and people will advise. 
+ Please post: 
+ 
+ CREATE TABLE statement for the table you're loading into 
+ Code you are using to load in 
+ small example of the data (if possible) 
+ 
+ 
+ EDIT: It seems the OP isn't interested in bulk-inserts, but is doing a performance test for many single-row inserts. I will assume that each insert is in its own transaction. 
+ 
+ Consider batching the inserts on the client-side, per-node, writing them into a temporary file (hopefully durably / robustly) and having a daemon or some periodic process which asynchronously does a batch insert of outstanding records, in reasonable sized batches. 
+ This per-device batching mechanism really does give the best performance, in my experience, in audit-data like data-warehouse applications where the data don't need to go into the database  just now . It also gives the application resilience against the database being unavailable. 
+ Of course you will normally have several endpoint devices creating audit-records (for example, telephone switches, mail relays, web application servers), each must have its own instance of this mechanism which is fully independent. 
+ This is a really "clever" optimisation which introduces a lot of complexity into the app design and has a lot of places where bugs could happen. Do not implement it unless you are  really sure  you need it. 
+ 
+ 
+ Well, you don't give us much to go on. But it sounds like you're looking for  asynchronous commits .  
+ Don't overlook a hardware upgrade--faster hardware usually means a faster database. 
+ 
+ I think the problem can't be solved by dealing with the server only. 
+ I found PostgreSQL can commit 3000+ rows per second, and both server and client were not busy, but the time went by. In contrast SQL Server can reach 5000+ rows per second, and Oracle is even faster, it can reach 12000+ per second, about 20 fields in a row.  
+ I guess the roundtrip is the problem: Send a row to server, and receive the reply from the server. Both SQL Server and Oracle support batch operations: send more than one row in a function call and wait for the reply. 
+ Many years ago I worked with Oracle: Trying to improve the write performance using OCI, I read documents and found too many round trips will decrease performance. Finally I solved it by using batch operations: send 128 or more rows to the server in a batch and wait for the reply. It reached 12000+ rows per second. If you do not use batches and send all rows individually (including wait), it reached only about 2000 rows per second. 
+ 
+ You should also increase   (e.g. to 32 or even higher) and most probably   as well 
+ **Edit:**
+
+if this is a bulk load, you should use COPY to insert the rows. It is much faster than plain INSERTs. 
+ If you need to use INSERT, did you consider using batching (for JDBC) or multi-row inserts?  
+ 
+ 1M  commits  in 22 minutes seems reasonable, even with  , but if you can avoid the need to commit on each insert then you can get a lot faster than that. I just tried inserting 1M (identical) rows into your example table from 10 concurrent writers, using the bulk-insert   command: 
+ 
+ Clearly there's only 10 commits there, which isn't exactly what you're looking for, but that hopefully gives you some kind of indication of the speed that might be possible by batching your inserts together. This is on a VirtualBox VM running Linux on a fairly bog-standard Windows desktop host, so not exactly the highest-performance hardware possible. 
+ To give some less toy figures, we have a service running in production which has a single thread that streams data to Postgres via a   command similar to the above. It ends a batch and commits after a certain number of rows or if the transaction reaches a certain age (whichever comes first). It can sustain 11,000 inserts per second with a max latency of ~300ms by doing ~4 commits per second. If we tightened up the maximum permitted age of the transactions we'd get more commits per second which would reduce the latency but also the throughput. Again, this is not on terribly impressive hardware. 
+ Based on that experience, I'd strongly recommend trying to use   rather than  , and trying to reduce the number of commits as far as possible while still achieving your latency target. 
+ 
+ Well one thing you could do to speed things up is drop the index you are creating manually - the   constraint already auto-creates a unique index on that column as you can see below (I'm testing on 8.3): 
+ 
+ Also, consider changing   to an option that uses   -  this is not the default on Linux 
+ 
+ One possibility would be to use the keywork DEFERRABLE to defer  constraints because constraints are checked for every lines. 
+ So the idea would be to ask postgresql to check constraints just before you commit. 
+ 

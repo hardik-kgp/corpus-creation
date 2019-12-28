@@ -1,0 +1,53 @@
+*** is-eav-hybrid-a-bad-database-design-choice ***
+
+ We have to redesign a legacy POI database from MySQL to PostgreSQL. Currently all entities have 80-120+ attributes that represent individual properties. 
+ We have been asked to consider flexibility as well as good design approach for the new database. However new design should allow: 
+ 
+ **n**
+ no. of attributes/properties for any entity i.e. no of attributes for any entity are not fixed and may change on regular basis. 
+ allow content admins to add new properties to existing entities  **on the fly**
+ using through admin interfaces rather than making changes in db schema all the time. 
+ 
+ There are quite a few discussions about performance issues of EAV but if we don't go with a hybrid-EAV we end up: 
+ 
+ having lot of empty columns (we still go and add new columns even if 99% of the data does not have those properties) 
+ spend more time maintaining database esp. when attributes keep changing. 
+ no way of allowing content admins to add new properties to existing entities 
+ 
+ Anyway here's what we are thinking about the new design (basic ERD included): 
+ 
+ Have separate tables for each entity containing some basic info that is exclusive e.g. id,name,address,contact,created,etc etc. 
+ Have 2 tables attribute type and attribute to store properties information. 
+ Link each entity to an attribute using a many-to-many relation. 
+ Store addresses in different table and link to entities using foreign key. 
+ 
+ 
+ We think this will allow us to be more flexible when adding,removing or updating on properties. 
+ This design, however, will result in increased number of joins when fetching data e.g.to display all "attributes" for a given stadium we might have a query with 20+ joins to fetch all related attributes in a single row. 
+ What are your thoughts on this design, and what would be your advice to improve it. 
+ Thank you for reading. 
+ 
+ I'm maintaining a 10 year old system that has a central EAV model with 10M+ entities, 500M+ values and hundreds of attributes. Some design considerations from my experience: 
+ If you have any business logic that applies to a specific attribute it's worth having that attribute as an explicit column. The EAV attributes should really be stuff that is generic, the application shouldn't distinguish attribute A from attribute B. If you find a literal reference to an EAV attribute in the code, odds are that it should be an explicit column. 
+ Having significant amounts of empty columns isn't a big technical issue. It does need good coding and documentation practices to compartmentalize different concerns that end up in one table: 
+ 
+ Have conventions and rules that let you know which part of your application reads and modifies which part of the data. 
+ Use views to ease poking around the database with debugging tools. 
+ Create and maintain test data generators so you can easily create schema conforming dummy data for the parts of the model that you are not currently interested in. 
+ Use rigorous database versioning. The only way to make schema changes should be via a tool that keeps track of and applies change scripts. Postgresql has transactional DDL, that is one killer feature for automating schema changes. 
+ 
+ Postgresql doesn't really like skinny tables. Each attribute value results in 32 bytes of data storage overhead in addition to the extra work of traversing all the rows to pull the data together. If you mostly read and write the attributes as a batch, consider serializing the data into the row in some way.   is one option, hstore is another, or something client side, like json or protobuf, if you don't need to touch anything specific on the database side. 
+ Don't go out of your way to put everything into one single entity table. If they don't share any attributes in a sensible way, use multiple instantitions of the specific EAV pattern you use. But do try to use the same pattern and share any accessor code between the different instatiations. You can always parametrise the code on the entity name. 
+ Always keep in mind that code is data and data is code. You need to find the correct balance between pushing decisions into the meta-model and expressing them as code. If you make the meta-model do too much, modifying it will need the same kind of ability to understand the system, versioning tools, QA procedures, staging as your code, but it will have none of the tools. In essence you will be doing programming in a very awkward non-standard language. On the other hand, if you leave too much in the code, every trivial change will need a new version of your software. People tend to err on the side of making the meta-model too complex. Building developer tools for meta-models is hard and tedious work and has limited benefit. On the other hand, making the release process cheaper by automating everything that happens from commit to deploy has many side benefits.  
+ 
+ EAV can be useful for some scenarios. But it is a little like "the dark side". Powerful, flexible and very seducing it is. But it's something of an easy way out. An easy way out of doing proper analysis and design.  
+ I think "entity" is a bit over the top too general.  You seem to have some idea of what should be connected to that entity, like address and contact. What if you decide to have "Books" in the model. Would they also have adresses and contacts? I think you should try to find the right generalizations and keep the EAV parts of the model to a minium. Whenever you find yourself wanting to show a certain subset of the attributes, or test for existance of the value, or determining behaviour based on the value you should really have it modelled as a columns.  
+ You will not get a better opportunity to design this system than now. The requirements are known since the previous version, and also what worked and what didn't. (Just don't fall victim to the  Second System Effect ) 
+ 
+ One good implementation of EAV can be found in magento, a cms for ecommerce. There is a lot of bad talk about EAV those days, but I challenge anyone to come up with another solution than EAV for dealing with infinite product attributes. 
+ Sure you can go about enumerating all the columns you would need for every product in the world, but that would take you a lot of time and you would inevitably forget product attributes in the way. 
+ So the bottom line is : use EAV for infinite stuff but don't rely on EAV for all the database's tables. Hence an hybrid EAV and relational db, when done right, is a powerful tool that could not be acomplished by only using fixed columns. 
+ 
+ Basically EAV is trying to implement a database within a database, and it leads to madness.  The queries to pull data become overly complex, and your data has no stable, specific model to keep it in some kind of order. 
+ I've written EAV systems for limited applications, but as a generic solution it's usually a bad idea. 
+ 

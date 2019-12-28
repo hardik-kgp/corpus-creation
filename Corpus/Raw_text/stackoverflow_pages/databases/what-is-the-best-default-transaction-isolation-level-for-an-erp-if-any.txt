@@ -1,0 +1,38 @@
+*** what-is-the-best-default-transaction-isolation-level-for-an-erp-if-any ***
+
+ Short background: We are just starting to migrate/reimplement an ERP system to Java with Hibernate, targeting a concurrent user count of 50-100 users using the system. We use MS SQL Server as database server, which is good enough for this loads. 
+ Now, the old system doesn't use any transactions at all and relies for critical parts (e.g. stock changes) on setting manual locks (using flags) and releasing them. That's something like manual transaction management. But there are sometimes problems with data inconsistency. In the new system we would like to use transactions to wipe out these problems. 
+ Now the question: What would be a good/reasonable  **default**
+ transaction isolation level to use for an ERP system, given a usage of about 85% OLTP and 15% OLAP? Or should I always decide on a per task basis, which transaction level to use? 
+ And as a reminder the four transaction isolation levels: READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE 
+ 
+ 99 times out of 100, read committed is the right answer.  That ensures that you only see changes that have been committed by the other session (and, thus, results that are consistent, assuming you've designed your transactions correctly).  But it doesn't impose the locking overhead (particularly in non-Oracle databases) that repeatable read or serializable impose. 
+ Very occasionally, you may want to run a report where you are willing to sacrifice accuracy for speed and set a read uncommitted isolation level.  That's rarely a good idea, but it is occasionally a reasonably acceptable workaround to lock contention issues. 
+ Serializable and repeatable read are occasionally used when you have a process that needs to see a consistent set of data over the entire run regardless of what other transactions are doing at the time.  It may be appropriate to set a month-end reconciliation process to serializable, for example, if there is a lot of procedureal code, a possibility that users are going to be making changes while the process is running and a requirement that the process needs to ensure that it is always seeing the data as it existed at the time the reconciliation started. 
+ 
+ Don't forget about SNAPSHOT, which is right below SERIALIZABLE. 
+ It depends on how important it is for the data to be accurate in the reports. It really is a task-by-task thing. 
+ 
+ It really depends a lot on how you design your application, the easy answer is just run at READ_COMMITTED.  
+ You can make an argument that if you design your system with it in mind that you could use  READ_UNCOMMITTED as the default and only increase the isolation level when you need it. The vast majority of your transactions are going to succeed anyway so reading uncommitted data won't be a big deal.  
+ The way isolation levels effect your queries depends on your target database. For instance databases like Sybase and MSSQL must lock more resources when you run READ_COMMITTED, than databases like Oracle. 
+ 
+ For SQL Server (and probably most major RDBMS), I'd stick with the default. For SQL Server, this is READ COMMITTED.  Anything more and you start overtaxing the DB, anything less and you've got consistency issues. 
+ 
+ Read Uncommitted is definitely the underdog in most forums. However, there are reasons to use it that go beyond a matter of "speed versus accuracy" that is often pointed out. 
+ Let's say you have: 
+ 
+ Transaction T1: Writes B, Reads A, (some more work), Commit. 
+ Transaction T2: Writes A, Reads B, (some more work), Commit. 
+ 
+ With read committed, the transactions above won't release until committing. Then you can run into a situation where T1 is waiting for T2 to release A, and T2 is waiting for T1 to release B. Here the two transactions collide in a lock. 
+ You could re-write those procedures to avoid this scenario (example: acquire resources always in alphabetical order!). Still, with too many concurrent users and tens of thousands of lines of code, this problem may become both very likely and very difficult to diagnose and resolve. 
+ The alternative is using Read Uncommitted. Then you design your transactions assuming that there may be dirty reads. I personally find this problem much more localized and treatable than the interlocking trainwrecks. 
+ The issues from dirty reads can be preempted by  
+ 
+ (1) Rollbacks: don't. This should be the last line of defense in case of hardware failure, network failure or program crash only. 
+ (2) Use application locks to create a locking mechanism that operates
+at a higher level of abstraction, where each lock is closer to a
+real-world resource or action. 
+ 
+ 

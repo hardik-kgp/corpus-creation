@@ -1,0 +1,59 @@
+*** is-naming-tables-september-2010-acceptable-and-efficient-for-large-data-sets-dep ***
+
+ I need to store about 73,200 records per day consisting of 3 points of data: id, date, and integer. 
+ Some members of my team suggest creating tables using month's as the table name (september_2010), while others are suggesting having one table with lots of data in it... 
+ Any suggestions on how to deal with this amount of data? Thanks. 
+ ========== Thank you to all the feedback. 
+ 
+ I recommend  against  that.  I call this  antipattern   Metadata Tribbles .  It creates multiple problems: 
+ 
+ You need to remember to create a new table every year or else your app breaks. 
+ Querying aggregates against all rows regardless of year is harder. 
+ Updating a date potentially means moving a row from one table to another. 
+ It's harder to guarantee the uniqueness of pseudokeys across multiple tables. 
+ 
+ My recommendation is to keep it in one table until and unless you've demonstrated that the size of the table is becoming a genuine problem, and you can't solve it any other way (e.g. caching, indexing, partitioning). 
+ 
+ Seems like it should be just fine holding everything in one table.  It will make retrieval much easier in the future to maintain 1 table, as opposed to 12 tables per year.  At 73,200 records per day it will take you almost 4 years to hit 100,000,000 which is still well within MySQLs capabilities. 
+ 
+ Absolutely not. 
+It will ruin relationship between tables. 
+Table relations being built based on field  values , not table names.     
+ Especially for this very table that will grow by just 300Mb/year 
+ 
+ so in 100 days you have 7.3 M rows, about 25M a year or so. 25M rows isn't a lot anymore. MySQL can handle tables with millions of rows. It really depends on your hardware and your query types and query frequency. 
+ But you should be able to partition that table (if MySQL supports partitioning), what you're describing is an old SQL Server method of partition. After building those monthly tables you'd build a view that concatenates them together to look like one big table... which is essentially what partitioning does but it's all under-the-covers and fully optimized. 
+ 
+ Usually this creates more trouble than it's worth, it's more maintenance , your queries need more logic, and it's painful to pull data from more than one period. 
+ We store 200+ million time based records in one (MyISAM) table, and queries are blazingly still fast. 
+ You just need to ensure there's an index on your time/date column and that your queries makes use of the index (e.g. a query that messes around with DATE_FORMAT or similar on a date column will likely not use an index. I wouldn't put them in separate tables just for the sake of retreival performance. 
+ One thing that gets very painful with such a large number of records is when you have to delete old data, this can take a long time (10 minutes to 2 hours for e.g. wiping a month worth of data in tables with hundreds of mullions rows). For that reason we've  partitioning  the tables, and use a time_dimension(see e.g. the time_dimension table a bit down  here ) relation table for managing the periods instead of simple date/datetime columns or strings/varchars representing dates. 
+ 
+ 
+ Some members of my team suggest creating tables using month's as the table name (september_2010), while others are suggesting having one table with lots of data in it... 
+ 
+ Don't listen to them. You're already storing a date stamp, what about different months makes it a good idea to split the data that way? The engine will handle the larger data sets just fine, so splitting by month does nothing but artificially segregate the data. 
+ 
+ My first reaction is: Aaaaaaaaahhhhhhhhh!!!!!! 
+ Table names should not embed data values. You don't say what the data means, but supposing for the sake of argument it is, I don't know, temperature readings. Just imagine trying to write a query to find all the months in which average temperature increased over the previous month. You'd have to loop through table names. Worse yet, imagine trying to find all 30-day periods -- i.e. periods that might cross month boundaries -- where temperature increased over the previous 30-day period. 
+ Indeed, just retrieving an old record would go from a trivial operation -- "select * where id=whatever" -- would become a complex operation requiring you to have the program generate table names from the date on the fly. If you didn't know the date, you would have to scan through all the tables searching each one for the desired record. Yuck. 
+ With all the data in one properly-normalized table, queries like the above are pretty trivial. With separate tables for each month, they're a nightmare. 
+ Just make the date part of the index and the performance penalty of having all the records in one table should be very small. If the size of table really becomes a performance problem, I could dimply comprehend making one table for archive data with all the old stuff and one for current data with everything you retrieve regularly. But don't create hundreds of tables. Most database engines have ways to partition your data across multiple drives using "table spaces" or the like. Use the sophisticated features of the database if necessary, rather than hacking together a crude simulation. 
+ 
+ Depends on what searches you'll need to do. If normally constrained by date, splitting is good.  
+ If you do split, consider naming the tables like foo_2010_09 so the tables will sort alphanumerically. 
+ 
+ what is your DB platform? 
+ In SQL Server 2K5+ you can partition on date. 
+ My bad, I didnt notice the tag. @thetaiko is right though and this is well within MySQL capabilities to deal with this. 
+ 
+ I would say it depends on how the data is used. If most queries are done over the complete data, it would be an overhead to always join the tables back together again. 
+If you most times only need a part of the data (by date), it is a good idea to segment the tables into smaller pieces. 
+ For the naming i would do tablename_yyyymm. 
+ Edit: For sure you should then also think about another layer between the DB and your app to handle the segmented tables depending on some date given. Which can then get pretty complicated. 
+ 
+ I'd suggest dropping the year and just having one table per month, named after the month.  Archive your data annually by renaming all the tables $MONTH_$YEAR and re-creating the month tables.  Or, since you're storing a timestamp with your data, just keep appending to the same tables.  I assume by virtue of the fact that you're asking the question in the first place, that segregating your data by month fits your reporting requirements.  If not, then I'd recommend keeping it all in one table and periodically archiving off historical records when performance gets to be an issue. 
+ 
+ I agree with this idea complicating your database needlessly. Use a single table. As others have pointed out, it's not nearly enough data to warrent extraneous handling. Unless you use SQLite, your database will handle it well. 
+ However it also depends on how you want to access it. If the old entries are really only there for archival purposes, then the  archive pattern  is an option. It's common for versioning systems to have the infrequently used data separated out. In your case you'd only want everything >1 year to move out of the main table. And this is strictly an database administration task, not an application behavior. The application would only join the current list and the _archive list, if at all. Again, this highly depends on the use case. Are the old entries generally needed? Is there too much data to process regularily? 
+ 

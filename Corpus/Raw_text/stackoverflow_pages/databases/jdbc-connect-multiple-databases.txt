@@ -1,0 +1,34 @@
+*** jdbc-connect-multiple-databases ***
+
+ I am working on an application where I need to connect N number of database systems [N ranges any where between 1 to 350]. 
+ The idea is - the user will be presented with a list of databases and will be asked to select any or all of the databases from the list.  
+ Once the databases are selected, I need to connect to each of the database and execute a stored procedure. 
+ I am planning to use plain old JDBC and obtain connection for each of them one a time [or by running them in multiple threads] and execute the store procedure and close the connection. 
+ And all this should happen in a transaction. What is the best way to do this? 
+ If not JDBC...any other efficient way? 
+ Update - 
+ The stored procedure is actually involved in running some sql - for example updating a column, grant permission for a user etc. 
+ 
+ I'd create a threadpool with a reasonable maximum amount of threads, between ten and twenty threads maybe, with help of   and invoke the separate DB connecting and SP executing tasks each as a   using  . You would like to play with the threadcount and profile which yields the best performance after all. 
+ Each   implementation should take the connection details and SP name as constructor argument so that you can reuse the same implementation for different DB calls. 
+ 
+ **Update**
+: OK, it's a webapplication. You don't want to waste threads. If it is supposed to be used by a single concurrent user, then you should really ensure that the threadpool is properly  shutdown  at end of request or at highest end of session. But if it is supposed to be used by multiple concurrent users, then you'd like to share the threadpool in the application scope. Also here, you need to ensure that it is properly shutdown when the webapp shuts down. The   is useful here. 
+ 
+ If it is acceptable for you to use two connections, use connection pool  c3p0  to manage them. To connect two databases I declare: 
+ 
+ Then two similar methods: 
+ 
+ 
+ As duffymo indicated in his comment, you will only be able to do transactions across multiple databases if you have a transaction coordinator and two phase commit. 
+ For this you will need a J2EE stack that will handle JTA. If you are running in Tomcat or another container that does not have JTA, there are several options you can download and install. 
+ Of course you will need to let the Container, not the database/stored procedure handle the transaction commits and rollbacks. 
+ 
+ This sounds like a big mess, but it's your problem. 
+ You need one connection pool per database.  I wouldn't advise that you try to handle the connection lifecycle yourself.  Let the app server do that for you. 
+ If you want a group of databases to participate in one big transaction you'll have to use the JDBC XA drivers for  all  of them.  You'll also need a JTA transaction manager to oversee the transaction for you. 
+ The stored procedures cannot contain any logic to handle transactions; you have to let JTA do it.   
+ You don't say what the stored procedure is doing.  If it doesn't need to return anything, an alternative design might be JMS, a queue, and a listener pool.  I'd be worried about threading if I were you.  I'd find a way to let the container do that complicated stuff for meif I could. 
+ 
+ 
+ 

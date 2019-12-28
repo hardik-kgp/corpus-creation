@@ -1,0 +1,18 @@
+*** what-are-the-implications-of-of-ssd-usage-on-fundamental-database-assumptions ***
+
+ SSDs are commonplace now; Amazon EBS is backed by SSDs, and hence most of the cloud databases now also run on SSDs (Heroku PostgreSQL, etc.). Databases and related architectures were traditionally designed with the idea the random access is bad - this is  no longer the case with SSDs. 
+ How do SSDs effect the following?  
+ 
+ Database design -  DBs are designed to minimize disk seeks (WAL, B-trees). How do SSDs change the internals and tuning of a DB design?  
+ Application development - The working assumption has always been that (a) You want to server users request from memory, not DB, and (2) that access to DB is IO bound. With SSDs, retrieving data from the DB can be fast enough, and DB access is often network bound. Does this reduce the need for in-memory databases? Obviously you still want to pre-compute expensive operations, but you can potentially just store them in a DB 
+ Specialized Databases - There're quite a few DBs that do things that relational DBs are suppose to be bad at (partially because of random data access). One such example are graph DBs(Neo4j) that store nodes and adjacency-lists on disk  justin a compact way. Are these databases as useful if we can deploy a RDBMS on SSDs and not worry about random access? 
+ 
+ 
+ First, SSDs don't make random access free. Just cheaper. In particular, random  writes  remain very expensive, though that's mitigated in small random writes by a durable write-back cache. 
+ WAL would be very expensive on SSDs if the SSD truly flushed it to the underlying media - but it doesn't. It accumulates it in write-back cache and periodicaly flushes it in whole erase-block sized chunks. So WAL actually works really well on SDDs, as there's never any need for a read/modify/write cycle for a partial erase-block write. 
+ I'm sure there are opportunities to be had in tree structure storage for indexes on SSDs. That's not something we've really explored in PostgreSQL yet. 
+ Most of the SSD-based DB servers I work with remain thoroughly disk I/O bound for normal operation. SSDs are fast, but not magic. Even PCI-E integrated SSDs can't compete with RAM, and big workloads tend to quickly saturate the SSD's write-back cache and queues. 
+ Similarly, walking an adjacency list in a RDBMS is still far from free in computational terms, the on disk representation is less compact than in a graph DB, etc. There's a lot to be gained from specialization where you need it. 
+ To truly look at what ultra-fast storage does to DBs you need to go a step further and look at PCIe RAM-based storage devices that're insanely, ridiculously fast. 
+ BTW, in a great many ways an SSD isn't that different to a SCSI HBA with a big battery-backed write cache. These have been around for a long time. An SSD will tend to have better random reads, but it's otherwise pretty similar. 
+ 

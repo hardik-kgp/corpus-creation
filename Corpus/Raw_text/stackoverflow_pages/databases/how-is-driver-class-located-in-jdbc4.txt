@@ -1,0 +1,40 @@
+*** how-is-driver-class-located-in-jdbc4 ***
+
+ One of the great additions in version 4 of JDBC You don't have to explicitly load the
+driver by calling   anymore. When your application attempts to connect the database for the first time,   automatically loads the driver found in
+the application  . 
+ **My question is how? What if there are multiple drivers in the classpath?**
+
+ One thing I can guess is that on parsing the connection URL whether driver needed is of JDBC or ODBC can be figured out but how can one say out of multiple jdbc compliant drivers which one is to be selected for the database I am using? (lets say I am using MySql and I need MySql-Connector driver). Is there any static mapping of such database drivers in JVM? 
+ 
+ Some information about JDBC4 driver loading taken from :  http://www.onjava.com/2006/08/02/jjdbc-4-enhancements-in-java-se-6.html 
+ 
+ When the method getConnection is called, the DriverManager will
+  attempt to locate a suitable driver from among the JDBC drivers that
+  were loaded at initialization and those loaded explicitly using the
+  same class loader as the current application. 
+ The DriverManager methods getConnection and getDrivers have been
+  enhanced to support the Java SE Service Provider mechanism (SPM).
+  According to SPM, a service is defined as a well-known set of
+  interfaces and abstract classes, and a service provider is a specific
+  implementation of a service. It also specifies that the service
+  provider configuration files are stored in the META-INF/services
+  directory. JDBC 4.0 drivers must include the file
+  META-INF/services/java.sql.Driver. This file contains the name of the
+  JDBC driver's implementation of java.sql.Driver. For example, to load
+  the JDBC driver to connect to a Apache Derby database, the
+  META-INF/services/java.sql.Driver file would contain the following
+  entry: 
+ 
+ 
+ Now coming to your question. 
+ 
+ My question is how? What if there are multiple drivers in the
+  classpath? 
+ 
+ As a class loader rule, any class found first will be loaded and if it is already loaded then will not be reloaded by the class loader. 
+ 
+ Every JDBC 4 compliant driver has a file in its jar called  , in that file it will list its implementation(s) of  . When you request a connection,   will use the   to find all(!) copies of   in the classpath and will then load all classes listed. When a   class is loaded, it has to register itself with the  , so the   loads all classes using the service loader, and each   implementation registers itself. 
+ When you request a connection from  , the   will iterate over all registered drivers asking them for a  . The driver will use the JDBC url to check if its a protocol it supports (eg Jaybird/Firebird JDBC checks if the url starts with   or  ). If the driver does not support the protocol, it will return  , if it does support the protocol it will either return an established connection, or it will throw an   (eg if you made an error in the URL, or it couldn't connect). If all drivers return   (none support the protocol), then   will throw an   with error  
+ So, having multiple drivers on the classpath does not matter as long as they support different protocols, however if there are multiple drivers for the same database (or at least: same protocol prefixes), it will use the first in the list of drivers. Depending on the Java version, if that driver fails with an  , it will continue with the next driver (at least Java 5 and later), or stop trying and throw the exception (I believe this was in Java 1.4 or maybe even earlier). 
+ 

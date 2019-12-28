@@ -1,0 +1,79 @@
+*** unique-key-with-nulls ***
+
+ This question requires some hypothetical background. Let's consider an   table that has columns  ,  ,  ,  , using MySQL as the RDBMS. Since if any given person has the same name and birth date as another person, they are, by definition, the same person (barring amazing coincidences where we have two people named Abraham Lincoln born on February 12, 1809), we'll put a unique key on   and   that means "don't store the same person twice." Now consider this data: 
+ 
+ If I now try to run the following statement, it should and will fail: 
+ 
+ If I try this one, it will succeed: 
+ 
+ And now my data will look like this: 
+ 
+ This is not what I want but I can't say I entirely disagree with what happened. If we talk in terms of mathematical sets, 
+ 
+ My guess is that MySQL says, "Since I don't  know  that Jim Johnson with a   birth date isn't already in this table, I'll add him." 
+ My question is:  **How can I prevent duplicates even though **
+** is not always known?**
+ The best I've come up with so far is to move   to a different table. The problem with that, however, is that I might end up with, say, two cashiers with the same name, title and salary, different birth dates and no way to store them both without having duplicates. 
+ 
+ A fundamental property of a  **unique key**
+ is that
+it must be unique. Making part of that key Nullable destroys this property. 
+ There are two possible solutions to your problem: 
+ 
+ One way, the wrong way, would be to use some magic date to represent unknown. This just gets you past
+the DBMS "problem" but does not solve the problem in a logical sense.
+Expect problems with two "John Smith" entries having unknown dates
+of birth. Are these guys one and the same or are they unique individuals?
+If you know they are different then you are back to the same old problem -
+your Unique Key just isn't unique. Don't even think about assigning a whole range of magic dates
+to represent "unknown" - this is truly the road to hell. 
+ A better way is to create an EmployeeId attribute as a surrogate key. This is just an
+arbitrary identifier that you assign to individuals that you  **know**
+ are unique. This
+identifier is often just an integer value.
+Then create an Employee table to relate the EmployeeId (unique, non-nullable
+key) to what you believe are the dependant attributers, in this case
+Name and Date of Birth (any of which may be nullable). Use the EmployeeId surrogate key everywhere that you
+previously used the Name/Date-of-Birth. This adds a new table to your system but
+solves the problem of unknown values in a robust manner. 
+ 
+ 
+ I think MySQL does it right here. Some other databases (for example Microsoft SQL Server) treat NULL as a value that can only be inserted once into a UNIQUE column, but personally I find this to be strange and unexpected behaviour. 
+ However since this is what you want, you can use some "magic" value instead of NULL, such as a date a long time in the past 
+ 
+ Your problem of not having duplicates based on name is not solvable because you do not have a natural key. Putting a fake date in for people whose date of birth is unknown will not solve your problem. John Smith born 1900/01/01 is still going to be a differnt person than John Smithh born 1960/03/09. 
+ I work with name data from large and small organizations every day and I can assure you they have two different people with the same name all the time. Sometimes with the same job title. Birthdate is no guarantee of uniqueness either, plenty of John Smiths born on the same date. Heck when we work with physicians office data we have often have two doctors with the same name, address and phone number (father and son combinations) 
+ Your best bet is to have an employee ID if you are inserting employee data to identify each employee uniquely.  Then check for the uniquename in the user interface and if there are one or more matches, ask the user if he meant them  and if he says no, insert the record. Then build a deupping process to fix problems if someone gets assigned two ids by accident.  
+ 
+ There is a another way to do it. Adding a column(non-nullable) to represent the String value of date_of_birth column. The new column value would be ""(empty string) if date_of_birth is null. 
+ We name the column as  **date_of_birth_str**
+ and create a unique constraint employee(name, date_of_birth_str). So when two recoreds come with the same name and null date_of_birth value, the unique constraint still works. 
+ But the efforts of maintenance for the two same-meaning columns, and, the performance harm of new column, should be considered carefully. 
+ 
+ I recommend to create additional table column   which will contain md5 hash of   and  . Drop unique key   because it doesn't solve the problem. Create one unique key on checksum. 
+ 
+ This solution creates small technical overhead, cause for every inserted pairs you need to generate hash (same thing for every search query). For further improvements you can add trigger that will generate hash for you in every insert: 
+ 
+ 
+ The perfect solution would be support for function based UK's, but that becomes more complex as mySQL would also then need to support function based indexes. This would prevent the need to use "fake" values in place of NULL, while also allowing developers the ability to decide how to treat NULL values in UK's. Unfortunately, mySQL doesn't currently support such functionality that I am aware of, so we're left with workarounds. 
+ 
+ (Note the use of the  **IFNULL()**
+ function in the unique key definition) 
+ 
+ I had a similar problem to this, but with a twist. In your case, every employee has a birthday, although it may be unknown. In that case, it makes logical sense for the system to assign two values for employees with unknown birthdays but otherwise identical information. NealB's accepted answer is very accurate. 
+ However, the problem I encountered was one in which the data field did not necessarily have a value. For example, if you added a 'name_of_spouse' field to your table, there wouldn't necessarily be a value for each row of the table. In that case, NealB's first bullet point (the 'wrong way') actually makes sense. In this case, a string 'None' should be inserted in the column name_of_spouse for each row in which there was no known spouse.  
+ The situation where I ran into this problem was in writing a program with database to classify IP traffic. The goal was to create a graph of IP traffic on a private network. Each packet was put into a database table with a unique connection index based on its ip source and dest, port source and dest, transport protocol, and application protocol. However, many packets simply don't have an application protocol. For example, all TCP packets without an application protocol should be classed together, and should occupy one unique entry in the connections index. This is because I want those packets to form a single edge of my graph. In this situation, I took my own advice from above, and stored a string 'None' in the application protocol field to ensure that these packets formed a unique group. 
+ 
+ You can add a generated column where the   value is replaced by an unused constant, e.g. zero. Then you can apply the unique constraint to this column: 
+ 
+ 
+ In simple words,the role of  **Unique constraint**
+ is to make the field or column.
+The  **null**
+ destroys this property as database treats null as  unknown 
+ Inorder to avoid duplicates and allow null: 
+ 
+ Make unique key as  **Primary key**
+
+ 
+ 

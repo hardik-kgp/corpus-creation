@@ -1,0 +1,99 @@
+*** sqlite-upsert-update-or-insert ***
+
+ I need to perform UPSERT / INSERT OR UPDATE against a SQLite Database. 
+ There is the command INSERT OR REPLACE which in many cases can be useful. But if you want to keep your id's with autoincrement in place because of foreign keys, it does not work since it deletes the row, creates a new one and consequently this new row has a new ID. 
+ This would be the table: 
+ players - (primary key on id, user_name unique) 
+ 
+ 
+ This is a late answer. Starting from SQLIte 3.24.0, released on June 4, 2018, there is finally a support for  UPSERT  clause following PostgreSQL syntax. 
+ 
+ 
+ Note: For those having to use a version of SQLite earlier than 3.24.0, please reference  this answer  below (posted by me, @MarqueIV). 
+ However if you do have the option to upgrade, you are  strongly encouraged  to do so as unlike my solution, the one posted here achieves the desired behavior in a single statement. Plus you get all the other features, improvements and bug fixes that usually come with a more recent release. 
+ 
+ 
+ Q&A Style 
+ Well, after researching and fighting with the problem for hours, I found out that there are two ways to accomplish this, depending on the structure of your table and if you have foreign keys restrictions activated to maintain integrity. I'd like to share this in a clean format to save some time to the people that may be in my situation. 
+ 
+ **Option 1: You can afford deleting the row**
+
+ In other words, you don't have foreign key, or if you have them, your SQLite engine is configured so that there no are integrity exceptions. The way to go is  INSERT OR REPLACE . If you are trying to insert/update a player whose ID already exists, the SQLite engine will delete that row and insert the data you are providing. Now the question comes: what to do to keep the old ID associated? 
+ Let's say we want to  UPSERT  with the data user_name='steven' and age=32. 
+ Look at this code: 
+ 
+ The trick is in coalesce. It returns the id of the user 'steven' if any, and otherwise, it returns a new fresh id. 
+ 
+ **Option 2: You cannot afford deleting the row**
+
+ After monkeying around with the previous solution, I realized that in my case that could end up destroying data, since this ID works as a foreign key for other table. Besides, I created the table with the clause  ON DELETE CASCADE , which would mean that it'd delete data silently. Dangerous. 
+ So, I first thought of a IF clause, but SQLite only has  CASE . And this  CASE  can't be used (or at least I did not manage it) to perform one  UPDATE  query if EXISTS(select id from players where user_name='steven'), and  INSERT  if it didn't. No go. 
+ And then, finally I used the brute force, with success. The logic is, for each  UPSERT  that you want to perform, first execute a  INSERT OR IGNORE  to make sure there is a row with our user, and then execute an  UPDATE  query with exactly the same data you tried to insert. 
+ Same data as before: user_name='steven' and age=32. 
+ 
+ And that's all! 
+ **EDIT**
+
+ As Andy has commented, trying to insert first and then update may lead to firing triggers more often than expected. This is not in my opinion a data safety issue, but it is true that firing unnecessary events makes little sense. Therefore, a improved solution would be: 
+ 
+ 
+ Here's an approach that doesn't require the brute-force 'ignore' which would only work if there was a key violation.  This way works based on  any  conditions you specify in the update. 
+ Try this... 
+ 
+ **How It Works**
+
+ The 'magic sauce' here is using   in the   clause.    represents the number of rows affected by the last operation, which in this case is the update. 
+ In the above example, if there are no changes from the update (i.e. the record doesn't exist) then   = 0 so the   clause in the   statement evaluates to true and a new row is inserted with the specified data. 
+ If the    did  update an existing row, then   = 1 (or more accurately, not zero if more than one row was updated), so the 'Where' clause in the   now evaluates to false and thus no insert will take place. 
+ The beauty of this is there's no brute-force needed, nor unnecessarily deleting, then re-inserting data which may result in messing up downstream keys in foreign-key relationships. 
+ Additionally, since it's just a standard   clause, it can be based on anything you define, not just key violations. Likewise, you can use   in combination with anything else you want/need anywhere expressions are allowed. 
+ 
+ The problem with all presented answers it complete lack of taking triggers (and probably other side effects) into account.
+Solution like 
+ 
+ leads to both triggers executed (for insert and then for update) when row does not exist. 
+ Proper solution is 
+ 
+ in that case only one statement is executed (when row exists or not). 
+ 
+ To have a pure UPSERT with no holes (for programmers) that don't relay on unique and other keys: 
+ 
+ SELECT changes() will return the number of updates done in the last inquire.
+Then check if return value from changes() is 0, if so execute: 
+ 
+ 
+ You can also just add an ON CONFLICT REPLACE clause to your user_name unique constraint and then just INSERT away, leaving it to SQLite to figure out what to do in case of a conflict. See: https://sqlite.org/lang_conflict.html .  
+ Also note the sentence regarding delete triggers: When the REPLACE conflict resolution strategy deletes rows in order to satisfy a constraint, delete triggers fire if and only if recursive triggers are enabled. 
+ 
+ Option 1: Insert -> Update 
+ If you like to avoid both   and   even if you cannot afford deleting the row - You can use this logic; 
+ First,  **insert**
+ (if not exists) and then  **update**
+ by filtering with the unique key. 
+ Example 
+ 
+ Regarding Triggers 
+ Notice: I haven't tested it to see the which triggers are being called, but I  **assume**
+ the following: 
+ **if row does not exists**
+
+ 
+ BEFORE INSERT 
+ INSERT using INSTEAD OF 
+ AFTER INSERT 
+ BEFORE UPDATE 
+ UPDATE using INSTEAD OF 
+ AFTER UPDATE 
+ 
+ **if row does exists**
+
+ 
+ BEFORE UPDATE 
+ UPDATE using INSTEAD OF 
+ AFTER UPDATE 
+ 
+ Option 2: Insert or replace - keep your own ID 
+ in this way you can have a single SQL command 
+ 
+ Edit: added option 2. 
+ 

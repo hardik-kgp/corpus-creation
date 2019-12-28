@@ -1,0 +1,29 @@
+*** oracle-do-you-need-to-calculate-statistics-after-creating-index-or-adding-colu ***
+
+ We use an Oracle 10.2.0.5 database in Production. 
+ Optimizer is in "cost-based" mode. 
+ Do we need to calculate statistics (DBMS_STATS package) after: 
+ 
+ creating a new index 
+ adding a column 
+ creating a new table 
+ 
+ ? 
+ Thanks 
+ 
+ There's no short answer.  It totally depends on your data and how you use it.  Here are some things to consider: 
+ As @NullUserException pointed out, statistics are automatically gathered, usually every night.  That's usually good enough; in most (OLTP) environments, if you just added new objects they won't contain a lot of data before the stats are automatically gathered.  The plans won't be that bad, and if the objects are new they probably won't be used much right away. 
+ 
+ creating a new index - No.   "Oracle Database now automatically collects statistics during index creation and rebuild". 
+ adding a column - Maybe.  If the column will be used in joins and predicates you probably want stats on it.  If it's just used for storing and displaying data it won't really affect any plans.  But, if the new column takes up a lot of space it may significantly alter the average row length, number of blocks, row chaining, etc., and the optimizer should know about that. 
+ creating a new table - Probably.  Oracle is able to compensate for missing statistics through  dynamic sampling , although this often isn't good enough.  Especially if the new table has a lot of data; bad statistics almost always lead to under-estimating the cardinality, which will lead to nested loops when you want hash joins.  Also, even if the table data hasn't changed, you may need to gather statistics one more time to enable histograms.  By default, Oracle creates histograms for skewed data, but will not enable those histograms if those columns haven't been used as a predicate.  (So this applies to adding a new column as well).  If you drop and re-create a table, even with the same name, Oracle will not maintain any of that column use data, and will not know that you need histograms on certain columns. 
+ 
+ Gathering optimizer statistics is much more difficult than most people realize.  At my current job, most of our performance problems are ultimately because of bad statistics.  If you're trying to come up with a plan for your system you ought to read the  Managing Optimizer Statistics chapter .  
+ 
+ **Update:**
+
+ There's no need to gather statistics for empty objects; dynamic sampling will work just as quickly as reading stats from the data dictionary.  (Based on a quick test hard parsing a large number of queries with and without stats.)  If you disable dynamic sampling then there may be some weird cases where the Oracle default values lead to inaccurate plans, and you would be better off with statistics on an empty table. 
+ I think the reason Oracle automatically gathers stats for indexes at creation time is because it doesn't cost much extra.  When you create an index you have to read all the blocks in the table, so Oracle might as well calculate the number of levels, blocks, keys, etc., at the same time. 
+ Table statistics can be more complicated, and may require multiple passes of the data.  Creating an index is relatively simple compared to the arbitrary SQL that may be used as part of a create-table-as-select.  It may not be possible, or efficient, to take those arbitrary SQL statements and transform them into a query that also returns the information needed to gather statistics. 
+ Of course it wouldn't cost anything extra to gather stats for an empty table.  But it doesn't gain you anything either, and it would just be misleading to anyone who looks at the USER_TABLES.LAST_ANALYZED - the table appear to be analyzed, but not with any meaningful data. 
+ 

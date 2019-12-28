@@ -1,0 +1,52 @@
+*** null-permitted-in-primary-key-why-and-in-which-dbms ***
+
+ Further to my question  "Why to use ´not null primary key´ in TSQL?" ... 
+ As I understood from other discussions, some RDBMS (for example SQLite,  MySQL ) permit "unique" NULL in the primary key.  
+ Why is this allowed and how might it be useful? 
+ Background: I believe it is beneficial for communication with colleagues and database professionals to know the differences in fundamental concepts, approaches and their implementations in different DBMS. 
+ 
+ 
+ MySQL is rehabilitated and returned to the "NOT NULL PK" list. 
+ SQLite has been added (thanks to Paul Hadfield) to "NULL PK" list: 
+ 
+ 
+ For the purposes of determining the uniqueness of primary key values,  NULL values are considered distinct from all other values, including other NULLs.   
+ If an INSERT or UPDATE statement attempts to modify the table content so that two or more rows feature identical primary key values, it is a constraint violation. According to the SQL standard, PRIMARY KEY should always imply NOT NULL. Unfortunately, due to a long-standing coding oversight, this is not the case in SQLite.  
+ Unless the column is an INTEGER PRIMARY KEY  **SQLite allows NULL values in a PRIMARY KEY column**
+. We could change SQLite to conform to the standard (and we might do so in the future), but by the time the oversight was discovered, SQLite was in such wide use that we feared breaking legacy code if we fixed the problem.  
+ So for now we have chosen to continue allowing NULLs in PRIMARY KEY columns. Developers should be aware, however, that we may change SQLite to conform to the SQL standard in future and should design new programs accordingly.  
+ —  SQL As Understood By SQLite: CREATE TABLE 
+ 
+ 
+ Suppose you have a primary key containing a nullable column Kn. 
+ If you want to have a second row rejected on the ground that in that second row, Kn is null and the table already contains a row with Kn null, then you are actually requiring that the system would treat the comparison "row1.Kn = row2.Kn" as giving TRUE (because you somehow want the system to detect that the key values in those rows are indeed equal).  However, this comparison boils down to the comparison "null = null", and the standard already explicitly specifies that null doesn't compare equal to anything, including itself. 
+ To allow for what you want, would thus amount to SQL deviating from its own principles regarding the treatment of null.  There are innumerable inconsistencies in SQL, but this particular one never got past the committee. 
+ 
+ I don't know whether older versions of MySQL differ on this, but as of modern versions a primary key must be on columns that are not null. See  the manual page on  : "A   is a unique index where all key columns must be defined as  . If they are not explicitly declared as  , MySQL declares them so implicitly (and silently)." 
+ 
+ As far as relational database theory is concerned: 
+ 
+ The primary key of a table is used to uniquely identify each and every row in the table 
+ A NULL value in a column indicates that you don't konw what the value is 
+ Therefore, you should never use the value of "I don't know" to uniquely identify a row in a table. 
+ 
+ Depending upon the data you are modelling, a "made up" value can be used instead of NULL. I've used 0, "N/A", 'Jan 1, 1980', and similar values to represent dummy "known to be missing" data. 
+ Most, if not all, DB engines do allow for a UNIQUE constraint or index, which does allow for NULL column values, though (ideally) only one row may be assigned the value null (otherwise it wouldn't be a unique value). This can be used to support the irritatingly pragmatic (but occasionally necessary) situations that don't fit neatly into relational theory. 
+ 
+ Well, it could allow you to implement the  Null Object Pattern  natively within the database.  So if you were using something similar in code, which interacted very closely with the DB, you could just look up the object corresponding to the key without having to special-case a null check. 
+ Now whether this is worthwhile functionality I'm not sure, but it's really a question of whether the pros of disallowing null pkeys in absolutely all cases outweigh the cons of obstructing someone who (for better or worse) actually wants to use null keys.  This would only be worth it if you could demonstrate some non-trivial improvement (such as faster key lookup) from being able to guarantee that keys are non-null.  Some DB engines would show this, others might not.  And if there aren't any real pros from  forcing  this, why artificially restrict your clients? 
+ 
+ As discussed in other answers, NULL was intended to mean "the information that should go in this column is unknown".  However, it is  also  frequently used to indicate an alternative meaning of "this attribute does not exist".  This is a particularly useful interpretation when looking at timestamp fields that are interpreted as the time some particular event occurred, in which case NULL is often used to indicate that the event has not yet occurred. 
+ It is a problem that SQL doesn't support this interpretation very well -- for this  to work properly, it really needs to have a separate value (something like "never") that doesn't behave as null does ("never" should be equal to "never" and should compare as higher than all other values).   But as SQL lacks this notion, and there is no convenient way to add it, using null for this purposes is often the best choice. 
+ This leaves the problem that when a timestamp of an event that may have not occurred should be part of the primary key of a table (a common requirement perhaps being the use of a natural key along with a deletion timestamp when using soft deletion with a requirement for the ability to recreate the item after deletion) you really want the primary key to have a nullable column.  Alas, this is not allowed in most databases, and instead you have to resort to an artificial primary key (e.g. a row sequence number) and a UNIQUE constraint for what should otherwise have been your actual primary key. 
+ An example scenario, in order to clarify this: I have a   table. As I require each user to have a distinct username, I decide to use   as the primary key.  I want to support user deletion, but as I need to track the existence of users historically for auditing purposes I use soft deletion (in the first version of the schema, I add a 'deleted' flag to the user, and ensure that the deleted flag is checked in all queries where only active users are expected). 
+ An additional requirement, however, is that if a username is deleted, it should be  available for new users to register.  An attractive way to achieve this would be to have the deleted flag change to a nullable timestamp (where nulls indicate that the user has not been deleted) and put this in the primary key.  Were primary keys to allow nullable columns, this would have the following effect: 
+ 
+ Creating a new user with an existing username when that user's   column is null would be denied as a duplicate key entry 
+ Deleting a user changes its key (which requires changes to cascade to foreign keys that reference the user, which is suboptimal but if deletions are rare is acceptable) so that the   column is a timestamp for the when the  deletion occurred 
+ Now a new user (which would have a null   timestamp) can be successfully created. 
+ 
+ However, this cannot actually be achieved with standard SQL, so instead one must use a different primary key (probably a generated numeric user id in this case) and use a UNIQUE constraint to enforce the uniqueness of ( , ). 
+ 
+ Having primary key null can be beneficial in some scenarios. In one of my projects I used this feature during synchronisation of databases: one on server and many on different users devices. Considering the fact that not all users have access to the Internet all the time, I decided that only the main database will be able to give ids to my entities. SQLite has its own mechanism for numbering rows. Had I used additional id field I would use more bandwith. Having null as id not only notifies me that an entity has been created on clients device when he hadn't access to the Internet, but also decreases code complexity. The only drawback is that on clients device I can't get an entity by it's id unless it was previously synchronised with main database. However thats not an issue since my user cares for entities for their parameters, not their unique id. 
+ 

@@ -1,0 +1,47 @@
+*** best-practices-for-multithreaded-processing-of-database-records ***
+
+ I have a single process that queries a table for records where   = 'N', does some processing, and then updates the   to 'Y'.  
+ I'd like to allow for multiple instances of this process to run, but don't know what the best practices are for avoiding concurrency problems.  
+ Where should I start? 
+ 
+ The pattern I'd use is as follows: 
+ 
+ Create columns "lockedby" and "locktime" which are a thread/process/machine ID and timestamp respectively (you'll need the machine ID when you split the processing between several machines) 
+ Each task would do a query such as: 
+ UPDATE taskstable SET lockedby=(my id), locktime=now() WHERE lockedby IS NULL ORDER BY ID LIMIT 10 
+ 
+ Where 10 is the "batch size".  
+ 
+ Then each task does a SELECT to find out which rows it's "locked" for processing, and processes those 
+ After each row is complete, you set lockedby and locktime back to NULL 
+ All this is done in a loop for as many batches as exist. 
+ A cron job, or scheduled task, periodically resets the "lockedby" of any row whose locktime is too long ago, as they were presumably done by a task which has hung or crashed. Someone else will then pick them up 
+ 
+ The LIMIT 10 is MySQL specific but I think other databases have equivalents. The ORDER BY is import to avoid the query being nondeterministic. 
+ 
+ Although I understand the intention I would disagree on going to row level locking immediately. This will reduce your response time and may actually make your situation worse. If after testing you are seeing concurrency issues with APL you should do an iterative move to “datapage” locking first! 
+ To really answer this question properly more information would be required about the table structure and the indexes involved, but to explain further. 
+ DOL, datarow locking uses a lot more locks than allpage/page level locking. The overhead in managing all the locks and hence the decrease of available memory due to requests for more lock structures within the cache will decrease performance and counter any gains you may have by moving to a more concurrent approach. 
+ Test your approach without the move first on APL (all page locking ‘default’) then if issues are seen move to DOL (datapage first then datarow). Keep in mind when you switch a table to DOL all responses on that table become slightly worse, the table uses more space and the table becomes more prone to fragmentation which requires regular maintenance. 
+ So in short don’t move to datarows straight off try your concurrency approach first then if there are issues use datapage locking first then last resort datarows. 
+ 
+ You should enable   on the table with: 
+ 
+ Then you: 
+ 
+ Begin the transaction 
+ Select your row with   option (which will lock it) 
+ Do whatever you want. 
+ 
+ No other process can do anything to this row until the transaction ends. 
+ P. S.  Some mention overhead problems that can result from using  . 
+ Yes, there is overhead, though i'd hardly call it a problem for a table like this. 
+ But if you switch to   then you may lock only one row per   (  by default), and processes whose rows reside in one page will not be able to run concurrently. 
+ If we are talking of table with dozen of rows being locked at once, there hardly will be any noticeable performance drop. 
+ Process concurrency is of much more importance for design like that. 
+ 
+ The most obvious way is locking, if your database doesn't have locks, you could implement it yourself by adding a "Locked" field. 
+ Some of the ways to simplify the concurrency is to randomize the access to unprocessed items, so instead of competition on the first item, they distribute the access randomly. 
+ 
+ Convert the procedure to a single SQL statement and process multiple rows as a single batch. This is how databases are supposed to work. 
+ 

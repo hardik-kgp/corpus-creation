@@ -1,0 +1,97 @@
+*** two-different-tables-or-just-one-with-bool-column ***
+
+ We have two tables: OriginalDocument and ProcessedDocument. In the first one we put an original, not processed document. After it's validated and processed (converted to our XML format and parsed), it's put into ProcessedDocument table. Processed document can be valid or invalid.  **Which makes more sense: have two different tables for valid and invalid documents or just have one with 'Valid' column?**
+ Some of the columns (~5-7) are irrelevant for invalid document. Storing both invalid and valid documents would also make Document table filled with 'NULL' columns (if document is invalid, information like document number, receiver can be unknown). What else should we consider and weigh, when making this decision? 
+ 
+ Whether the document is valid or invalid, it is still a document so it makes inital sense for them all to be in the same table. 
+ However, if an invalid document is treated differently by your application to the point where it is almost forgotten (not queried, updated etc.) then split the tables. Having the two types of document together in the same table will do nothing but slow down your queries for no immediate benefit. 
+ I have a document table where valid and invalid documents are kept together but only because the app re-presents the bad document to the user and asks them to fix it. 
+ 
+ To me it sounds that it would make sense to have a bit column, as all documents have actually been processed, it is just that some have been determined to be invalid.  And depending on the number of columns if you only have 5 or so out of say 10-15 columns that don't apply, there is no need to manage two structures for the same data. 
+ Now, another thing you could look at is do you need to regularly get information on both valid and invalid documents at the same time?  if so, then you really do want it in one table. 
+ If you don't ever need to query them together, or if a document is "invalid" you don't need it again except for history, then it could make sense to move it to its own table. 
+ 
+ Wow, so much bad advice and design myths in a single question it's hard to know where to start. 
+ Is this a VLDB? are you talking 100's of TB, 100's of GB, 1-10 GB? 
+ Is this an untra-high performance DB? Do you need to squeeze out microseconds? 
+ Most advice tends to lean toward those extremes where you might break a few basic rules for the sake of performance. 
+ An earlier poster said,  
+ 
+ "Whether the document is valid or
+  invalid, it is still a document so it
+  makes inital sense for them all to be
+  in the same table." 
+ 
+ He was on the right track there. And for that matter, whether it's processed or unprocessed it's also a document. I strongly question the first table split. 
+ He then says,  
+ 
+ "Having the two types of document
+  together in the same table will do
+  nothing but slow down your queries for
+  no immediate benefit." 
+ 
+ I have no idea what that advice is based upon. If your RDBMS supports indexes, more data will have a very marginal additional cost at certain sizes of your index because your b-tree gets one level deeper. If you take his statement at face value, you should limit your table to  n  rows each and keep making new ones because "more data in your table = slower queries." I have no idea why people persist in this notion. If you have queries that REQUIRE full table scans for one type or the other, let's talk partitioning, not a new table. It takes about an extra 10 milliseconds to find a row in a billion row table than it does in a million row table because an index will probably only be one blevel deeper between the two. 
+ Another poster said,  
+ 
+ "5-7 columns that do not apply to
+  invalid documents NOT NULL so valid
+  documents are required to have them.
+  In my opinion, with that many columns
+  empty for invalid documents, it
+  justifies a different table." 
+ 
+ I wish people would explain there reasons. HOW does it justify it? On what basis would you make that decision. Is 4 too many? Why not? But 5 is too many? Maybe he assumes you're using an ancient RDBMS with fixed field lengths. I can't tell.  If you put the nullable columns at the end of the row, you'll pay no cost for them. In the middle, a few extra bytes. If that's a HUGE deal, if you're really scrambling to make this multi-TB table a wee smaller... we'll talk about vertical partitioning... not a whole new table. Since you'll be extending the length of n% of rows, you'll want to carefully choose your PCTFREE, or how ever your database does that. Other than that, there's little downside of the nullable columns. 
+ So let's talk about all the downsides of three tables. 
+ I'm going to assume your table looks like this; 
+ 
+ The first issue is that you'll have 3 PK's across all the tables to make sure that the key is unique... but there's no cross table object to guarantee uniqueness in all three combined. Unless you're painstaking in your approach to the code that moves data from one table to the next, you could have the same document twice or more. Once in each table. If you have a single table for Original, processed, and invalid, then there's no way you'll ever have that happen. 
+ With three tables, all of your constraints are going to be validated over and over. When you do your insert into the Original table, the PK is validated, the AK is validate, the FKs are validated, the other columns are validate. Room is made in all of the indexes for these new enteries, and perhaps causing block splits. Now you process the file and delete the entry from the Original table, all of those indexes suffer deletes, leaving empty space behind. Your insert into the next table, suffers all of that cost of your first insert again. Your indexes are acted upon, maybe causing block splits, your PK, AK and FK's are all validated again. Lather rinse repeat for invalid table. 
+ Now, what happens to your data model if you adopt this paradigm when you discover that the business needs a 4th state? You're going to add a 4th document table for those in the unsubmitted state, or sent state. After all, the new sent state has 5-7 columns unneeded by the other states. 
+ And there are lots of queries which become hoorible to write and run with multiple tables, with a single table they are clear, concise and fast... size of a table will really only affect Full Table Scans, which we try to avoid for tables like these. 
+ I've seen systems like these. One major operational query is, "Where is my document?" 
+ You've got to search 3 tables to find its state. What most people do next is build a UNION ALL view of all three tables to facilitate the myriad of questions like that. IF the other poster thinks your queries slow down with other data in your table, see how they really slow down when you do a UNION ALL to accomplish the same thing. 1 index of blevel 3 as opposed to 3 indexes of blevel 2.  
+ **EXAMPLE/EDIT**
+
+ I work in a trading company. We execute trades with  **counterparties**
+. For accounting and legal reasons our  company  is defined as several companies. Well call them Trading, Holding, JointVenture. Our counterparties we'll call. JonesCo, SmithBarely, GoldSax. 
+ So if I consider that the internal companies have a unique set of columns and the counterparties have a unique set of columns. You'd say that proper normalization would force them into two tables. So let's do that. 
+ INT_CO_T
+1 Trading
+2 Holding
+3 JointVenture 
+ CNTR_PTY_T
+1 JonesCo
+2 SmithBarely
+3 GoldSax 
+ Now I need a  trade  table where I map the transaction between our company(ies) and counterparties 
+ TRADE_T (Int_co_T.ID, Ctr_pty_T.ID, other trade columns) 
+ Great. 
+ Whoops, Business says that the JointVenture will execute trades with Trading. BTW, This is a very common scenario, this happens all the time. Trading house would call these Book-to-Book trades. 
+ Now I'm left with two choices. (Three really) but. 
+ 1 is that I could do something very silly and place JointVenture and Trading into the Counterparty table so that my mapping table will still work. This leads to nightmare queries which I'm sure those involved in this conversation will recognize. Or I can build a separate Mapping table.. and that too leads to some unions if I want to see all of the trades from a given company.  
+ The third and better way is to build a single table for both counterparties and internal companies, called Trading_entities or something. Now I need one mapping table to show either internal or external trades. I can easily see net position and net exposure with one query, two tables. etc. 
+ If you're really hung up on the nullable fields then vertically partition that table and use three tables. But the main table will have a list and most importantly a single key for either subtype of trading participant. 
+ 
+ Do try to make distinction between logical and physical modelling. 
+ Even if the difference between the two entities is only seven properties, they are logically a different thing in those seven items.
+At the same time they are a same thing in other properties. 
+ The way to logically represent that is this have one-to-one-or-zero relationship between the two tables, and to have one table store all the common properties (superclass) and in the other (subclass) you would only store the ID from the superclass. 
+ In terms of performance this is not so bad: 
+ 
+ when you don't care about what type of document you work with you will query the superclass table (gain) 
+ when you know you want only specific properties found in the subclass table you will work only with that table (this might be real gain) 
+ you will pay a price only when you need to join the two tables (joins have a price compared to denormalized structures such as storing everything in a single table)    
+ you will also pay a price when inserting subclass records, because you will be inserting into two tables (this might be very low and/or justified) 
+ 
+ Depending on the processes you are modelling, the frequency of these queries and other things (such as security for both entities, ownership, difference in integrity rules) you might decide to store this information in one table in the database or in two (either can be much faster in border-line cases and two table solution can also be denormalized a bit; for example you could still store information in a main table about the type of the document to avoid the join if that kind of query is all you care).  
+ Or maybe your implementation decisions might be driven by your choice of application framework and for that reason you might really prefer working with single table or the other way around (for example automatic creation of data entry forms in frameworks such as django-admin).  
+ Whatever you do, realize the difference between the logical and physical design. In your logical design normalize everything - it will pay off. In physical implementation make different scenarios and - test, test, test with your own data. Never confuse the order of the two (logical-conceptual and physical-practical modelling). 
+ 
+ What shape are your queries? Do you frequently wish to deal with a group (all?) documents, irrespective of whether they're valid? Or does every query only every concern valid (or invalid) documents. 
+ Or do you wish to deal with groups (irrespective of validity), but wish to frequently perform additional work with valid documents. That may point to a base table and an additional table containing the valid document columns? 
+ 
+ Think of OriginalDocuments as of intermediate table. It can change as you input formats change. And it will contain fields which are not valid for imported ("processed") documents, like import date or import error description. And you can clean this table periodically. 
+ In contrast to OriginalDocument, ProcessedDocument table will contain only documents and fields valid for your system, with all of the check constraints, indexes and associated business logic. It's structure will change as your system's internal logic changes. 
+ 
+ Another thing you might want to take into consideration is the lifecycle and use cases of the rows.  If the invalid documents are purged regularly, it might help to have them in separate tables.  If the attributes of invalid documents stay limited, but valid documents are getting new columns, that would be a factor in favor of separate tables, too.  As the entities are more and more different in behavior and usage, there are more indications that separate tables are merited. 
+ 

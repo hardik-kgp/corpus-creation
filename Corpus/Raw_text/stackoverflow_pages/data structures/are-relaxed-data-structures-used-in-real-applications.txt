@@ -1,0 +1,63 @@
+*** are-relaxed-data-structures-used-in-real-applications ***
+
+ I am learning about concurrent data structures, and I have come across a broad research literature on  **relaxed**
+ data structures, such as k-relaxed queues, stacks, counters, etc. See, e.g., here 
+ https://github.com/cksystemsgroup/scal#data-structures 
+ or here  
+ http://www.faculty.idc.ac.il/gadi/MyPapers/2015ST-RelaxedDataStructures.pdf 
+ The idea is that a relaxed data structure offers weaker guarantees (e.g., a dequeue operation of a k-relaxed FIFO queue is free to give any of the first k elements). Ideally, the relaxed data structures offer better performance than the strict ones. 
+ The problem is that, as far as I see, these data structures are evaluated only on some micro-benchmarks (as in the first link above), measuring only pure performance/throughput of data structure operations, and not looking at how the relaxation influences the overall application design and performance. 
+ Have you ever used such relaxed data structures  **in real applications**
+, or can you imagine plugging in relaxed data structures into your application to obtain performance gains? Or are those data structures a purely academic exercise? 
+ 
+ **Quick Answer**
+
+ Here's a quick answer by analogy. Relaxed structures are comparable to  normal 0  concurrent structures, in the same way that  normal  concurrent structures are comparable to normal non-concurrent structures. 
+ Most  uses of data structures in an application are the plain-jane non-current ones, either because they are not shared, or because some type of coarse-grained locking is sufficient to share them. They offer a simple API and are easy to reason about, even in the presence of concurrent access when coarse-grained locking is used. To give a specific example, you'll probably find 20 to 100 uses of plain   implementations for every use  . 
+ That doesn't make   useless! In the 5% of places it  is  used, there may be no real substitute, performance wise! 
+ Similarly, you are usually going to do just find with the non-relaxed concurrent structures in those places, but there may be an additional 5% (so now 0.25% of the total   use) that could benefit from the relaxed structures (at the cost of additional complexity when reasoning about the system, and possibly theoretically visible service order changes for clients). 
+ **Long Answer**
+
+ I think there are two separate implied questions here: 
+ 
+ Are relaxed data structures actually faster than their non-relaxed equivalents in actual use? 
+ Are related data structures actually useful in real-world applications given their weaker guarantees? 
+ 
+ I can speak about my personal experience for both of them. I have used "relaxed structures" before I even knew thew were called relaxed structures. 
+ Are Relaxed Structures Actually Faster? 
+ First, maybe you are asking if relaxed structures are actually faster than their non-relaxed equivalents?  
+ The easy answer is "Yes, but only at the extremes of concurrent access".  
+ Microbenchmarks already show the extremes of performance. You usually have one structure which is continually accessed (i.e., with a  duty cycle  near 100%) from multiple threads. At these extremes of contention, relaxed data structures may show an order of magnitude improvement over their non-relaxed cousins. You have to realize, however, that the  vast majority  of structures are not accessed in such a fashion. Even structures which are already using concurrent data structures (think   in Java), are usually accessed rarely as a percentage of total execution time, and the use of concurrent structure is necessary more for correctness and high-sigma response time than performance 1 . 
+ **Usually No**
+
+ That said, just because the vast majority of structures in your application don't need higher concurrent performance, it doesn't mean that it's worthless: the few structures (if any) that  do  need it, may constitute a high percentage of total accesses. What I mean is, if you look at the code level: "How many declaration of  map objects  in my application need a fast concurrent structure?", then the answer is likely to be "not many" - but if you look at the runtime level: "How many  accesses to map objects  in my application need a fast concurrent structure?" - then the answer might be a "a lot of them". It depends if you weight by "use in code" or "use at runtime". 
+ **Sometimes Yes**
+
+ Once you start tuning a highly concurrent application, you are very likely to run into a concurrency bottleneck at some point. Even if you application is very parallel - such as processing many independent incoming requests in parallel, you'll usually want to introduce some type of shared state for caching, logging, security checks or simply because your application does have some amount of shared writable state. Whatever structure you use there may indeed suffer from high contention. 
+ As a final point on the first question: a lot of it also depends on the hardware you use. A typical behavior of contended structure is that tend to flatline in throughput under concurrent access, regardless of the number of cores accessing the structure - i.e., the maximum throughput of this structure is X, regardless of concurrency. Often that is in fact the  best  case: you may instead reach peak throughput a moderate amount of concurrency and then total throughput drops after that. 
+ **It Is Hardware Dependent**
+
+ The impact of this depends on your hardware. If you are on a single-socket development machine with 4 cores, then this behavior isn't too terrible. You effectively drop down to 1 core for the concurrent parts, but that still leaves 25% of the maximum power available (one core). So if the inherently concurrent part of your load is 10% of the total load, then you still achieve   of the total throughput, despite your contention. No not a problem you'd reorganize your application over. Then may you deploy to production and you are running on a 2-socket, 18-core box and it looks like   - i.e., you are getting less than a quarter of the ideal performance level because of your concurrency bottleneck. That is a problem.  
+ That's with the "simple" view of concurrent scaling, where performance is constant for the contended part - in reality increased contention may decrease performance, making the performance worse. 
+ **Summary**
+
+ So the long answer then finishes in the same way as the short answer - yes, there are places in highly concurrent applications that can benefit from structures that perform better in contention, but they are small in number. You have to first remove all the places where false sharing is occurring, where you have non-contention bottlenecks, and then you'll find the places where  true sharing  occurs and may benefit. 
+ Can Relaxed Structures Be Used in Practice? 
+ Absolutely, yes. This is the easy part. There are many times when you need a structure that that offers weaker guarantees than the underly structure you want. For example, if you are just going to store a bunch of objects with no duplicates, in no particular order, you might use an array/vector or a linked list or a set-like structure. Each of the choices gives some advantage over the other, at the cost of some disadvantage in other scenarios (for example, arrays allow constant-time access to any element given its index, but cannot insert elements anywhere other than the end without paying an   cost). 
+ You don't often find structures with  even weaker  guarantees than the existing ones, because outside of concurrency there aren't really any structures are  even faster  than the basic ones, with weaker guarantees. Try it - choose a "collection" API that has the lowest-common-denominator guarantees out of arrays, linked lists, hash tables, trees, etc. I.e., it doesn't need to have fast insertion in the middle, it doesn't offer fast search by element, it doesn't offer fast indexing, etc, etc - can you make any basic operation faster?  
+ This scenario is very common: scan through the source code for anything you've written lately and check out how you used   in Java or   in C++, or just plain arrays: in each case, which of the high performance operations did you actually need? Often you are just holding a collection of elements and iterating over them later - that's it!  
+ Once you introduce the new axis of  **concurrent performance**
+ - you  can  use weaker guarantees to make a faster structure. Arrays are problematic because to preserve exact insertion order you always end up contenting on some type of shared  size  variable. Linked lists are problematic because the head/tail nodes are contended and so on. 
+ There there is a place for weaker structures. For example, a "bad" of elements, that doesn't offer FIFO insertion/iteration order, doesn't offer fast search by equality, etc. Many uses are fine with this weakening. 
+ **Concretely**
+
+ Here are a couple of places I've  actually used  or seen used relaxed structures in high-performance concurrent systems: 
+ 
+ For statistics collection: high-concurrent systems processing mostly independent requests often scale well because the requests do not share much mutable data. Once you start collecting system-wide fine-grained statistics, however, you have a contention point. Usually you don't need any kind of FIFO ordering for statistics and don't need searchability (at the collect point anyway) - so the in-process statistics collector code is an obvious place where relaxed structures are useful. 
+ For logging: in the same way as stasitics above, many systems have a  global  logging facility, which might become a point of contention. Usually you want log messages to appear in FIFO order, since out of order messages are very confusing, but you might not care much about the order of messages from independent threads in the log, or you might know exactly which messages need to occur in-order wrt other threads. Here again relaxed structures are a natural fit. 
+ The general problem of processing or redistributing a high-volume stream of incoming requests. Imagine what any web-server does - it processes a large number of incoming quests. Usually those requests come from many different users and it doesn't matter if the requests are processed in the exact order they arrive. There are  some  ordering cases that do matter however - usually among requests from the same user or session (e.g., image a user who submits some change with a   and then issues a   to reload the page: she would expect to see the changes from the previous   reflected in the  ). So many of the front-end structures to handle the requests would relax the usual ordering requirements for performance. 
+ 
+ 
+ 0  By  normal  concurrent structures, I mean structures like   which are designed for better performance under concurrency, but usually keep their usual ordering guarantees and so on. That is, they are made about as concurrent as possible withing the boundaries of the existing API. 
+ 1  Admittedly, this glosses over the difference between  average  performance, and other "long tail" performance issues. I.e., a structure may be accessed infrequently on average, but under certain scenarios access may skyrocket and it can become a bottleneck under this particular load. 
+ 

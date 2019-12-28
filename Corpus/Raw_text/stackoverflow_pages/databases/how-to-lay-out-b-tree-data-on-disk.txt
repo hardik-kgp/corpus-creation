@@ -1,0 +1,47 @@
+*** how-to-lay-out-b-tree-data-on-disk ***
+
+ I know how a B-Tree works in-memory, it's easy enough to implement. However, what is currently completely beyond me, is how to find a data layout that works effectively on disk, such that: 
+ 
+ The number of entries in the B-Tree can grow indefinitly (or at least to > 1000GB) 
+ Disk-level copying operations are minimized 
+ The values can have arbitrary size (i.e. no fixed schema) 
+ 
+ If anyone could provide insight into layouting B-Tree structures on disk level, I'd be very grateful. Especially the last bullet point gives me a lot of headache. I would also appreciate pointers to books, but most database literature I've seen explains only the high-level structure (i.e. "this is how you do it in memory"), but skips the nitty gritty details on the disk layout. 
+ 
+ UPDATE(archived version of oracle index internals):  http://web.archive.org/web/20161221112438/http://www.toadworld.com/platforms/oracle/w/wiki/11001.oracle-b-tree-index-from-the-concept-to-internals 
+ 
+ OLD (the original link does not exist anymore):
+some info about oracle index internals:   http://www.toadworld.com/platforms/oracle/w/wiki/11001.oracle-b-tree-index-from-the-concept-to-internals 
+ Notes:  
+ Databases do not directly implement indexes based on B-tree but on a variant called B+ tree. Which according to wikipedia: 
+ 
+ A B+ tree can be viewed as a B-tree in which each node contains only keys (not key-value pairs), and to which an additional level is added at the bottom with linked leaves. 
+ 
+ Databases work, in general, with block-oriented storage and b+ tree is more suited then a b-tree for this. 
+ The blocks are fixed size and are left with some free space to accommodate future changes in value or key size. 
+ A block can be either a leaf(holds actual data) or branch(holds the pointers to the leaf nodes) 
+ A toy model how writing to disk can be implemented (for a block size 10k for arithmetic simplification): 
+ 
+ a file of 10G is created on disk(it has 1000 of blocks) 
+ first block is assigned as root and the next free one as a leaf and a list of leaf addresses is put in root 
+ new data inserted, the current leaf node is filled with values until a threshold is reached 
+ data continue to be inserted, the next free ones are allocated as leaf blocks and the list of leaf nodes is updated
+
+ 
+ after many inserts, the current root node needs children, so the next free block is allocated as branch node, it copies the list from root and now the root will maintains only a list of intermediary nodes.  
+ if node block needs to be split, the next  free block is allocated as branch node, added into root list, and list of leaf nodes is split between initial and new branch node 
+ 
+ 
+ When the information is read from a big index: can go following: 
+ 
+ read first/root block (seek(0), read(10k)) which points to the a child which is located in block 900 
+ read block 900 (seek(900*10k), read(10K)) which points to a child which located in block 5000 
+ read block 5000 (seek(5000*10k), read(10K)) which points to the leaf node located in block 190 
+ read block 190 (seek(190*10k), read(10K)) and extract the interested value from it 
+ 
+ a really large index can be split on multiple files, then the address of block will be something as (filename_id, address_relative_to_this_file) 
+ 
+ Read it
+This will definitely help
+  http://www.geeksforgeeks.org/b-tree-set-1-introduction-2/ 
+ 

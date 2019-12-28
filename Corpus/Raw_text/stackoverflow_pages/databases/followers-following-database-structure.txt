@@ -1,0 +1,31 @@
+*** followers-following-database-structure ***
+
+ My website has a followers/following system (like Twitter's). My dilemma is creating the database structure to handle who's following who. 
+ What I came up with was creating a table like this: 
+ 
+ Basically, I was thinking that each user would have a row with columns for their followers and the users they're following. The followers and people they're following would have their user id's separated by commas. 
+ Is this an effective way of handling it? If not, what's the best alternative? 
+ 
+ That's the worst way to do it. It's against normalization. Have 2 seperate tables. Users and User_Followers. Users will store user information. User_Followers will be like this: 
+ 
+ User_Id and Follower_Id's will be foreign keys referring the Id column in the Users table. 
+ 
+ There is a better  physical  structure than proposed by other answers so far: 
+ 
+ InnoDB tables are  clustered , so the secondary indexes behave differently than in heap-based tables and can have unexpected overheads if you are not cognizant of that. Having a surrogate primary key   just adds another index for no good reason 1  and makes indexes on {user_id, follower_id} and {follower_id, user_id} fatter than they need to be (because secondary indexes in a clustered table implicitly include a copy of the PK). 
+ The table above has no  surrogate key    and (assuming InnoDB) is physically represented by two B-Trees (one for the primary/clustering key and one for the secondary index), which is about as efficient as it gets for searching in both directions 2 . If you only need one direction, you can abandon the secondary index and go down to just one B-Tree. 
+ BTW what you did was a violation of the principle of  atomicity , and therefore of 1NF. 
+ 
+ 1  And every additional index takes space, lowers the cache effectiveness and impacts the INSERT/UPDATE/DELETE performance. 
+ 2  From followee to follower and vice versa. 
+ 
+ One weakness of that representation is that each relationship is encoded twice: once in the row for the follower and once in the row for the following user, making it harder to maintain data integrity and updates tedious. 
+ I would make one table for users and one table for relationships.  The relationship table would look like: 
+ 
+ This way adding new relationships is simply an insert, and removing relationships is a delete.  It's also much easier to roll up the counts to determine how many followers a given user has. 
+ 
+ No, the approach you describe has a few problems. 
+ First, storing multiple data points as comma-separated strings has a number of issues.  It's difficult to join on (and while you can join using   it will slow down performance) and difficult and slow to search on, and can't be indexed the way you would want. 
+ Second, if you store both a list of followers and a list of people following, you have redundant data (the fact that A is following B will show up in two places), which is both a waste of space, and also creates the potential of data getting out-of-sync (if the database shows A on B's list of followers, but doesn't show B on A's list of following, then the data is inconsistent in a way that's very hard to recover from). 
+ Instead, use a join table.  That's a separate table where each row has a user id and a follower id.  This allows things to be stored in one place, allows indexing and joining, and also allows you to add additional columns to that row, for example to show when the following relationship started. 
+ 

@@ -1,0 +1,190 @@
+*** mysql-stored-procedures-use-them-or-not-to-use-them ***
+
+ We are at the beginning of a new project, and we are really wondering if we should use stored procedures in MySQL or not. 
+ We would use the stored procedures only to insert and update business model entities. There are several tables which represent a model entity, and we would abstract it in those stored procedures insert/update. 
+ On the other hand, we can call insert and update from the Model layer but not in MySQL but in PHP. 
+ In your experience,  **Which is the best option? advantages and disadvantages of both approaches. Which is the fastest one in terms of high performance?**
+
+ PS: It is is a web project with mostly read and high performance is the most important requisite. 
+ 
+ Unlike actual programming language code, they: 
+ 
+ not portable (every db has its own version of PL/SQL. Sometimes different versions of the  same  database are incompatible - I've seen it!) 
+ not easily testable - you need a  real  (dev) database instance to test them and thus unit testing their code as part of a build is virtually impossible 
+ not easily updatable/releasable - you must drop/create them, ie  modify  the production db to release them 
+ do not have library support (why write code when someone else has) 
+ are not easily integratable with other technologies (try calling a web service from them) 
+ they use a language about as primitive as Fortran and thus are inelegant and laborious to get useful coding done, so it is difficult to express business logic, even though typically that is what their primary purpose is 
+ do not offer debugging/tracing/message-logging etc (some dbs may support this - I haven't seen it though) 
+ lack a decent IDE to help with syntax and linking to other existing procedures (eg like Eclipse does for java) 
+ people skilled in coding them are rarer and more expensive than app coders 
+ their "high performance" is a myth, because they execute on the database server they usually  increase  the db server load, so using them will usually  reduce  your maximum transaction throughput 
+ inability to efficiently share constants (normally solved by creating a table and questing it from within your procedure - very inefficient) 
+ etc. 
+ 
+ If you have a very database-specific action (eg an in-transaction action to maintain db integrity), or keep your procedures very atomic and simple, perhaps you might consider them. 
+ Caution is advised when specifying "high performance" up front. It often leads to poor choices at the expense of good design and it will bite you much sooner than you think. 
+ Use stored procedures at your own peril (from someone who's been there and never wants to go back). My recommendation is to avoid them like the plague. 
+ 
+ Unlike programming code, they: 
+ 
+ render SQL injection attacks almost
+impossible (unless you are are 
+constructing and executing dynamic 
+SQL from within your procedures) 
+ require far less data to be sent over
+the  IPC  as part of the callout 
+ enable the database to far better
+cache plans and result sets (this is
+admittedly not so effective with
+MySQL due to its internal caching
+structures) 
+ are easily testable in isolation
+(i.e. not as part of JUnit tests) 
+ are portable in the sense that they
+allow you to use db-specific
+features, abstracted away behind a
+procedure name (in code you are stuck
+with generic SQL-type stuff) 
+ are almost never slower than SQL
+called from code 
+ 
+ but, as Bohemian says, there are plenty of cons as well (this is just by way of offering another perspectve). You'll have to perhaps benchmark before you decide what's best for you. 
+ 
+ As for performances, they have the  **potential to be really performant**
+ in a future MySQL version (under SQL Server or Oracle, they are a real treat!). Yet, for all the rest... They totally blow up competition. I'll summarize: 
+ 
+ Security: You can give your app the EXECUTE right only, everything is fine. Your SP will insert update select ..., with no possible leak of any sort. It means global control over your model, and an enforced data security. 
+ Security 2: I know it's rare, but sometimes php code leaks out from the server (i.e. becomes visible to public). If it includes your queries, possible attackers know your model. This is pretty odd but I wanted to signal it anyway 
+ Task force: yes, creating efficient SQL SPs requires some specific resources, sometimes more expensive. But if you think you don't need these resources just because you're integrating your queries in your client... you're going to have serious problems. I'd mention the analogy of web development: it's good to separate the view from the rest because your designer can work on their own technology while the programmers can focus on programming the business layer. 
+ Encapsulating business layer: using stored procedures totally isolates the business where it belongs: the damn database. 
+ Quickly testable: one command line under your shell and your code is tested. 
+ Independence from the client technology: if tomorrow you'd like to switch from php to something else, no problem. Ok, just storing these SQL in a separate file would do the trick too, that's right. Also, good point in the comments about if you decide to switch sql engines, you'd have a lot of work to do. You have to have a good reason to do that anyway, because for big projects and big companies, that rarely happens (due to the cost and HR management mostly) 
+ Enforcing agile 3+-tier developments: if your database is not on the same server than your client code, you may have different servers but only one for the database. In that case, you don't have to upgrade any of your php servers when you need to change the SQL related code. 
+ 
+ Ok, I think that's the most important thing I had to say on the subject. I developed in both spirits (SP vs client) and I really, really love the SP style one. I just wished Mysql had a real IDE for them because right now it's kind of  a pain in the ass  limited. 
+ 
+ Stored procedures are good to use because they keep your queries organized and allow you to perform a batch at once. Stored procedures are normally quick in execution because they are pre-compiled, unlike queries that are compiled on every run. This has significant impact in situations where database is on a remote server; if queries are in a PHP script, there are multiple communication between the application and the database server - the query is send, executed, and result thrown back. However, if using stored procedures, it only need to send a small CALL statement instead of big, complicated queries. 
+ It might take a while to adapt to programming a stored procedure because they have their own language and syntaxes. But once you are used to it, you'll see that your code is really clean. 
+ In terms of performance, it might not be any significant gain if you use stored procedures or not. 
+ 
+ I will let know my opinion, despite my toughts possibly are not directly related to the question.: 
+ As in many issues, reply about using Stored Procedures or an application-layer driven solution relies on questions that will drive the overall effort: 
+ 
+ What you want to get.  
+ 
+ Are you trying to do either batch operations or on-line operations? are they completely transactional? how recurrent are those operations? how heavy is the awaited workload for the database?  
+ 
+ What you have in order to get it. 
+ 
+ What kind of database technology you have? What kind of infrastucture? Is your team fully trained in the database technology? Is your team better capable of building a database-aegnostic solution? 
+ 
+ Time for get it. 
+ 
+ No secrets about that. 
+ 
+ Architecture. 
+ 
+ Is your solution required to be distributed onto several locations? is your solution required to use remote communications? is your solution working on several database servers, or possibly using a cluster-based architecture?   
+ 
+ Mainteinance. 
+ 
+ How much is the application required to change? do you have personal specifically trained for maintain the solution? 
+ 
+ Change Management. 
+ 
+ Do you see your database technology will change at a short, middle, long time? do you see will be required to migrate the solution frequently? 
+ 
+ Cost 
+ 
+ How much will cost to implement that solution using one or another strategy? 
+ The overall of those points will drive the answer. So you have to care each of this points when making a decision about using or not any strategy. There are cases where using of stored procedures are better than application-layer managed queries, and others when, conducting queries and using an application-layer based solution is best.  
+ Using of stored procedures tends to be more addequate when: 
+ 
+ Your database technology isn't provided to change at a short time. 
+ Your database technology can handle parallelized operations, table partitions or anything else strategy for divide the workload onto several processors, memory and resources (clustering, grid). 
+ Your database technology is fully integrated with the stored proceduce definition language, that is, support is inside the database engine. 
+ You have a development team who aren't afraid about using a procedural language (3rd. Generation language) for getting a result. 
+ Operations you wanna achieve are built-in or supported inside the database (Exporting to XML data, managing data integrity and coherence appropiately with triggers, scheduled operations, etc). 
+ Portability isn't an important issue and you do not whatch a technology change at a short time into your organization, even, it is not desirable. Generally, portability is seen like a milestone by the application-driven and layered-oriented developers. From my point of view, portability isn't an issue when your application isn't required to be deployed for several platforms, less when there are no reasons for making a technology change, or the effort for migrating all the organizational data is higher than the benefit for making a change. What you can win by using an application-layer driven approach (portability) you can loose in performance and value obtained from your database (Why to spend thousands of dollars for to get a Ferrari that you'll drive no more than 60 milles/hr?). 
+ Performance is an issue. First: In several cases, you can achieve better results by using a single stored procedure call than multiple requests for data from another application. Moreover, some characteristics you need to perform may be built-in your database and its use less expensive in terms of workload. When you use an application-layer driven solution you have to take in account the cost associated to make database connections, making calls to the database, network traffic, data wrapping (i.e., using either Java or .NET, there is an implicit cost when using JDBC/ADO.NET calls as you have to wrap your data into objects that represents the database data, so instantiation has an associated cost in terms of processing, memory, and network when data comes from and goes to outside). 
+ 
+ Using of application-layer driven solutions tends to be more addequate when: 
+ 
+ Portability is an important issue.  
+ Application will be deployed onto several locations with only one or few database repositories. 
+ Your application will use heavy business-oriented rules, that need to be agnostic of the underlying database technology. 
+ You have in mind to do change technology providers based on market tendencies and budget. 
+ Your database isn't fully integrated with the stored procedure language that calls to the database. 
+ Your database capabilities are limited and your requirement goes beyond what you can achieve with your database technology. 
+ Your application can support the penalty inherent to external calls, is more transactional-based with business-specific rules and has to abstract the database model onto a business model for the users. 
+ Parallelizing database operations isn't important, moreover, your database has not parallelization capabilities. 
+ You have a development team which is not well-trained onto the database technology and is better productive by using an application-driven based technology. 
+ 
+ Hope this may help to anyone asking himself/herself what is better to use. 
+ 
+ I would recommend you don't use stored procedures: 
+ 
+ Their language in MySQL is very crappy 
+ There is no way to send arrays, lists, or other types of data structure into a stored procedure  
+ A stored procedure cannot  ever  change its interface; MySQL permits neither named nor optional parameters 
+ It makes deploying new versions of your application more complicated - say you have 10x application servers and 2 databases, which do you update first? 
+ Your developers all need to learn and understand the stored procedure language - which is very crap (as I mentioned before) 
+ 
+ Instead, I recommend to create a layer / library and put all your queries in there 
+ You can 
+ 
+ Update this library and ship it on your app servers with your app 
+ Have rich data types, such as arrays, structures etc passed around 
+ Unit test this library, instead of the stored procedures. 
+ 
+ 
+ On performance: 
+ 
+ Using stored procedures will decrease the performance of your application developers, which is the main thing you care about. 
+ It is extremely difficult to identify performance problems within a complicated stored procedure (it is much easier for plain queries) 
+ You can submit a query batch in a single chunk over the wire (if CLIENT_MULTI_STATEMENTS flag is enabled), which means you don't get any more latency without stored procedures. 
+ Application-side code generally scales better than database-side code 
+ 
+ 
+ If your database is complex and not a forum type with responses, but true warehousing SP will definitely benefit. You can out all your business logic in there and not a single developer is going to care about it, they just call your SP's. I have been doing this joining over 15 tables is not fun, and you cannot explain this to a new developer. 
+ Developers also don't have access to a DB, great! Leave that up to database designers and maintainers. If you also decide that the table structure is going to get changed, you can hide this behind your interface. n-Tier, remember?? 
+ High performance and relational DB's is not something that goes together, not even with MySQL InnoDB is slow, MyISAM should be thrown out of the window by now. If you need performance with a web-app, you need proper cache, memcache or others. 
+ in your case, because you mentioned 'Web' I would not use stored procedures, if it was data warehouse I would definitely consider it (we use SP's for our warehouse). 
+ Tip:
+Since you mentioned Web-project, ever though about nosql sort of solution? Also, you need a fast DB, why not use PostgreSQL? (trying to advocate here...) 
+ 
+ I used to use MySql and my understanding of sql was poor at best, I spent a fair amount of time using Sql Server, I have a clear separation of a data layer and an application layer, I currently look after a server with 0.5 terabytes. 
+ I have felt frustrated at times not using an ORM as development is really quick with stored procedures it is much slower. I think much of our work could have been sped up by using an ORM. 
+ When your application reaches critical mass, the ORM performance will suffer, a well written stored procedure, will give you your results faster. 
+ As an example of performance I collect 10 different types of data in an application, then convert that to XML, which I process in the stored procedure, I have one call to the database rather than 10. 
+ Sql is really good at dealing with sets of data, one thing that gets me frustrated is when I see someone getting data from sql in a raw form and using application code to loop over the results and format and group them, this really is bad practice.  
+ My advice is to learn and understand sql enough and your applications will really benefit. 
+ 
+ I would recommend that you stay away from DB specific Stored Procedures. 
+ I've been through a lot of projects where they suddently want to switch DB platform and the code inside a SP is usually not very portable = extra work and possible errors. 
+ Stored Procedure development also requires the developer to have access directly to the SQL-engine, where as a normal connection can be changed by anyone in the project with code-access only. 
+ Regarding your Model/layer/tier idea: yes, stick with that. 
+ 
+ Website calls Business layer (BL) 
+ BL calls Data layer (DL) 
+ DL calls whatever storage (SQL, XML, Webservice, Sockets, Textfiles etc.) 
+ 
+ This way you can maintain the logic level between tiers. IF and ONLY IF the DL calls seems to be very slow, you can start to fiddle around with Stored Procedures, but maintain the original none-SP code somewhere, if you suddently need to transfer the DB to a whole new platform. With all the Cloud-hosting in the business, you never know whats going to be the next DB platform... 
+ I keep a close eye on Amazon AWS of the very same reason. 
+ 
+ Lots of info here to confuse people, software development is a evolutionary. What we did 20 years ago isn't best practice now. Back in the day with classic client server you wouldnt dream of anything but SPs.   
+ It is absolutely horses for courses, if you are a big organisation with you will use multi tier, and probably SPs but you will care little about them because a dedicated team will be sorting them out. 
+ The opposite which is where I find myself trying to quickly knock up a web app solution, that fleshes out business requirements, it was super fast to leave the developer (remote to me) to knock up the pages and SQL queries and I define the DB structure.  
+ However complexity is growing and without an easy way to provide APIs, I am staring to use SPs to contain the business logic. I think it is working well and sensible, I control this because I can build logic and provide a simple result set for my offshore developer to build a front end around. 
+ Should I find my software a phenomenal success, then more separation of concerns will occur and different implementations of n teir will come about but for now SPs are perfect.  
+ You should know all the tool sets available to you and match them is wise to start with. Unless you are building an enterprise system to start with then fast and simple is best. 
+ 
+ I think there is a lot of misinformation floating around about database stored queries. 
+ I would recommend using MySQL Stored Procedures if you're doing many static queries for data manipulation.  Especially if you're moving things from one table to another (i.e. moving from a live table to a historical table for whatever reason).  There are drawbacks of course in that you'll have to keep a separate log of changes to them (you could in theory make a table that just holds changes to the stored procedures that the DBA's update). If you have many different applications interfacing with the database, especially if say you have a desktop program written in C# and a web program in PHP, it might be more beneficial to have some of your procedures stored in the database as they are platform independent.   
+ This website has some interesting information on it you may find useful. 
+ https://www.sitepoint.com/stored-procedures-mysql-php/ 
+ As always, build in a sandbox first, and test.  
+ 
+ Try to update 100,000,000 records on a live system from a framework, and let me know how it goes. For small apps, SPs are not a must, but for large serious systems, they are a real asset. 
+ 

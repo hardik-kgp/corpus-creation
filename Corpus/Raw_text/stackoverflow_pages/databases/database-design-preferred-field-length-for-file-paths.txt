@@ -1,0 +1,65 @@
+*** database-design-preferred-field-length-for-file-paths ***
+
+ I have to store file paths in a DB field ( ,  , etc.). I can't really tell how long they could be. 
+ Given this  http://en.wikipedia.org/wiki/Comparison_of_file_systems  and that  http://msdn.microsoft.com/en-us/library/aa365247.aspx , depending on the file system there could be theoretically no length limit for a path. 
+ I guess that defining this field as a   or   wouldn't be wise. I've thought about something like   which should be suitable for most frequent (even if not all) cases, and not too big as a DB field. What would you recommend ? 
+ Thanks. 
+ 
+ You can use   or  . 
+ These are variable length fields meaning they are designed to store values of different length. There is no extra overhead for longer values over shorter values. 
+ Defining   means the field can be up to 2GB. 
+ From  MSDN  (varchar), nvarchar has similar documentation: 
+ 
+ Use varchar when the sizes of the column data entries vary considerably. 
+ Use varchar(max) when the sizes of the column data entries vary considerably, and the size might exceed 8,000 bytes. 
+ 
+ 
+ Use the appropriate length for the data you intend to support.  Since you're using SQL Server you should use   as the upper limit for storing path names, since  that is the specification limit  for typical Windows machines.  Under certain circumstances you can create paths longer than that, however Windows Explorer will tend to have problems handling them.  SQL Server cannot handle filenames longer than 260 characters.  This includes SQL Server on Linux. 
+ I can  prove  SQL Server uses an   column internally to store SQL Server Database filenames, with the path included.  Checking the definition of the   view, we see the following T-SQL: 
+ 
+ Microsoft Docs for sys.master_files  says this about the   column: 
+ 
+ physical_name  nvarchar(260)   Operating-system file name. 
+ 
+ But let's not trust that.  We see the physical file name is referenced as  .  And the table alias "f" points to  .  Therefore, SQL Server stores the filename in sys.sysbrickfiles, which is an internal table that is only visible from the Dedicated Administrator Connection, or DAC as its frequently known.  Connecting to the DAC, and  generating a temp table from the output  of  , we see the following: 
+ 
+ As you can see, the   column is indeed defined as  . 
+ Also, if we attempt to create a database using a filename that is longer than 260 characters, we see an error is returned: 
+ 
+ Msg 103, Level 15, State 3, Line 7 
+  The file that starts with 'F:\AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARGH.mdf' is too long. Maximum length is 259. 
+ 
+ Using anything other than an   column to store filenames in SQL Server is both wasteful, and creates technical debt. 
+ The length of a column is extremely important performance-wise.  Column length directly affects: 
+ 
+ memory grants for queries against the column.  When the query processor creates a query plan, it uses the size of each column present in the query as a basis for the amount of memory required to run the query.  It doesn't use the actual size of the data present in each column, instead it "guesses" that the average size of the data will be 50% of the maximum length of the column. 
+ Ability to index the column efficiently.  Larger columns create significantly larger indexes.  Larger indexes require the more memory and disk throughput than smaller indexes.  SQL Server has a maximum key length of 1700 bytes for non-clustered indexes (as of SQL Server 2016) and a maximum key length of 900 bytes for clustered indexes.  If you attempt to create an index on columns larger than those maximum amounts, you get errors, and possibly not until run-time when it can be very costly to fix. 
+ character-based primary/foreign key performance is severely affected by larger columns lengths.  When primary keys are referenced via foreign keys, the size requirements for memory, disk, and I/O are duplicated for each foreign key.  Take for example a   table where the key is the   column, defined as  .  Every table that references customers will now require a 500-byte   column.  If that column was defined as a   instead, every query referencing those columns will save 200 bytes  per row  in memory and disk I/O. 
+ Erik Darling shows that  Predicate Pushdown  does not work for   data types, which can severely limit performance. 
+ 
+ 
+ If your using SQL Server, it's good to know that Microsoft is using  **nvarchar(260)**
+ fields to store file path and name in the system tables (like  sys.database_files , or  sys.sysaltfiles , or  sys.master_files ). 
+ 
+ 
+ 
+ Good practice could be to use the same format to store your path and file name. 
+ You will,  of course , need to enforce the size in your UI to be sure that it will not be truncated during INSERT or UPDATE. 
+ 
+ I suggest you do not store the paths in your existing table.  Create a new table having a sequential counter as the clustered primary key and a character column of the maximum length of your db program.  I use SQL Server so I would use varchar(max). 
+ Create a column in your data table to hold the primary key of the "paths" table.  Insert into the "paths" table first then use the primary key as the foreign key back in your data table. 
+ The advantage of storing the value in another table is it does not influence the data size of the base table.  Queries of the base table which do not involve the "paths" do not suffer from having to pull in a large character value which increases the IO traffic. 
+ 
+ The Length of a file path cannot be predicted. It could be very short as   or could be very lengthy like   or even more. But in database level there is no harm using something like  
+ See Maximum size of VARCHAR(MAX) 
+ 
+ **The field should be the same length as the length of a box of string.**
+
+ As asking the length of a filename is like asking the length of a bit of string,   asking the length of a path is like asking the length of all bits of string in a box of unknown size. 
+ So the only sensible option  **given no other information**
+ is not to limit the length e.g. NVARCHAR(MAX) 
+ 
+ I would recommend  **VARCHAR(2048)**
+ or even  **VARCHAR(1024)**
+ since file paths are usually not 2000 characters long.  
+ 

@@ -1,0 +1,42 @@
+*** using-a-database-for-logging ***
+
+ Is there a reason that most logs seem to be in plain text, as opposed to being put in a MySQL/other sort of database? 
+ It seems to me that putting them into a database would make analysis much, much easier…but would that come at the sacrifice of speed or something else? 
+ (I'm not that concerned with portability, and obviously you'd have text logs for your database connection.) 
+ 
+ I can think of two big reasons: 
+ First, databases are slower than text files when it comes to simply appending information to a file. With a database, you have to establish a connection, transmit data over the network, store it in an indexed structure, et cetera. With a file, you need only write out the error to local disk. 
+ Second, sometimes the things you want to log pertain to the database being broken. If the local disk is broken, you've got bigger problems than trying to generate log files. But you can log database outages even when everything else is working. 
+ Having said that, there are plenty of situations where the information I want to log is relevant only while the application is properly functioning, and when I already have a database connection. In those cases, I do log directly to MySQL. 
+ 
+ Although you are not concerned with portability, I believe that's a big part of the reason.  File I/O is nearly universal and with an extremely consistent API.  Other advantages include: 
+ 
+ Less moving parts 
+ Nothing to install 
+ Low skill barrier 
+ Speed 
+ Mature set of tools for logging, parsing, managing 
+ Not dependent on the network (assuming local disk and not NFS or other remote storage) 
+ Reliability 
+ Can still put these into a DB for reporting/analysis 
+ grep is your friend 
+ No file equivalent of SQL injection to worry about (well for storing the data, not necessarily so for reporting it or subsequent DB upload). 
+ 
+ That said, there's nothing wrong with logging to a DB if the nature of the app lends itself to that and I've seen many apps that do so. 
+ 
+ Historically, databases were expensive, and you would certainly never want to waste your precious database licenses on logs. However databases today are relatively cheap and so is processing. Using a database for logs probably wouldn't kill you financially. 
+ The advantage of a log file is that you keep writing to the end of it. That is a relatively efficient operation compared to using a database server.  
+ The advantage of a database is that you can structure your log data in data relations, which can then be analyzed using SQL. This can provide you some great insight into the operation of your software.  
+ You could have the best of both worlds by using SQLite as your log database. SQLite is a library with an SQL engine that you link into your program. Instead of fopen/fwrite/fclose, you use the SQLite API to open the database, run SQL and close the database. There is no database server because the SQLite engine operations run in your application's process...just like fopen/fwrite/fclose. Once you capture your data in a SQLite database (all stored in a simple file), you can use SQL to analyze your log data. Check out  http://www.squidoo.com/sqlitehammer#module5800826  for an example.  
+ -------- EDIT August 2010 ------------ 
+ The developers of SQLite have implemented writeahead logging as of  SQLite version 3.7.0 . This enables much faster writes. Check out  this video  for more details. With faster writing, SQLite is even more useful as a logging database.  
+ 
+ Databases contain a significant overhead in terms of memory, storage space, and efficiency. Adding new records to a database or modifying existing records is far slower. (In addition, many are unfamiliar with SQL and/or the specifics of setting up a database.) 
+ If, however, you need analysis or metric evaluation capabilities that are difficult to get via a simple text file, then there's certainly nothing wrong with that. It's very much a case-by-case situation. 
+ 
+ (Others have already pointed out a number of advantages regarding file-based logging.) 
+ I think DB logging becomes more useful when logs are collected on a remote machine (for example, via syslog/rsyslog on Linux), for backup: this can useful if the original machine is compromised and its logs altered. Collecting logs in a database (perhaps particularly on the remote machine) is useful in this case, as it can help sorting out those logs. You can also browse the logs more conveniently via tools such as  phpLogCon , or browse them using custom web-pages (it's often easier than logging on to the machine if you're just doing some casual monitoring). 
+ This being said, remote logging, logging to a DB and having a nice tool to browse the logs are rather independent (I think phpLogCon can work with file logs too). If I store logs in a DB, I also store logs in a file at the same time, if only to be able to read when the connection to the DB is down. 
+ 
+ It's important to note that there's no reason you can't write logs to a file (which as others have pointed out, is very fast, efficient, and robust), and then offload the data into a database (probably on some other machine) in order to perform analysis that will be expedited by having typical database features around.  This is possible, of course, since log data usually doesn't need to be crunched immediately -- so it makes sense to defer all the overhead and fragility of a database until it's needed. 
+ 

@@ -1,0 +1,21 @@
+*** table-join-order-in-postgres ***
+
+ Is there a way for me to force a specific join order in Postgres? 
+ I've got a query that looks like this. I've eliminated a bunch of stuff that was in the real query, but this simplification demonstrates the issue. What's left shouldn't be too cryptic: Using a role/task security system, I'm trying to determine whether a given user has privileges to perform a given task. 
+ 
+ But I realized that the program already knows the value of userlogin, so it seemed the query could be made more efficient by skipping the lookup on userlogin and just filling in the userloginid, like this: 
+ 
+ When I did that -- eliminating a table from the query and hard-coding the value retrieved from that table instead -- the explain plan time went up! In the original query, Postgres read userlogin then userrole then roletask then task. But in the new query, it decided to read roletask first, and then join to userrole, even though this required doing a full-file scan on roletask. 
+ Full explain plans are: 
+ Version 1: 
+ 
+ Version 2: 
+ 
+ (Yes, I know that in both cases the costs are low and the difference doesn't look like it would matter. But this is after I eliminated a bunch of additional work from the query to simplify what I have to post. The real query still isn't outrageous, but I'm more interested in the principle.) 
+ 
+ This page in the documentation describes how to prevent the PostgreSQL optimizer from reordering joined tables, allowing you to control the order of joins yourself: 
+ http://www.postgresql.org/docs/current/interactive/explicit-joins.html 
+ 
+ Are you sure your table statistics are up to date? When PostgreSQLs cost based optimizer fails with such trivial things it's a pretty good sign something is seriously wrong with the table statistics. It's better to fix the root cause than to work around it by overriding the built in optimizer because the problem will inevitably pop up somewhere else as well. 
+ Run   on the affected tables and see if it makes PostgreSQL pick a different plan. If it still chooses something silly it would be really interesting to see the query plans. The optimizer not doing the right thing is usually considered a bug. 
+ 

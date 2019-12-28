@@ -1,0 +1,245 @@
+*** is-there-a-simpler-way-to-achieve-this-style-of-user-messaging ***
+
+ I have created a messaging system for users, it allows them to send a message to another user. If it is the first time they have spoken then a new conversation is initiated, if not the old conversation continues. 
+ The users inbox lists all conversations the user has had with all other users, these are then ordered by the conversation which has the latest post in it. 
+ A user can only have one conversation with another user. 
+ When a user clicks one of these conversations they are taken to a page showing the whole conversation they've had with newest posts at the top. So it's kind of like a messaging chat functionality. 
+ I have two tables: 
+ 
+ userconversation 
+ usermessages 
+ 
+ **userconversation**
+
+ Contains an auto increment id which is the conversation id, along with the userId and the friendId. 
+ Whoever initates the first conversation will always be userId and the recipient friendId, this will then never change for that conversation. 
+ 
+ **usermessages**
+
+ Contains the specific messages, along with a read flag, the time and conversationId 
+ 
+ **How it works**
+
+ When a user goes to message another user, a query will run to check if both users have a match in the userconversation table, if so that   is used and the conversation carries on, if not a new row is created for them with a unique  . 
+ **Where it gets complicated**
+
+ So far all is well, however when it comes to displaying the message inbox of all conversations, sorted on the latest post, it get's tricky to do with one query.. 
+ To be able to list the conversations you must first find the latest post of each conversation, but as you can't order by before a group this is impossible to do with one query on two tables, so I have to use the following: 
+ 
+ I just don't think this is the best way it can be done but can't think of others ways too approach it? 
+ The database table is InnoDB to speed up the joins and improve data integrity so I can't have two auto increment rows. 
+ Is there another way I could get rid of the userconversation table and create a unique Id to put in the conversationId column? I could then just move the userId and friendId over to usermessages ... but this would create a lot of redundant data? 
+ 
+ hmm maybe i'm not understanding correctly your problem... but to me the solution is quite simple: 
+ 
+ here's my test data: 
+ **Conversations :**
+
+ 
+ **Messages :**
+
+ 
+ **Query result :**
+
+ 
+ If that's not it... just ignore my answer :P 
+ Hope this helps 
+ 
+ If you're asking for a way to be able to keep all of your current functionality and work flows, yet keep the data in a single table I think you're pretty close. 
+ Instead of having the   be a key to a different table, I would instead have it point to the ID of the message that began the conversation.  This would create a parent-child relationship between messages that began a conversation and all those that followed after it.  To be able to see all conversations, you would just select all messages where the   is null.  Below is a representation of a 2 message conversation: 
+ 
+ The conversation was initiated by user 3.  All messages in the conversation can be filter by  .  One limitation of this design is that only 2 users can be apart of the conversation.  
+ **Update**
+  
+ You could get the last message given a conversation id this way: 
+ 
+ 
+ If you can only have one conversation between users, I don't see a reason for a dedicated conversations table. For this query to work fast, you would need a composite index on   which is impossible if these fields are in different tables. Move   and   to the  . This will make your table   bytes per record heavier (even assuming  -byte identifiers) which is hardly a problem for a table containing text messages. 
+ If you have few conversations per user with many messages in each, use this: 
+ 
+ Create separate indexes on   and  
+ If you have many conversations with few messages in each, use this query: 
+ 
+ The idea behind this query is that it just descends all messages for the given user, checking that each message is the last in its conversation. This may be much faster than sorting all last messages for all conversations (if you have many of them). 
+ For this to work fast, create indexes on 
+ 
+ 
+ If you want to simplify your query you should add the last message id in your table   : 
+ 
+ then each time you add a new message you should update your table userconversation : 
+ 
+ and finally add indexes on all foreign keys : 
+ 
+ 
+ Since a given pair of users can have at most one conversation, there is no need to "invent" separate key just to identify conversations. Also, the wording of your question seems to suggest that a message is always sent to a single user, so I'd probably go with something like this: 
+ 
+ Now, there are several things to note about this model: 
+ 
+ It assumes messages between same two users cannot be generated more frequently than the resolution provided by the type used for SEND_TIME. 1 
+ The direction of the message is not determined by order of USER1_ID and USER2_ID, but with a separate flag (DIRECTION). This way, a message between given users will always have the same combination of USER1_ID and USER2_ID (enforced by the CHECK above), regardless of who sent and who received the message. This greatly simplifies querying. 
+ It is unfortunate that  all InnoDB tables are clustered , so the secondary index   is relatively  expensive . There are ways to work around that, but the resulting complications are probably not worth it. 
+ 
+ With this data model, it becomes rather easy to sort the "conversations" (identified by user pairs) by the latest message. For example (replace   with desired user's USER_ID): 
+ 
+ (  is the reason for the secondary index  .) 
+ If you want not just latest times, but also latest messages, you can do something like this: 
+ 
+ You can play with it in the  SQL Fiddle . 
+ 
+ 1  If that's not the case, you can use monotonically-incrementing INT instead, but you'll have to   yourself since auto-increment doesn't work on PK subset; or simply make it PK  alone  and have secondary indexes on both USER1_ID and USER2_ID (fortunately, they would be slimmer since the PK is slimmer). 
+ 
+ How to create a fast Facebook-like messages system.
+tested and widely used by Arutz Sheva users -  http://www.inn.co.il  (Hebrew). 
+ 
+ create a "topic" (conversation) table:   CREATE TABLE   (
+    int(11) NOT NULL AUTO_INCREMENT,
+    int(11) NOT NULL DEFAULT '0',
+    int(11) NOT NULL DEFAULT '0',
+  PRIMARY KEY ( ),
+  KEY   ( )
+) ENGINE=InnoDB AUTO_INCREMENT=137106342 DEFAULT CHARSET=utf8 
+ create link between user and conversation:     CREATE TABLE   (
+    int(11) NOT NULL AUTO_INCREMENT,
+    int(11) NOT NULL DEFAULT '0',
+    int(11) NOT NULL DEFAULT '0',
+    int(11) NOT NULL DEFAULT '0',
+    int(11) NOT NULL DEFAULT '1',
+    int(11) NOT NULL DEFAULT '0',
+  PRIMARY KEY ( ) USING BTREE,
+  UNIQUE KEY   ( , ),
+  KEY   ( , , ) USING BTREE,
+  KEY   ( , , ) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=64750078 DEFAULT CHARSET=utf8 
+ create a message     CREATE TABLE   (
+    int(11) NOT NULL AUTO_INCREMENT,
+    int(11) NOT NULL,
+    datetime NOT NULL DEFAULT '1987-11-13 00:00:00',
+    varchar(75) NOT NULL,
+    mediumtext NOT NULL,
+    int(11) NOT NULL,
+  PRIMARY KEY ( ),
+  KEY   ( , ),
+  KEY   ( , , )
+) ENGINE=InnoDB  
+ 
+ A conversation can be with 2 or more friends (BCC was added like email, but you can skip it). 
+ Insert a new message:
+ 1. Create new topic
+ 2. Create Links  for users (from/to)
+ 3. Add Message
+(4. Update users cache table - user have messages) 
+ Add Message to topic:
+ Add Message 
+ Select folder: 
+ 
+ In details: 
+ The first is the inner select - this is the fastest way (I was check about 7 other options, checked also in Percona/MariaDB versions) to  get  all messages, and get also the last message to display in the list.
+Also look in the inner IF - in inbox, the last message is anyone but not me, and  In outbox - the opposite. LIMIT used for paging. 
+ The outer one used to  add user list (just name comma name string) and more information for  only one message  per topic, and  after paging  (I need to add user list just to the 35-per-page messages, and not for all my large history). 
+ Also, I wrote in hebrew here:
+ http://blogs.microsoft.co.il/blogs/moshel/archive/2010/08/12/quot-x-quot.aspx 
+ to create a simple cache table, and forbid the workload of select count from busy message table. 
+ 
+ Why are you breaking up the data into conversations?  
+ If it were me, I would use one table called 'usermessages' with the following format: 
+ 
+ A conversation is identified by the combination of the 'userto' and 'userfrom' columns. So, when you want to select all of a conversation:  
+ 
+ 
+ I haven't tested this approach as I don't have access to mysqldb right now. But, I think you should be able to get this done by using a ranking function. Since mysql doesn't have an equivalent of row_number function of Oracle I think you can do it like this:  
+ 
+ 
+ I would set it up like this 
+ **Table details**
+
+ 
+ **conversations**
+
+ This table will be used mainly to generate a new identifier for each conversation, together with a calculated field of the last update (for optimization). The two users have been disconnected from this table and moved into  . 
+ **participation**
+
+ This table records the conversations between two users  **in both directions**
+; to explain why, take a look at the following key: 
+ 
+ While this is good for both enforcing the uniqueness and simple lookups, you should be aware of the following behavior: 
+ 
+ 
+ 
+ 
+ 
+ 
+ The first two queries perform very well, MySQL also optimizes identity lookups on the first part of your key. The third one also yields pretty good performance as the second part of your key can be used for range queries. The last query doesn't perform well at all because the index is "left biased" and therefore it performs a full table scan. 
+ **messages**
+
+ This table stores the actual sent messages, comprising the conversation identifier, sender id, contents, read flag and the time it was sent. 
+ **Operation**
+
+ **sending messages**
+
+ To determine whether a conversation between two users has already been established you can simply query the   table: 
+ 
+ If it does not yet exist, you create both records: 
+ 
+ If the conversation is already setup:
+    INSERT INTO messages VALUES (:conversation_id, 0, :sender_id, :message_contents, 0, NOW());
+    UPDATE conversations SET last_message_id=LAST_INSERT_ID() WHERE id = :conversation_id 
+ Note: the UPDATE statement can be scheduled as LOW_PRIORITY because you don't always have to be 100% correct. 
+ **conversation overview**
+
+ This has become a simpler query: 
+ 
+ Disclaimer: I have not tested this, but the write-up should make sense to you. 
+ **Optimization**
+
+ Another reason why it's good to have a two-way table is so that it's prepared for sharding, a method in which you push related data into another database (on a different machine); based on certain rules you would determine where to fetch the information from. 
+ You could move the data in these ways: 
+ 
+ divide the   table up based on the   field 
+ divide the   table up based on the   field 
+ 
+ The messages overview will get more complicated as you're likely being forced to make two queries; this can be mitigated somewhat with caches (and in extreme case document databases) though. 
+ Hope this gives you some ideas on future planning :) 
+ 
+ I think you do not need to create a userconversation table.  
+ If only user can have only one conversation with someone, the unique id for this thread is a concat between userId and friendId. So I move the friendId column in usersmessage table. The problem of order (friendId-userId is the same thread of userId-friendId) can be solved so: 
+ 
+ Now there is a problem of fetch the last message after a GROUP BY threadId.  
+ I think is a good solution make a concat between DATE and message and after a MAX on this field.  
+ I assume, for simplicity, column date is a DATETIME field ('YYYY-mm-dd H:i:s') but it not need because there is FROM_UNIXTIME function. 
+ So the final query is 
+ 
+ the result of field last_date_and_message is something like so: 
+ 
+ it can be simply parsed from your server side code. 
+ 
+ it is being used on fiverr.com and  www.infinitbin.com . I developed the infinitbin own. It has two databases like yours too. the inbox table:- 
+ 
+ This table is very important, used to list the conversations/inbox. The last_content field is 140 charaters from the last message between the conversations. lastviewed is an integer field, the user who lasts sends a message is the last viewed, if the other user in the conversation reads the message. it gets updated to NULL. Therefore to get notifications, you for lastviewed that is not null and not the logged in user's id. 
+ The conversation field is 'userid-userid', therefor strings. To check if users have started a conversation, you concatenate there user_ids with a hyphen and check it. 
+ This kind of messaging system is a very complicating one. 
+ The second table is quite simple. 
+ 
+ 
+ Extending the answer suggested by Watcher. 
+ You should consider dropping the "conversation" concept to simplify further. 
+ 
+ List of all conversations for user 123: 
+ 
+ List entire conversation between user 123 and user 456: 
+ 
+ 
+ The simpleste way I think for this is: 
+ **Tables:**
+
+ 
+ Then update last_message_id after each message insert by users in particulate conversation. 
+ And then run this simple query. It will give you what you want. 
+ 
+ $uid is id of logged in user. 
+ So in actual what this process is doing: 
+ 
+ Displaying all conversation of logged in user. 
+ Referencing last message (so you do not need group by) 
+ And last displaying messages in order by desc. 
+ 
+ 

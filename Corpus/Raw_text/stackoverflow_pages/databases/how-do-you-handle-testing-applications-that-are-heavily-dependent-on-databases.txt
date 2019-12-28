@@ -1,0 +1,44 @@
+*** how-do-you-handle-testing-applications-that-are-heavily-dependent-on-databases ***
+
+ At work we've found our test suite has got to the point that's it too slow to run repeatedly, which I really don't like. It's at least 5 minutes over the entire suite, and over 3 minutes for just the back-end data object tests. So, I'm curious to hear how people do their testing. 
+ At the moment, we have a single database server with a live schema and a _test schema. When a test runs, it first runs an SQL script which says how to populate the test database (and clear any old data that might get in the way). This happens for almost all tests. From what I can see, this is the biggest bottleneck in our tests - I have just profiled one test and it takes about 800ms to setup the database, and then each subsequent test runs in about 10ms. 
+ I've been trying to find out some solutions, and here's what I've found so far: 
+ 
+ Have the test schema populated once, and rollback changes at the end of each test. 
+ This seems to be the easiest solution, but it does mean we're going to have to add some special case stuff to test things that are dependent on a rollback (ie, error handling tests). 
+ Mock the database where possible 
+ We would setup the database for the data object being tested, but mock anything it depends on. To me, this doesn't seem brilliant for 2 reasons. Firstly, when we set the database up, we still (usually) end up with much more rows due to foreign-key dependencies. And secondly, most data object models don't really interact with other ones, they just do JOINs. 
+ Run the same system, but use dumps and RAMFS 
+ Instead of running a big SQL query we would instead load a database dump. The test server would run on an RAMFS partition, and hopefully bring some speed benefits. 
+ I can't test this though because I'm on OSX and from what I can see, there isn't ramfs support. 
+ 
+ There are some other options around like using SQLite, but this isn't an option for us as we depend on some PostgreSQL specific extensions. 
+ Halp! :) 
+ 
+ In  Working Effectively with Legacy Code , Michael Feathers writes (pg. 10) 
+ 
+ Unit tests run fast. If they don't run fast, they aren't unit tests. 
+ Other kinds of tests often masquerade as unit tests. A test is not a unit test if: 
+ 
+ It talks to a database. 
+ It communicates across a network. 
+ It touches the file system. 
+ You have to do special things to your environment (such as editing configuration files) to run it. 
+ 
+ Tests that do these things aren't bad. Often they are worth writing, and you generally will write them in unit test harnesses. However, it is important to be able to separate them from true unit tests so that you can keep a set of tests that you can run fast whenever you make changes. 
+ 
+ If you don't keep your unit tests fast, they lose value because developers won't run them all the time. To be specific, Feathers defines a slow unit test as one that takes a tenth of a second or longer to execute. 
+ Keep your integration tests that actually talk to the database, touch the filesystem, and so on in their own test suites separate from your unit tests. These still need to run as frequently as practicable to keep the feedback loop short, but you can get away with running them, say, only a few times a day. 
+ Don't shelve your integration tests and forget about them! Automate their execution and reporting of results. If you're using a continuous integration server, add another project that does nothing but periodically run the tests. 
+ In your unit tests, use mocks or fakes for the database layer. Having to repeat the same work will get tedious, and the desire to avoid it will tend to improve your design by concentrating database access in a few classes and push your logic into a domain model, which is where the meat of what you want to test is. 
+ 
+ An interesting question.  By the sounds of things you're attempting to do unit tests against a database, that's a bad idea.  You want those tests to be as quickly as possible.  If you're using a data layer then you might consider mocking it out such that it runs in memory.  Test against the mock datalayer.   
+ Don't abandon your current tests, they are certainly valuable and should be run as part of a nightly or on commit build off of dev boxes where they aren't slowed down.   
+ **Edit**
+
+ In answer to your comment there really isn't a good way to speed up the testing.  Splitting the tests into two sets, one which is quick for developer and one which is more through for continuous builds is probably your best bet.  You can throw faster hardware at it, SSDs or RAM disks would be a good place to start.   
+ In the subsonic project(an ORM for .net) we have this same sort of issue where our tests would take over a minute because they had to hit not just one database but an instance of each of the databases we currently support.  We took those tests and instead of running them against the database to see if they returned what we expected we assumed the database would return the right results and just did string comparisons of the generated SQL.  When we're doing red-green development we just run the string comparison unit tests.  Before committing and on the build server we run the full suite.   
+ **Edit the second**
+
+ I have found myself needing to run tests against a database to confirm that my queries are right. What I did was set up an in memory SQLite database and run the queries against it. The performance is very good and it certainly does a good job of simulating a real database as it is one.  
+ 

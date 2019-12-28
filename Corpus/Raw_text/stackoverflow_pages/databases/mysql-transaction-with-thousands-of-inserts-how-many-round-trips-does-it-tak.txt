@@ -1,0 +1,44 @@
+*** mysql-transaction-with-thousands-of-inserts-how-many-round-trips-does-it-tak ***
+
+ I've got C# code that accesses MySQL through ODBC. 
+ It creates a transaction, does a few thousand insert commands, and then commits.
+Now my question is how many "round trips", so to speak, happen against the DB server? I mean, does it simply transmit every insert command to the DB server, or does it cache/buffer them and send them in batches? And is this configurable in any way? 
+ 
+ MySQL has an extended SQL style that can be used, where mass inserts are put in several at a time: 
+ 
+ I will usually collect a few hundred insert-parts into a string before running the SQL query itself.  This will reduce the overhead of parsing and communication by batching them yourself. 
+ 
+ There is no limit on the number of rows per se; The limit is on the number of bytes transferred to the server. 
+ You could build the bulk insert up to the number of bytes specified in 'max allowed packet'. If I wanted to use the least amount of inserts I would try that.  
+ 
+ It does one round trip per query you submit (regardless of whether it's in a transaction or not). 
+ It is possible, in MySQL, to use "extended insert" syntax which allows you to insert several (or indeed, many) rows in a single statement. This is generally considered a Good Thing. 
+ 
+ A round trip to the DB server is not the same as a round trip to  the database on disk.  
+ Before you decide that the round trips are a bottleneck,  do some actual measurements.   
+ There are ways to insert multiple rows with a single insert, depending on your DBMS.  Before you invest the coding effort, figure out whether it's likely to do you any good. 
+ 
+ It depends on where you invoke the SQL statement. I tried it once with MySQL JDBC driver and got an error saying the limit is 1MB but it is configurable.  
+ I didn't bother to try to configure it and just split the SQL statements into smaller pieces. 
+ 
+ When using MySQL 4.x a few years ago, we ran into a hard limit on query size that was not configurable.  
+ This probably won't help you much as: 
+ 
+ I don't remember what the hard limit was. 
+ You're probably not using MySQL 4.x.  
+ We weren't using transactions. 
+ 
+ Good luck! 
+ 
+ It's hard to say without seeing your code, but I'm assuming you are executing the statements one at a time. So, you will get one round trip per insert statement. 
+ In MSSql you can execute multiple inserts in a single statement: 
+ 
+ So you can create a big string and execute it (I think it will have a limit), I assume this will work for MySQL. 
+ Also in MSSQL you have a batch inserter (lookup "SqlBulkCopy"), in MySQL perhaps try  loading the data from a temp file .   
+ 
+ The limit of data that will be send depends on your server so the maximal length of multiple insert statements is automagically adjusted to fit. The bottleneck is a packet length and a buffer length. 
+ See the   and   variable descriptions for more info: 
+ https://dev.mysql.com/doc/refman/5.1/en/server-system-variables.html#sysvar_net_buffer_length 
+ https://dev.mysql.com/doc/refman/5.1/en/server-system-variables.html#sysvar_max_allowed_packet 
+ In some cases you can adjust these (e.g. when dumping data) to not generate inserts that are too long yet preserve multiple inserts. Be aware that if you have some blobs in your tables or any other long values that might exceede values of the mentioned variables you may get errors or incomplete data. 
+ 

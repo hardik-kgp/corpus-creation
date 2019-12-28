@@ -1,0 +1,63 @@
+*** editing-database-records-by-multiple-users ***
+
+ I have designed database tables (normalised, on an MS SQL server) and created a standalone windows front end for an application that will be used by a handful of users to add and edit information. We will add a web interface to allow searching accross our production area at a later date. 
+ I am concerned that if two users start editing the same record then the last to commit the update would be the 'winner' and important information may be lost. A number of solutions come to mind but I'm not sure if I am going to create a bigger headache. 
+ 
+ Do nothing and hope that two users are never going to be editing the same record at the same time.  - Might never happed but what if it does? 
+ Editing routine could store a copy of the original data as well as the updates and then compare when the user has finished editing. If they differ show user and comfirm update  - Would require two copies of data to be stored. 
+ Add last updated DATETIME column and check it matches when we update, if not then show differences.  - requires new column in each of the relevant tables. 
+ Create an editing table that registers when users start editing a record that will be checked and prevent other users from editing same record.  - would require carful thought of program flow to prevent deadlocks and records becoming locked if a user crashes out of the program. 
+ 
+ Are there any better solutions or should I go for one of these? 
+ 
+ If you expect infrequent collisions,  Optimistic Concurrency  is probably your best bet. 
+ Scott Mitchell wrote a comprehensive tutorial on implementing that pattern: 
+ Implementing Optimistic Concurrency 
+ 
+ A classic approach is as follows:  
+ 
+ add a boolean field , "locked" to each table.   
+ set this to false by default.  
+ when a user starts editing, you do this:  
+ 
+ lock the row (or the whole table if you can't lock the row)  
+ check the flag on the row you want to edit 
+ if the flag is true then 
+
+ 
+ inform the user that they cannot edit that row at the moment 
+ 
+ else
+
+ 
+ set the flag to true 
+ 
+ release the lock 
+ when saving the record, set the flag back to false 
+ 
+ 
+ 
+ SELECT FOR UPDATE and equivalents are good providing you hold the lock for a microscopic amount of time, but for a macroscopic amount (e.g. the user has the data loaded and hasn't pressed 'save' you should use optimistic concurrency as above.  (Which I always think is misnamed - it's more pessimistic than 'last writer wins', which is usually the only other alternative considered.) 
+ 
+ @ Mark Harrison : SQL Server does not support that syntax ( ). 
+ The SQL Server equivalent is the   statement hint  . 
+ See  SQL Server Books Online  for more information. 
+ 
+ -first create filed (update time) to store last update record
+-when any user select record save select time,
+compare between select time and update time field if( update time) > (select time) that mean another user update this record after select record 
+ 
+ Another option is to test that the values in the record that you are changing are the still the same as they were when you started:  
+ 
+ (display the customer_nm field and the user changes it) 
+ 
+ You don't have to add a new column to your table (and keep it up to date), but you do have to create more verbose SQL statements and pass  new  and  old  fields to the stored procedure. 
+ It also has the advantage that you are not locking the records - because we all know that records will end up staying locked when they should not be... 
+ 
+ The database will do this for you.  Look at "select ... for update", which is designed just for this kind of thing.  It will give you a write lock on the selected rows, which you can then commit or roll back. 
+ 
+ With me, the best way i have a column lastupdate (timetamp datatype).
+when select and update just compare this value
+another advance of this solution is that you can use this column to track down the time data has change.
+I think it is not good if you just create a colum like isLock for check update. 
+ 

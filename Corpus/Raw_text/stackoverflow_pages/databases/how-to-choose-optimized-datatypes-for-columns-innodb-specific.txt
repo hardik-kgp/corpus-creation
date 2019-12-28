@@ -1,0 +1,114 @@
+*** how-to-choose-optimized-datatypes-for-columns-innodb-specific ***
+
+ I'm learning about the usage of datatypes for databases. 
+ For example: 
+ 
+ Which is better for email? varchar[100], char[100], or tinyint (joking) 
+ Which is better for username? should I use int, bigint, or varchar?
+Explain. Some of my friends say that if we use int, bigint, or another numeric datatype it will be better (facebook does it). Like u=123400023 refers to user 123400023, rather then user=thenameoftheuser. Since numbers take less time to fetch. 
+ Which is better for phone numbers? Posts (like in blogs or announcments)? Or maybe dates (I use datetime for that)? maybe some have make research that would like to share. 
+ Product price (I use decimal(11,2), don't know about you guys)? 
+ Or anything else that you have in mind, like, "I use serial datatype for blablabla". 
+ 
+ Why do I mention innodb specifically? 
+ 
+ Unless you are using the InnoDB table
+  types (see Chapter 11, "Advanced
+  MySQL," for more information), CHAR
+  columns are faster to access than
+  VARCHAR. 
+ 
+ Inno db has some diffrence that I don't know.
+I read that from  here . 
+ 
+ **Brief Summary:**
+
+ (just my opinions) 
+ 
+ for email address -  
+ for username -   or  
+ for id_username - use   (unless you plan on over 2 billion users in you system) 
+ phone numbers -   or   or maybe   (depends on if you want to store formatting) 
+ posts -  
+ dates -   or   (definitely include times for things like posts or emails) 
+ money -  
+ misc - see below 
+ 
+ As far as using InnoDB because   is supposed to be faster, I wouldn't worry about that, or speed in general.  Use InnoDB because you need to do transactions and/or you want to use foreign key constraints (FK) for data integrity.  Also, InnoDB uses row level locking whereas MyISAM only uses table level locking.  Therefore, InnoDB can handle higher levels of concurrency better than MyISAM.  Use MyISAM to use full-text indexes and for somewhat less overhead. 
+ More importantly for speed than the engine type: put indexes on the columns that you need to search on quickly.  Always put indexes on your ID/PK columns, such as the id_username that I mentioned. 
+ **More details:**
+
+ Here's a bunch of questions about MySQL datatypes and database design (warning, more than you asked for): 
+ 
+ What DataType should I pick? 
+ Table design question 
+ Enum datatype versus table of data in MySQL? 
+ mysql datatype for telephne number and address 
+ Best mysql datatype for grams, milligrams, micrograms and kilojoule 
+ MySQL 5-star rating datatype? 
+ 
+ And a couple questions on when to use the InnoDB engine: 
+ 
+ MyISAM versus InnoDB 
+ When should you choose to use InnoDB in MySQL? 
+ 
+ I just use   for almost everything (seriously). 
+ **Edit - How to store "posts:"**
+
+ Below are some links with more details, but here's the short version.  For storing "posts," you need room for a long text string.    max length is 255, so that's not an option, and of course   would waste unused characters versus  , which is variable length  . 
+ Prior to MySQL 5.0.3,   max length was 255, so you'd be left with  .  However, in newer versions of MySQL, you can use   or  .  The choice comes down to preference, but there are a couple differences.    and   max length is now both 65,535, but you can set you own max on  .  Let's say you think your posts will only need to be 2000 max, you can set  .  If you every run into the limit, you can   you table later and bump it to  .  On the other hand,   actually stores its data in a   (1).  I've heard that there may be performance differences between   and  , but I haven't seen any proof, so you may want to look into that more, but you can always change that minor detail in the future. 
+ More importantly, searching this "post" column using a Full-Text Index instead of   would be much faster (2).  However,  **you have to use the MyISAM engine to use full-text index because InnoDB doesn't support it**
+.  In a MySQL database, you can have a heterogeneous mix of engines for each table, so you would just need to make your "posts" table use MyISAM.  However, if you absolutely need "posts" to use InnoDB (for transactions), then set up a trigger to update the MyISAM copy of your "posts" table and use the MyISAM copy for all your full-text searches. 
+ See bottom for some useful quotes. 
+ 
+ MySQL Data Type Chart (outdated) 
+ MySQL Datatypes (outdated) 
+ Chapter 10. Data Types (better details) 
+ The BLOB and TEXT Types (1) 
+ 11.9. Full-Text Search Functions (2) 
+ 10.4.1. The CHAR and VARCHAR Types (3) 
+ 
+ 
+ (3) "Values in VARCHAR columns are
+  variable-length strings. The length
+  can be specified as a value from 0 to
+  255 before MySQL 5.0.3, and 0 to
+  65,535 in 5.0.3 and later versions. 
+ Before MySQL 5.0.3, if you need a data
+  type for which trailing spaces are not
+  removed, consider using a BLOB or TEXT
+  type. 
+ When CHAR values are stored, they are
+  right-padded with spaces to the
+  specified length. When CHAR values are
+  retrieved, trailing spaces are
+  removed. 
+ Before MySQL 5.0.3, trailing spaces
+  are removed from values when they are
+  stored into a VARCHAR column; this
+  means that the spaces also are absent
+  from retrieved values." 
+ 
+ **Lastly, here's a great post about the pros and cons of VARCHAR versus TEXT.  It also speaks to the performance issue:**
+
+ 
+ VARCHAR(n) Considered Harmful 
+ 
+ 
+ There are multiple angles to approach your question. 
+ From a design POV it is always best to chose the datatype which expresses the quantity you want to model best. That is, get the data domain and data size right so that illegal data cannot be stored in the database in the first place. But that is not where MySQL is strong in the first place, and especially not with the default sql_mode ( http://dev.mysql.com/doc/refman/5.1/en/server-sql-mode.html ). If it works for you, try the TRADITIONAL sql_mode, which is a shorthand for many desireable flags. 
+ From a performance POV, the question is entirely different. For example, regarding the storage of email bodies, you might want to read  http://www.mysqlperformanceblog.com/2010/02/09/blob-storage-in-innodb/  and then think about that. 
+ Removing redundancies and having short keys can be a big win. For example, in a project that I have seen, a log table has been storing http User-Agent information. By simply replacing each user agent string in the log table with a numeric id of a user agent string in a lookup table, data set size was considerably (more than 60%) reduced. By parsing the user agent further and then storing a bunch of ids (operating system, browser type, version index) data set size was reduced to 1% of the original size. 
+ Finally, there is a number of rules that can help you spot errors in schema design. 
+ For example, anything that has id in the name and is not an unsigned integer type is probably a bug (especially in the context of innodb). 
+ For example, anything that has price or cost in the name and is not unsigned is a potential source of fraud (fraudster creates article with negative price, and buys that). 
+ For example, anything that works on monetary data and is not using the DECIMAL data type of the appropriate size is probably doing math wrong (DECIMAL is doing BCD, decimal paper math with correct precision and rounding, DOUBLE and FLOAT do not). 
+ 
+ SQLyog has  **Calculate optimal datatype**
+ feature which helps in finding out optimal datatype based on records inserted in a table. 
+It uses  
+ 
+ table_name` PROCEDURE ANALYSE(1, 10); 
+ 
+ query to find out optimal datatype 
+ 

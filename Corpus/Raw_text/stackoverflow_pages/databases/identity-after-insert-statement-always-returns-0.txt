@@ -1,0 +1,69 @@
+*** identity-after-insert-statement-always-returns-0 ***
+
+ I need a function which executes an INSERT statement on a database and returns the Auto_Increment primary key. I have the following C# code but, while the INSERT statement works fine (I can see the record in the database, the PK is generated correctly and rows == 1), the id value is always 0. Any ideas on what might be going wrong? 
+ 
+ In response to answers, I tried: 
+ 
+ but I'm now getting the error "Characters found after end of SQL statement" 
+ I'm using an MS Access database with OleDb connection, Provider=Microsoft.Jet.OLEDB.4.0 
+ 
+ 1) combine the INSERT and SELECT statement (concatenate using ";") into 1 db command 
+ 2) use SCOPE_IDENTITY() instead of @@IDENTITY 
+ INSERT INTO blabla... ; SELECT OID FROM table WHERE OID = SCOPE_IDENTITY() 
+ -- update: 
+ as it turned out that the question was related to MS ACCESS, I found  this article  which suggests that simply reusing the first command and setting its CommandText to "SELECT @@IDENTITY" should be sufficient. 
+ 
+ Microsoft.Jet.OLEDB.4.0 provider supports Jet v3 and Jet v4 database engines, however 
+SELECT @@IDENTITY is not supported for Jet v3. 
+ MSAccess 97 is Jet v3 and does not support SELECT @@IDENTITY; It supported on MSAccess 2000 and above. 
+ 
+ You are using Jet (not SQL Server) and Jet can only handle one SQL statement per command, therefore you need to execute   in a separate command, obviously ensuring it uses the same connection as the  . 
+ 
+ you need to return the identity at the same time as you open the initial connection.
+Return a result set from your insert or an output variable.  
+ You should also always use SCOPE_IDENTITY() not @@identity.  Reference here 
+ You should add  
+ 
+ After the insert. 
+ 
+ I think you need to have the Select @@identity with the first create command - try appending it via ";SELECT @@Identity" and .ExecuteScalar the insert statement 
+ 
+ Are there any triggers on your table that might be inserting into other tables? Generally we're advised against using @@Identity in favour of  IDENT_CURRENT  so that you can guarantee that the identity returned is for the table you just inserted into. 
+ 
+ I think that @@identity is valid only in the scope of the command - in your case when you execute "statement". 
+ Modify your "statement"so that the stored procedure itself will return the @@IDENTITY value right after the INSERT statement, and read it as the return code of the stored procedure execution. 
+ 
+ Check your database settings. I had a similar problem a while ago and discovered that the SQL Server connection setting 'no count' was enabled. 
+ In SQL Server Management Studio, you can find this by right-clicking the server in the Object Explorer, select Properties and then navigate to the Connections page. Look at the settings for "Default connection options" 
+ 
+ Aren't most of the answerers forgetting that the asker is not using SQL Server? 
+ Apparently, MS Access 2000 and later  doesn't support @@IDENTITY .  The alternative is "Using the RowUpdated event, you can determine if an INSERT has occurred, retrieve the latest @@IDENTITY value, and place that in the identity column of the local table in the DataSet." 
+ And yes, this is for embedded VBA in the Access DB. That is still callable outside of Access via the Access Object Library. 
+ Edit: ok, it is supported, sorry for the groggy early-morning answer. But the rest of this answer might help. 
+ 
+ If you would like to retrieve value of auto running number of transaction that you're inserting and your environment following
+  1. Database is MsAccess.
+  2. Driver is Jet4 with connection string like this "Provider=Microsoft.Jet.OLEDB.4.0;Password={0};Data Source={1};Persist Security Info=True"
+  3. use Oledb 
+ You can apply my example to your code 
+ 
+ 
+ The short answer:  
+    1. Create two commands each accepting a single query. 
+    2. First sql query is the INSERT record. 
+    3. Second sql query is "SELECT @@Identity;" which returns the AutoNumber. 
+    4. Use cmd.ExecuteScalar() which returns a first column of first row. 
+    5. The returned result output is the AutoNumber value generated in the current insert query. 
+ It is referenced from this link . The example code is as under. Note the difference for "SAME Connection VS NEW Connection". The SAME Connection gives the desired output. 
+ 
+ This should produce the self-explanatory output: 
+ 
+ 
+ As you're using Access, take a look at  this article  from aspfaq, scroll down to about half way down the page. The code's in classic ASP, but hopefully the principles should still stand. 
+ 
+ The SELECT @@Identity ends up being treated as a separate execution context, I believe. Code that  should  work would be: 
+ 
+ You'd probably want/need to tidy up the concatenation that adds the 'SELECT @@Identity' onto the end of the code though. 
+ 
+ 
+ 

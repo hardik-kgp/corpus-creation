@@ -1,0 +1,39 @@
+*** ora-00060-deadlock-detected-while-waiting-for-resource ***
+
+ I have a series of scripts running in parallel as a nohup on an AIX server hosting oracle 10g. These scripts are written by somebody else and are meant to be executed concurrently. All the scripts are performing updates on a table. I am getting the error, 
+ 
+ ORA-00060: deadlock detected while
+  waiting for resource 
+ 
+ As I googled for this, I found,
+ http://www.dba-oracle.com/t_deadly_perpetual_embrace_locks.htm 
+ Even though the scripts are performing updation on the same table concurrently, they are performing updates on different records of the table determined by the   clause with no overlaps of records between them.  
+ So would this have caused the error?. 
+ Will this error happen regardless of where the updates are performed on a table?. 
+ Should I avoid concurrent updates on a table at all times?. 
+ Strangely I also found on the nohup.out log,
+  after the above quoted error. 
+ Does this mean that oracle has recovered from the deadlock and completed the updates successfully or Should I rerun those scripts serially?
+Any help would be welcome. 
+ Thanks in advance. 
+ 
+ You can get deadlocks on more than just row locks, e.g. see  this . The scripts may be competing for other resources, such as index blocks. 
+ I've gotten around this in the past by engineering the parallelism in such a way that different instances are working on portions of the workload that are less likely to affect blocks that are close to each other; for example, for an update of a large table, instead of setting up the parallel slaves using something like  , I'd use   which mean that each slave worked on a contiguous set of data. 
+ There are, of course, much better ways of splitting up a job for parallelism, e.g.  DBMS_PARALLEL_EXECUTE . 
+ Not sure why you're getting "PL/SQL successfully completed", perhaps your scripts are handling the exception? 
+ 
+ I was recently struggling with a similar problem. It turned out that the database was missing indexes on foreign keys. That caused Oracle to lock many more records than required which quickly led to a deadlock during high concurrency.  
+ Here is an excellent article with lots of good detail, suggestions, and details about how to fix a deadlock:
+ http://www.oratechinfo.co.uk/deadlocks.html#unindex_fk 
+ 
+ I ran into this issue as well.  I don't know the technical details of what was actually happening.  However,  in my situation , the root cause was that there was cascading deletes setup in the Oracle database and my JPA/Hibernate code was also trying to do the cascading delete calls.  So my advice is to make sure that you know exactly what is happening. 
+ 
+ I was testing a function that had multiple   statements within   blocks.  
+ I was testing all possible paths, so I reset the tables to their previous values with 'manual'   statements each time before running the function again. 
+ I noticed that the issue would happen just after those   statements;  
+ **I added a **
+** after the **
+** statement I used to reset the tables and that solved the problem.**
+
+ So, caution, the problem was not the function itself...  
+ 

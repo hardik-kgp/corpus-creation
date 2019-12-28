@@ -1,0 +1,89 @@
+*** should-i-check-for-db-constraints-in-code-or-should-i-catch-exceptions-thrown-by ***
+
+ I have an application that saves data into a table called Jobs. The Jobs table has a column called Name which has a UNIQUE constraint. The Name column is not PRIMARY KEY. I wonder if I should check for duplicate entries myself before I try to save/update a new entry or if it's better to wait for an exception thrown by the data access layer. I'm using NHibernate for this App if it's of any importance 
+ 
+ Thanks to everybody for the great input. 
+ I have found one more reason why I should validate in code and not just wait for an exception being thrown (and caught by my code). It seems that NHibernate will only throw an NHibernate.Exceptions.GenericADOException which is not very informative regarding the cause of the exception in this case. Or am I missing an aspect of NHibernate here? 
+ 
+ The answer is: both.   
+ If your database has constraints it can guarantee certain invariants about the data, such as uniqueness.  This helps in several ways: 
+ 
+ If you have a bug in your
+application, violating the
+constraint will flag something that
+might otherwise not be noticed. 
+ Other users of the database can
+assume more about the behaviour of
+the data as the DBMS enforces
+invariants. 
+ The database protects itself from
+incorrect updates that violate the
+constraints.  If you find you have some other
+system or interface populating the
+database down the track, the
+constraints enforced by the database
+mean that anything caught by the
+constraints won't (or at least
+is less likely to) break your system. 
+ 
+ Applications and databases live in a M:M relationship in any but the most trivial cases.  The application should still have the appropriate data and business rule validations but you should still not plan for your application being the only customer of the data.  Work in data warehousing for a few years and you'll see the effects of applications designed by people with this mindset. 
+ 
+ If your design is good (both database and BL), the database shouldn't have any constraints that wouldn't be dealt with in the BL - i.e. you shouldn't be presenting the database with inconsistent data. But nothing is perfect. 
+ I've found that confining the database to data consistency constraints lets me handle all BL validation in procedural code, and the only cases where I experience database exceptions are design and coding errors which can (and should be) fixed. 
+ In your case, checking the name for uniqueness is data content validation, properly handled in code. Which presumably catches the error nearest the point of commission, where you hopefully have friendlier UI resources to call on without introducing undesirable coupling between abstractions. 
+ 
+ I would leave that work entirely to the database; your code should focus on catching and properly handling the exception. 
+ **Reasons:**
+
+ 
+ **Performance**
+- The database will be
+highly optimized to enforce
+constraints in a fast and efficient
+way.  You won't have time to
+optimize your code as well. 
+ **Maintainability**
+- If the constraints
+change in the future, you won't have
+to modify your code, or perhaps you
+will just have to add a new catch{}.
+If a constraint is dropped, you
+won't have to touch your code at
+all. 
+ 
+ 
+ If you are going to check the constraints yourself, do it in the data access layer.  Nothing above that layer should know anything about your database or its constraints. 
+ In most cases I'd say leave it to the DAL to catch DB-originated exceptions.  But in your specific case, I think we're talking about basic input validation.  I'd opt for a name availability check call to the database, before submitting the whole form. 
+ 
+ You should definitely check for any exception thrown by the data access layer. The problem with checking if there is a record with the same value is, that it requires you to lock the table for modifications until you insert the new record to prevent race conditions. 
+ It is generally advisable to check for exceptions/errors, even if you have checked everything yourself before. There is almost always something that can go wrong or which you haven't considered in your code but is enforced by the database. 
+ **Edit:**
+ If I understand the question right, it is not about if the constraint should be enforced by the database or not, but how to deal with it in the application code. Of course you should  **always**
+ set up all constraints in the database to prevent bad data entering your database. 
+ 
+ The question that you need to answer is: 
+ "Do I need to present the user with nice messages". Example: There is already a Job with the name TestJob1.
+If the answer is  **No**
+, just catch the error and present a common message
+If the answer is  **Yes**
+, keep reading 
+ If you  **catch the error after the insert**
+ there isn't enough information to present the right message (at least in an agnostic DB way) 
+ On the other hand, there can be  **race conditions**
+ and you can have simultaneous transaction trying to insert the same data, therefore you need the  **DB constraint**
+
+ An approach that works well is: 
+ 
+ check before to present a nice
+message  
+ catch the exception and
+present a common error message
+(assuming this won't happen very
+frequently) 
+ 
+ 
+ Personally I'd catch the exception. It's much simpler and requires much less code.  
+ 
+ The inner exception of the GenericADOException will tell you why the database action failed. You can catch the OracleException / MSSQLException / [InsertCustomExceptionHere] and handle the error from that message. If you want to pass this back up to the front end (assuming the user is the one who entered duplicate data) you might want to wrap it in a custom exception first so you don't couple your front end to your database. You don't really want to be passing RDBMS specific exceptions around. 
+ I disagree with checking the db for uniqueness before doing an insert, round tripping to the database twice isn't very efficient and certainly isn't scalable if you have a high volume of user traffic. 
+ 

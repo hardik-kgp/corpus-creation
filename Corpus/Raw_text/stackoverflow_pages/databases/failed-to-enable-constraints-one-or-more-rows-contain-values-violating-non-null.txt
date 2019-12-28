@@ -1,0 +1,156 @@
+*** failed-to-enable-constraints-one-or-more-rows-contain-values-violating-non-null ***
+
+ I make an outer join and executed successfully in the   database but I get the following exception in my code: 
+ 
+ 
+ Failed to enable constraints. One or more rows contain values
+  violating non-null, unique, or foreign-key constraints. 
+ 
+ I know the problem, but I don't know how to fix it. 
+ The second table I make the outer join on contains a composite primary key which are null in the previous outer join query. 
+ **EDIT:**
+
+ 
+ The problem happens with the table  . The primary key is (batch_no, crsnum, lect_code). 
+ How to fix this problem? 
+ 
+ **EDIT:**
+
+ According to   advice:
+I do what he said, and i get: 
+ 
+ ? dt.GetErrors()[0] {System.Data.DataRow} HasErrors: true ItemArray:
+  {object[10]} RowError: "Column 'eval' does not allow DBNull.Value." 
+ 
+ So I solve my problem by replacing    to , .and this solves my problem.
+Thanks a lot. 
+ 
+ This problem is usually caused by one of the following 
+ 
+ null values being returned for columns not set to AllowDBNull 
+ duplicate rows being returned with the same primary key. 
+ a mismatch in column definition (e.g. size of char fields) between the database and the dataset 
+ 
+ Try running your query natively and look at the results, if the resultset is not too large. If you've eliminated null values, then my guess is that the primary key columns is being duplicated. 
+ Or, to see the exact error, you can manually add a Try/Catch block to the generated code like so and then breaking when the exception is raised: 
+ 
+ Then within the command window, call   method on the table getting the error. 
+For C#, the command would be  
+For VB, the command is  
+ 
+ This will show you all datarows which have an error. You can get then look at the   for each of these, which should tell you the column that's invalid along with the problem. So, to see the error of the first datarow in error the command is: 
+ 
+or in C# it would be  
+ 
+ 
+ You can disable the constraints on the dataset. It will allow you to identify bad data and help resolve the issue. 
+ e.g.  
+ 
+ The fill method might be slightly different for you. 
+ 
+ This will find all rows in the table that have errors, print out the row's primary key and the error that occurred on that row... 
+ This is in C#, but converting it to VB should not be hard. 
+ 
+ Oops - sorry PKColumns is something I added when I extended DataTable that tells me all the columns that make up the primary key of the DataTable.  If you know the Primary Key columns in your datatable you can loop through them here.  In my case, since all my datatables know their PK cols I can write debug for these errors automatically for all tables. 
+ The output looks like this: 
+ 
+ 
+ 
+ Ensure the fields named in the table adapter query match those in the query you have defined. The DAL does not seem to like mismatches. This will typically happen to your sprocs and queries after you add a new field to a table.  
+ If you have changed the length of a varchar field in the database and the XML contained in the XSS file has not picked it up, find the field name and attribute definition in the XML and change it manually.  
+ Remove primary keys from select lists in table adapters if they are not related to the data being returned.  
+ Run your query in SQL Management Studio and ensure there are not duplicate records being returned. Duplicate records can generate duplicate primary keys which will cause this error.  
+ SQL unions can spell trouble. I modified one table adapter by adding a ‘please select an employee’ record preceding the others. For the other fields I provided dummy data including, for example, strings of length one. The DAL inferred the schema from that initial record. Records following with strings of length 12 failed.  
+ 
+ 
+ This worked for me, source:  here 
+ I had this error and it wasn't related with the DB constrains (at least in my case). I have an .xsd file with a GetRecord query that returns a group of records. One of the columns of that table was "nvarchar(512)" and in the middle of the project I needed to changed it to "nvarchar(MAX)". 
+ Everything worked fine until the user entered more than 512 on that field and we begin to get the famous error message "Failed to enable constraints. One or more rows contain values violating non-null, unique, or foreign-key constraints." 
+ Solution:  Check all the MaxLength property of the columns in your DataTable. 
+ The column that I changed from "nvarchar(512)" to "nvarchar(MAX)" still had the 512 value on the MaxLength property so I changed to "-1" and it works!!. 
+ 
+ The problem is with the Data Access designer.  In Visual Studio, When we pull a View from "Server Explorer" to the Designer window, it is adding either a Primary key on a column randomly or marking something to a NOT NULL though it is actually set to null.  Though the actual View creation in the SQL db server, doesn't have any primary key defined or the NOT NULL defined, the VS designer is adding this Key/constraint. 
+ You can see this in the designer - it is shown with a key icon on left of the column name.  
+ Solution: Right click on the key icon and select 'Delete Key'.  This should solve the problem.  You can also right click on a column and select "Properties" to see the list of properties of a column in the VS Data access designer and change the values appropriately. 
+ 
+ This error was also showing in my project. I tried all the proposed solutions posted here, but no luck at all because the problem had nothing to do with fields size, table key fields definition, constraints or the EnforceConstraints dataset variable. 
+ In my case I also have a .xsd object which I put there during the project design time (the Data Access Layer). As you drag your database table objects into the Dataset visual item, it reads each table definition from the underlying database and copies the constraints into the Dataset object exactly as you defined them when you created the tables in your database (SQL Server 2008 R2 in my case). This means that every table column created with the constraint of "not null" or "foreign key" must also be present in the result of your SQL statement or stored procedure. 
+ After I included all the key columns and the columns defined as "not null" into my queries the problem disappeared completely. 
+ 
+ Mine started working when I set   to True on a date field on a data table in the xsd file. 
+ 
+ It sounds like possibly one or more of the columns being selected with: 
+ 
+ has  AllowDBNull  set to  False  in your Dataset defintion. 
+ 
+ It is not clear why running a SELECT statement should involve enabling constraints.  I don't know C# or related technologies, but I do know Informix database.  There is something odd going on with the system if your querying code is enabling (and presumably also disabling) constraints. 
+ You should also avoid the old-fashioned, non-standard Informix OUTER join notation.  Unless you are using an impossibly old version of Informix, you should be using the SQL-92 style of joins. 
+ Your question seems to mention two outer joins, but you only show one in the example query.  That, too, is a bit puzzling. 
+ The joining conditions between ' ' and the rest of the tables is: 
+ 
+ This is an unusual combination.  Since we do not have the relevant subset of the schema with the relevant referential integrity constraints, it is hard to know whether this is correct or not, but it is a little unusual to join between 3 tables like that. 
+ None of this is a definitive answer to you problem; however, it may provide some guidance. 
+ 
+ Thank you for all the input made so far. I just wanna add on that while one may have successfully normalized DB, updated any schema changes to their application (e.g. to dataset) or so, there is also another cause: sql CARTESIAN product (when joining tables in queries).  
+ The existence of a cartesian query result will cause duplicate records in the primary (or key first) table of two or more tables being joined.
+Even if you specify a "Where" clause in the SQL, a Cartesian may still occur if JOIN with secondary table for example contains the unequal join (useful when to get data from 2 or more UNrelated tables): 
+ 
+ FROM         tbFirst INNER JOIN
+                        tbSystem ON tbFirst.reference_str <> tbSystem.systemKey_str 
+ 
+ Solution for this:
+    tables should be related. 
+ Thanks. chagbert 
+ 
+ I solved the same problem by changing this from false to  true.  in the end I went into the database and changed my bit field to allow null, and then refreshed my xsd, and refreshed my wsdl and reference.cs  and now all is well. 
+ 
+ 
+ DirectCast(dt.Rows(0),DataRow).RowError 
+ This directly gives the error 
+ 
+ If you are using visual studio dataset designer to get the data table, and it is throwing an error 'Failed to Enable constraints'. I've faced the same problem, try to preview the data from the dataset designer itself and match it with table inside your database.  
+ The best way to solve this issue is to delete the table adapter and create a new one instead.  
+ 
+ *** Secondary way : ***
+
+ 
+ If you don't need [id] to be as Primary key, 
+ Remove its primary key attribute: 
+ on your DataSet > TableAdapter > right click on [id] column > select Delete key ... 
+ Problem will be fixed. 
+ 
+ I also had this issue and it was resolved after modifying the *.xsd to reflect the revised size of the column changed in the underlying SQL server. 
+ 
+ To fix this error, i took off the troubling table adapter from the Dataset designer, and saved the dataset, and then dragged a fresh copy of the table adapter from the server explorer and that fixed it 
+ 
+ I resolved this problem by opening the .xsd file with an XML reader and deleting a constraint placed on one of my views. For whatever reason when I added the view to the data it added a primary key constraint to one of the columns when there shouldn't have been one. 
+ The other way is to open the .xsd file normally, look at the table/view causing the issue and delete any keys (right click column, select  ) that should not be there. 
+ 
+ Just want to add another possible reason for the exception to those listed above (especially for people who like to define dataset schema manually):  
+ when in your dataset you have two tables  and there is a relationship ( ) defined from first table's field ( ) to the second table's field ( ), there is like an implicit constraint is added to that field to be  **unique**
+ even though it may be not specified as such explicitly in your definition neither as unique nor as a primary key. 
+ As a consequence, should you have rows with repetitive values in that parent field ( ) you'll get this exception too. 
+ 
+ 
+ 
+ I received the same error type and in my case it solved it by removing the select fields and replacing them with an *. No fucking idea why it was happening. The query had no typos or anything fancy. 
+ Not the best solution but nothing else worked and I was getting exhausted. 
+ In my search for a clear answer I found this on this:
+  https://www.codeproject.com/questions/45516/failed-to-enable-constraints-one-or-more-rows-cont 
+ **Solution 8**
+
+ This error was also showing in my project, using Visual Studio 2010. I tried other solutions posted in other blogs, but no luck at all because the problem had nothing to do with fields size, table key fields definition, constraints or the EnforceConstraints dataset variable. 
+ In my case I have a .xsd object which I put there during the project design time (in the Data Access Layer). As you drag your database table objects into the Dataset visual item, it reads each table definition from the underlying database and copies the constraints into the Dataset object exactly as you defined them when you created the tables in your database (SQL Server 2008 R2 in my case). This means that every table column created with the constraint of "not null" or "foreign key" must also be present in the result of your SQL statement or stored procedure. 
+ After I included all the constrained columns (not null, primary key, foreign key, etc) into my queries the problem disappeared completely. 
+ Perhaps you don't need all the table columns to be present in the query/stored procedure result, but because the constraints are still applied the error is shown if some constrained column does not appear in the result. 
+ Hope this helps someone else. 
+ 
+ In my case this error was provoked by a size of a string column. What was weird was when I executed the exact same query in different tool, repeated values nor null values weren't there. 
+ Then I discovered that the size of a string column size was 50 so when I called the fill method the value was chopped, throwing this exception. 
+I click on the column and set in the properties the size to 200 and the error was gone.  
+ Hope this help 
+ 
+ I solved this problem by doing the "subselect" like it: 
+ 
+ When do it on mysql, all collunms properties (unique, non-null ...) will be cleared. 
+ 

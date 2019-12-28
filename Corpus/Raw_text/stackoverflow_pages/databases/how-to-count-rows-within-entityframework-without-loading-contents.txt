@@ -1,0 +1,61 @@
+*** how-to-count-rows-within-entityframework-without-loading-contents ***
+
+ I'm trying to determine how to  **count**
+ the matching rows on a table using the EntityFramework. 
+ The problem is that each row might have many megabytes of data (in a Binary field).  Of course the SQL would be something like this: 
+ 
+ I could load all of the rows and  then  find the Count with: 
+ 
+ But that is grossly inefficient.  Is there a simpler way? 
+ 
+ EDIT: Thanks, all.  I've moved the DB from a private attached so I can run profiling; this helps but causes confusions I didn't expect. 
+ And my real data is a bit deeper, I'll use  **Trucks**
+ carrying  **Pallets**
+ of  **Cases**
+ of  **Items**
+ -- and I don't want the  **Truck**
+ to leave unless there is at least one  **Item**
+ in it.  
+ My attempts are shown below.  The part I don't get is that CASE_2 never access the DB server (MSSQL). 
+ 
+ And the SQL resulting from CASE_1 is piped through  **sp_executesql**
+, but: 
+ 
+ [ I don't really have Trucks, Drivers, Pallets, Cases or Items; as you can see from the SQL the Truck-Pallet and Pallet-Case relationships are many-to-many -- although I don't think that matters.  My real objects are intangibles and harder to describe, so I changed the names. ] 
+ 
+ Query syntax: 
+ 
+ Method syntax: 
+ 
+ Both generate the same SQL query. 
+ 
+ I think you want something like 
+ 
+ (edited to reflect comments) 
+ 
+ As I understand it, the selected answer still loads all of the related tests. According to this msdn blog, there is a better way. 
+ http://blogs.msdn.com/b/adonet/archive/2011/01/31/using-dbcontext-in-ef-feature-ctp5-part-6-loading-related-entities.aspx 
+ Specifically 
+ 
+ 
+ This is my code: 
+ 
+ Make sure the variable is defined as IQueryable then when you use Count() method, EF will execute something like  
+ 
+ Otherwise, if the records is defined as IEnumerable, the sql generated will query the entire table and count rows returned. 
+ 
+ Well, even the   will be fairly inefficient, especially on large tables, since SQL Server really can't do anything but do a full table scan (clustered index scan).  
+ Sometimes, it's good enough to know an approximate number of rows from the database, and in such a case, a statement like this might suffice: 
+ 
+ This will inspect the dynamic management view and extract the number of rows and the table size from it, given a specific table. It does so by summing up the entries for the heap (index_id = 0) or the clustered index (index_id = 1). 
+ It's quick, it's easy to use, but it's not guaranteed to be 100% accurate or up to date. But in many cases, this is "good enough" (and put much less burden on the server). 
+ Maybe that would work for you, too? Of course, to use it in EF, you'd have to wrap this up in a stored proc or use a straight "Execute SQL query" call. 
+ Marc 
+ 
+ Use the  **ExecuteStoreQuery**
+ method of the entity context.  This avoids downloading the entire result set and deserializing into objects to do a simple row count. 
+ 
+ 
+ I think this should work... 
+ 
+ 

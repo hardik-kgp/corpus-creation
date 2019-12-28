@@ -1,0 +1,51 @@
+*** how-do-i-make-a-mysql-database-run-completely-in-memory ***
+
+ I noticed that my database server supports the Memory database engine. I want to make a database I have already made running InnoDB run completely in memory for performance. 
+ How do I do that? I explored PHPMyAdmin, and I can't find a "change engine" functionality. 
+ 
+ Assuming you understand the consequences of using the MEMORY engine as mentioned in comments, and  here , as well as some others you'll find by searching about (no transaction safety, locking issues, etc) - you can proceed as follows: 
+ MEMORY tables are stored differently than InnoDB, so you'll need to use an export/import strategy. First dump each table separately to a file using  .  Create the MEMORY database and recreate the tables you'll be using with this syntax:  .  You can then import your data using   for each table. 
+ 
+ It is also possible to place the MySQL data directory in a  tmpfs  in thus speeding up the database write and read calls. It might not be the most efficient way to do this but sometimes you can't just change the storage engine.  
+ Here is my fstab entry for my MySQL data directory 
+ 
+ I also wrote a post that explains the setup in more detail. I use this setup for database tests. 
+ http://jotschi.de/2014/02/03/high-performance-mysql-testdatabase/ 
+ You may also want to take a look at the  innodb_flush_log_at_trx_commit=2  setting. Maybe this will speedup your MySQL sufficently.  
+ innodb_flush_log_at_trx_commit changes the mysql disk flush behaviour. When set to 2 it will only flush the buffer every second. By default each insert will cause a flush and thus cause more IO load. 
+ 
+ Memory Engine is not the solution you're looking for. You lose everything that you went to a database for in the first place (i.e. ACID). 
+ Here are some better alternatives: 
+ 
+ Don't use joins - very few large apps do this (i.e Google, Flickr, NetFlix), because it sucks for large sets of joins.  
+ 
+ 
+ A LEFT [OUTER] JOIN can be faster than an equivalent subquery because
+  the server might be able to optimize it better—a fact that is not
+  specific to MySQL Server alone. 
+ - The MySQL Manual 
+ 
+ 
+ Make sure the columns you're querying against have indexes. Use EXPLAIN to confirm they are being used. 
+ Use and increase your Query_Cache and memory space for your indexes to get them in memory and store frequent lookups. 
+ Denormalize your schema, especially for simple joins (i.e. get fooId from barMap). 
+ 
+ The last point is key. I used to love joins, but then had to run joins on a few tables with 100M+ rows. No good. Better off insert the data you're joining against into that target table (if it's not too much) and query against indexed columns and you'll get your query in a few ms. 
+ I hope those help. 
+ 
+ If your database is small enough (or if you add enough memory) your database will effectively run in memory since it your data will be cached after the first request.  
+ Changing the database table definitions to use the memory engine is probably more complicated than you need. 
+ If you have enough memory to load the tables into memory with the   engine, you have enough to tune the innodb settings to cache everything anyway. 
+ 
+ 
+ "How do I do that? I explored PHPMyAdmin, and I can't find a "change engine" functionality." 
+ 
+ In direct response to this part of your question, you can issue an   and it'll recreate the table in the proper engine. 
+ 
+ In place of the Memory storage engine, one can consider MySQL Cluster. It is said to give similar performance but to support disk-backed operation for durability. I've not tried it, but it looks promising (and been in development for a number of years). 
+ You can find the official MySQL Cluster documentation here. 
+ 
+ Additional thoughts : 
+ Ramdisk - setting the temp drive MySQL uses as a RAM disk, very easy to set up. 
+ memcache - memcache server is easy to set up, use it to store the results of your queries for X amount of time. 
+ 

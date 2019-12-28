@@ -1,0 +1,86 @@
+*** synchronizing-client-server-databases ***
+
+ I'm looking for some general strategies for synchronizing data on a central server with client applications that are not always online. 
+ In my particular case, I have an android phone application with an sqlite database and a PHP web application with a MySQL database.  
+ Users will be able to add and edit information on the phone application and on the web application. I need to make sure that changes made one place are reflected everywhere even when the phone is not able to immediately communicate with the server. 
+ I am not concerned with how to transfer data from the phone to the server or vice versa. I'm mentioning my particular technologies only because I cannot use, for example, the replication features available to MySQL. 
+ I know that the client-server data synchronization problem has been around for a long, long time and would like information - articles, books, advice, etc - about patterns for handling the problem. I'd like to know about general strategies for dealing with synchronization to compare strengths, weaknesses and trade-offs. 
+ 
+ The first thing you have to decide is a general policy about which side is considered "authoritative" in case of conflicting changes. 
+ I.e.: suppose Record #125 is changed on the server on January 5th at 10pm and the same record is changed on one of the phones (let's call it Client A) on January 5th at 11pm. 
+Last synch was on Jan 3rd. Then the user reconnects on, say, January 8th. 
+ Identifying what needs to be changed is "easy" in the sense that both the client and the server know the date of the last synch, so anything  created or updated  (see below for more on this) since the last synch needs to be reconciled. 
+ So, suppose that the only changed record is #125.
+You either decide that one of the two automatically "wins" and overwrites the other, or you need to support a reconcile phase where a user can decide which version (server or client) is the correct one, overwriting the other. 
+ This decision is extremely important and you must weight the "role" of the clients. Especially if there is a potential conflict not only between client and server, but in case different clients can change the same record(s). 
+ [Assuming that #125 can be modified by a second client (Client B) there is a chance that Client B, which hasn't synched yet, will provide yet another version of the same record, making the previous conflict resolution moot] 
+ Regarding the " created or updated " point above... how can you properly identify a record if it has been originated on one of the clients (assuming this makes sense in your problem domain)?
+Let's suppose your app manages a list of business contacts. If Client A says you have to add a newly created John Smith, and the server has a John Smith created yesterday by Client D... do you create two records because you cannot be certain that they aren't different persons? Will you ask the user to reconcile this conflict too? 
+ Do clients have "ownership" of a subset of data? I.e. if Client B is setup to be the "authority" on data for Area #5 can Client A modify/create records for Area #5 or not? (This would make some conflict resolution easier, but may prove unfeasible for your situation). 
+ To sum it up the main problems are: 
+ 
+ How to define "identity" considering that detached clients may not have accessed the server before creating a new record. 
+ The previous situation, no matter how sophisticated the solution, may result in data duplication, so you must foresee how to periodically solve these and how to inform the clients that what they considered as "Record #675" has actually been merged with/superseded by Record #543 
+ Decide if conflicts will be resolved by  fiat  (e.g. "The server version always trumps the client's if the former has been updated since the last synch") or by manual intervention 
+ In case of  fiat , especially if you decide that the client takes precedence, you must also take care of how to deal with other, not-yet-synched clients that may have some more changes coming. 
+ The previous items don't take in account the granularity of your data (in order to make things simpler to describe). Suffice to say that instead of reasoning at the "Record" level, as in my example, you may find more appropriate to record change at the field level, instead. Or to work on a set of records (e.g. Person record + Address record + Contacts record) at a time treating their aggregate as a sort of "Meta Record". 
+ 
+ Bibliography: 
+ 
+ More on this, of course, on  Wikipedia . 
+ A simple synchronization algorithm  by the author of  Vdirsyncer 
+ OBJC article on data synch 
+ SyncML®: Synchronizing and Managing Your Mobile Data  (Book on O'Reilly Safari) 
+ Conﬂict-free Replicated Data Types 
+ Optimistic Replication  YASUSHI SAITO (HP Laboratories) and MARC SHAPIRO (Microsoft Research Ltd.) -  ACM Computing Surveys, Vol. V, No. N, 3 2005. 
+ Alexander Traud, Juergen Nagler-Ihlein, Frank Kargl, and Michael Weber. 2008. Cyclic Data Synchronization through Reusing SyncML. In Proceedings of the The Ninth International Conference on Mobile Data Management (MDM '08). IEEE Computer Society, Washington, DC, USA, 165-172. DOI=10.1109/MDM.2008.10  http://dx.doi.org/10.1109/MDM.2008.10   
+ Lam, F., Lam, N., and Wong, R. 2002. Efficient synchronization for mobile XML data. In Proceedings of the Eleventh international Conference on information and Knowledge Management (McLean, Virginia, USA, November 04 - 09, 2002). CIKM '02. ACM, New York, NY, 153-160. DOI=  http://doi.acm.org/10.1145/584792.584820 
+ Cunha, P. R. and Maibaum, T. S. 1981. Resource &equil; abstract data type + synchronization - A methodology for message oriented programming -. In Proceedings of the 5th international Conference on Software Engineering (San Diego, California, United States, March 09 - 12, 1981). International Conference on Software Engineering. IEEE Press, Piscataway, NJ, 263-272. 
+ 
+ (The last three are from the ACM digital library, no idea if you are a member or if you can get those through other channels). 
+ From the  Dr.Dobbs  site: 
+ 
+ Creating Apps with SQL Server CE and SQL RDA by Bill Wagner May 19, 2004 (Best practices for designing an application for both the desktop and mobile PC - Windows/.NET) 
+ 
+ From arxiv.org: 
+ 
+ A Conflict-Free Replicated JSON Datatype  - the paper describes a JSON CRDT implementation (Conflict-free replicated datatypes - CRDTs - are a family of data structures that support concurrent modification and that guarantee convergence of such concurrent updates). 
+ 
+ 
+ I would recommend that you have a  **timestamp**
+ column in every table and every time you insert or update, update the timestamp value of each affected row. Then, you iterate over all tables checking if the timestamp is newer than the one you have in the destination database. If it´s newer, then check if you have to insert or update. 
+ Observation 1: be aware of physical deletes since the rows are deleted from source db and you have to do the same at the server db. You can solve this avoiding physical deletes or logging every deletes in a table with timestamps. Something like this:   So, you have to read all the new rows of DeletedRows table and execute a delete at the server using table_name, pk_column and pk_column_value. 
+ Observation 2: be aware of FK since inserting data in a table that´s related to another table could fail. You should deactivate every FK before data synchronization. 
+ 
+ If anyone is dealing with similar design issue and needs to synchronize changes across multiple Android devices I recommend checking  Google Cloud Messaging for Android  (GCM). 
+ I am working on one solution where changes done on one client must be propagated to other clients. And I just implemented a proof of concept implementation (server & client) and it works like a charm. 
+ Basically, each client sends delta changes to the server. E.g. resource id ABCD1234 has changed from value 100 to 99. 
+ Server validates these delta changes against its database and either approves the change (client is in sync) and updates its database or rejects the change (client is out of sync). 
+ If the change is approved by the server, server then notifies other clients (excluding the one who sent the delta change) via GCM and sends multicast message carrying the same delta change. Clients process this message and updates their database. 
+ Cool thing is that these changes are propagated almost instantaneously!!! if those devices are online. And I do not need to implement any polling mechanism on those clients. 
+ Keep in mind that if a device is offline too long and there is more than 100 messages waiting in GCM queue for delivery, GCM will discard those message and will send a special message when the devices gets back online. In that case the client must do a full sync with server. 
+ Check also  this tutorial  to get started with CGM client implementation. 
+ 
+ this answers developers who are using the Xamarin framework (see  https://stackoverflow.com/questions/40156342/sync-online-offline-data ) 
+ A very simple way to achieve this with the xamarin framework is to use the Azure’s Offline Data Sync as it allows to push and pull data from the server on demand. Read operations are done locally, and write operations are pushed on demand; If the network connection breaks, the write operations are queued until the connection is restored, then executed. 
+ The implementation is rather simple: 
+ 1) create a Mobile app in azure portal (you can try it for free here  https://tryappservice.azure.com/ ) 
+ 2) connect your client to the mobile app.
+ https://azure.microsoft.com/en-us/documentation/articles/app-service-mobile-xamarin-forms-get-started/ 
+ 3) the code to setup your local repository: 
+ 
+ 4) then to push and pull your data to ensure we have the latest changes: 
+ 
+ https://azure.microsoft.com/en-us/documentation/articles/app-service-mobile-xamarin-forms-get-started-offline-data/ 
+ 
+ I suggest you also take a look at  Symmetricds . it is a SQLite replication library available to android systems.  you can use it to synchronize your client and server database, I also suggest to have separate databases on server for each client. Trying to hold the data of all users in one mysql database is not always the best idea. Specially if the user data is going to grow fast. 
+ 
+ Lets call it the  **CUDR Sync**
+ problem (I don't like CRUD - because Create/Update/Delete are writes and should be paired together) 
+ The problem may also be looked at from  **write-offliine-first**
+ or  **write-online-first**
+ perspective.  The write-offline-approach has a problem with unique identifier conflict, and also multiple network calls for same transaction increasing risk (or cost)...    
+ I personally find write-online-first approach easier to manage (so it will be the single source of truth - from where everything else is synced). The write-online-approach will require not letting users write offline first - they will write offline by getting ok response form online write.  
+ He may read offline first and as soon as network is available get the data from online and update the local database and then update the ui.... 
+ One way to avoid the unique identifier conflict would be to use a combination of unique user id + table name or table id + row id (generated by sqlite)... and then use the synced boolean flag column with it.. but still the registration has to be done online first to get the unique id on which all other ids will be generated...  here the issue will also be if clocks are not synced - which someone mentioned above... 
+ 

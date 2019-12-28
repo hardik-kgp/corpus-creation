@@ -1,0 +1,43 @@
+*** order-invoice-payment-database-modeling ***
+
+ I am designing an e-commerce website that has the following scenario: 
+ 
+ A customer can purchase items and create an order. 
+ The order may have unknown fee that will be added after the customer
+pays the total amount of the items. That is, the customer pays
+certain amount first. The order adds some fee and changes the total.
+And the customer pays again for the difference. But the two (or
+more) payments are associated with the same order. 
+ (Optional) The customer can submit a single payment for multiple
+orders. 
+ 
+ Currently, I have an   table and each order may consist of multiple  s (simplified schema): 
+ 
+ A payment is associated with an order (simplified schema): 
+ 
+ It seems to be very hard to support the multiple payments for a single order scenario in the current implementation. I reckon that I have to introduce immutable invoices in the system, and the payment should be associated with an invoice instead of an order. However, I would need some help with the order/invoice/payment modeling for the above scenario. Some specific questions I have: 
+ 
+ An order and an invoice look very similar to me (e.g. both have
+items and totals). What is the major difference in typical
+e-commerce systems? 
+ How should I model invoices for my scenario? Should I have
+ s for an   AND  s for an  ? 
+ Some preliminary thoughts: I will have multiple invoices associated
+with a certain order. Whenever the order changes the total, I have
+to somehow calculate the difference and send a new/immutable invoice
+to the customer. Then, the customer can pay and the payment will be
+associated with the invoice. 
+ 
+ Would love to hear some advice. Much appreciated. Thanks! 
+ 
+ There are a lot of questions here, I'll try to address as many as I can. A lot of the issues are the business model rather than the data model. 
+ Firstly, you are right that you need an immutable invoice. Once an invoice is created you cannot alter it, the standard way of handling a change in invoice is to issue a credit note and a new invoice.  
+ Think about the relations between the tables: the   does not need to hold the  s as these are referenced the other way, i.e. 
+ 
+ So to view the order you join the tables on orderId. There's also no need to store the   as that is calculated from the join. 
+ Try not to duplicate your data: your invoice will reference  s, but not necessarily the same ones in the order. For example, the customer orders an A and a B, but B is out of stock. You ship A and create an invoice that references   for A. So your invoice tables might look like: 
+ 
+ In other words there's no need to have the details of the item. You may be wondering why you don't just add an invoiceId to the orderLineItem table - the reason is the customer might order 10 of item A, but you only ship 8 of them, the other two will go on a subsequent invoice.  
+ Payments are not made against orders, they are against invoices. So your payments table should reference the invoiceId. 
+ Then you touch on reconciliation. If everything was perfect, the customer would make a payment against a particular invoice, even if a partial payment. In reality this is going to be your biggest headache. Suppose the customer has several outstanding invoices for amounts x, y and z. If they make a payment of p, which do you allocate it against? Perhaps in date order, so that if p>x the remainder is allocated against y. What if p=z? Perhaps the customer is intending to pay z now but is disputing y and has mislaid x? How you deal with these sorts of things is up to you, but I can say that most invoicing systems do it very badly indeed. 
+ 

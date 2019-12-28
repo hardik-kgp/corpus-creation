@@ -1,0 +1,46 @@
+*** life-span-of-temp-table ***
+
+ I have the following procedure: 
+ 
+ What happens if there is an exception before the DROP TABLE is called? Will tempTable still be around after foo exits? 
+ If so, foo could fail the next time it is called, because tempTable would already exist. How should that be handled. 
+ **EDIT: I am using informix 11.5**
+
+ 
+ As others stated, temporary tables last until you drop them explicitly or the session ends. 
+ If the stored procedure fails because the table already exists, SPL generates an exception.
+You can deal with exceptions by adding an ON EXCEPTION clause -— but you are entering one of the more baroque parts of SPL, Stored Procedure Language. 
+ Here is a mildly modified version of your stored procedure - one that generates a divide by zero exception (SQL -1202): 
+ 
+ This shows that the first time through the code executed the SELECT, creating the table, and then ran foul of the divide by zero.  The second time, though, the SELECT failed because the temp table already existed, hence the different error message. 
+ 
+ The BEGIN/END block limits the exception handling to the trapped statement.  Without the BEGIN/END, the exception handling covers the entire procedure, reacting to the divide by zero error too (and therefore letting the DROP TABLE work and the procedure seems to run successfully). 
+ Note that temptable still exists at this point: 
+ 
+ This shows that the procedure no longer fails because the temp table is present. 
+ You can limit the ON EXCEPTION block to selected error codes (-958 seems plausible for this one) by: 
+ 
+ See the IBM Informix Guide to SQL: Syntax manual, chapter 3 'SPL Statements'. 
+ 
+ For Informix 12.10  SPL Statements 
+ For Informix 11.70  SPL Statements 
+ For Informix 11.50  SPL Statements 
+ 
+ Note that Informix 11.70 added the 'IF EXISTS' and 'IF NOT EXISTS' clauses to CREATE and DROP statements.  Thus, you might use the modified  DROP TABLE  statement: 
+ 
+ Thus, with Informix 11.70 or later, the easiest way to write the procedure is: 
+ 
+ You could also use this, but then you get the previous definition of the procedure, whatever it was, and it might not be what you expected. 
+ 
+ 
+ According to the documentation , temporary tables are dropped when the session ends. 
+ 
+ I finally used a variation of Jonathan's and RET's solution: 
+ 
+ 
+ Yes, the temp table will still exist. Temp tables by definition have a lifetime of the session that created them, unless explicitly dropped. 
+ The temp table can only be seen by the session that created it, and there is no impediment to the same procedure being run in parallel by multiple users. Adam's answer to test for the existence of the temp table will return a non-zero result if any user is running the procedure. You need to test that the session that owns the temp table is the current session as well. Given that this question is within the scope of a stored procedure, it might be simpler to add an explicit DROP, wrapped in some exception handling. 
+ 
+ 
+ If w_count is 1, delete table before SELECT ... INTO.  Same with DROP TABLE. 
+ 

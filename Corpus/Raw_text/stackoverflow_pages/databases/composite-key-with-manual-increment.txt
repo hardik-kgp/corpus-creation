@@ -1,0 +1,115 @@
+*** composite-key-with-manual-increment ***
+
+ How do I, in a multiple session / transaction environment, safely insert a row into a table containing a primary composite key with a (manual) increment key. 
+ And how do I get hold of the latest incremented value of  ,   don't return the desired value. 
+ I have looked into   and   but can't decide on which to use. 
+ What is the best way to achieve this in terms of transaction safety (lock), isolation level and performance standpoint. 
+ **Update**
+ - Another take on the problem 
+ 
+ Lets say two transactions / sessions try to insert the same column_a, column_b pair (example 1,1) simultaneously. How do I; 
+ 
+ Execute the insert queries in sequence. The first insert (transaction 1) should result in a composite key of 1,1, **1**
+, and the second (transaction 2) 1,1, **2**
+. I need some sort of locking mechanism 
+ Retrieve the column_c value of the insert. I probably need to utilize variables? 
+ 
+ 
+ **Table definition**
+
+ 
+ **Exempel data**
+
+ 
+ **Take on the insert into select query**
+
+ 
+ 
+ You can use a stored procedure for this: 
+ I never encountered this kind of issue and if I ever do, I would do as following: 
+ 
+ usage would be: 
+ 
+ result: 
+ 
+ same applies within a transaction: 
+ 
+ **however I haven't tried parallel transactions!**
+
+ 
+ 
+ The hope is that the   will stall until it can get a lock and the desired   value.  Then the rest of the transaction should go smoothly. 
+ I don't think that the setting of   matters, but that is worth studying. 
+ 
+ Let's call the table containing these 3 columns as   to avoid confusion arising from the name of you have given -  . 
+ It's the column   that's manually incremented. Pull it out and keep track of the last value used for this column in another table. 
+ 
+ **Solution's steps:**
+
+ 
+ Create a table that stores the last value used for  . Let's call this table  .   will contain only three columns:
+
+ 
+ Name of table whose column you want to increment manually (Example:  );  
+ Name of column itself (Example:  ); 
+ Last value used for that column (Example:  ). 
+ 
+ Now, for ease of use, write a Stored Procedure that performs a transaction on  . This proc will read the last value used for the   in your case. Increment it. Return the incremented value to you. (Of course, you can do a direct query too every time. Stored Procedure is a better choice.) 
+ Now the returned value of   is frozen for you because the Stored Procedure has increment the value in   for the   row for good. Anyone who wants to add another row to the   will call the Stored Proc and get the non-conflicting and incremented value, even if you are not yet done with insertion of your previous value in your  . 
+ 
+ 
+ **Demonstration of the solution's workability:**
+
+ To keep the demonstration generalized, consider that you have  n  simultaneous requests for insertion in  . 
+ All the  n  requests will have to first call the Stored Procedure. Since the Stored Proc utilizes a transaction on the  , at a time only 1 request will be accessing the row for  , which currently looks like: 
+ 
+ Now, the first request will lock this row and get   as the value, and also update the value in the table's row to 122. By the time the  n  requests will be finished, the  's   row will look like: 
+ 
+ Now, those  n  requests will already be on their way to perform the insertion in  . But since they all have their own unique values of  , their insertion will be free of conflict, irrespective of the order in which insertion happens! You may have the value   inserted first and   inserted the last. In fact, you don't even need the   tuple to be unique because   will always be unique. 
+ This solution works fine for parallel requests as well as serial ones. With only a very very minor (to the point of negligible) hit to performance, this would be the sweet point of transaction safety, isolation level and performance that you are trying to hit. 
+ 
+ **Important:**
+  Use   to store the last value of all such primary key columns in all the tables of your database. Since this table will contain only as many rows as the number of keys in all of your database that you want to increment manually, it will contain only a limited and fixed number of rows. This will be fast and race condition free. 
+ 
+ You can use a dummy value for   to lock the combination   for other inserts, which especially makes sure it will be locked even if no row for that combination exists yet. 
+ 
+ The first   will lock the exact combination ( , but it will not block other values, so you can insert other combinations while the first transaction is running. 
+ It will work with any transaction level, because   will be correct (and correctly gap lock) even if another session would update rows of the same combination (other than the locked row with  ) after the first insert; but if you use   or  , the temporary value (with  ) will of course be shortly visible to other sessions. In case this bothers you, use a higher level (e.g. keep the default). 
+  will, as required, contain your last id,   and   will be replaced by your values and don't need to be variables. 
+ If you put that code in a stored procedure, keep in mind that MySQL doesn't support nested transactions, so it is always risky to start (and especially commit) a transaction in a procedure, so you should do the transaction handling outside of the procedure. 
+  is only there to make it fool proof. If everything works fine, you don't need it, but it will ensure the code will work even if someone (manually) added an invalid row with   and left it there. Or if, in case you put the code in a procedure, someone called it without starting a transaction first, and another session inserts that combination at the same time, this can result in a duplicate key error (for the  ) and thus might result in a residual row with   (which you could of course delete in an exception handler in your procedure). It might be of interest to get informed (by crying users) if such a situation occured, so you may want to remove   (at least for testing). 
+ 
+ **Option 1**
+
+ This should be atomic and appears to insert the correct values: 
+ 
+ Where   and   are your new values. 
+ Unfortunately if you want to use the   function it will only work with   values. 
+ You could add a surrogate primary key: 
+ 
+ And run the same   query above. Now your   will reference the newly inserted row. 
+ If you do add a surrogate key, it may be worth reassessing whether   is still necessary. 
+ 
+ **Option 2**
+
+ You may also be able to get around adding a surrogate key by using a user variable within a single connection/transaction/procedure: 
+ 
+ 
+ **Option 3**
+
+ If this is the only place you insert or update these columns in your table you could do some manual name-based locking. Simulating record locks with   within a single transaction. 
+ Start a transaction. 
+ Choose a specific name for the rows you want locking. e.g.  . Where   is the value for column_a and   is the value for column_b. 
+ Call   to lock the name  .. it will return 1 and set the lock if the name becomes available, or return 0 if the lock is not available after 30 seconds (the second parameter is the timeout). 
+ Do your   and   queries here. 
+ Use   when you are finished. 
+ Commit the transaction. 
+ Be aware; calling   again in a transaction will release the previously set lock. Also, this named lock will only apply to this scenario or where the exact name is used. The lock only applies to the name! 
+ ** docs**
+
+ 
+ If data integrity matters to you, then consider the following: 
+ 
+ This design assumes no deletions - or deletions under only very specific circumstances 
+ OTOH, if data integrity doesn't matter then consider whether a relational database is the right thing for your needs. 
+ 

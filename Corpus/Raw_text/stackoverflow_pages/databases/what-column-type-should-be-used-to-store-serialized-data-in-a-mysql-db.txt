@@ -1,0 +1,74 @@
+*** what-column-type-should-be-used-to-store-serialized-data-in-a-mysql-db ***
+
+ What column type should be used to store serialized data in a mysql db?
+I know you can use varbinary, blob, text. What's considered the best and why? 
+ Edit:
+I understand it is not "good" to store serialized data. I need to do it in this one case though. Please just trust me on this and focus on the question if you have an answer. Thanks! 
+ 
+ To answer: text is deprecated in a lot of DBMS it seems, so better use either a blob or a varchar with a high limit (and with blob you won't get any encoding issues, which is a major hassle with varchar and text). 
+ Also as pointed in  this thread at the MySQL forums , hard-drives are cheaper than software, so you'd better first design your software and make it work, and only then if space becomes an issue, you may want to optimize that aspect. So don't try to overoptimize the size of your column too early on, better set the size larger at first (plus this will avoid security issues). 
+ About the various comments:
+Too much SQL fanaticism here. Despite the fact that I am greatly fond of SQL and relational models, they also have their pitfalls. 
+ Storing serialized data into the database as-is (such as storing JSON or XML formatted data) has a few advantages: 
+ 
+ You can have a more flexible format for your data: adding and removing fields on the fly, changing the specification of the fields on the fly, etc... 
+ Less impedance mismatch with the object model: you store and you fetch the data just as it is in your program, compared to fetching the data and then having to process and convert it between your program objects' structures and your relational database's structures. 
+ 
+ And there are a lot more other advantages, so please no fanboyism: relational databases are a great tool, but let's not dish the other tools we can get. More tools, the better. 
+ As for a concrete example of use, I tend to add a JSON field in my database to store extra parameters of a record where the columns (properties) of the JSON data will never be SELECT'd individually, but only used when the right record is already selected. In this case, I can still discriminate my records with the relational columns, and when the right record is selected, I can just use the extra parameters for whatever purpose I want. 
+ So my advice to retain the best of both world (speed, serializability and structural flexibility), just use a few standard relational columns to serve as unique keys to discriminate between your rows, and then use a blob/varchar column where your serialized data will be inserted. Usually, only two/three columns are required for a unique key, thus this won't be a major overhead. 
+ Also, you may be interested by PostgreSQL which now has a JSON datatype, and the  PostSQL project  to directly process JSON fields just as relational columns. 
+ 
+ How much do you plan to store? Check out the specs for the  string types at the MySQL docs  and their  sizes . The key here is that you don't care about indexing this column, but you also never want it to overflow and get truncated, since then you JSON is unreadable. 
+ 
+ **TINYTEXT**
+      L < 2^8 
+ **TEXT**
+          L < 2^16 
+ **MEDIUMTEXT**
+    L < 2^24 
+ **LONGTEXT**
+      L < 2^32 
+ 
+ Where L is the length in character     
+ Just plain  **text**
+ should be enough, but go bigger if you are storing more. Though, in that case, you might not want to be storing it in the db. 
+ 
+ The length limits that @Twisted Pear mentions are good reasons. 
+ Also consider that   and its ilk have a  **charset**
+ associated with them, whereas   data types do not.  If you're just storing raw bytes of data, you might as well use   instead of  .   
+ Note that you can still store textual data in a  , you just can't do any SQL operations on it that take charset into account; it's just bytes to SQL.  But that's probably not an issue in your case, since it's serialized data with structure unknown to SQL anyway.  All you need to do is store bytes and fetch bytes.  The interpretation of the bytes is up to your app. 
+ I have also had troubles using   or   using certain client libraries (e.g. PHP) because the client tries to allocate a buffer as large as the largest possible data type, not knowing how large the content will be on any given row until it's fetched.  This caused PHP to burst into flames as it tried to allocate a 4GB buffer.  I don't know what client you're using, or whether it suffers from the same behavior. 
+ The workaround: use   or just  , as long as those types are sufficient to store your serialized data. 
+ 
+ On the issue of people telling you not to do this, I'm not going to tell you that (in spite of the fact that I'm an SQL advocate).  It's true you can't use SQL expressions to perform operations on individual elements within the serialized data, but that's not your purpose.  What you do gain by putting that data into the database includes: 
+ 
+ Associate serialized data with other more relational data. 
+ Ability to store and fetch serialized data according to transaction scope, COMMIT, ROLLBACK. 
+ Store all your relational and non-relational data in one place, to make it easier to replicate to slaves, back up and restore, etc. 
+ 
+ 
+ LONGTEXT 
+ 
+ Wordpress stores serialized data in their postmeta table as LONGTEXT.  I find the Wordpress database to be a good place to research datatypes for columns. 
+ 
+ 
+ I might be late to the party, but the php.net documentation about serialized object states the following: 
+ 
+ Note that this is a binary string which may include null bytes, and
+  needs to be stored and handled as such. For example, serialize()
+  output should generally be stored in a BLOB field in a database,
+  rather than a CHAR or TEXT field. 
+ 
+ Source:  http://php.net/manual/en/function.serialize.php 
+ Hope that helps!  
+ 
+ As of MySQL 5.7.8, MySQL supports a native JSON data type:  MySQL Manual 
+ 
+ Unless the serialized data has no other use than to be saved and restored from the database, you probably don't want to do it that way. 
+ Typically, serialized data has several fields which should be stored in the database as separate columns.  It is common for every item of serialized data to be a separate column.  Some of those columns would naturally be key fields.  Additional columns might plausibly added besides the data to indicate the date+time of when the insertion occurred, the responsible user, etc., etc. 
+ 
+ I found: 
+ 
+ to be the best balance of size/speed for us. Also, it works with the rails 3 serialize data (varbinary) was throwing serialize errors intermittently. 
+ 

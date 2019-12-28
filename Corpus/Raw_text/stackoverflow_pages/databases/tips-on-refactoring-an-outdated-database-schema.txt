@@ -1,0 +1,52 @@
+*** tips-on-refactoring-an-outdated-database-schema ***
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+                            As it currently stands, this question is not a good fit for our Q&A format. We expect answers to be supported by facts, references,   or expertise, but this question will likely solicit debate, arguments, polling, or extended discussion. If you feel that this question   can be improved and possibly reopened,  visit the help center  for guidance.
+                            
+                         
+ 
+ 
+ Closed  8 years ago . 
+ 
+ 
+ Being stuck with a legacy database schema that no longer reflects your data model is every developer's nightmare.  Yet with all the talk of refactoring code for maintainability I have not heard much of refactoring outdated database schemas.   
+ What are some tips on how to transition to a better schema without breaking all the code that relies on the old one?  I will propose a specific problem I am having to illustrate my point but feel free to give advice on other techniques that have proven helpful - those will likely come in handy as well. 
+ 
+ My example: 
+ My company receives and ships products.  Now a product receipt and a product shipment have some very different data associated with them so the original database designers created a separate table for receipts and for shipments.   
+ In my one year working with this system I have come to the realization that the current schema doesn't make a lick of sense.  After all, both a receipt and a shipment are basically a transaction, they each involve changing the amount of a product, at heart only the +/- sign is different.  Indeed, we frequently need to find the total amount that the product has changed over a period of time, a problem for which this design is downright intractable.   
+ Obviously the appropriate design would be to have a single Transactions table with the Id being a foreign key of either a ReceiptInfo or a ShipmentInfo table.  Unfortunately, the wrong schema has already been in production for some years and has hundreds of stored procedures, and thousands of lines of code written off of it.  How then can I transition the schema to work correctly? 
+ 
+ Here's a whole catalogue of database refactorings: 
+ http://databaserefactoring.com/ 
+ 
+ That's a very difficult thing to work around; A couple quick options after refactoring the database are:
+
+ Create views that match the original schema but pull from the new schema; You may need triggers here so any updates to the views can be handled. 
+ Create the new schema and put in triggers on each side to maintain the other side. 
+ 
+ This book (Refactoring Databases)  has been a God-send to me when dealing with legacy database schemas, including when I had to deal with almost the exact same issue for our inventory database.  
+ Also, having a system in place to track changes to the database schema (like a series of alter scripts that is stored int he source control repository) helps immensely in figuring out code-to-database dependencies. 
+ 
+ Stored procedures and views are your friend here.  Even if the system doesn't use them, change it to use them, then refactor the database underneath. 
+ Your receipts and shipments then become views. 
+ Beware, receipts and shipments are actually two very different beasts in most systems I have worked with.  Receipts are linked to suppliers, while shipments are linked to customers (or customer/ship-to locations).  At the inventory level, they are often represented the same. 
+ 
+ Is all data access limited to stored procedures?  If not, the task could be nearly impossible.  If so, you just have to make sure your data migration scripts work well transitioning from the old to the new schema, and then make sure your stored procedures honor theur inputs and outputs.   
+ Hopefully none of them have "select *" queries.  If they do, use 'sp_help tablename' to get the complete list of columns, copy that out and replace each * with the complete column list, just to make sure you don't break client code. 
+ I would recommend making the changes gradually, and do lots of integration testing.  It's hard to do a significant remodel without introducing a few bugs. 
+ 
+ The first thing is to create the table schema. I already did that for a Legacy database using Enterprise Architect. You can select the DB and it will create you every tables/fields. Then, you will need to split everything in categories. Exemple all your receives and ships products together, client stuff in an other category. Once everything is clear up, you will be able to refactor field by creating new table, new releashionship and new fields. Of course, this will need lot of change if all is accessed without Stored Procedure. 
+ 
+ I don't think its obvious that the id of the transactions table should be a foreign key to either ReceiptInfo or a ShipmentInfo. Think the other way around. In an object oriented model you should have a transaction table and the ReceiptInfo or a ShipmentInfo should have a foreign key to the transaction table. If you are lucky, there will be only 1 or 2 points in code where new records in ReceiptInfo or a ShipmentInfo are made. There you should add code where you add an entry in the Transaction table and after that create the entry in ReceiptInfo or ShipmentInfo with the foreign key to Transaction. 
+ 
+ Sometimes you can create new tables that have better structures and then create views with the names of your old tables but are based on the data in the new tables. That way, you code doesnt break while you start to move to a better structure. Be careful with thsi though as sometimes you move from a non-relational table to a relational structure where you have multiple records while the code will be expecting only one. This is particulalry true if you have developers who use subqueries.  
+ Then as each thing is changed, it will move away from the views to the real table. Eventually you can drop the views. This at least allows you to work incrementally to keep things working as you move stuff, but start to fix things to use a better design. 
+ 

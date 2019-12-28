@@ -1,0 +1,175 @@
+*** sequelize-js-how-to-use-migrations-and-sync ***
+
+ I'm close to having my project ready to launch. I have big plans for after launch and the database structure is going to change -- new columns in existing tables as well as new tables, and new associations to existing and new models. 
+ I haven't touched migrations in Sequelize yet, since I've only had testing data which I don't mind wiping out every time the database changes. 
+ To that end, at present I'm running   when my app starts up, if I have changed the model definitions. This deletes all the tables and makes them from scratch. I could omit the   option to have it only create new tables. But if existing ones have changed this is not useful. 
+ So once I add in migrations how do things work? Obviously I don't want existing tables (with data in them) to be wiped out, so   is out of the question. On other apps I've helped develop (Laravel and other frameworks) as part of the app's deployment procedure we run the migrate command to run any pending migrations. But in these apps the very first migration has a skeleton database, with the database in the state where it was some time early in development -- the first alpha release or whatever. So even an instance of the app late to the party can get up to speed in one go, by running all migrations in sequence. 
+ How do I generate such a "first migration" in Sequelize? If I don't have one, a new instance of the app some way down the line will either have no skeleton database to run the migrations on, or it will run sync at the start and will make the database in the new state with all the new tables etc, but then when it tries to run the migrations they won't make sense, since they were written with the original database and each successive iteration in mind. 
+ My thought process: at every stage, the initial database plus each migration in sequence should equal (plus or minus data) the database generated when   is run. This is because the model descriptions in the code describe the database structure. So maybe if there is no migration table we just run sync and mark all the migrations as done, even though they weren't run. Is this what I need to do (how?), or is Sequelize supposed to do this itself, or am I barking up the wrong tree? And if I'm in the right area, surely there should be a nice way to auto generate most of a migration, given the old models (by commit hash? or even could each migration be tied to a commit? I concede I am thinking in a non-portable git-centric universe) and the new models. It can diff the structure and generate the commands needed to transform the database from old to new, and back, and then the developer can go in and make any necessary tweaks (deleting/transitioning particular data etc). 
+ When I run the sequelize binary with the   command it gives me an empty migrations directory. When I then run   it makes me a SequelizeMeta table with nothing in it, no other tables. Obviously not, because that binary doesn't know how to bootstrap my app and load the models. 
+ I must be missing something. 
+ TLDR: how do I set up my app and its migrations so various instances of the live app can be brought up to date, as well as a brand new app with no legacy starting database? 
+ 
+ **Generating the "first migration"**
+
+ In your case, the most reliable way is to do it almost manually. I would suggest to use  sequelize-cli  tool. The syntax is rather plain: 
+ 
+ This will create both model AND migration. Then, manually merge your existing models with generated with sequelize-cli, and do the same with migrations. After doing this, wipe database (if possible), and run 
+ 
+ This will create schema will migrations. You should do this only once to switch to proper process of schema developments (without sync:force, but with authoritative migrations). 
+ Later, when you need to change schema: 
+ 
+ Create a migration:  
+ Write up and down functions in your migration file 
+ According to your changes in migration file, change your model manually 
+ Run  
+ 
+ **Running migrations on production**
+
+ Obviously you can't ssh to production server and run migrations by hands. Use  umzug , framework agnostic migration tool for Node.JS to perform pending migrations before app starts. 
+ You can get a list of pending/not yet executed migrations like this: 
+ 
+ Then execute migrations ( **inside callback**
+). The execute method is a general purpose function that runs for every specified migrations the respective function: 
+ 
+ And my suggestion is to do it before app starts and tries to serve routes every time. Something like this: 
+ 
+ I can't try this right now, but at first look it should work. 
+ **UPD Apr. 2016**
+
+ After a year, still useful, so sharing my current tips. For now, I'm installing   package as required  **live**
+ dependancy, and then modify NPM startup scripts in   like this: 
+ 
+ The only thing I need to do on production server is  . This command will run all migrations, apply all seeders and start app server. No need to call umzug manually. 
+ 
+ Just learning this myself, but I think I would recommend using migrations now so you get used to them. I've found the best thing for figuring out what goes in the migration is to look at the sql on the tables created by   and then build the migrations from there.   
+ 
+ Will create the template migration file in a migrations directory. You can then populate it with the fields you need created. This file will need to include  / , fields needed for associations, etc. 
+ **For initial table creation down should have:**
+
+ 
+ But subsequent updates to the table structure can leave this out and just use alter table. 
+ 
+ **An example create would look like:**
+
+ 
+ **To redo from start:**
+
+ 
+ **I'm using coffee to run a seed file to populate the tables after:**
+
+ 
+ **This just has a create function in it that looks something like:**
+
+ 
+ Remember to take your   out of index in your models or it will overwrite what the migrations and seed do. 
+ Docs are at  http://sequelize.readthedocs.org/en/latest/docs/migrations/  of course. But the basic answer is you have to add everything in yourself to specify the fields you need. It doesn't do it for you. 
+ 
+ For  development , there is now an option to sync the current tables by altering their structure. Using the latest version from the  sequelize github repo , you can now run sync with the   parameter. 
+ 
+ A caveat from the docs: 
+ 
+ Alters tables to fit models. Not recommended for production use. Deletes data in columns that were removed or had their type changed in the model. 
+ 
+ 
+ Now with the new sequelize migration is very simple. 
+ This is a example what you can do. 
+ 
+ Remember you have to set: 
+ 
+ on database config. 
+ 
+ Use version.
+Version of the application depends on the version of the database.
+If the new version requires an update of a database, create migration for it. 
+ update: I decided to abandon the migration ( KISS ) and run script update_db (sync forse: false) when it is needed. 
+ 
+ A bit late, and after reading the documentation, you don't need to have that first migration that you are talking about. All you have to do is to call   in order to create the tables. 
+ 
+ You can also run a simple model synchronization by doing something like: 
+  but I think that   is a more useful general case for your project (as long as you import the good models at start time). 
+ (taken from  http://sequelizejs.com/docs/latest/models#database-synchronization ) 
+ This will create all  **initial**
+ structures. Afterwards, you will only have to create migrations in order to evolve your schemas. 
+ hope it helps. 
+ 
+ Sequelize can run arbitrary SQL  **asynchronously**
+. 
+ What I would do is: 
+ 
+ Generate a Migration (To use as first migration); 
+ Dump your database, something like:  
+ Either paste the full dump as text (Dangerous) or load a File with the full dump in Node:
+
+ 
+ 
+ 
+ 
+ Run this dump on Sequelize Migration:  
+ 
+ 
+ That should take care of setting up the database, albeit the async thing may become a problem. If that happens, I'd look at a way to defer returning the   sequelize function until the async   function is finished. 
+ More about mysql_dump:  http://dev.mysql.com/doc/refman/5.1/en/mysqldump.html 
+More about Sequelize Migrations:  http://sequelize.readthedocs.org/en/latest/docs/migrations/ 
+More about Running SQL from within Sequelize Migration:  https://github.com/sequelize/sequelize/issues/313 
+ 
+ Here is my current workflow.  I'm open to suggestions. 
+ 
+ Set sequelize to create tables that don't exist 
+ Set sequelize
+to drop and re-create all tables in a blank database called
+_blank  
+ Use a mysql tool to compare
+_blank and  and sync changes using
+that tool.  Still looking for an affordable tool that can do this on
+mac.  MySql workbench looks like you can import a model from an
+existing schema, and then sync schema.  Trying to figure out how to
+do this via command line to make it easy. 
+ 
+ That way you don't have to manually update the migrations table and have to worry about fat fingers, but you still get an ORM. 
+ 
+ Friend I had the same question and managed to understand how to use them.  
+ I started without ORM sequelize therefore I already had a data model. 
+I had to generate the models automatically with sequelize-auto and generate their migrations with this file that you create  https://gist.github.com/ahelord/a7a7d293695b71aadf04157f0f7dee64  and put in sync ( ) 
+This is in dev.I would have to version the model and the migrations and execute them every time I pull the code.  
+ In production the server is only upstairs so you only have to run migrations and in each commit manage as you will version the model without stopping the backend 
+ 
+ There is even more simple way (avoiding Sequalize). Which goes like this: 
+ 
+ You type a command inside your project:  **npm run migrate:new**
+
+ This creates 3 files. A js file, and two sql files named up and down 
+ You put your SQL statement in those files, which is pure sql 
+ Then you type:  **npm run migrate:up**
+ or  **npm run migrate:down**
+
+ 
+ For this to work, please have a look at the  db-migrate  module. 
+ Once you get it setup (which is not difficult), changing your DB is really easy and saves a lot of time. 
+ 
+ I went through this post and similar questions, it didn't really answer it for me. Migrations are useful for spinning up local databases and for updating data in production 
+ I asked the question here and answered it as well:  Workflow for handling sequelize migrations and initialization? 
+ TL-DR version for a greenfield project 
+ 
+ Design your database schema as you traditionally would using pure SQL scripts or if you use a gui tool instead 
+ When you finalize all your 95% of your db schema and your happy with it, go ahead and move it to sequelize by moving the entire   file over 
+ Make your first migration. Run   in the whatever folder where your   are at 
+ Make your first migrations file. Run  
+ In that migration file, put this code in there 
+ 
+ 
+ 
+ with this general folder structure 
+ 
+ 
+ Now your sequelize setup is synced with your initial database schema 
+ when you want to edit your database schema, run this again  
+ Go ahead and make your modifications here on the   and   migration paths. These are your ALTER statements to change column names, DELETE, ADD columns etc 
+ Run  
+ You want the models synced to the changes to your remote db, so what you can do now is  . 
+ This will read the the current database schema on your database and auto generate model files. Use a command similar to this   found under  https://github.com/sequelize/sequelize-auto 
+ 
+ You can use git to see difflogs on your model, there should be only changes reflecting changes in the database model. As a side note, do not ever modify the   directly if you use  , as this will generate them for you. Likewise, you no longer should modify your database schema directly with SQL files, granted this is an option as you can import those   files as well 
+ Now your database schema is up to date, and you've officially moved over to sequelize database migrations only. 
+ Everything is version controlled. This is the ideal workflow for database and backend developer 
+ 

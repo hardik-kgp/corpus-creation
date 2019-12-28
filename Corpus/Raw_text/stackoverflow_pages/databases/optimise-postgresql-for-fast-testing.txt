@@ -1,0 +1,104 @@
+*** optimise-postgresql-for-fast-testing ***
+
+ I am switching to PostgreSQL from SQLite for a typical Rails application. 
+ The problem is that running specs became slow with PG. 
+On SQLite it took ~34 seconds, on PG it's ~76 seconds which is  **more than 2x slower**
+. 
+ So now I want to apply some techniques to  **bring the performance of the specs on par with SQLite**
+ with no code modifications (ideally just by setting the connection options, which is probably not possible). 
+ Couple of obvious things from top of my head are: 
+ 
+ RAM Disk (good setup with RSpec on OSX would be good to see) 
+ Unlogged tables (can it be applied on the whole database so I don't have change all the scripts?) 
+ 
+ As you may have understood I don't care about reliability and the rest (the DB is just a throwaway thingy here). 
+I need to get the most out of the PG and make it  **as fast as it can possibly be**
+. 
+ **Best answer**
+ would ideally describe the  tricks  for doing just that, setup and the drawbacks of those tricks. 
+ **UPDATE:**
+   +   only decreased time to ~65 seconds (~-16 secs). Good start, but far from the target of 34. 
+ **UPDATE 2:**
+ I  tried to use RAM disk  but the performance gain was within an error margin. So doesn't seem to be worth it. 
+ **UPDATE 3:***
+
+I found the biggest bottleneck and now my specs run as fast as the SQLite ones. 
+ The issue was the database cleanup that did the  **truncation**
+. Apparently SQLite is way too fast there. 
+ To "fix" it I open a  **transaction**
+ before each test and roll it back at the end. 
+ Some numbers for ~700 tests. 
+ 
+ Truncation: SQLite - 34s, PG - 76s. 
+ Transaction: SQLite - 17s, PG - 18s. 
+ 
+ 2x speed increase for SQLite.
+4x speed increase for PG. 
+ 
+ First, always use the latest version of PostgreSQL. Performance improvements are always coming, so you're probably wasting your time if you're tuning an old version. For example,  PostgreSQL 9.2 significantly improves the speed of   and of course adds index-only scans. Even minor releases should always be followed; see the  version policy . 
+ **Don'ts**
+
+ Do  NOT  put a tablespace on a RAMdisk or other non-durable storage . 
+ If you lose a tablespace the whole database may be damaged and hard to use without significant work. There's very little advantage to this compared to just using   tables and having lots of RAM for cache anyway. 
+ If you truly want a ramdisk based system,   a whole new cluster on the ramdisk by  ing a new PostgreSQL instance on the ramdisk, so you have a completely disposable PostgreSQL instance. 
+ **PostgreSQL server configuration**
+
+ When testing, you can configure your server for  non-durable but faster operation . 
+ This is one of the only acceptable uses for the   setting in PostgreSQL. This setting pretty much tells PostgreSQL not to bother with ordered writes or any of that other nasty data-integrity-protection and crash-safety stuff, giving it permission to totally trash your data if you lose power or have an OS crash. 
+ Needless to say, you should never enable   in production unless you're using Pg as a temporary database for data you can re-generate from elsewhere. If and only if you're doing to turn fsync off can also turn   off, as it no longer does any good then. Beware that   and   apply at the  cluster  level, so they affect  all  databases in your PostgreSQL instance. 
+ For production use you can possibly use   and set a  , as you'll get many of the same benefits as   without the giant data corruption risk. You do have a small window of loss of recent data if you enable async commit - but that's it. 
+ If you have the option of slightly altering the DDL, you can also use   tables in Pg 9.1+ to completely avoid WAL logging and gain a real speed boost at the cost of the tables getting erased if the server crashes. There is no configuration option to make all tables unlogged, it must be set during  . In addition to being good for testing this is handy if you have tables full of generated or unimportant data in a database that otherwise contains stuff you need to be safe. 
+ Check your logs and see if you're getting warnings about too many checkpoints. If you are, you should increase your  checkpoint_segments . You may also want to tune your checkpoint_completion_target to smooth writes out. 
+ Tune   to fit your workload. This is OS-dependent, depends on what else is going on with your machine, and requires some trial and error. The defaults are extremely conservative. You may need to increase the OS's maximum shared memory limit if you increase   on PostgreSQL 9.2 and below; 9.3 and above changed how they use shared memory to avoid that. 
+ If you're using a just a couple of connections that do lots of work, increase   to give them more RAM to play with for sorts etc. Beware that too high a   setting can cause out-of-memory problems because it's per-sort not per-connection so one query can have many nested sorts. You only  really  have to increase   if you can see sorts spilling to disk in   or logged with the   setting  (recommended), but a higher value may also let Pg pick smarter plans. 
+ As said by another poster here it's wise to put the xlog and the main tables/indexes on separate HDDs if possible. Separate partitions is pretty pointless, you really want separate drives. This separation has much less benefit if you're running with   and almost none if you're using   tables. 
+ Finally, tune your queries. Make sure that your   and   reflect your system's performance, ensure your   is correct, etc. Use   to examine individual query plans, and turn the   module on to report all slow queries. You can often improve query performance dramatically just by creating an appropriate index or tweaking the cost parameters. 
+ AFAIK there's no way to set an entire database or cluster as  . It'd be interesting to be able to do so. Consider asking on the PostgreSQL mailing list. 
+ **Host OS tuning**
+
+ There's some tuning you can do at the operating system level, too. The main thing you might want to do is convince the operating system not to flush writes to disk aggressively, since you really don't care when/if they make it to disk. 
+ In Linux you can control this with the  virtual memory subsystem 's   settings, like  . 
+ The only issue with tuning writeback settings to be too slack is that a flush by some other program may cause all PostgreSQL's accumulated buffers to be flushed too, causing big stalls while everything blocks on writes. You may be able to alleviate this by running PostgreSQL on a different file system, but some flushes may be device-level or whole-host-level not filesystem-level, so you can't rely on that. 
+ This tuning really requires playing around with the settings to see what works best for your workload. 
+ On newer kernels, you may wish to ensure that   is set to zero, as it can cause severe performance issues with NUMA systems (most systems these days) due to interactions with how PostgreSQL manages  . 
+ **Query and workload tuning**
+
+ These are things that DO require code changes; they may not suit you. Some are things you might be able to apply. 
+ If you're not batching work into larger transactions, start. Lots of small transactions are expensive, so you should batch stuff whenever it's possible and practical to do so. If you're using async commit this is less important, but still highly recommended. 
+ Whenever possible use temporary tables. They don't generate WAL traffic, so they're lots faster for inserts and updates. Sometimes it's worth slurping a bunch of data into a temp table, manipulating it however you need to, then doing an   to copy it to the final table. Note that temporary tables are per-session; if your session ends or you lose your connection then the temp table goes away, and no other connection can see the contents of a session's temp table(s). 
+ If you're using PostgreSQL 9.1 or newer you can use   tables for data you can afford to lose, like session state. These are visible across different sessions and preserved between connections. They get truncated if the server shuts down uncleanly so they can't be used for anything you can't re-create, but they're great for caches, materialized views, state tables, etc. 
+ In general, don't  . Use   instead; it's a lot quicker when you're dumping all rows in a table. Truncate many tables in one   call if you can. There's a caveat if you're doing lots of   of small tables over and over again, though; see:  Postgresql Truncation speed 
+ If you don't have indexes on foreign keys,  s involving the primary keys referenced by those foreign keys will be horribly slow. Make sure to create such indexes if you ever expect to   from the referenced table(s). Indexes are not required for  . 
+ Don't create indexes you don't need. Each index has a maintenance cost. Try to use a minimal set of indexes and let bitmap index scans combine them rather than maintaining too many huge, expensive multi-column indexes. Where indexes are required, try to populate the table first, then create indexes at the end. 
+ **Hardware**
+
+ Having enough RAM to hold the entire database is a huge win if you can manage it. 
+ If you don't have enough RAM, the faster storage you can get the better. Even a cheap SSD makes a massive difference over spinning rust. Don't trust cheap SSDs for production though, they're often not crashsafe and might eat your data. 
+ **Learning**
+
+ Greg Smith's book,  PostgreSQL 9.0 High Performance  remains relevant despite referring to a somewhat older version. It should be a useful reference. 
+ Join the PostgreSQL general mailing list and follow it. 
+ **Reading:**
+
+ 
+ Tuning your PostgreSQL server - PostgreSQL wiki 
+ Number of database connections - PostgreSQL wiki 
+ 
+ 
+ **Use different disk layout:**
+
+ 
+ different disk for $PGDATA 
+ different disk for $PGDATA/pg_xlog 
+ different disk for tem files (per database $PGDATA/base//pgsql_tmp) (see note about work_mem) 
+ 
+ **postgresql.conf tweaks:**
+
+ 
+ shared_memory: 30% of available RAM but not more than 6 to 8GB. It seems to be better to have less shared memory (2GB - 4GB) for write intensive workloads 
+ work_mem: mostly for select queries with sorts/aggregations. This is per connection setting and query can allocate that value multiple times. If data can't fit then disk is used (pgsql_tmp). Check "explain analyze" to see how much memory do you need 
+ fsync and synchronous_commit: Default values are safe but If you can tolerate data lost then you can turn then off 
+ random_page_cost: if you have SSD or fast RAID array you can lower this to 2.0 (RAID) or even lower (1.1) for SSD 
+ checkpoint_segments: you can go higher 32 or 64 and change checkpoint_completion_target to 0.9. Lower value allows faster after-crash recovery 
+ 
+ 

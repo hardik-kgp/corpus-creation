@@ -1,0 +1,49 @@
+*** using-a-database-table-as-a-queue ***
+
+ I want to use a database table as a queue. I want to insert in it and take elements from it in the inserted order (FIFO). My main consideration is performance because I have thousands of these transactions each second. So I want to use a SQL query that gives me the first element without searching the whole table. I do not remove a row when I read it.
+Does SELECT TOP 1 ..... help here?
+Should I use any special indexes? 
+ 
+ I'd use an IDENTITY field as the primary key to provide the uniquely incrementing ID for each queued item, and stick a clustered index on it. This would represent the order in which the items were queued. 
+ To keep the items in the queue table while you process them, you'd need a "status" field to indicate the current status of a particular item (e.g. 0=waiting, 1=being processed, 2=processed).  This is needed to prevent an item be processed twice. 
+ When processing items in the queue, you'd need to find the next item in the table NOT currently being processed. This would need to be in such a way so as to prevent multiple processes picking up the same item to process at the same time as demonstrated below. Note the  table hints  UPDLOCK and READPAST which you should be aware of when implementing queues. 
+ e.g. within a sproc, something like this: 
+ 
+ If processing an item fails, do you want to be able to try it again later? If so, you'll need to either reset the status back to 0 or something. That will require more thought. 
+ Alternatively, don't use a database table as a queue, but something like MSMQ - just thought I'd throw that in the mix! 
+ 
+ If you do not remove your processed rows, then you are going to need some sort of flag that indicates that a row has already been processed. 
+ Put an index on that flag, and on the column you are going to order by. 
+ Partition your table over that flag, so the dequeued transactions are not clogging up your queries. 
+ If you would really get   messages every second, that would result in   rows a day. You might want to think of some way to clean up old rows. 
+ 
+ Everything depends on your database engine/implementation. 
+ For me simple queues on tables with following columns: 
+ 
+ usually works. 
+ I used priority and task to group tasks and in case of doubled task i choosed the one with bigger priority. 
+ And don't worry - for modern databases "thousands" is nothing special. 
+ 
+ This will not be any trouble at all as long as you use something to keep track of the datetime of the insert.  See here for the  mysql options .  The question is whether you only ever need the absolute most recently submitted item or whether you need to iterate.  If you need to iterate, then what you need to do is grab a chunk with an   statement, loop through, and  remember the last datetime  so that you can use that when you grab your next chunk. 
+ 
+ perhaps adding a LIMIT=1 to your select statement would help ... forcing the return after a single match... 
+ 
+ Since you don't delete the records from the table, you need to have a composite index on  , where   is the column that indicates if the current record had been processed. 
+ The best thing would be creating a partitioned table for your records and make the   field the partitioning key. This way, you can keep three or more local indexes. 
+ However, if you always process the records in   order, and have only two states, updating the record would mean just taking the record from the first leaf of the index and appending it to the last leaf 
+ The currently processed record would always have the least   of all unprocessed records and the greatest   of all processed records. 
+ 
+ Create a clustered index over a date (or autoincrement) column. This will keep the rows in the table roughly in index order and allow fast index-based access when you   the indexed column. Using   (or  , depending on your RDMBS) will then only retrieve the first x items from the index. 
+ Performance warning: you should always review the execution plans of your queries (on real data) to verify that the optimizer doesn't do unexpected things. Also try to benchmark your queries (again on real data) to be able to make informed decisions. 
+ 
+ I had the same general question of "how do I turn a table into a queue" and couldn't find the answer I wanted anywhere.  
+ Here is what I came up with for Node/SQLite/better-sqlite3. 
+Basically just modify the inner   and   clauses for your use case. 
+ 
+ 
+ A very easy solution for this in order not to have transactions, locks etc is to use the change tracking mechanisms (not data capture). It utilizes versioning for each added/updated/removed row so you can track what changes happened after a specific version. 
+ So, you persist the last version and query the new changes.  
+ If a query fails, you can always go back and query data from the last version.
+Also, if you want to not get all changes with one query, you can get top n order by last version and store the greatest version I'd you have got to query again. 
+ See this for example  Using Change Tracking in SQL Server 2008 
+ 

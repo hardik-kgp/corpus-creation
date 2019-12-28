@@ -1,0 +1,49 @@
+*** django-how-to-do-get-or-create-in-a-threadsafe-way ***
+
+ In my Django app very often I need to do something similar to  . E.g., 
+ 
+ User submits a tag. Need to see if
+  that tag already is in the database.
+  If not, create a new record for it. If
+  it is, just update the existing
+  record. 
+ 
+ But looking into the doc for   it looks like it's not threadsafe. Thread A checks and finds Record X does not exist. Then Thread B checks and finds that Record X does not exist. Now both Thread A and Thread B will create a new Record X. 
+ This must be a very common situation. How do I handle it in a threadsafe way?  
+ 
+ 
+ This must be a very common situation. How do I handle it in a threadsafe way? 
+ 
+ Yes. 
+ The "standard" solution in SQL is to simply attempt to create the record.  If it works, that's good.  Keep going. 
+ If an attempt to create a record gets a "duplicate" exception from the RDBMS, then do a SELECT and keep going. 
+ Django, however, has an ORM layer, with it's own cache.  So the logic is inverted to make the common case work directly and quickly and the uncommon case (the duplicate) raise a rare exception. 
+ 
+ Since 2013 or so, get_or_create is atomic, so it handles concurrency nicely: 
+ 
+ This method is atomic assuming correct usage, correct database
+  configuration, and correct behavior of the underlying database.
+  However, if uniqueness is not enforced at the database level for the
+  kwargs used in a get_or_create call (see unique or unique_together),
+  this method is prone to a race-condition which can result in multiple
+  rows with the same parameters being inserted simultaneously. 
+ If you are using MySQL, be sure to use the READ COMMITTED isolation
+  level rather than REPEATABLE READ (the default), otherwise you may see
+  cases where get_or_create will raise an IntegrityError but the object
+  won’t appear in a subsequent get() call. 
+ 
+ From:  https://docs.djangoproject.com/en/dev/ref/models/querysets/#get-or-create 
+ Here's an example of how you could do it: 
+ Define a model with either unique=True: 
+ 
+ ... or by using unique_togheter: 
+ 
+ Note how the non-unique fields are in the defaults dict, NOT among the unique fields in get_or_create. This will ensure your creates are atomic. 
+ Here's how it's implemented in Django:  https://github.com/django/django/blob/fd60e6c8878986a102f0125d9cdf61c717605cf1/django/db/models/query.py#L466  - Try creating an object, catch an eventual IntegrityError, and return the copy in that case. In other words: handle atomicity in the database. 
+ 
+ try transaction.commit_on_success decorator for callable where you are trying get_or_create(**kwargs) 
+ "Use the commit_on_success decorator to use a single transaction for all the work done in a function.If the function returns successfully, then Django will commit all work done within the function at that point. If the function raises an exception, though, Django will roll back the transaction." 
+ apart from it, in concurrent calls to get_or_create, both the threads try to get the object with argument passed to it (except for "defaults" arg which is a dict used during create call in case get() fails to retrieve any object). in case of failure both the threads try to create the object resulting in multiple duplicate objects unless some unique/unique together is implemented at database level with field(s) used in get()'s call. 
+ it is similar to this post
+ How do I deal with this race condition in django? 
+ 

@@ -1,0 +1,150 @@
+*** historical-auditable-database ***
+
+ This question is related to the schema that can be found in one of my other questions  here.   Basically in my database I store users, locations, sensors amongst other things.  All of these things are editable in the system by users, and deletable. 
+ However - when an item is edited or deleted I need to store the old data; I need to be able to see what the data was before the change. 
+ There are also non-editable items in the database, such as "readings".  They are more of a log really.  Readings are logged against sensors, because its the reading for a particular sensor. 
+ If I generate a report of readings, I need to be able to see what the attributes for a location or sensor was  at the time of the reading . 
+ Basically I should be able to reconstruct the data for any point in time. 
+ Now, I've done this before and got it working well by adding the following columns to each editable table: 
+ 
+ If valid_to = 9999-12-31 23:59:59 then that's the current record.  If valid_to equals valid_from, then the record is deleted. 
+ However, I was never happy with the triggers I needed to use to enforce foreign key consistency. 
+ I can possibly avoid triggers by using the extension to the "PostgreSQL" database.  This provides a column type called "period" which allows you to store a period of time between two dates, and then allows you to do CHECK constraints to prevent overlapping periods.  That might be an answer. 
+ I am wondering though if there is another way. 
+ I've seen people mention using special historical tables, but I don't really like the thought of maintainling 2 tables for almost every 1 table (though it still might be a possibility). 
+ Maybe I could cut down my initial implementation to not bother checking the consistency of records that aren't "current" - i.e. only bother to check constraints on records where the valid_to is 9999-12-31 23:59:59.  Afterall, the people who use historical tables do not seem to have constraint checks on those tables (for the same reason, you'd need triggers). 
+ Does anyone have any thoughts about this? 
+ PS - the title also mentions auditable database.  In the previous system I mentioned, there is always the edited_by field.  This allowed all changes to be tracked so we could always see who changed a record.  Not sure how much difference that might make. 
+ Thanks. 
+ 
+ **Revised 01 Jan 11**
+
+ Ok, so there is a gap between where I sit (deliver fully auditable databases; yours being a particular requirement of that) and where you sit: based on your questions and comments.  Which we will probably work out in the commentary. Here's a position to start from. 
+ 
+ To provide this requirement, there is no need at all for: triggers; mass duplication; broken integrity; etc. 
+ This is not a classic Temporal requirement, either, so no  need  for the "period" capability, but you  can . 
+ ValidFrom  **and**
+ ValidTo is a Normalisation error: the ValidTo is data that is easily derived; ValidTo in any row is duplicated, in the ValidFrom of the next row; you have an Update Anomaly (when you update one column in one row, you additionally have to update the other column in the next row); you have to use a dummy value for "current".   
+ 
+ All unnecessary, use ValidFrom only, and keep the db clean and pure 5NF. 
+ The Caveat is, if PostgreSQL can't perform Subqueries without falling in a heap (ala Oracle), then fine, kep ValidTo. 
+ 
+ 
+ 
+ All of these things are editable in the system by users, and deletable. 
+ 
+ Well, no. It is a database holding important information; with Referential Integrity, not a scratchpad, so the user cannot just walk up to it and "delete" something. It will contradict the same users requirement for maintaining historical data (in the Reading; Alert; Ack; Action; Download). 
+ 
+ Cascading deletes are not allowed.  Those functions are check boxes for non-databases, MS Access types.  For real databases, the RI constraints stop parents with children from being deleted. 
+ Primary Keys cannot (should not) be changed.  Eg. UserId; LocationId; NetworkSlaveCode never change; remember, they are carefully considered  **Identifiers**
+.  One characteristic of PKs is that they are stable.   
+ You can add new Users; you can change a  current  User's name; but you cannot delete an User who has entries in Download, Acknowledgement, Action. 
+ 
+ 
+ Basically if it's editable then it has to be historical (so that excludes readings and alerts). 
+ 
+ Also excludes: Downloads; Acknowledgements; Actions. 
+ And the Reference tables: SensorType; AlertType; ActionType. 
+ And the new History tables: they are inserted into, but they cannot be updated or deleted. 
+ 
+ The problem I find with the isObselete flag is.. Say if you change the Location, the Sensor foreign key will now point to an obselete record, meaning you will have to duplicate every sensor record. This problem gets exponentially worse as the hierachy gets bigger. 
+ 
+ 
+ Ok, so now do you understand the   (FK) in   will not change; there is no mass duplication, etc ?  There is no problem in the first place (and there is in that stupid book!) that gets exponentially worse in the second place. 
+  is inadequate for your requirement.  (Refer below) 
+ The   in any real row ( , etc) identifies the Parent (FK to  ) History row (its  ) that was in effect at the time. 
+ Full Relational capability; Declarative Refential Integrity, etc. 
+ Maintain the IDEF1X, Relational concept of strong Identifiers ...  There is only one Current parent row (eg. Location) 
+ The rows in the History are Images of the current row, before it was changed, at the stated  .  The Current row (non-history) shows the one last UpdatedDtm, when the row was changed. 
+ The   shows the entire series of   for any given key; and thus I have used it to "partition" the real key in a temporal sense. 
+ 
+ All that is required is a History table for each changeable table.  I have provided the Hiistory tables for four Identifying tables: Location; Sensor; NetworkSlave; and User. 
+ Please read this for understanding  Auditable in the accounting sense . 
+ **Data Model**
+
+ Link to  **Sensor Data Model with History**
+ (Page 2 contains the History tables and context). 
+ Readers who are not familiar with the Relational Modelling Standard may find  **IDEF1X Notation**
+ useful. 
+ **Response to Comments**
+
+ (1)  My first issue is that of referential integrity with the historic data, in that I'm not sure there is any, and if there is I'm not sure how it works. For instance, in SensoryHistory it would be possible to add a record that had an UpdatedDtm indicating a date time before the location itself existed, if you see what I mean. Whether this is actually an issue I'm not sure - enforcing that might be over the top. 
+ (You raised a similar issue in the other question.) It may be that the dbs you have experienced did not actually have the Referential Integrity in place; that the Relation lines were there just for documentation; that the RI was "implemented in app code" (which means there is no RI). 
+ This is an ISO/IEC/ANSI Standard SQL database.  That allows Declarative Referential Integrity.  Every Relation line is implemented as a PK::FK Reference, an actual Constraint that is Declared. Eg: 
+Those Declared Constraints are enforced by the server; not via triggers; not in app code.  That means:  
+
+ 
+ A   with a   that does not exist in   cannot be inserted   
+ A   in   that has rows in   cannot be deleted   
+ A   with a   that does not exist in   cannot be inserted   
+ A   in   that has rows in   cannot be deleted.   
+ 
+ (1.1)  **All**
+ columns should have RULEs and CHECK Constraints to Constrain their range of values.  That in addition to the fact that all INSERT/UPDATE/DELETEs are programmatic, within stored procs, therefore accidents do not happen, and people do not walk up to the database and run commands against it (excepts SELECTS).   
+ Generally I stay away from triggers.  If you are using stored procs, and the normal permissions, then this: 
+ in SensoryHistory it would be possible to add a record that had an UpdatedDtm indicating a date time before the Location itself existed, if you see what I mean 
+ is prevented.  So is inserting a SensorHistory with an UpdatedDtm earlier than the Sensor itself.  But procs are not Declarative Rules.  However if you want to be doubly sure (and I mean doubly, because the INSERTS are all via a proc, direct command by users), then sure, you have to use a trigger.  For me, that is over the top. 
+ (2)  how do I indicate deletion? I could just add a flag to the non-historical version of the table I guess. 
+ Not sure yet. Eg. Do you accept that when a   is deleted, it is final ... (yes, history is maintained) ... and then when a new   is added to the  , it will have a new   ... there is no   being logically replaced with the new one, with or without a gap in time ? 
+ From a end-user's point of view, via the software they should be able to add, edit and delete sensors at will with no limitation. But yes, once deleted it is deleted and cannot be undeleted. There's nothing to stop them re-adding a sensor later though with the exact same parameters. 
+ And "delete"  , and   as well. 
+ Ok. Then the new   with the same parameters, is truly new, it has a new  , and is independent of any previous logical  . We can add an   BOOLEAN to the four identifying tables; it is now identified as adequate.  The Delete is now a Soft Delete. 
+ (2.1) For   and  , which are actually dependent on two parents: they are obsolete if either of their parents are obsolete.  So there is no point giving them an   column, which has a dual meaning, which can be derived from the applicable parent.   
+ (2.2) Just to be clear, users cannot delete any rows from any Transaction and History tables, right? 
+ (3)  When updating a table, what method would be best to insert the new row in the historical table and update the main table? Just normal SQL statements inside a transaction maybe? 
+ Yes. That is the classic use of a Transaction, as per ACID Properties, it is Atomic; it either succeeds in toto or fails in toto (to be retried later when the problem is fixed).  
+ (4) Referenced Book 
+ The definitive and seminal text is  Temporal Data and the Relational Model  C J Date, H Darwen, N A Lorentzos. As in, those of us who embrace the RM are familiar with the extensions, and what is required in the successor to the RM; rather than some other method. 
+ The referenced book is horrible, and free.  The PDF isn't a PDF (no search; no indexing).  Opening my MS and Oracle is telling; a few good bits couched in lots of fluff.  Many misrepresentations. Not worth responding to in detail (if you want a proper review, open a new question). 
+ (4.1)   in addition to  .  Serious mistake (as identified at the top of my answer) which the book makes; then laboriously solves.  Don't make the mistake in the first place, and you have nothing to solve in the second place.  As I understand it, that will eliminate your triggers. 
+ (4.2) Simple rules, taking both Normalisation and Temporal requirements into account. First and foremost, you need to deeply understand (a) the temporal requirement and (b) the DataTypes, correct usage and limitations.  Always store: 
+ 
+ Instant as DATETIME, eg. UpdatedDtm 
+ Interval as INTEGER, clearly identifying the Unit in the column name, eg. IntervalSec 
+ Period.  Depends on conjunct or disjunct.   
+ 
+ For conjunct, which this requirement is, (4.1) applies: use one DATETIME; the end of the period can be derived from the beginning of the period of the next row.  
+ For disjunct periods, yes, you need 2 x DATETIMEs, eg,   and a   with gaps in-between. 
+ 
+ 
+ (4.3) They mess with the "Temporal Primary Key", which complicates code (in addition to requiring triggers to control the Update Anomaly). I have already delivered a clean (tried and tested) Temporal Primary Key. 
+ (4.4) They mess with dummy values, non-real values, and Nulls for "Now".  I do not allow such things in a database.  Since I am not storing the duplicated  , I do not have the problem, there is nothing to solve. 
+ (4.5) One has to wonder why a 528 page "textbook" is available free on the web, in poor PDF form. 
+ (5)  I [an User] could quiet happily delete all the LocationHistory rows for instance, (leaving only the current version in the Location table) - even though there may exist a SensorHistory row that conceptually "belongs" to a previous version of the Location, if that makes sense. 
+ It does not make sense to me, there is still a gap in the communication we have to close.  Please keep interacting until it is closed. 
+ 
+ In a real (standard ISO/IEC/ANSI SQL) database, we do  **not**
+ GRANT INSERT/UPDATE/DELETE permission to users. We GRANT SELECT and REFERENCES  **only**
+ (to chosen users)  All INSERT/UPDATE/DELETEs are coded in Transactions, which means stored procs.  Then we GRANT EXEC on each stored proc to selected users (use ROLES to reduce administration). 
+ 
+ Therefore no one can delete from any table without executing a proc. 
+ Do not write a proc to delete from any History table.  These rows should not be deleted.  In this case, the non-permission and the non-existence of code  **is**
+ the Constraint. 
+ Technically, all History rows are valid, there is no Period to concern yourself with.  The oldest LocationHistory row contains the before-image of the original Location row before it was changed. The youngest LocationHistory rows is the before-image of the current Location row.  Every LocationHistory row in-between is thusly valid and applies to the Period in-between.   
+ No need to "prune" or look for a few LocationHistory rows that can be deleted on the basis that they apply to a Period that is not used:  they are all used .  (Definitively, without the need for checking for any mapping of Location children to any LocationHistory row(s), to prove it.) 
+ Bottom line: an User cannot delete from any History (or Transaction) table. 
+ Or do you mean something different again ? 
+ Note I have added (1.1) above. 
+ 
+ 
+ (6) Corrected one mistake in the DM.  An   is an expression of  , not  .   
+ (7) Corrected the Business Rules in the other question/answer to reflect that; and the new rules exposed in this question. 
+ (8) Do you understand/appreciate, that since we have a fully IDEF1X compliant model, re  **Identifiers**
+: 
+ 
+ The Identifiers are carried through the entire database, retaining their power.  Eg. when listing  , they can be joined directly with   and  ; the tables in-between do not have to be read (and they must be if   keys are used).  This is why there are in facts less joins required in a Relational Database (and more joins required in a unnormalised one). 
+ the Subtypes, etc need to be navigated  only  when that particular context is relevant. 
+ 
+ 
+ I've run into this situation before as well.  Depending on the amount of data your are trying to keep track of, it can be daunting.  The historical table works nicely for ease of use at times because you can take a 'snapshot' of the record in the history table, then make the changes as needed in the production table.  It's pretty straight forward to implement, however depending on how much data you have and how often it changes, you can end up with very large historical tables.   
+ Another option is logging all changes that allow someone to 'replay' what happened and track it.  Each change is logged into a table or a field (depending on your needs) that keeps track of who, when, and what was changed to what i.e. On Dec 31, 2010 Bob changed the status from 'Open' to 'Closed'.   
+ Which system you want to use usually depends on how you'l need to keep/review/use the data later.  Automated reports, review by a person, some combination of the two, etc. 
+ 
+ Depending on your budget and/or environment you might want to consider using Oracle's flashback archive feature.  
+ You can turn on automatic "archiving" of rows in a table, and then run a statement on the basetable using something like  
+ SELECT *
+FROM important_data
+AS OF TIMESTAMP (SYSTIMESTAMP - INTERVAL '5' DAY)
+ 
+ Oracle takes care of maintaining the history in a separate (shadow) table. You can do this for any table so that you can also do a query with a join. 
+ 

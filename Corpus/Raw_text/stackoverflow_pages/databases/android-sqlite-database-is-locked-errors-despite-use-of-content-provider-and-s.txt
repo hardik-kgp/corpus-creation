@@ -1,0 +1,37 @@
+*** android-sqlite-database-is-locked-errors-despite-use-of-content-provider-and-s ***
+
+ I have an app (Android 2.2 Google API Level 8) that has multiple activities pulling data from a content provider (SELECT only database access).
+It also has a service with a central blocking task queue accepting any database write tasks; activities can fire a service request (As intent) which places a task on a blocking queue for sequential retrieval by a single thread and execution.  Database is around 4mb. 
+ There is a single database helper which the service uses to call methods to interact with the database including writing to it; all SQL writes are carried out within the database helper. 
+ 
+ All database writes are surrounded by a transaction. 
+ All database reads have the cursor closed at the end of the method.  
+ None of the Activities has a handle to the database object, they can only communicate via the content provider or the service. 
+ Any AlarmManager fired tasks - like Activities - only use the service to pop an appropriate task onto the queue. 
+ The service is the only class that has a handle to the database helper. 
+ All database writes are only carried out via a task placed on a queue; I have exhaustedly checked  that task execution is sequential being well aware of it being essential to avoid concurrent writes to an SQLite database. 
+ 
+ During a run of task executions I consistently get one or two "database is locked" errors on attempting to write to the database triggered by a tasks execution of 'begin transaction'. 
+ In attempting to track down the source of the lock I found that using dbhelper.inTransaction(), dbhelper.isLockedByThisThread(), dbhelper.isLockedByOtherThread() didn't help as they wouldn't indicate an unexpected database lock. 
+ What I did find that worked in detecting a lock early was to create a method with beginTransaction() and setTransactionSuccessful without any actual SQL write code, within a try catch block that would log the issue - always triggered by beginTransaction(). 
+ I placed this database lock trap either side of each of the blocking queue task methods in the expectation/hope that I would find a singular culprit that was leaving the database in a locked state after finishing.
+I could not find a consistent culprit. After drilling down through from the start of the task call through to the database write I found that a database lock could occur seemingly out of the blue without having been locked by the previously run task (All these tasks run in sequence under the same singular thread). 
+ After looking at a number of other peoples experiences with database locking issues I've tried closing the database connection directly after the transaction has completed on all tasks but this didn't help, if anything seemed to get more database locking occurrences.  Tried added a sleep between each task execution; not exhaustively tested but generally found that a delay of 3 seconds or above seemed to stop the database locks appearing.  Tried disabling alarm manager fired tasks - didn't make any difference. 
+ Impression I have is that some form of maintenance task external to my application is dropping in and locking the database periodically - perhaps delayed writing of logs.  Obviously I'm less than keen on setting a task processing delay so I'm considering having a database lock retry task queue to reattempt database writing as necessary; much prefer to resolve but am running out of ideas. 
+ Can anyone think of some principle or gotcha I've missed?   
+ Is it in reality normal within Android and larger SQLite databases that you'll get occasional database locks? 
+ Thanks 
+ 
+ SQLite guarantees sequential access from multiple threads as long as you use a single database connection. How and where are you opening and closing the database connection? 
+ I generally recommend opening the database once on startup, and never closing it. There's no benefit to closing, since the transactional nature of SQLite means that writes are flushed to persistent storage as soon as possible anyway. 
+ 
+ I would check if some activity that calls the DB or calls other activity that calls the DB, has only one instance. Otherward it can lock itself, in some sense.  
+ 
+ With regards to  
+ 
+ Is it in reality normal within Android and larger SQLite databases that you'll get occasional database locks? 
+ 
+ No, it is definitely not normal to get occasional database locks. From reading your story you say that you have both a service and a content provider pulling from the database, so it is possible that you are locking the database between the two accesses.   
+ What I generally do is ensure that I handle all of my database access through the content provider. By having a single point of entry to the database you can ensure that every software component is using the same logic to access the DB. Would it be possible to have your service access the DB through the content provider?   
+ It's also good to remember that by placing your DB behind a content provider, it can still be accessed by multiple threads at once.  To ensure that you are accessing the DB only one thread at a time you could place synchronized constructs on the DB inside of your content provider.  Obviously if you are doing lots of long writes/reads to the DB, locking in this fashion will absolutely destroy your app. Putting all of your DB code inside of the content provider will also give you a single point of debugging which would help you figure out if multiple threads are accessing the DB. 
+ 

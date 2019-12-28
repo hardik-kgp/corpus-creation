@@ -1,0 +1,96 @@
+*** images-in-database-vs-file-system ***
+
+ We have a project coming up where we will be building a whole backend CMS system that will power our entire extranet and intranet with one package. The question I have been trying to find an answer to is which is better: storing images in the database (SQL Server 2005) so we may have integrity, single replication plan, etc OR storing on the file system? 
+ One issue we have is that we have multiple servers load balanced that require to have the same data at all times. As of now we have SQL replication taking care of that but file replication seems to be a little tougher. Another concern we have is that we would like to have multiple resolutions of the same image, we are not sure if creating and storing each version on the file system would be best or maybe dynamically pulling and creating the resolution image we would like upon request. 
+ Our concerns are the with the following: 
+ 
+ Data integrity 
+ Data replication 
+ Multiple resolutions 
+ Speed of database vs file system 
+ Overhead load of database vs file system 
+ Data management and backup 
+ 
+ Does anyone have a similar situation or have any input on what would be recommended? Thanks in advance for the help! 
+ 
+ There was a nice research paper published by Microsoft Research called  To Blob or not to Blob  where they looked at all sorts of variables and impacts. 
+ Their finding in the end: 
+ 
+ up to 256 KB in size, blobs are stored in the database more efficiently than in the file system 
+ for 1 MB and larger, the file system is more efficient 
+ in between it's a toss-up 
+ 
+ Since that paper was published, SQL Server 2008 has also added the FILESTREAM attribute which makes storing stuff in the file system, but under transactional control, a reality. Highly recommended you check that out! 
+ 
+ This question comes up often - see  this  SO search result. 
+ There is no one right answer - it depends on circumstances. 
+ Personally - keep a file path in the DB and the file on the filesystem. Each has its own strengths. You can backup files as well as databases. This is also the conclusion of  this guy , who manages TBs of data. 
+ 
+ Replication of static files, especially across a number of servers, can be difficult to manage.  It really comes down to a tradeoff between managing, monitoring and debugging replication problems vs. the database size and load. 
+ I think I'd probably pick the database approach, and if load became an issue look at putting up some sort of cache layer around the image calls. 
+ Suggestions to store a path in the db are missing the real problem, which is replicating this across multiple machines. 
+ 
+ Your concerns break down into two camps.  The following concerns favour storing documents in the database: 
+ 
+ Data integrity  
+ Data replication  
+ Multiple resolutions  
+ Data management and backup  
+ 
+ These concerns (probably) favour storing documents on the file system: 
+ 
+ Speed of database vs file system  
+ Overhead load of database vs file system  
+ 
+ So, decide what matters the most and choose accordingly.   
+ 
+ Well, if your top two needs are integrity and replication, then the answer is definitely DB. 
+ You other points though: 
+ 
+ Integrity - DB, that's why databases exist vs. flat file systems. 
+ Replication - Not sure if you mean image replication, but if so, then obviously DB as you won't be load balancing this, surely. 
+ Multiple resolutions can be performed from the DB image, however this adds processing costs. Also, the higher the resolution, the greater the size, the longer the network wait. Multiple resolutions trades space for speed. 
+ Speed - Depending on access to the images, it could be negligible. If you are taking images across a file share, you'll have to wait on the network in any case and the network is pretty much always the bottleneck. 
+ Overhead - Frankly, it depends on your definition of overhead and how you access the images. 
+ Management, DB, hands down. Singular storage = One less worry, and you should always be running backups on the database in any case. File system backups over multiple servers is costly in many ways. 
+ 
+ 
+ There are valid concerns on either side of the debate, so always give your requirements. How much data, how many images, how large? 
+ **Inline / BLOB storage**
+
+ **Upside**
+: simplifies architecture and implementation, simplifies backup and recovery or migration of the system; just do a dump, backup, export (whatever the term for your flavor of DB) and move it to the new database. Version control / consistency is handled by the DB, so allows for point-in-time recovery. Security / access control is also cleaner, since access to an image BLOB is intrinsic to access to the overall row. Moving the image outside the DB and letting the HTTP server fetch it up, while better for concurrency and scalability, can have problems with ensuring people cannot hack URLs and request images they don't own. If you do house them outside the DB, make sure either your security policy covers access control of images between users. Either your HTTP server authentication has to integrate with the overall system's authentication, or your HTTP server program that serves up the images uses some sort of session mechanism to ensure the HTTP request is valid. This is a very big concern in multi-tenant databases. Less of a concern in single purpose, single-tenant systems, with simple authentication. 
+ **Downside**
+: For really REALLY large databases, the backup and recovery gets frustrating, or even problematic and costly, because where you may have a small core dataset otherwise, you may have many GB or TB of image data. Treating it all as one consistent database is both good from integrity point of view, but bad for backups unless you use DBMSes with enterprise quality, data warehouse tuned backup and recovery (example is Oracle RMAN and rolling backups). 
+ Always consider time to recovery in any system. If your storage requirements are < a few gigabytes, say 50-100GB even, and you have plenty of backup space planned, inline storage is cleaner. Above that, separation of concerns and letting the filesystem do its job becomes a key advantage. Nothing is worse than trying to restore, recover and open a huge database for the sake of a small data error. Recovery time would be my biggest concern. 
+ 
+ Generally, persisting image data in the DB might not be as efficient as the FileSystem, as far as a CMS is concerned. At one time you probably just want to display the image statically, at other times you want that image to be available to your graphic designers for updates etc. 
+ Consider the processing overhead associated with retrieving the image each time you want to work with it. 
+ A few points why you should consider the FileSystem 
+ 
+ The browser does all the work, and
+the you benefit from proxy caching
+of images etc 
+ As an offshoot of the above, you get to easily use Content Delivery Networks (CDN) 
+ Replication of image data is easy with tools like rsync etc 
+ Processing (i.e. CPU) time is drastically optimized 
+ 
+ 
+ Assuming you are in a windows environment there is no great reason to use the file system.  You may want to be careful how you store the images in the tables to avoid unwanted page splits, but that's a performance tweak, not a huge issue. 
+ Downsides to filesystem 
+ -Not automatically replicated 
+ -May complicate your replication by having different physical locations for every instance 
+ -Slow with very large numbers of files 
+ Upside to the filesystem 
+ -If you're storing a few very large files, it will perform a bit better. 
+ 
+ I would;  
+ 1) Assign unique identifier (GUID) to each image 
+2) Tag/Name the image with that GUID
+3) Store GUID in the OS (File System)
+4) Store Fully Qualified File Name (FQN) pointer in the database. 
+ Storing images in the database is too expensive in terms of storage and maintenance. Storing just the FQN pointer would provide better solution. You can also build back-end integrity check through triggers and some stored procedures. 
+ 
+ I would not store images in the database for one reason (my answer comes from sql server):    
+ I would not want SQL Servers Data Cache Populated by simple images for the web site. I want the data cache to actually have data in it. Also if you have a multi-tiered architecture its much easier to pass a URL for an image than a blob of binary data. Where you do run into issues though if you only want certain people to see the images (security).   
+ 

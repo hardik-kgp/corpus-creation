@@ -1,0 +1,220 @@
+*** how-to-design-a-database-for-user-defined-fields ***
+
+ My requirements are: 
+ 
+ Need to be able to dynamically add User-Defined fields of any data type 
+ Need to be able to query UDFs quickly 
+ Need to be able to do calculations on UDFs based on datatype  
+ Need to be able to sort UDFs based on datatype 
+ 
+ Other Information: 
+ 
+ I'm looking for performance primarily 
+ There are a few million Master records which can have UDF data attached 
+ When I last checked, there were over 50mil UDF records in our current database 
+ Most of the time, a UDF is only attached to a few thousand of the Master records, not all of them 
+ UDFs are not joined or used as keys. They're just data used for queries or reports 
+ 
+ Options: 
+ 
+ Create a big table with StringValue1, StringValue2... IntValue1, IntValue2,... etc. I hate this idea, but will consider it if someone can tell me it is better than other ideas and why. 
+ Create a dynamic table which adds a new column on demand as needed. I also don't like this idea since I feel performance would be slow unless you indexed every column. 
+ Create a single table containing UDFName, UDFDataType, and Value. When a new UDF gets added, generate a View which pulls just that data and parses it into whatever type is specified. Items which don't meet the parsing criteria return NULL. 
+ Create multiple UDF tables, one per data type. So we'd have tables for UDFStrings, UDFDates, etc. Probably would do the same as #2 and auto-generate a View anytime a new field gets added 
+ XML DataTypes? I haven't worked with these before but have seen them mentioned. Not sure if they'd give me the results I want, especially with performance. 
+ Something else?  
+ 
+ 
+ If performance is the primary concern, I would go with #6... a table per UDF (really, this is a variant of #2). This answer is specifically tailored to this situation and the description of the data distribution and access patterns described. 
+ **Pros:**
+
+ 
+ Because you indicate that some UDFs
+have values for a small portion of
+the overall data set, a separate
+table would give you the best
+performance because that table will
+be only as large as it needs to be
+to support the UDF. The same holds true for the related indices. 
+ You also get a speed boost by limiting the amount of data that has to be processed for aggregations or other transformations. Splitting the data out into multiple tables lets you perform some of the aggregating and other statistical analysis on the UDF data, then join that result to the master table via foreign key to get the non-aggregated attributes. 
+ You can use table/column names that
+reflect what the data actually is. 
+ You have complete control to use data types, 
+check constraints, default values, etc.
+to define the data domains. Don't underestimate the performance hit resulting from on-the-fly data type conversion.  Such
+constraints also help RDBMS query
+optimizers develop more effective
+plans. 
+ Should you ever need to use foreign
+keys, built-in declarative
+referential
+    integrity is rarely out-performed by
+    trigger-based or application level
+    constraint enforcement. 
+ 
+ **Cons:**
+
+ 
+ This could create a lot of tables.
+Enforcing schema separation and/or a
+naming convention would alleviate
+this. 
+ There is more application code
+needed to operate the UDF definition
+and management. I expect this is
+still less code needed than for the
+original options 1, 3, & 4. 
+ 
+ **Other Considerations:**
+
+ 
+ If there is anything about the
+nature of the data that would make
+sense for the UDFs to be grouped,
+that should be encouraged. That way,
+those data elements can be combined
+into a single table. For example,
+let's say you have UDFs for color,
+size, and cost. The tendency in the
+data is that most instances of this
+data looks like  
+ 
+ rather than  
+ 
+ In such a case, you won't incur a
+noticeable speed penalty by
+combining the 3 columns in 1 table
+because few values would be NULL and
+you avoid making 2 more tables,
+which is 2 fewer joins needed when
+you need to access all 3 columns. 
+ If you hit a performance wall from a
+UDF that is heavily populated and
+frequently used, then that should be
+considered for inclusion in the
+master table. 
+ Logical table design can take you to
+a certain point, but when the record
+counts get truly massive, you also
+should start looking at what table
+partitioning options are provided by your RDBMS of choice. 
+ 
+ 
+ I have  written  about this problem  a lot .  The most common solution is the Entity-Attribute-Value antipattern, which is similar to what you describe in your option #3.   Avoid this design like the plague . 
+ What I use for this solution when I need truly dynamic custom fields is to store them in a blob of XML, so I can add new fields at any time.  But to make it speedy, also create additional tables for each field you need to search or sort on (you don't a table per field--just a table per  searchable  field).  This is sometimes called an inverted index design. 
+ You can read an interesting article from 2009 about this solution here:   http://backchannel.org/blog/friendfeed-schemaless-mysql 
+ Or you can use a document-oriented database, where it's expected that you have custom fields per document.  I'd choose  Solr . 
+ 
+ I would most probably create a table of the following structure: 
+ 
+ varchar Name  
+ varchar Type 
+ decimal NumberValue 
+ varchar StringValue 
+ date DateValue 
+ 
+ The exact types of course depend on your needs (and of course on the dbms you are using). You could also use the NumberValue (decimal) field for int's and booleans. You may need other types as well. 
+ You need some link to the Master records which own the value. It's probably easiest and fastest to create a user fields table for each master table and add a simple foreign key. This way you can filter master records by user fields easily and quickly. 
+ You may want to have some kind of meta data information. So you end up with the following: 
+ Table UdfMetaData 
+ 
+ int id 
+ varchar Name 
+ varchar Type 
+ 
+ Table MasterUdfValues 
+ 
+ int Master_FK 
+ int MetaData_FK 
+ decimal NumberValue 
+ varchar StringValue 
+ date DateValue 
+ 
+ 
+ Whatever you do, I would  not  change the table structure dynamically. It is a maintenance nightmare. I would also  not  use XML structures, they are much too slow. 
+ 
+ This sounds like a problem that might be better solved by a non-relational solution, like MongoDB or CouchDB.   
+ They both allow for dynamic schema expansion while allowing you to maintain the tuple integrity you seek. 
+ I agree with Bill Karwin, the EAV model is not a performant approach for you.  Using name-value pairs in a relational system is not intrinsically bad, but only works well when the name-value pair make a complete tuple of information.  When using it forces you to dynamically reconstruct a table at run-time, all kinds of things start to get hard.  Querying becomes an exercise in pivot maintenance or forces you to push the tuple reconstruction up into the object layer.   
+ You can't determine whether a null or missing value is a valid entry or lack of entry without embedding schema rules in your object layer.   
+ You lose the ability to efficiently manage your schema.  Is a 100-character varchar the right type for the "value" field?  200-characters?  Should it be nvarchar instead? It can be a hard trade-off and one that ends with you having to place artificial limits on the dynamic nature of your set.  Something like "you can only have x user-defined fields and each can only be y characters long.  
+ With a document-oriented solution, like MongoDB or CouchDB, you maintain all attributes associated with a user within a single tuple.  Since joins are not an issue, life is happy, as neither of these two does well with joins, despite the hype.  Your users can define as many attributes as they want (or you will allow) at lengths that don't get hard to manage until you reach about 4MB. 
+ If you have data that requires ACID-level integrity, you might consider splitting the solution, with the high-integrity data living in your relational database and the dynamic data living in a non-relational store. 
+ 
+ Even if you provide for a user adding custom columns, it will not necessarily be the case that querying on those columns will perform well. There are many aspects that go into query design that allow them to perform well, the most important of which is the proper specification on what should be stored in the first place. Thus, fundamentally, is it that you want to allow users to create schema without thought as to specifications and be able to quickly derive information from that schema? If so, then it is unlikley that any such solution will scale well especially if you want to allow the user to do numerical analysis on the data. 
+ **Option 1**
+
+ IMO this approach gives you schema with no knowledge as to what the schema means which is a recipe for disaster and a nightmare for report designers. I.e., you must have the meta data to know what column stores what data. If that metadata gets messed up, it has the potential to hose your data. Plus, it makes it easy to put the wrong data in the wrong column. ("What? String1 contains the name of convents? I thought it was Chalie Sheen's favorite drugs.") 
+ **Option 3,4,5**
+
+ IMO, requirements 2, 3, and 4 eliminate any variation of an EAV. If you need to query, sort or do calculations on this data, then an EAV is Cthulhu's dream and your development team's and DBA's nightmare. EAV's will create a bottleneck in terms of performance and will not give you the data integrity you need to quickly get to the information you want. Queries will quickly turn to crosstab Gordian knots. 
+ **Option 2,6**
+
+ That really leaves one choice: gather specifications and then build out the schema.  
+ If the client wants the best performance on data they wish to store, then they need to go through the process of working with a developer to understand their needs so that it is stored as efficiently as possible. It could still be stored in a table separate from the rest of the tables with code that dynamically builds a form based on the schema of the table. If you have a database that allows for extended properties on columns, you could even use those to help the form builder use nice labels, tooltips etc. so that all that was necessary is to add the schema. Either way, to build and run reports efficiently, the data needs to be stored properly. If the data in question will have lots of nulls, some databases have the ability to store that type of information. For example, SQL Server 2008 has a feature called Sparse Columns specifically for data with lots of nulls.  
+ If this were only a bag of data on which no analysis, filtering, or sorting was to be done, I'd say some variation of an EAV might do the trick. However, given your requirements, the most efficient solution will be to get the proper specifications even if you store these new columns in separate tables and build forms dynamically off those tables. 
+ Sparse Columns 
+ 
+ 
+ 
+ Create multiple UDF tables, one per data type. So we'd have tables for UDFStrings, UDFDates, etc. Probably would do the same as #2 and auto-generate a View anytime a new field gets added 
+ 
+ 
+ According to my research multiple tables based on the data type not going to help you in performance. Especially if you have bulk data, like 20K or 25K records with 50+ UDFs. Performance was the worst. 
+ You should go with single table with multiple columns like: 
+ 
+ 
+ This is a problematic situation, and none of the solutions appears "right". However option 1 is probably the best both in terms of simplicity and in terms of performance. 
+ This is also the solution used in some commercial enterprise applications. 
+ **EDIT**
+
+ another option that is available now, but didn't exist (or at least wasn't mature) when the question was original asked is to use json fields in the DB. 
+ many relational DBs support now json based fields (that can include a dynamic list of sub fields) and allow querying on them 
+ postgress 
+ mysql 
+ 
+ I've had experience or 1, 3 and 4 and they all end up either messy, with it not being clear what the data is or really complicated with some sort of soft categorisation to break the data down into dynamic types of record. 
+ I'd be tempted to try XML, you should be able to enforce schemas against the contents of the xml to check data typing etc which will help holding difference sets of UDF data. In newer versions of SQL server you can index on XML fields, which should help out on the performance.
+(see  http://blogs.technet.com/b/josebda/archive/2009/03/23/sql-server-2008-xml-indexing.aspx ) for example 
+ 
+ If you're using SQL Server, don't overlook the sqlvariant type. It's pretty fast and should do your job. Other databases might have something similar.  
+ XML datatypes are not so good for performance reasons. If youre doing calculations on the server then you're constantly having to deserialize these.  
+ Option 1 sounds bad and looks cruddy, but performance-wise can be your best bet. I have created tables with columns named Field00-Field99 before because you just can't beat the  performance. You might need to consider your INSERT performance too, in which case this is also the one to go for. You can always create Views on this table if you want it to look neat! 
+ 
+ SharePoint uses option 1 and has reasonable performance. 
+ 
+ I've managed this very successfully in the past using none of these options (option 6? :) ).  
+ I create a model for the users to play with (store as xml and expose via a custom modelling tool) and from the model generated tables and views to join the base tables with the user-defined data tables. So each type would have a base table with core data and a user table with user defined fields.  
+ Take a document as an example: typical fields would be name, type, date, author, etc. This would go in the core table. Then users would define their own special document types with their own fields, such as contract_end_date, renewal_clause, blah blah blah. For that user defined document there would be the core document table, the xcontract table, joined on a common primary key (so the xcontracts primary key is also foreign on the primary key of the core table). Then I would generate a view to wrap these two tables. Performance when querying was fast. additional business rules can also be embedded into the views. This worked really well for me. 
+ 
+ Our database powers a SaaS app (helpdesk software) where users have over 7k "custom fields". We use a combined approach: 
+ 
+  table for  **searching**
+ the data 
+ a JSON field in the   table, that holds all entity values, used for  **displaying**
+ the data. (this way you don't need a million JOIN's to get the values values). 
+ 
+ You could further split #1 to have a "table per datatype" like  this answer  suggests, this way you can even index your UDFs. 
+ P.S. Couple of words to defend the "Entity-Attribute-Value" approach everyone keeps bashing. We have used #1 without #2 for decades and it worked just fine. Sometimes it's a business decision. Do you have time to rewrite your app and redesign the db or you can throw a couple of bucks on cloud-servers, which are really cheap these days? By the way, when we were using #1 approach, our DB was holding millions of entities, accessed by 100s of thousands of users, and a 16GB dual-core db server was doing just fine 
+ 
+ In the comments I saw you saying that the UDF fields are to dump imported data that is not properly mapped by the user. 
+ Perhaps another option is to track the number of UDF's made by each user and force them to reuse fields by saying they can use 6 (or some other equally random limit) custom fields tops. 
+ When you are faced with a database structuring problem like this it is often best to go back to the basic design of the application (import system in your case) and put a few more restraints on it. 
+ Now what I would do is option 4 (EDIT) with the addition of a link to users: 
+ 
+ Now make sure to make views to optimize performance and get your indexes right. This level of normalization makes the DB footprint smaller, but your application more complex. 
+ 
+ I would recommend  **#4**
+ since this type of system was used in  **Magento**
+ which is a highly accredited e-commerce CMS platform. Use a single table to define your custom fields using  **fieldId**
+ &  **label**
+ columns. Then, have separate tables for each data type and within each of those tables have an index that indexes by  **fieldId**
+ and the data type  **value**
+ columns. Then, in your queries, use something like:  
+ 
+ This will ensure the best possible performance for user-defined types in my opinion. 
+ In my experience, I've worked on several Magento websites that serves millions of users per month, hosts thousands of products with custom product attributes, and the database handles the workload easily, even for reporting. 
+ For reporting, you can use   to convert your  **Fields**
+ table  **label**
+ values into column names, then pivot your query results from each data type table into those pivoted columns. 
+ 

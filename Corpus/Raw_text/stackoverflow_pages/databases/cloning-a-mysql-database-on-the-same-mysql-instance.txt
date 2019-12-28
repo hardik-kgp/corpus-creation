@@ -1,0 +1,129 @@
+*** cloning-a-mysql-database-on-the-same-mysql-instance ***
+
+ I would like to write a script which copies my current database   to   on the same mysql database instance. I know I can dump the sitedb1 to a sql script: 
+ 
+ and then import it to  . 
+Is there an easier way, without dumping the first database to a sql file? 
+ 
+ As the manual says in  Copying Databases  you can pipe the dump directly into the mysql client: 
+ 
+ If you're using MyISAM you  could  copy the files, but I wouldn't recommend it.  It's a bit dodgy. 
+ **Integrated from various good other answers**
+
+ Both   and   commands accept options for setting connection details (and much more), like: 
+ 
+ Also, if the new database is not existing yet, you have to create it beforehand (e.g. with  ). 
+ 
+ **Using MySQL Utilities**
+
+ The MySQL Utilities contain the nice tool   which by default copies a DB including all related objects (“tables, views, triggers, events, procedures, functions, and database-level grants”) and data from one DB server to the same or to another DB server. There are lots of options available to customize what is actually copied. 
+ So, to answer the OP’s question: 
+ 
+ 
+ 
+ 
+ You need to run the command from terminal / command prompt.  
+ 
+ e.g:  
+ This copies test_db1 to test_db2 and grant the access to 'root'@'localhost' 
+ 
+ You could use (in pseudocode): 
+ 
+ The reason I'm not using the CREATE TABLE ... SELECT ... syntax is to preserve indices. Of course this only copies tables. Views and procedures are not copied, although it can be done in the same manner. 
+ See  CREATE TABLE . 
+ 
+ Best and easy way is to enter these commands in your terminal and set permissions to the root user. Works for me..!     
+ 
+ 
+ First create the duplicate database: 
+ 
+ Make sure the permissions etc are all in place and: 
+ 
+ 
+ You can do something like the following: 
+ 
+ 
+ This statement was added in MySQL 5.1.7 but was found to be dangerous and was removed in MySQL 5.1.23. It was intended to enable upgrading pre-5.1 databases to use the encoding implemented in 5.1 for mapping database names to database directory names. However, use of this statement could result in loss of database contents, which is why it was removed. Do not use RENAME DATABASE in earlier versions in which it is present. 
+ To perform the task of upgrading database names with the new encoding, use ALTER DATABASE db_name UPGRADE DATA DIRECTORY NAME instead:  http://dev.mysql.com/doc/refman/5.1/en/alter-database.html 
+ 
+ A simple way to do so if you installed  phpmyadmin : 
+ Go to your database, select "operation" tab, and you can see the "copy database to" block. Use it and you can copy the database. 
+ 
+ In addition to  Greg's answer , this is the easiest and fastest way if the   doesn't yet exist:   
+ 
+ 
+ If you have triggers in your original database, you can avoid the "Trigger already exists" error by piping a replacement before the import: 
+ 
+ 
+ As mentioned in  Greg's answer ,   is the  free, safe, and easy  way to transfer data between databases. However, it's also  really slow . 
+ **If you're looking to backup data, can't afford to lose data (in this or other databases), or are using tables other than **
+**, then you should use **
+**.**
+
+ If you're looking for something for development, have all of your databases backed up elsewhere, and are comfortable purging and reinstalling   (possibly manually) when everything goes wrong, then I might just have the solution for you. 
+ I couldn't find a good alternative, so I built a script to do it myself. I spent  a lot  of time getting this to work the first time and it honestly terrifies me a little to make changes to it now. Innodb databases were not meant to copied and pasted like this. Small changes cause this to fail in magnificent ways. I haven't had a problem since I finalized the code, but that doesn't mean you won't. 
+ Systems tested on (but may still fail on): 
+ 
+ Ubuntu 16.04, default mysql, innodb, separate files per table 
+ Ubuntu 18.04, default mysql, innodb, separate files per table 
+ 
+ What it does 
+ 
+ Gets   privilege and verifies you have enough storage space to clone the database 
+ Gets root mysql privileges 
+ Creates a new database named after the current git branch 
+ Clones structure to new database 
+ Switches into recovery mode for innodb 
+ Deletes default data in new database 
+ Stops mysql 
+ Clones data to new database 
+ Starts mysql 
+ Links imported data in new database 
+ Switches out of recovery mode for innodb 
+ Restarts mysql 
+ Gives mysql user access to database 
+ Cleans up temporary files 
+ 
+ How it compares with  
+ On a 3gb database, using   and   would take 40-50 minutes on my machine. Using this method, the same process would only take ~8 minutes. 
+ How we use it 
+ We have our SQL changes saved alongside our code and the upgrade process is automated on both production and development, with each set of changes making a backup of the database to restore if there's errors. One problem we ran into was when we were working on a long term project with database changes, and had to switch branches in the middle of it to fix a bug or three. 
+ In the past, we used a single database for all branches, and would have to rebuild the database whenever we switched to a branch that wasn't compatible with the new database changes. And when we switched back, we'd have to run the upgrades again. 
+ We tried   to duplicate the database for different branches, but the wait time was too long (40-50 minutes), and we couldn't do anything else in the meantime. 
+ This solution shortened the database clone time to 1/5 the time (think coffee and bathroom break instead of a long lunch). 
+ **Common tasks and their time**
+
+ Switching between branches with incompatible database changes takes 50+ minutes on a single database, but no time at all after the initial setup time with   or this code. This code just happens to be ~5 times faster than  . 
+ Here are some common tasks and roughly how long they would take with each method: 
+ **Create feature branch with database changes and merge immediately:**
+
+ 
+ Single database: ~5 minutes 
+ Clone with  : 50-60 minutes 
+ Clone with this code: ~18 minutes 
+ 
+ **Create feature branch with database changes, switch to **
+** for a bugfix, make an edit on the feature branch, and merge:**
+
+ 
+ Single database: ~60 minutes 
+ Clone with  : 50-60 minutes 
+ Clone with this code: ~18 minutes 
+ 
+ **Create feature branch with database changes, switch to **
+** for a bugfix 5 times while making edits on the feature branch inbetween, and merge:**
+
+ 
+ Single database: ~4 hours, 40 minutes 
+ Clone with  : 50-60 minutes 
+ Clone with this code: ~18 minutes 
+ 
+ The code 
+ **Do not use this unless you've read and understood everything above.**
+
+ 
+ If everything goes smoothly, you should see something like: 
+ 
+ 
+ I don't think there is a method to do this.  When PHPMyAdmin does this, it dumps the DB then re-inserts it under the new name. 
+ 

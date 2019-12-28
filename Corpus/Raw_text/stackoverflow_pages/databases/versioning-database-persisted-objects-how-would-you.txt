@@ -1,0 +1,80 @@
+*** versioning-database-persisted-objects-how-would-you ***
+
+ (Not related to versioning the database schema) 
+ Applications that interfaces with databases often have domain objects that are composed with data from many tables. Suppose the application were to support versioning, in the sense of CVS, for these domain objects. 
+ For some arbitry domain object, how would you design a database schema to handle this requirement? Any experience to share? 
+ 
+ Think carefully about the requirements for revisions.  Once your code-base has pervasive history tracking built into the operational system it will get very complex.   Insurance   underwriting   systems  are particularly bad for this, with schemas often running in excess of 1000 tables.  Queries also tend to be quite complex and this can lead to performance issues. 
+ If the historical state is really only required for reporting, consider implementing a 'current state' transactional system with a data warehouse structure hanging off the back for tracking history.   Slowly Changing Dimensions  are a much simpler structure for tracking historical state than trying to embed an ad-hoc history tracking mechanism directly into your operational system.   
+ Also,  Changed Data Capture  is simpler for a 'current state' system with changes being done to the records in place -  the primary keys of the records don't change so you don't have to match records holding different versions of the same entity together.  An effective CDC mechanism will make an incremental warehouse load process fairly lightweight and possible to run quite frequently.  If you don't need up-to-the minute tracking of historical state (almost, but not quite, and oxymoron) this can be an effective solution with a much simpler code base than a full history tracking mechanism built directly into the application. 
+ 
+ A technique I've used for this in that past has been to have a concept of "generations" in the database, each change increments the current generation number for the database - if you use subversion, think revisions.
+Each record has 2 generation numbers associated with it (2 extra columns on the tables) - the generation that the record starts being valid for, and the generation the it stops being valid for. If the data is currently valid, the second number would be NULL or some other generic marker. 
+ So to insert into the database: 
+ 
+ increment the generation number 
+ insert the data 
+ tag the lifetime of that data with valid from, and a valid to of NULL 
+ 
+ If you're updating some data: 
+ 
+ mark all data that's about to be modified as valid to the current generation number 
+ increment the generation number 
+ insert the new data with the current generation number 
+ 
+ deleting is just a matter of marking the data as terminating at the current generation. 
+ To get a particular version of the data, find what generation you're after and look for data valid between those generation versions. 
+ Example: 
+ Create a person. 
+ 
+ Update tel no. 
+ 
+ Delete fred: 
+ 
+ 
+ An alternative to strict versioning is to split the data into 2 tables: current and history. 
+ The current table has all the live data and has the benefits of all the performance that you build in.
+Any changes first write the current data into the associated "history" table along with a date marker which says when it changed. 
+ 
+ If you are using Hibernate  JBoss Envers  could be an option. You only have to annotate classes with   to keep their history. 
+ 
+ You'll need a master record in a master table that contains the information common among all versions. 
+ Then each child table uses master record id + version no as part of the primary key. 
+ It can be done without the master table, but in my experience it will tend to make the SQL statements a lot messier. 
+ 
+ A simple fool-proof way, is to add a version column to your tables and store the Object's version and choose the appropriate application logic based on that version number.
+This way you also get backwards compatibility for little cost. Which is always good 
+ 
+ ZoDB + ZEO implements a revision based database with complete rollback to any point in time support. Go check it.  
+ Bad Part: It's Zope tied. 
+ 
+ Once an object is saved in a database, we can modify that object any number of times right, If we want to know how many no of times that an object is modified then we need to apply this versioning concept. 
+ When ever we use versioning then hibernate inserts version number as zero, when ever object is saved for the first time in the database.  Later hibernate increments that version no by one automatically when ever a modification is done on that particular object.
+In order to use this versioning concept, we need the following two changes in our application 
+ 
+ 
+ I'm not sure if we have the same problem, but I required a large number of 'proposed' changes to the current data set (with chained proposals, ie, proposal on proposal). 
+ Think branching in source control but for database tables. 
+ We also wanted a historical log but this was the least important factor - the main issue was managing change proposals which could hang around for 6 months or longer as the business mulled over change approval and got ready for the actual change to be implemented. 
+ The idea is that users can load up a Change and start creating, editing, deleting the current state of data without actually applying those changes. Revert any changes they may have made, or cancel the entire change. 
+ The only way I have been able to achieve this is to have a set of common fields on my versioned tables: 
+ **Root ID**
+: Required - set once to the primary key when the first version of a record is created. This represents the primary key across all of time and is copied into each version of the record. You should consider the Root ID when naming relation columns (eg. PARENT_ROOT_ID instead of PARENT_ID). As the Root ID is also the primary key of the initial version, foreign keys can be created against the actual primary key - the actual desired row will be determined by the version filters defined below. 
+ **Change ID**
+: Required - every record is created, updated, deleted via a change 
+ **Copied From ID**
+: Nullable - null indicates newly created record, not-null indicates which record ID this row was cloned from when updated 
+ **Effective From Date/Time**
+: Nullable - null indicates proposed record, not-null indicates when the record became current. Unfortunately a unique index cannot be placed on Root ID/Effective From as there can be multiple null values for any Root ID. (Unless you want to restrict yourself to a single proposed change per record) 
+ **Effective To Date/Time**
+: Nullable - null indicates current/proposed, not-null indicates when it became historical. Not technically required but helps speed up queries finding the current data. This field could be corrupted by hand-edits but can be rebuilt from the Effective From Date/Time if this occurs. 
+ **Delete Flag**
+: Boolean - set to true when it is proposed that the record be deleted upon becoming current. When deletes are committed, their Effective To Date/Time is set to the same value as the Effective From Date/Time, filtering them out of the current data set. 
+ The query to get the current state of data according to a change would be; 
+ 
+ (The filtering of change-on-change multiples is done outside of this query). 
+ The query to get the current state of data at a point in time would be; 
+ 
+ Common indexes created on (ROOT_ID, EFFECTIVE_FROM), (EFFECTIVE_FROM, EFFECTIVE_TO) and (CHANGE_ID). 
+ If anyone knows a better solution I would love to hear about it. 
+ 

@@ -1,0 +1,51 @@
+*** innodb-vs-myisam-insert-query-time ***
+
+ I have a large MySQL table (~10 Million Rows, 6.5G) Which i use for read & write. It is MyISAM, and i get a lot of locks due to MyISAM's all table lock on writes. 
+ I decided to try and move to InnoDB which is recommended for read/write tables, and it locks only specific rows on writes.  
+ After converting, I tested insert statements, and it turns out it takes ~15 times more (from 0.1 sec to 1.5 sec) in the InnoDB table than in the MyISAM table. Why is that? 
+ I haven't configured anything for InnoDB yet, and plan to add partitions also, but this figure is still unexpected for me. Of course the tables are the same, same indexes etc. 
+ **Additional info according to requests:**
+
+ 2 indexes. primary is data_id of type Big INT, and non unique user_id of type varchar(255). 
+ Inserts are of ~150 rows together that have the same user_id. 
+ Size of indexes: 200 MB in MyISAM, 400MB in InnoDB 
+ 
+ A  related answer  suggests that setting the   variable to 2 is likely to improve performance when the ratio of writes to reads is relatively high.  See  the documentation  for more. 
+ 
+ I think, InnoDB implements a true ACID, and does a lot of  s to save the data. And MyISAM is not a true ACID and does less fsync()s. 
+ There are recomendations to kill fsync  when you need to load huge data in 
+ 
+ And lists says : 
+ 
+ MyISAM always runs
+  in the 'nosync' mode, that is, it never calls fsync() to flush the files to
+  disk. 
+ InnoDB's nosync is useful in testing if some OS/computer is extremely slow
+  in fsync(). But it should not be used in a production system. 
+ 
+ The same message says, that InnoDB sometimes uses another sync method: 
+ 
+ Then InnoDB uses fsync() to flush both the data and log files. If O_DSYNC is
+  specified, InnoDB uses O_SYNC to open and flush the log files, but uses
+  fsync() to flush the data files. If O_DIRECT is specified (available on some
+  Linux versions starting from MySQL-4.0.14), InnoDB uses O_DIRECT to open the
+  data files, and uses fsync() to flush both the data and log files. Note that
+  InnoDB does not use fdatasync() or O_DSYNC because there have been problems
+  with them on many Unix flavors. 
+ 
+ 
+ Keep in mind the way InnoDB handles keys can cause trouble. Since everything is stored on disk in the order of the primary key having a non-auto-increment primary key might cause much of the table to be moved on disk with any insert (I ran into this problem when I had a pivot table and used the combined ids as a primary key). Moving data on disk is slow. 
+ Also the index sizes can be much larger with InnoDB because each index also contains the primary key. Check to be sure you are not running into any memory limits. 
+ 
+ First,  **your test is invalid**
+, since the speed gain of row-level locking against table level locking comes when you have concurrency! With only 1 thread making inserts, you have 1 lock/unlock per insert in both cases, and inserts are not waiting the table-level lock to be released.  
+ Seconds, as stated by JIStone, non-sequential primary key is performance killer for the inserts, when the table size is bigger then the buffer pool. 
+ Third, the buffer pool size is one of the most important settings in InnoDB. Make it as lare as possible (recommended setting is 80% ot the available RAM). 
+ Next, as stated by @wallyk, innodb_flush_log_at_trx_commit  have crucial role for speed of I/O operations. 
+ Next, the innodb_log_file_size and innodb_buffer_file_size are important to. 
+ Next, keep in mind, that since you have 2 unique indexes, before InnoDB can insert the row, it have to check the existence of the value in the indexes, and your indexes are large. 
+ Without having details about the table and indexes, I cannnot give you more advices, but please keep in mind, that no storage engine is a panacea, and although often you can gain a lot of speed by simply changing storage engine, adding index, or tweaking one variable, in large-scale systems the things are more complex than this. But, as I said, you should not compare the raw insert speed in isolated test, you have to make your test as close to the real application as possible. 
+ **update**
+: one more tip
+In both MyISAM and InnoDB, multi-insert (insert into .... values(...),(...),(...)) is faster. Also, in InnoDB you can make your inserts in transaction, which disables updating non-unique indexes before transaction completes, and it's faster as well (but do not perform large transactions, as this actually will slow things down because of the isolation level used and the way row-versioning works). 
+ 

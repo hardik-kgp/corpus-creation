@@ -1,0 +1,27 @@
+*** best-practices-re-sharing-idbconnection-or-connection-string-factory-in-your-ne ***
+
+ I'm wondering what would be the best prectice regarding mainataining connections to the database in .Net application (ADO.NET but I guess the practice should be the same for any data layer). Should I create a database connection and propagate it throughout my application, or would it be better to just pass connection strings/factories and create a connection ad-hoc, when it is needed.  
+ As I understand perfomance hit is not signifcant with pooling and it allows me to recover from broken connections quite easily (just a new connection will be created) but then again a connection object is a nice, relatively high-level abstraction and creating a new connection for every operation (not SQL command, but application operation) generates additional, duplicated code and feels like a waste of time/resources(?). 
+ What do you think about these 2 cases, what are their cons/pros and which approach are you using in your real-life applications? 
+ Thanks 
+ 
+ I found myself needing to pass around a connection object so I could allow several business objects to save themselves to the database inside a single transaction. 
+ If each business object had to create its own SQLConnection to the database, the transaction would escalate to a distributed transaction and I wanted to avoid that.   
+ I did not like having to pass the SQLConnection object as a parameter to save an object, so I created a ConnectionManager that handles creating the SQLConnection object for me, tracking the use of the SQLConnection object, and disconnecting the SQLConnection object when not in use. 
+ Here is some code as an example of the ConnectionManager: 
+ 
+ Here is how I would use it from a business object: 
+ 
+ I save a business object and all of its children are saved as well using the same connection object.  When the scope falls away from original parent, the using statement closes the connection. 
+ This is a pattern I learned from Rocky Lhotka in his CSLA framework.   
+ Keith 
+ 
+ You really shouldn't be handling this problem yourself, as there are countless tools out there that can do it for you. 
+ If you really want to do it yourself, then look into the  Unit of Work  pattern where you can manage connection/transaction lifecycle.  You certainly don't want to try to navigate the messy waters where there are connections being opened/closed in different places. 
+ If you decide to let your components directly open db connections then it is likely that the connection lifecycle will be too fine-grained and result in many open/closed connections for a single user operation. 
+ 
+ ADO.NET SQL Server provider does the connection pooling itself. You can control the pool size by   and   in the connection string. 
+ 
+ One thing to be wary of in your example is that ASP.NET apps should not use ThreadStatic storage, as a thread can be re-used, and if you do not clean up all your objects you end up with a connection hanging around. 
+ In an ASP.NET app I'd use the HttpContext.Items collection instead.  You are implementing IDisposable, but I've seen scenarios where devs forget to call Dispose or place the code in a using block. 
+ 

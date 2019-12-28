@@ -1,0 +1,64 @@
+*** is-a-blackhole-table-evil ***
+
+ Reading to  this question  i've just learned the existence of the   table trick: basically consist in using a single table to insert data, and then a trigger that split the data in many other tables. 
+ Im wondering if this could cause problems, once the developers whos working on the project are aware of that. 
+ What are the pro and cons of this  tecnique ? 
+ **Edit**
+:
+The blink I got in mind when I saw the example, is about transactions: if for some reason the transaction fail, you'll find the   row with the original data, for historical purpose and maybe a help with debug - but this seems to be the only +1 i can see with blackholes. Ideas? 
+ 
+ I don't think blackhole has any real pros.  
+ Writing the trigger code to move data around is probably not noticably less work than writing the code to insert the data in the right place in the first place.  
+ As Christian Oudard writes, it doesn't reduce complexity - just moves it to a place where it's really hard to debug. 
+ On the downside: 
+ "Side effects" are usually a bad idea in software development. Triggers are side effects - I intend to do one thing (insert data in a table), and it actually does lots of other things. Now, when I'm debugging my code, I have to keep all the side effects in my head too - and the side effects could themselves have side effects.  
+ most software spends far more time in maintenance than it does in development. Bringing new developers into the team and explaining the black hole trick is likely to increase the learning curve - for negligible benefit (in my view). 
+ Because triggers are side effects, and it's relatively easy to set off a huge cascade of triggers if you're not careful, I've always tried to design my databases without a reliance on triggers; where triggers are clearly the right way to go, I've only let my most experienced developers create them. The black hole trick makes triggers into a normal, regular way of working. This is a personal point of view, of course.  
+ 
+ The  original question  that prompted yours does not get at the heart of MySQL's "blackholes." 
+ **What is a BLACKHOLE?**
+
+ In MySQL-speak,   is a  storage engine  that simply discards all data INSERTed into it, analogous to a null device.  There are a number of reasons to use this backend, but they tend to be a bit abstruse: 
+ 
+ A "relay-only" binlog-filtering slave See the  docs , and  here  and  here . 
+ Benchmarking E.g., measuring the overhead of binary logging without worrying about storage engine overhead 
+ Various computational tricks See  here . 
+ 
+ If you don't know why you need a data sink masquerading as a table, don't use it. 
+ **What is the technique you are asking about?**
+
+ The  use under consideration  seems to be to: 
+ 
+ redirect INSERTed data to other tables 
+ audit log the original INSERTion action 
+ discard the original INSERT data 
+ 
+ Thus the answer to the question of "evilness" or pros/cons is the same as the answer to those questions for insertable/updatable VIEWs (the common way to implement #1), trigger-based audit logging (how most people do #2) and behavioral overrides/counteractions generally (there are a number of ways to accomplish #3). 
+ **So, what is the answer?**
+
+ The answer is, of course, "sometimes these techniques are appropriate and sometimes not." :)  Do you know why you're doing it?  Is the application a better place for this functionality?  Is the abstraction too brittle, too leaky, too rigid, etc.? 
+ 
+ This doesn't look like a good idea.  If you're trying to keep the front end code simple, why not just use a stored procedure?  If it's not to keep the front end code simple, I don't understand the point at all. 
+ 
+ Funnily enough I learnt about the existence of blackholes today too. 
+ Arguably the question here is actually a broader one i.e. whether or not business logic should be embedded in database triggers or not. In this instance the blackhole table is essentially being used as a transient data store that the trigger on the blackhole table can make use of. Should the trigger be used in the first place? To me that is the real meat of the question. 
+ Personally I feel that the use of triggers should be restricted to logging and DBA-specific tasks only and should not contain business logic (or any logic for that matter) that should belong firmly in the application layer. It appears as though there have been quite a few opinions expressed about whether  database triggers are evil or not . I think your question kinda falls into that category too. 
+ Embedding application layer logic in database triggers can be risky. 
+ It is likely to end up splitting business logic between application
+code and the database. This can be very confusing indeed for
+somebody trying to support and get their head into a code base.  
+ If you end up with too much logic in triggers, and indeed stored procedures, you can easily end up with performance issues on your database server that could have, indeed should have been addressed by distributing the heavy duty processing tasks i.e. complex    business logic among application servers and leaving the database server free for its primary purpose i.e. serving data. 
+ Just my two bits' worth of course! 
+ 
+ Each time you insert a row into a table, the odds are that you are writing to the same area of the hard drive or the same page (in MS-SQL world, I don't know about postgresql), so this technique will likely lead to contention and locking as all transactions are now competing to write to the same table. 
+ Also this will halve insert performance since inserts require two inserts instead of one. 
+ And this is denormalization since there are now two copies of the data instead of one. 
+ 
+ Please don't do this. This doesn't reduce complexity, it just moves it around. This sort of logic belongs in the application layer, where you can use a nicer language like PHP, Python, or Ruby to implement it. 
+ 
+ Don't do this.  The fact that it's called a trick and not a standard way of doing something says enough for me. 
+ This totally kills the normal usage pattern of the relational model.  Not sure that it actually kills normal form as you can still have that all in place. It's just messing with the way data is making it to the destination tables. Looks like a performance nightmare on top of a maintenance nightmare.  Imagine one table having a trigger that has to fire for 1,800 plus table inserts for example. That just makes me feel sick. 
+ This is a interesting parlor trick nothing more. 
+ 
+ I would suppose that this would be quite slow, as the advantages of "bulk inserts" cannot be used. 
+ 

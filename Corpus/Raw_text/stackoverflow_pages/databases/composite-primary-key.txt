@@ -1,0 +1,42 @@
+*** composite-primary-key ***
+
+ I am working on the design of a database that will be used to store data that originates from a number of different sources. The instances I am storing are assigned unique IDs by the original sources. Each instance I store should contain information about the source it came from, along with the ID it was associated by this source. 
+ As an example, consider the following table that illustrates the problem: 
+ 
+ Note that while the   is unique for each source, it is possible for the same   to be found for different sources. 
+ I have a decent understanding of relational databases, but am far from an expert or even an experienced user. The problem I face with this design is what I should use as primary key. The data seems to dictate the use of a composite primary key of  . After a little googling I found some heated debates on the pros and cons of composite primary keys however, leaving me a little confused.  
+ The table will have one-to-many relationship with other tables, and will thus be referred to in the foreign keys of other tables. 
+ I am not tied to a specific   and I am not sure if it matters for the sake of the argument, but let's say that I prefer to work with   and  . 
+ What are the pros and cons of using a composite foreign key in this case? Which would you prefer? 
+ 
+ I personally find composite primary keys to be painful. For every table that you wish to join to your "sources" table you will need to add both the source_id and id_on_source field. 
+ I would create a standard auto-incrementing primary key on your sources table and add a unique index on source_id and id_on_source columns. 
+ This then allows you to add just the id of the sources table as a foreign key on other tables. 
+ Generally I have also found support for composite primary keys within many frameworks and tooling products to be "patchy" at best and non-existent in others 
+ 
+ Composite keys are tough to manage and slow to join. Since you're building a summary table, use a surrogate key (i.e.-an autoincrement/identity column). Leave your natural key columns there. 
+ This has a lot of other benefits, too. Primarily, if you merge with a company and they have one of the same sources, but reused keys, you're going to get into trouble if you  aren't  using a surrogate key. 
+ This is the widely acknowledged best practice in data warehousing (a much larger undertaking than what you're doing, but still relevant), and for good reason. Surrogates provide data integrity and quick joins. You can get burned very quickly with natural keys, so stay away from them as an identifier, and only use them on the import process. 
+ 
+ You have a business requirement that the combination of those two attributes are unique. So, you should have a   constraint on those two attributes. Whether you call that   constraint "primary" is really just a preference, it doesn't have much impact aside from documentation. 
+ The only question is whether you then add an extra column and mark it  . The only reason I can see to do that is performance, which is a legitimate reason. 
+ Personally, I don't like the approach of turning every database into essentially a graph, where the generated columns are essentially pointers and you are just traversing from one to the next. I think that throws away all of the greatness of a relational system. If you step back and think about it, you're introducing a bunch of columns that have no meaning to your business, at all. You may be interested in my  related blog post . 
+ 
+ I believe that composite keys create a very natural and descriptive data model. My experience comes from Oracle and I don't think there is any technical issues when creating a composite PK. In fact anyone analysing the data dictionary would immediately understand something about the table. In your case it would be obvious that each source_id must have unique id_on_source. 
+ The use of natural keys often creates a hot debate, but people whom I work with like natural keys from a good data model perspective. 
+ 
+ Pretty much the only time I use a composite primary key is when the high-order part of the key is the key to another table. For example, I might create an OrderLineItem table with a primary key of OrderId + LineNumber. As many accesses against the OrderLineItem table will be "order join orderlineitem using (orderid)" or some variation of that, this is often handy. It also makes it easy when looking at database dumps to figure out what line items are connected to what order. 
+ As others have noted, composite keys are a pain in most other circumstances because your joins have to involve all the pieces. It's more to type which means more potential for mistakes, queries are slower, etc. 
+ Two-part keys aren't bad; I do those fairly often. I'm reluctant to use a three-part key. More than three-parts, I'd say forget it. 
+ In your example, I suspect there's little to be gained by using the composite key. Just invent a new sequence number and let the source and source key be ordinary attributes. 
+ 
+ I ran into problems using a lot of composite keys and so I wouldn't recommend it (more below), I've also found there to be benefits in an independent/surrogate key (rather than natural) when trying to roll back user mistakes.
+The problem was that via a set of relations, one table joined two tables where for each row part of the composite was the same (this was appropriate in 3rd normal form - a comparison between two parts of a parent). I de-duplicated that part of the composite relationship in the join table (so instead of parent1ID, other1ID, parent2ID, other2ID there was parentID, other1ID, other2ID) but now the relation couldn't update changes to the primary key, because it tried to do it twice via each route and failed in the middle. 
+ 
+ Some people recommend you use a Globally Unique ID (GUID):  merge replication and transactional replication with updating subscriptions use uniqueidentifier columns to guarantee that rows are uniquely identified across multiple copies of the table . If the value if globally unique when it's created, then you don't need to add the source_id to make it unique. 
+ 
+ Although a uniqueid is a good primary key, I agree that it's usually better to use a different, natural (not necessarily unique) key as your clustered index. For example if a uniqueid is the PK which identifies employees, you might want to clustered index to be the department (if your select statements usually retrieve all employees within a given department). If you do want to use a unqiqueid as the clustered index, see the  NEWSEQUENTIALID()  function: this creates sequential uniqueid values, which (being sequential) have better clustering performance. 
+ 
+ Adding an extra ID column will leave you having to enforce TWO uniqueness constraints instead of one. 
+ Using that extra ID column as the foreign key in other referencing tables, instead of the key that presents itself naturally, will cause you to have to do MORE joins, namely in all the cases where you need the original soruce_ID plus ID_on_source along with data from the referencing table. 
+ 

@@ -1,0 +1,45 @@
+*** entity-framework-5-0-postgresql-npgsql-default-connection-factory ***
+
+ I'm trying to get EF 5.0 code first working with PostgreSQL (Npgsql provider). I have Npgsql 2.0.12.1 installed via NuGet (referenced assembly is 2.0.12.0 though).
+I have Npgsql declared in app.config (both default connection factory and provider factory):   
+ 
+ I have following test running successfully : 
+ 
+ That means at least database instance is running and provider is configured successfully.
+Now what i want is to use custom database context inherited from DbContext which will be tied to same provider and initialized via connection string : 
+ 
+ Following test fails : 
+ 
+ It says 
+ 
+ Inner exception is InvalidOperationException : 
+ 
+ I guess there is a problem with connection string (it does not contain Npgsql provider) :  
+ 
+ What is the most elegant way to solve this problem programmatically? Just tried passing connectionString from app.config to context's constructor, it works. 
+ **edit**
+
+Uploaded test project to Dropbox -  VS2012 solution, 10 mb 
+ 
+ Dug deeper into the problem, found out that it is caused by that fact that Npgsql is referencing EntityFramework 4.4.0 assembly. Solved as follows : 
+ 
+ Added EF Nuget package to test project (which is build against FW 4.5); 
+ Manually added reference to EntityFramework.dll version 5 in Npgsql2010 project (Nuget adds 4.4.0 by default);  
+ Changed assembly binding in Npgsql app.config to  **"EntityFramework, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"**
+;  
+ Fixed described above  **"Constructor for type "Npgsql.NpgsqlFactory" is not found**
+ error by making constructor public; 
+ Fixed following error  **"Unable cast NpgsqlFactory to IDbConnectionFactory"**
+ by implementing IDbConnectionFactory interface on NpgsqlFactory : 
+ using System.Data.Entity.Infrastructure; 
+... 
+public sealed class NpgsqlFactory : DbProviderFactory, IServiceProvider, IDbConnectionFactory 
+... 
+public DbConnection CreateConnection(string nameOrConnectionString) 
+{ 
+      return new NpgsqlConnection(nameOrConnectionString); 
+} 
+d 
+ 
+ Now i'm experiencing "Error: 3F000: schema "dbo" doesn't exist" which is related to EF. I have mapping to PostgreSQL standard public schema in DbContext's OnModelCreating : modelBuilder.Entity().ToTable("TableName", "public") though. Looking forward to solution of this problem. 
+ 

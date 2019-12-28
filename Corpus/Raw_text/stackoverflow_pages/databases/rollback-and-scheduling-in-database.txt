@@ -1,0 +1,88 @@
+*** rollback-and-scheduling-in-database ***
+
+ If we use the Timestamp Ordering for concurrency control in following scheduling: 
+ 
+ 
+ My TA says T2,T3,T5 is Run and T4,T1 is Rollback. I think it's false.
+  any expert could help us? (i.e, in this schedule which of the Transaction Rollback and which one Is Done?  
+ 
+ Update: All transaction after doing all work, commits. 
+ 
+ Well in general, and by default, readers do not block writers and writers do not block readers. 
+ The first session to write to a row holds a lock on it until a commit or rollback is issued, and other sessions will be blocked by that lock from writing to it, but can still read it. 
+ Based on that 
+ 
+ T1 can write(y) because no other session has written to y, and then holds a lock on y 
+ T2 never writes, so is never blocked. 
+ T3 attempts to write(y) after T1 has, so is blocked. 
+ T4 writes(x), and T5's read of x does not affect that.  
+ T5's attempt to write y is blocked by the lock that T1 holds. 
+ 
+ None of this should be cause for a rollback, though, and assumes no explicit commits or rollbacks are issued. 
+ 
+ I think you are confusing everyone here with the oracle tag. I think you want the  Timestamp based concurrency control  algorithm based of the first line of your question which is a pretty common algorithm for concurrency control in computer science theory. 
+ Easier to understand link . 
+ Also, your use of rollback is not correct, as the transactions are not rolled back but restarted. (This happens in oracle too) 
+ The algorithm works like this -  
+ 
+ Whenever a transaction starts, it is given a timestamp. This is so we
+  can tell which order that the transactions are supposed to be applied
+  in. So given two transactions that affect the same object, the
+  transaction that has the earlier timestamp is meant to be applied
+  before the other one. However, if the wrong transaction is actually
+  presented first, it is aborted and must be restarted 
+ 
+ Based on this, let's give our transactions a timestamp like t=1,2,3,4,5...  
+ 
+ T5 starts at t=1.  
+ T2 starts at t=2.  
+ T1 starts at t=3.  
+ T3 starts at t=4.  
+ T4 starts at t=5  
+ T5 has another operation at t=6, but it's timestamp is still t=1 because timestamp is assigned based on when a transaction started. 
+ 
+ Moving on, 
+ 
+ Every object in the database has a read timestamp, which is updated whenever the object's data is read, and a write timestamp, which is updated whenever the object's data is changed. 
+ 
+ At the beginning both X and Y have their read and write timestamp as 0. 
+ A read request is handled in the following manner:  
+ 
+ A write request is handled in the following manner: 
+ 
+ Let's go through our objects and apply these rules. 
+ 
+ T5 starts and reads X. TS 5  = 1. WTS(X) = 0. Goes fine. Set RTS(x) = 1. 
+ T2 starts and reads Y. TS 2  = 2. WTS(Y) = 0. Goes fine. Set RTS(Y) = 2. 
+ T1 starts and writes to Y. TS 1  = 3. RTS(Y) = 1. WTS(Y)=0. Write Completes. Set WTS(Y) = 3. 
+ T3 starts and writes to Y. TS 3  = 4. RTS(Y) = 1. WTS(Y)=3. Write Completes. Set WTS(Y) = 4. 
+ T4 starts and writes to X. TS 4  = 5. RTS(x) = 1. WTS(x) = 0. Write Completes. Set WTS(x) = 5. 
+ T5 does write(y). TS 5  = 1. RTS(y) = 1. WTS(y) = 4. TS 5  < WTS(y) . Transaction is rolled back and restarted with a new timestamp. (Probably t=7) 
+ 
+ So this gives us an answer different from your TA that is only T5 is rolled back and restarted. 
+ I would love to be corrected and learn why T4 and T1 were aborted and restarted. 
+ 
+ The point is "readers do not block writers and writers do not block readers", as stated by @DavidAldridge.
+Transaction 3 would then be waiting for transacion 1, and transaction 5 would then be waiting for transaction 1 and 3. They can either wait for a long time, wait for n seconds or not wait at all, depending on the parameter set for the DB. In Oracle that is how it works. 
+ Guys, since this is a Contest question, I'll assume the logic and follow through. 
+ It's a lot about interpretation and trying to stick to what's given. The given info here is: TIMESTAMP ORDERING for concurrency control. Then he gives us: T1, T2 up to T5. I then assume T1 comes first, then T2 and so on, because transactions have always been serialized: one after another, based on their TIMESTAMP. I do think that in order for one to assume that 'T5 Read(x)' is the first transaction just because of the way the text is disposed is adding info that's just not there. It says TIMESTAMP ORDERING and gives you T1, T2... logic says one come after the other. None transaction does rollback, they just wait, not just because one transaction could be holding a lock while other also tries to get the lock that there will be automatically a rollback. In Oracle transactions only automatically rollback in case of deadlocks. Since this does not appear to be the case, there is no rollback. 
+ 
+ Instead of trying to explain it in my own words, here's a helpful MSDN link that shows you the ROLLBACK TRANSACTION and how it works. 
+ https://msdn.microsoft.com/en-us/library/ms181299.aspx?f=255&MSPPError=-2147217396 
+ any problems feel free to ask me. 
+ 
+ Regarding the locks it depends on the Isolation Level set on your DB. 
+ Microsoft on Isolation Levels: 
+ Transaction isolation levels control:
+Whether locks are taken when data is read, and what type of locks are requested.
+How long the read locks are held.
+Whether a read operation referencing rows modified by another transaction:
+Blocks until the exclusive lock on the row is freed.
+Retrieves the committed version of the row that existed at the time the statement or transaction started.
+Reads the uncommitted data modification. 
+ Source:  https://technet.microsoft.com/en-us/library/ms189122(v=sql.105).aspx 
+ E.g. if your Isolation Level is set to REPEATABLE READ: 
+ "Specifies that statements cannot read data that has been modified but not yet committed by other transactions  **and that no other transactions can modify data that has been read by the current transaction until the current transaction completes.**
+" 
+ Source:  https://technet.microsoft.com/en-us/library/ms173763(v=sql.105).aspx 
+ 

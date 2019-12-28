@@ -1,0 +1,70 @@
+*** improving-a-query-using-a-lot-of-inner-joins-to-wp-postmeta-a-key-value-table ***
+
+ am working with a wordpress website that is performing the following query, but I see this query is doing many inner joins and the website takes long to load and goes down a lot, and I have been trying to create a query that produces the same result but with no success yet 
+ I would like to know what could be a better way to do this 
+ 
+ Here's the explain output. 
+ 
+ Wordpress schema here. 
+ 
+ It seems you are trying to obtain a result set with one row per post of type  . It seems you want to display various attributes of each car in the post, and those are stashed away in  .  
+ Pro tip:   **Never**
+ use   in software unless you absolutely know why you're doing it. Especially with queries containing lots of   operations,   returns lots of pointless and redundant columns. 
+ There's a query design trick to know for the WordPress   table. If you want to get a particular attribute, do this: 
+ 
+ It's super-important to understand this pattern when doing what you're trying to do. This pattern is required because   is a peculiar type of table called a  key-value  or  entity-attribute-value  store. What's going on here? A few things: 
+ 
+ Using this pattern uou get one row for each post, with some columns from the   table and a particular attribute from the   table. 
+ You are  ing the   table so you still get a row if the attribute is missing. 
+ You are using an alias name for the   table. Here it's  . 
+ You are including the selector for   (here it's  ) in the   condition of the join. 
+ You are using an alias in your   clause to present the   item with an appropriate column name. Here it's  . 
+ 
+ Once you get used to employing this pattern, you can stack it up, with a cascade of   operations, to get lots of different attributes, like so. 
+ 
+ I've done a bunch of indenting on this query to make it easier to see the pattern. You may prefer a different indenting style. 
+ It's hard to know why you were having performance problems with the query in your question. It's possibly because you were getting a combinatorial explosion with all the   operations that was then filtered.  But at any rate the query you showed was probably returning no rows. 
+ If you are still having performance trouble, try creating a compound index on   on the   columns. If you're creating a WordPress plugin, that's probably a job to do at plugin installation time. 
+ 
+ This is a Wordpress database, and you might be reluctant to make extensive changes to the schema, because it could break other parts of the application or complicate upgrades in the future. 
+ The difficulty of this query shows one of the downsides to the  entity-attribute-value  design. That design is flexible in that it allows for new attributes to be created at runtime, but it makes a lot of queries against such data more complex than they would be with a conventional table. 
+ The schema for Wordpress has not been optimized well.  There are some naive indexing mistakes, even in the most current version 4.0. 
+ For this particular query, the following two indexes help: 
+ 
+ The   index helps to look up exactly the right meta key  and  value. 
+ The   index helps to avoid the filesort. 
+ These indexes can't be covering indexes, because   and   are   columns, and these are too long to be fully indexed. You'd have to change them to  . But that risks breaking the application, if it's depending on storing longer strings in that table. 
+ 
+ 
+ To resolve performance issue with 10+ joins SQL queries on innodb tables using utf8 charset, create a new index on postmeta : 
+ Backup database first. Reduce   length to 191 to avoid " Specified key was too long; max key length is 767 bytes " error. 
+ 
+ Create index 
+ 
+ 
+ For performance try: 
+ Be explicit on the columns you want to pull.
+See what indexes you may or may not need.
+Limit the amount of rows being pulled. 
+ 
+ is this better? 
+ 
+ If its still slow, which it probably will be, try adding this index, 
+ 
+ You could also try adding this index to  
+ 
+ The more you can limit the select list, (the bit between   and  ,) the better. There is no point returning lots of data you won't use. You'll get the best performance if the whole select list is "covered" by an index. 
+ 
+ Assuming you can actually change the code that handles the results, I would make it a much simpler query and use the code to filter the results. 
+ 
+ Or, you could do something like... 
+ 
+ 
+ In WordPress there's a good query tool the WP_Query. To search in post meta values you can use this code: 
+ 
+ For more information about the query API, visit this site, there're numerous example:
+ http://codex.wordpress.org/Class_Reference/WP_Query 
+ 
+ Speeding up   is detailed here:   http://mysql.rjweb.org/doc.php/index_cookbook_mysql#speeding_up_wp_postmeta 
+ And  Why are references to wp_postmeta so slow? 
+ 

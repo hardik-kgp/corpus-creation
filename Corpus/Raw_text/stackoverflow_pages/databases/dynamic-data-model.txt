@@ -1,0 +1,90 @@
+*** dynamic-data-model ***
+
+ I have a project that requires user-defined attributes for a particular object at runtime  (Lets say a person object in this example).  The project will have many different users (1000 +), each defining their own unique attributes for their own sets of 'Person' objects.    
+ (Eg - user #1 will have a set of defined attributes, which will apply to all person objects 'owned' by this user. Mutliply this by 1000 users, and that's the bottom line minimum number of users the app will work with.)  These attributes will be used to query the people object and return results. 
+ I think these are the possible approaches I can use.  I will be using C# (and any version of .NET 3.5 or 4), and have a free reign re: what to use for a datastore.  (I have mysql and mssql available, although have the freedom to use any software, as long as it will fit the bill) 
+ Have I missed anything, or made any incorrect assumptions in my assessment? 
+ Out of these choices - what solution would you go for? 
+ 
+ Hybrid EAV object model.  (Define the database using normal relational model, and have a 'property bag' table for the Person table). 
+ Downsides: many joins per / query.  Poor performance.  Can hit a limit of the number of joins / tables used in a query. 
+ I've knocked up a quick sample, that has a Subsonic 2.x 'esqe interface:  
+ 
+ Which generates the correct joins, then filters + pivots the returned data in c#, to return a datatable configured with the correctly typed data-set. 
+ I have yet to load test this solution.  It's based on the EA advice in this Microsoft whitepaper: 
+ SQL Server 2008 RTM Documents Best Practices for Semantic Data Modeling for Performance and Scalability  
+ Allow the user to dynamically create / alter the object's table at run-time.   This solution is what I believe NHibernate does in the background when using dynamic properties, as discussed where 
+ http://bartreyserhove.blogspot.com/2008/02/dynamic-domain-mode-using-nhibernate.html 
+ Downsides: 
+ As the system grows, the number of columns defined will get very large, and may hit the max number of columns.  If there are 1000 users, each with 10 distinct attributes for their 'Person' objects, then we'd need a table holding 10k columns.  Not scalable in this scenario. 
+ I guess I could allow a person attribute table per user, but if there are 1000 users to start, that's 1000 tables plus the other 10 odd in the app. 
+ I'm unsure if this would be scalable - but it doesn't seem so.  Someone please correct me if I an incorrect! 
+ Use a NoSQL datastore, such as CouchDb / MongoDb 
+ From what I have read, these aren't yet proven in large scale apps, based on strings, and are very early in development phase. IF I am incorrect in this assessment, can someone let me know?  
+ http://www.eflorenzano.com/blog/post/why-couchdb-sucks/ 
+ Using XML column in the people table to store attributes 
+ Drawbacks - no indexing on querying, so every column would need to be retrieved and queried to return a resultset, resulting in poor query performance. 
+ Serializing an object graph to the database. 
+ Drawbacks - no indexing on querying, so every column would need to be retrieved and queried to return a resultset, resulting in poor query performance. 
+ C# bindings for berkelyDB 
+ From what I read here:  http://www.dinosaurtech.com/2009/berkeley-db-c-bindings/ 
+ 
+ Berkeley Db has definitely proven to be useful, but as Robert pointed out – there is no easy interface. Your entire wOO wrapper has to be hand coded, and all of your indices are hand maintained. It is much more difficult than SQL / linq-to-sql, but that’s the price you pay for ridiculous speed. 
+ 
+ Seems a large overhead - however if anyone can provide a link to a tutorial on how to maintain the indices in C# - it could be a goer. 
+ SQL / RDF hybrid.
+Odd I didn't think of this before.  Similar to option 1, but instead of an "property bag" table, just XREF to a RDF store?
+Querying would them involve 2 steps - query the RDF store for people hitting the correct attributes, to return the person object(s), and use the ID's for these person object in the SQL query to return the relational data.  Extra overhead, but could be a goer. 
+ 
+ 
+ The ESENT database engine on Windows is used heavily for this kind of semi-structured data. One example is Microsoft Exchange which, like your application, has thousands of users where each user can define their own set of properties (MAPI named properties). Exchange uses a slightly modified version of ESENT. 
+ ESENT has a lot of features that enable applications with large meta-data requirements: each ESENT table can have about ~32K columns defined; tables, indexes and columns can be added at runtime; sparse columns don't take up any record space when not set; and template tables can reduce the space used by the meta-data itself. It is common for large applications to have thousands of tables/indexes. 
+ In this case you can have one table per user and create the per-user columns in the table, creating indexes on any columns that you want to query. That would be similar to the way that some versions of Exchange store their data. The downside of this approach is that ESENT doesn't have a query engine so you will have to hand-craft your queries as MakeKey/Seek/MoveNext calls. 
+ A managed wrapper for ESENT is here: 
+ http://managedesent.codeplex.com/ 
+ 
+ In a EAV model you don't have to have many joins, as you can just have the joins you need for the query filtering. For the resultset, return property entries as a separate rowset.
+That is what we are doing in our EAV implementation. 
+ For example, a query might return persons with extended property 'Age' > 18: 
+ Properties table: 
+ 
+ First resultset: 
+ 
+ second resultset: 
+ 
+ For the first resultset, you need an inner join for the 'age' extended property
+to query the basic Person object entity part: 
+ 
+ For the second resultset, we are making an outer join of the first resultset with PersonExtendedProperties table to get the rest of the extended properties. It's a 'narrow' resultset, we do not pivot the properties in sql, so we don't need multiple joins here. 
+ Actually we use separate tables for different types to avoid data type conversion, to have extended properties indexed and easily queriable. 
+ 
+ My recommendation: 
+ Allow properties to be marked as indexable.  Have a smallish hard limit on number of indexable properties, and on columns per object.  Have a large hard limit on total column types in all objects. 
+ Implement indexes as separate tables (one per index) joined with main table of data (main table has large unique key for object).  (Index tables can then be created/dropped as required). 
+ Serialize the data, including the index columns, plus put the index propertoes in first class relational columns in their dedicated index tables.  Use JSON instead of XML to save space in the table.  Enforce short column name policy (or long display name and short stored name policy) to save space and increase performance. 
+ Use quarks for field identifiers (but only in the main engine to save RAM and speed some read operations -- don't rely on quark pointer comparison in all cases). 
+ My thought on your options: 
+ 1 is a possible.  Performance clearly will be lower than if field ID columns not stored. 
+ 2 is a no in general  DB engines not all happy about dynamic schema changes.  But a possible yes if your DB engine is good at this. 
+ 3 Possible. 
+ 4 Yes though I'd use JSON. 
+ 5 Seems like 4 only less optimized?? 
+ 6 Sounds good; would go with if happy to try something new and also if happy about reliability and performance but usually would want to go with more mainstream technology.  I'd also like to reduce the number of engines involved in coordinating a transaction to less then would be true here. 
+ **Edit**
+: But of course though I've recommened something there can be no general right answer here -- profile various data models and approaches with your data to see what runs best for your application. 
+ **Edit:**
+ Changed last edit wording. 
+ 
+ Assuming you an place a limit, N,  on how many custom attributes each user can define; just add N extra columns to the Person table. Then have a separate table where you store per-user metadata to describe how to interpret the contents of those columns for each user. Similar to #1 once you've read in the data, but no joins needed to pull in the custom attributes. 
+ 
+ For a problem similar to your problem, we have used the "XML Column" approach (the fourth one in your survey of methods). But you should note that many databases (DBMS) support index for xml values.  
+ I recommend you to use one table for Person which contains one xml column along with other common columns. In other words, design the Person table with columns that are common for all person records and add a single xml column for dynamic and differing attributes. 
+ We are using Oracle. it supports index for its xml-type. Two types of indices are supported: 1- XMLIndex for indexing elements and attributes within an xml, 2- Oracle Text Index for enabling full-text search in text fields of the xml. 
+ For example, in Oracle you can create an index such as: 
+ 
+ and xml-query is supported in select queries: 
+ 
+ As I know, other databases such as PostgreSQL and MS SQL Server (but not mysql) support such index models for xml value. 
+ see also:
+ http://docs.oracle.com/cd/E11882_01/appdev.112/e23094/xdb_indexing.htm#CHDEADIH 
+ 

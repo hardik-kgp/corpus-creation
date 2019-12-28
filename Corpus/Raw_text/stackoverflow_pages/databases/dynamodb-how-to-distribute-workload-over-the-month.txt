@@ -1,0 +1,50 @@
+*** dynamodb-how-to-distribute-workload-over-the-month ***
+
+ **TL;DR**
+
+ I have a table with about 2 million WRITEs  **over**
+ the month and 0 READs. Every 1st day of a month, I need to read all the rows written on the previous month and generate CSVs + statistics. 
+ How to work with DynamoDB in this scenario? How to choose the READ throughput capacity? 
+ **Long description**
+
+ I have an application that logs client requests. It has about 200 clients. The clients need to receive on every 1st day of a month a CSV with all the requests they've made. They also need to be billed, and for that we need to calculate some stats with the requests they've made, grouping by type of request. 
+ So in the end of the month, a client receives a report like: 
+ 
+ 
+ I've already come to  **two solutions**
+, but I'm not still  convinced  on any of them. 
+ **1st solution**
+: ok, every last day of the month I increase the READ throughput capacity and then I run a map reduce job. When the job is done, I decrease the capacity back to the original value. 
+ **Cons**
+: not fully automated, risk of the DynamoDB capacity not being available when the job starts. 
+ **2nd solution:**
+ I can break the generation of CSVs + statistics to small jobs in a daily or hourly routine. I could store partial CSVs on S3 and on every 1st day of a month I could join those files and generate a new one. The statistics would be much easier to generate, just some calculations derived from the daily/hourly statistics. 
+ **Cons**
+: I feel like I'm turning something simple into something complex. 
+ Do you have a better solution? If not, what solution would you choose? Why? 
+ 
+ Having been in a similar place myself before, I used, and now recommend to you, to process the raw data: 
+ 
+ as often as you reasonably can (start with daily)  
+ to a format as close as possible to the desired report output 
+ with as much calculation/CPU intensive work done as possible 
+ 
+ leaving as little to do at report time as possible. 
+ This approach is entirely scaleable - the incremental frequency can be: 
+ 
+ reduced to as small a window as needed 
+ parallelised if required 
+ 
+ It also, makes possible re-running past months reports on demand, as the report generation time should be quite small. 
+ In my example, I shipped denormalized, pre-processed (financial calculations) data every hour to a data warehouse, then reporting just involved a very basic (and fast) SQL query. 
+ This had the additional benefit of spreading the load on the production database server to lots of small bites, instead of bringing it to its knees once a week at invoice time (30000 invoiced produced every week). 
+ 
+ I would use the service  kinesis  to produce a daily and almost real time billing.
+for this purpose I would create a special DynamoDB table just for the calculated data.
+(other option is to run it on flat files)
+then I would add a process which will send events to kinesis service just after you update the regular DynamoDB table. 
+ thus when you reach the end of the month you can just execute whatever post billing calculations you have and create your CSV files from the already calculated table. 
+ I hope that helps. 
+ 
+ Take a look at  Dynamic DynamoDB . It will increase/decrease the throughput when you need it without any manual intervention. The good news is you will not need to change the way the export job is done. 
+ 

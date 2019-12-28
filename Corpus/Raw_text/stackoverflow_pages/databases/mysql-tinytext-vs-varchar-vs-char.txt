@@ -1,0 +1,41 @@
+*** mysql-tinytext-vs-varchar-vs-char ***
+
+ Building a system that has the potential to get hammered pretty hard with hits and traffic.
+It's a typical Apache/PHP/MySql setup. 
+ Have build plenty of systems before, but never had a scenario where I really had to make decisions regarding potential scalability of this size. I have dozens of questions regarding building a system of this magniture, but for this particular question, I am trying to decide on what to use as the data type. 
+ **Here is the 100ft view:**
+
+ We have a table which (among other things) has a  **description**
+ field. We have decided to limit it to  **255 characters**
+. It  **will be searchable**
+ ( ie: show me all entries with description that contains ... ). Problem: this table is likely to have  **millions upon millions of entries**
+ at some point ( or so we think ). 
+ I have not yet figured out the strategy for the search (the MySql LIKE operator is likely to be slow and/or a hog I am guessing for such a large # records), but thats for another SO question. For this question, I am wondering  **what the pro's and cons are to creating this field as a tinytext, varchar, and char**
+. 
+ I am  not  a database expert, so any and all commentary is helpful. Thanks - 
+ 
+ Use a  .  
+ 's and  's are stored outside the row, so there will be an access penalty to reading them.
+ 's are variable length, which saves storage space by could introduce a small access penalty (since the rows aren't all fixed length).  
+ If you create your index properly, however, either   or   can be stored entirely in the index, which will make access a lot faster.  
+ See:  varchar(255) v tinyblob v tinytext 
+And:  http://213.136.52.31/mysql/540 
+And:  http://forums.mysql.com/read.php?10,254231,254231#msg-254231 
+And:  http://forums.mysql.com/read.php?20,223006,223683#msg-223683 
+ Incidentally, in my experience the MySQL   operator is a lot faster than   for simple queries (i.e.,  ), and obviously more versatile.  
+ 
+ I believe with varchar you've got a variable length stored in the actual database at the low levels, which means it could take less disk space, with the text field its fixed length even if a row doesn't use all of it.  The fixed length string should be faster to query.  
+ **Edit**
+:  I just looked it up, text types are stored as variable length as well. Best thing to do would be to benchmark it with something like mysqlslap 
+ In regards to your other un-asked question, you'd probably want to build some sort of a search index that ties every useful word in the description field individually to a description, then you you can index that and search it instead.  will be way way faster than using %like%.  
+ 
+ In your situation all three types are bad if you'll use   (a   won't use any index created on that column, regardless of its type) . Everything else is just noise. 
+ I am not aware of any major difference between   and   up to 255 chars, and   is just not meant for variable length strings. 
+ So my suggestion: pick   or   (I'd personally go for VARCHAR) and index the content of that column using a full text search engine like Lucene, Sphinx or any other that does the job for you. Just forget about   (even if that means you need to custom build the full text search index engine yourself for whatever reasons you might have, i.e. you need support for a set of features that no engine out there can satisfy). 
+ 
+ If you want to search among millions of rows, store all these texts in a different table (which will decrease row size of your big table) and use   if your text data is short, or TEXT if you require greater length. 
+ Instead of searching with   use a specialized solution like Lucene, Sphinx or Solr. I don't remember which, but at least one of them can be easily configured for real-time or near real-time indexing. 
+ **EDIT**
+
+ My proposition of storing text in different table reduces IO required for main table, but when data is inserted it requires to keep an additional index and adds join overhead in selects, so is valid only if you use your table to read a few descriptions at once and other data from the table is is used more often. 
+ 

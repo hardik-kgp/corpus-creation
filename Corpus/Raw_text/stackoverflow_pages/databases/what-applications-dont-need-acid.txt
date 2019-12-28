@@ -1,0 +1,54 @@
+*** what-applications-dont-need-acid ***
+
+ Sorry for the ignorant question, but what kind of applications wouldn't require an ACID compliant database server?  I have a SQL Server background where ACID has always "been there", and now researching other DBMSs has me thinking.  Most every application I can think of would desire either atomicity or isolation.  Thanks! 
+ 
+ Anything based on a NoSQL-type database is sacrificing ACID compliance in exchange for something, usually speed. 
+ Twitter, Facebook, Reddit, Digg, etc... all are partially non-acid based 
+ 
+ It's a paradox that every RDBMS guy thinks the sky would fall without ACID, but most NoSQL guys happily deploy and support end-user applications without ever thinking "my application would be better with ACID".  Contrary to Marc B's answer, NoSQL databases are not databases where updates randomly get lost or data randomly corrupted.  The key difference is that in NoSQL databases you get to use limited versions of atomicity & isolation etc., but it takes an exponential amount of effort to implement transactions of arbitrary complexity. 
+ There is no reason why you can't implement a bank system using a non-ACID database. Most NoSQL databases would let you use micro-transactions which deduct money from one account and add it to another, with a 0% chance of the total amount of money in the system changing. 
+ In order to discuss this question in the context of real-world examples, I'll describe our application.  My company sells software to high schools, primarily for timetabling but also roll-call, managing teacher absences/replacements, excursions and room bookings. Our software is based on an in-house developed non-ACID database engine called Mrjb (only available internally) which has limitations which are typical of NoSQL databases. 
+ An example of the difference between ACID and NoSQL as relevant to the end user is that if 2 users try to mark the same roll at exactly the same time, there is a (very) small chance that the final result will be a combination of data submitted by both users. An ACID database would guarantee that the final result is either one user's data or the other's, or possibly that one user's update will fail and return an error-message to the user. 
+ In this case I don't think our users would care about whether the individual students' "absence" statuses are all consistent with one user's update or a mixture of both, although they would be concerned if we assigned absence statuses which are contrary to both users' inputs.  This example should not occur in practice, and if it does then it's a "race condition" where there's essentially no right answer about which user we believe. 
+ A question was raised in relation to our Mrjb database about whether we're able to implement constraints such as "must not allow a Student object to exist without a corresponding Family object".  (The 'C' in 'ACID' = Consistency). In fact we can and do maintain this constraint - another example of a micro-transaction.  
+ Another example is when uploading a new version of the cyclical school timetable (typically a 2-week cycle) upon which the daily timetable is based.  We would be hard pressed to make this update transaction atomic or to allow other transactions to execute in isolation from this update. So we basically have a choice to either "stop the world" while this major transaction occurs, which takes about 2 seconds, or allow the possibility that a student prints off a timetable containing a combination of pre-update and post-update data (there's probably a 100ms window in which this could occur). The "stop the world" option is probably the better option, but in fact we do the latter.  You could argue that a mixed timetable is worse than a pre-update timetable, but in both cases we need to rely on the school having a process to notify students that the timetable has changed - a student working off an out-of-date timetable is a big problem even if it's a consistent timetable.  Note also that students typically view their timetable online, in which case the problem is greatly reduced. 
+ I also wrote a "file-system-based Blob database" for  http://brainresource.com  , to store their brain scans.  This is an important database, and one which has no ACID properties, although they do use an RDBMS for other data about their subjects. 
+ For the record, our company is described here:    http://edval.com.au     and our NoSql technology is described here (described as a technique):   http://www.edval.biz/memory-resident-programming-object-databases   .  There was a concern that this post was spam, giving a plug to our company, but I would argue that (a) the question being asked cannot be answered on solely theoretical terms - you need some real-world examples, and (b) withholding any identifying information about the product or database technology is not appropriate. 
+ 
+ What the other answers seem to be missing is that the generally-applicable alternative to ACID isn't "nothing", it's something called  eventual consistency  (sometimes nicknamed BASE). 
+ When people say they need ACID semantics, often what they really mean, at least from a domain/business requirements point of view, is simply  data integrity . They want to make sure that data doesn't get lost or corrupted.  Many NoSQL databases still provide this guarantee, they just provide it in a different way and on their own terms. 
+ It's certainly possible to use a NoSQL or BASE database as an unsafe alternative to a SQL or ACID database, if you treat it as simply a "non-ACID database". Making an informed decision means you understand what has to be done at the  application level  to compensate for the lack of coarse-grained transactions and play to the strengths of EC.  Some common techniques are: 
+ 
+ Optimistic concurrency , which is already used to minimize locking in a transactional environment. 
+ Idempotence  of operations, such that if a long-running operation fails halfway through, it can simply be retried again and again until it succeeds. 
+ Long-running transaction  techniques using  compensating transactions , often called  sagas  in distributed systems, where multiple independent transactions are grouped by some correlation identifier and the state of the entire operation is tracked independently.  Often these actually use ACID semantics for the saga state itself, but that is much more lightweight than a two-phase commit. 
+ 
+ In point of fact, if you spend much time working on distributed systems - even those  with  ACID semantics available at each of the individual subsystems - you'll find a lot of these same techniques used to manage cross-system operations, because without them you just obliterate performance (think BizTalk and BPEL). 
+ Once you've had some experience with it, you'll realize that it actually makes a lot of sense and is often  easier  than trying to apply ACID semantics.  Computing processes are just models for real-life processes, and real-life processes can sometimes fail in mid-stream. You booked a flight but suddenly you can't go anymore. What do you do? You cancel. Maybe you get your money back, maybe you don't, or maybe it's something in between - those are your business rules. Or maybe you started your booking but got distracted or sidetracked or your power went out, and now your session's timed out. What do you do? Simple, you start over. 
+ To really address the question head-on, I'd answer thusly: 
+ You need ACID semantics when: 
+ 
+ You can reasonably expect to have multiple users or processes working on the  same data  at the  same time . 
+ The order in which transactions appear is extremely important; 
+ You cannot ever tolerate stale data being displayed to the user. 
+ There is a significant and/or direct cost to incomplete transactions (e.g. a financial system where unbalanced totals can have grave consequences). 
+ 
+ On the other hand, you  don't  need ACID semantics if: 
+ 
+ Users only tend to perform updates on their own private data, or don't perform updates at all (just append). 
+ There is no implicit (business-defined) ordering of transactions. For example, if two customers are competing for the last item in stock, it really doesn't matter to you who actually gets it. 
+ Users will tend to be on the same screen for seconds or minutes at a time, and are therefore going to be looking at stale data  anyway  (this actually describes most applications). 
+ You have the ability to simply abandon incomplete transactions; there is no negative impact of having them sitting around in the database temporarily or in some cases permanently. 
+ 
+ The bottom line is that very  few  applications truly require ACID semantics  everywhere . However,  many  applications will require them  somewhere  - often in isolated pockets like saga state or message queues. 
+ Next time you're designing a new application or feature, try giving some thought to whether or not it might be possible to model an atomic/isolated "transaction" as an asynchronous "chain of events" with a little extra state to tie them all together. In some cases the answer will be  no , but you might be surprised at how often the answer is  yes . 
+ 
+ You pay a performance price for ACID semantics.  In cases where you manage a very large amount of data and can accept occasional inconsistencies (i.e. you're not transferring money), non-ACID solutions (such as most NoSQL solutions) may be preferable. 
+ http://www.schoonerinfotech.com/solutions/general/what_is_nosql 
+ Facebook was one of several high-profile companies that made this trade-off early on.  In fact, they wrote  Cassandra  as a data store more suited to their data needs, and Cassandra explicitly does not support ACID semantics. 
+ 
+ Eric Brewer On Why  **Banks**
+ Are BASE Not ACID - Availability Is Revenue  
+ Topic here 
+ Apps that need ACID 
+ 

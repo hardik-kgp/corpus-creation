@@ -1,0 +1,102 @@
+*** best-way-to-view-a-table-with-lots-of-columns ***
+
+ At the risk of being downmodded, I want to ask what the best mechanism (best is obviously subjective for the practice violation inherent here) for viewing data from a table, using C#, with a  lot  of columns.  By a lot, I mean something like 1000. 
+ Now before you get all click happy, or throw out responses like "why the hell would you ever have a table with that many columns" let me say that it's actually part of a design requirement.  We are collecting data as fast as we can from 1000 data points.  We need to store these as fast as possible, hence the flat table.  The data needs to be directly accessible from SQL Server, hence the database (we're using SQL Compact with table-direct). 
+ So let's forget, for now, all that we've learned about proper database design, the rules of normalization, etc. and just focus on the fact that I have a table with 1000 columns and I want to be able to display the data on screen to verify that the data is actually going in there. 
+ I've tried a data grid.  It pukes because (not surprisingly) it's not designed to handle that many columns. 
+ I've tried using the viewer in Studio.  It pukes after 256, plus the end user won't have Studio installed anyway. 
+ For now the result need not be pretty, it need not be updateable, nor does it need to be sensitive to data changes - just a static snapshot of data in the table at a given point in time. 
+ Relevant (or semi-relevant) info: 
+ 
+ Table has 1000 columns (read above before getting click happy) 
+ Using SQL Compact version 3.5 
+ Running on the desktop 
+ Looking for a managed-code answer 
+ 
+ 
+ If you're going to implement your own custom user control, you could do a Fisheye Grid like this: 
+ 
+   Dead image link   
+ 
+ This example shows a full-size 3x4 panel moving around within a 9x10 table.  Since (I assume) you don't need to edit this data, the UI could just be something where the user grabs the panel and drags it around.  If you're really masochistic and/or have lots of free time, you can even have multiple fisheye panels on the same grid, allowing you to compare one or more regions of the grid simultaneously. 
+ Update: Silverlight  has one of these , apparently.  Sort of. 
+ 
+ You could format all numbers as n-character strings with spaces and then display them in a fixed width font. 
+ 
+ 
+ Ok, what turned out to be the right answer for me was to use the  ReportViewer control , but not in any manner documented in MSDN.  The problem is that I have dynamic data, so I need a dynamic report, and all of the tutorials, etc. seem to assume you have the luxury of knowing everything at design time so you can point and click your way through a Wizard. 
+ The solution ended up requiring a couple pieces.  First, I had to create code to dynamically generate the RDLC that the ReportViewer uses to describe the report layout and what data fields map to what.  This is what I came up with: 
+ 
+ The second piece is an XSL file that I took right off of  Dan Shipe's blog .  The RDLC code there was pretty worthless as it was all intended for Web use, but the XSL is pure gold.  I've put it at the bottom of this post for completeness in case that blog ever goes offline. 
+ Once I has those two pieces, it was simply a matter of creating a Form with a ReportViewer control on it, then using this bit of code to set it up: 
+ 
+ The key here is that 'ds' is a DataSet object with a single DataTable in it with the data to be displayed. 
+ Again, for completeness, here's the XSL - sorry about the size: 
+ 
+ 
+ What about storing the data in a csv file, which would give you options for viewing. If your user has excel or Open Office Calc, they could easily import the data (not sure if there is a column limit on Calc, but excel 2007 can hold 16384 columns) and view it through that program? 
+ 
+ do you need to view multiple rows on a single table? 
+ my  guess  is that this data is numerical, is there any way you could display a single rows data as a 20*50 grid or something like that, then just paginate through the rows? 
+ Eg, row 1, column 1 = colum 1 of the database, row 2, column 1 = column 21 of the database, etc 
+ 
+ 
+ try a html table with a  very tiny font 
+ if you're concerned about formatting the table use CSS: 
+ 
+ alternately, if all your numbers are the same size, you could also just generate a "wall of numbers" display, e.g. use a fixed-width font and display columns 5 characters wide in a scrolling panel 
+ 
+ It depends a bit on how pretty it needs to be. If this is just a debug/spot check tool, you could put several DataGrids side by side, each one displaying a selection of columns. Would be kind of ugly, but would be workable. 
+ OTOH, if you need a semi-polished tool, you might want to come up with a custom control to handle it. Basically, you would load the section of the database being viewed, with a bit of buffer, and when the user scrolled off the currently loaded data, run a new query. 
+ 
+ A DataGrid (or even a ListView) should be able to handle a table with 32 columns and 32 rows, which would allow you to display an entire DB row's worth of data at once.  This would allow you to instantly see whether some cells were missing data or not. 
+ 
+ I feel dirty even for suggesting this, but you could do something along the lines of: 
+ 
+ but really I think this falls into the category of "if you're running into this limitation, you're doing something wrong".  I really can't see any reason, speed or otherwise to need 1000 columns... 
+ 
+ Who will read a 1000 column table??? Try to think of way to filter or visualize the data.  
+ 
+ Perhaps you should investigate a different type of database.  I've heard column-oriented databases are good for this sort of thing (whereas a typical RDBMS is row-oriented).  Also, if you won't be going back to update rows after they're first inserted, maybe a binary flat file would be better than a giant table? 
+ 
+ I would make this a drill-down.  In the first page (or at the top of the page) you would have controls that select the row.  In the next page (or at the bottom of the page) you would display the data from the selected row.  Depending on the required cell width, you might do this as 100 rows of 10 columns, or 1000 rows of 1 column, for example. 
+ This would be fairly easy to do as dynamic client-side javascript -- you could even make it editable this way.  I'm not sure how this would work in C#. 
+ 
+ If you are just after a verification could you not check each field programatically and report that entire row is ok!.  Then you need a much simple data grid which lists the rows that are not so good. 
+ They can then be examined by whatever technique you can apply to a single row as you will not need to browse the fields in most cases.  I am assuming here that you can view the entire row somehow already and are after a way to browse several rows at the same time looking for missing data (automating this will make it much more reliable). 
+ 
+ Coming at it from an oblique angle, I'd ask if the user needs to have all the columns "loaded" at one time? 
+ If the users would be happy to have a subset of columns displayed at once (say, 100 at a time, or specfic sets at a time), then I'd use a some kind of data grid (the built in one, or a ListView, or maybe a third party one) to display the subset, with a CheckedListView docked to the side, allowing the subset of interest to be displayed. 
+ Alternatively, could you display some kind of summary data showing the count/average/xxx for groups of 100 columns? 
+ 
+ I would recommend investigating something other than a flat layout. In my experience, databases have restrictions on column counts and row byte sizes. 
+ 
+ Your SQL may allow for 1000 columns to be defined. 
+ A SQL row cannot exceed the row byte limit. 
+ 
+ Each database implementation has a page size (4k / 8k), and a single row must fit within this data size. NULLs are typically freebies.  This means that 1000 ints 1000 x 4 bytes will  just  fit within a 4k page size. 
+ If you are talking data with varchars, then the problem is worse. How many characters are in each column?  How many columns can be filled in?  If you have 10 characters on average, and your page size is 8k, then you lose the data with a SQL error. 
+ Laugh if you must, but this situation did occur with a particularly long winded typist in a flat datatable that I knew was pushing the limits. 
+ 
+ 
+ .. to verify that the data is actually going in there. 
+ 
+ May be it is outdated, but you could use pixel map where single pixel is representing single cell of table (is screen is more then 1000) or 10 cells for one pixel with zoom region on click. 
+ The color of pixel will be data dependent. It could be black/white for empty/data. Or it could be color to show value grows or decrease with every row. Or red for sudden jumps of data. All anomalies you could catch normally with your eye in data grid. 
+ Then all you need is to catch click coordinates in the area of interest and use small table to show that part of table without any scrolling. 
+ Just click to go back to pixel-map. 
+ 
+ Given that the user will have to scroll horizontally anyway, you could use a regular data grid showing a reasonable number of columns (say, 50). Then you have a horizontal scrollbar positioned under the grid that selects a subset of columns to show. When the scrollbar is at the left you show columns 1-50, when you click the right arrow you go to 2-51, etc. 
+ This gives you the scrolling capability without ever having to overload a grid control with data. While you would lose the ability to freely cursor around in the table or make large rectangular selections, it doesn't sound like that would be an issue for this application. 
+ 
+ How much of the data is critical for the initial view? I can see doing something like a master/detail type grid where you're putting the critical columns (say like 10) onto the datagrid and when the user clicks to view the details, you can take the remaining columns and display them in a "properties area" or something in that regard. 
+ 
+ If all you need is to make sure the data is being populated then why not have every column with a default value, say, 'void', 'blank', etc. 
+ Then you can iterate through while counting non-default/total to show a percentage. 
+ Now you can visualize the data completeness with a percentage value, maybe even record which columns had the default values (like to a list/array) for further investigation. 
+ 
+ You might consider checking with your user base and seeing what they really need to see, then set up views for each distinct need, in order to get the column count down. 
+ Another option would be to read the data, and create a whopping big static set of html pages from it.  Then you could invoke the browser from within your program to view it. 
+ 
+ Have a scrollable pane and show 10 columns at a time (these can be actively loaded or cached or whatever you need). When you are scrolled left, show the first ten. As you scroll right, show the latter sequence of columns. So all in all, only 10 columns are active at any given point. Trying to actually display 1000 columns would be nuts any other way in my opinion. PS: This is nothing more than an ideal guess; I'm not really sure if it's remotely possible. 
+ 

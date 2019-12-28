@@ -1,0 +1,59 @@
+*** when-executing-a-stored-procedure-what-is-the-benefit-of-using-commandtype-stor ***
+
+ So in C# to use a stored procedure I have code like the following (connection code omitted): 
+ 
+ Where sql is the name of a stored procedure.  Now, this code seems to work just fine with and without the commented line.   
+ So, do I need this line?  Is there some performance (or other) benefit to setting this?  Is there a benefit to NOT setting it or setting it to Text? 
+ 
+ According to the tests in  this blog post  SQL Server will do the parameterization for you, by wrapping your statement in sp_executesql, when you use  . But when you use   you will parameterize it and thereby saving the database some work. The latter method is faster. 
+ **Edit:**
+
+ **Setup**
+
+ I've done some tests myself and here are the results. 
+ Create this procedure: 
+ 
+ Add a trace to it using SQL Server Profiler. 
+ And then call it using the following code: 
+ 
+ **Results**
+
+ In both cases the calls are made using RPC. 
+ Here's what the trace reveals using  : 
+ 
+ And here is the result using  : 
+ 
+ As you can see the text-call is wrapped in a call to   so that it is properly parameterized. This will of course create a slight overhead, and thus my previous statement that using   is faster still stands. 
+ Another noteworthy thing, and which is also kind of a deal breaker here, is that when I created the procedure without default values I got the following error: 
+ 
+ Msg 201, Level 16, State 4, Procedure Test, Line 0 Procedure or
+  function 'Test' expects parameter '@Text1', which was not supplied. 
+ 
+ The reason for this is how the call to   is created, as you can see the parameters are declared and initialized,  but they are not used . For the call to work, it should have looked like this: 
+ 
+ Meaning, when you're using   you have to add the parameters to the   unless you always want the default values to be used. 
+ **So, to answer your question**
+
+ 
+ Using   is faster. 
+ If you're using  , then you'll have to add the parameter names to the call to the procedure unless you want the default values to be used. 
+ 
+ 
+ There is actually a huge difference. If you specify the command type   then any parameter you add to your SqlCommand will be a parameter added the  procedure call . If you leave it as   then the parameters will be added to the  batch , not to the procedure. To illustrate the point, lets create a dummy procedure: 
+ 
+ Then compile this tiny C# application: 
+ 
+ The result is: 
+ 
+ **Ouch!**
+ For the   setting although the parameters were passed to the  batch , they were not passed to the  procedure . Source of many hours of debugging fun... 
+ 
+ You would set this to allow ADO.NET to help you out.  When you use  , you'll have to just put   equal to the stored procedure name. 
+ For instance, this: 
+ 
+ Is equivalent to: 
+ 
+ 
+ CommandType is not specific to SQL Server. It is a property of the  IDbCommand  interface that instructs the underlying provider to treat the CommandText in a specific way. While SQL Server may treat single-word names as procedures, you should not expect this to work in other providers. 
+ In general, you should prefer using the provider-generated classes like DbCommand instead of specific classes like SqlCommand. This way you can target different databases simply by changing a provider string in your config file. 
+ 

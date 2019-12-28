@@ -1,0 +1,49 @@
+*** best-method-to-secure-connection-to-firebird-over-internet ***
+
+ I have a client-server application which use a firebird server 2.5 over internet.
+I have met the problem of given a secure access to FB databases and as a first approch a tried to solve this problem by integrating a tunnel solution in the application (STunnel software more exactly). BUT, this approch suffer from many aspects :
+- this add more resource consumption (CPU, memory, threads) at both client/server side,
+- sotware deployment become a serious problem because STunnel software is writen as a WinNT Service, not a Dll or a Component (WinNT Service need administrator privileges for install)
+and my client application need to run without installation ! 
+ SO, i decided to take the bull by the horn (or the bird by the feathers as we talk about Firebird). I have downloaded the Firebird 2.5 source code and injected secure tunnelization code directly in his low level communication layer (the INET socket layer).
+NOW, encryption/decryption is done directly by the firebird engine for each TCP/IP packet. 
+ What do you think about this approach vs external tunnelization ? 
+ 
+ I would recommend to wrap data exchange in SSL/TLS stream, from both sides. This is proven standard.
+While custom implementations, with static keys, can be insecure. 
+ For instance, CTR mode with constant IV can reveal a lot of information, since it only encrypts incremented vector and XORes it with data, so XORing two encrypted packets will show the xored version of unencrypted packets. 
+ 
+ In general, my view of security critical code is this, "you want as many eyes on the code in question as possible and you do not want to be maintaining it yourself."  The reason is that we all make mistakes and in a collaborative environment these are more likely to be caught.  Additionally these are likely to be better tested. 
+ In my view there are a few acceptable solutions here.  All approaches do add some overhead but this overhead could, if you want, be handled on a separate server if that becomes necessary.  Possibilities include: 
+ 
+ stunnel 
+ IPSec (one of my favorites).  Note that with IPSec you can create tunnels, and these can then be forwarded on to other hosts, so you can move your VPN management onto a computer other than your db host.  You can also do IPSec directly to the host. 
+ PPTP 
+ Cross-platform vpn software like tinc and the like. 
+ 
+ Note here in security there is  no free lunch  and you need to review your requirements very carefully and make sure you thoroughly understand the solutions you are working with. 
+ 
+ The stunnel suggestion is a good one, but, if that's not suitable, you can run a true trusted VPN of sorts, in a VM.  (Try saying that a few times.)  It's a bit strange, but it would work something like this: 
+ 
+ Set up a VM on the firebird machine and give that VM two interfaces,
+one which goes out to your external LAN (best if you can actually
+bind a LAN card to it) and one that is a host-only LAN to firebird. 
+ Load an openvpn server into that VM and use both client and server
+certificates 
+ Run your openvpn client on your clients 
+ 
+ Strange, but it ensures the following: 
+ 
+ Your clients don't get to connect to the server unless BOTH the
+client and server agree on the certificates 
+ Your firebird service only accepts connections over this trusted VPN
+link. 
+ Technically, local entities could still connect to the firebird
+server outside of the VPN if you wanted it -- for example, a
+developer console on the same local LAN. 
+ 
+ 
+ The fastest way to get things done would not be to improve firebird, but improve your connection.
+Get two firewall devices which can do SSL certificate authentication and put it in front of your DB server and your firebird device.
+Let the firewall devices do the encryption/decryption, and have your DB server do its job without the hassle of meddling with every packet. 
+ 

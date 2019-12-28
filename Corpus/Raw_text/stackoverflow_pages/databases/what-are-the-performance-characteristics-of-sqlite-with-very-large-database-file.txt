@@ -1,0 +1,108 @@
+*** what-are-the-performance-characteristics-of-sqlite-with-very-large-database-file ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  6 years ago . 
+ 
+ 
+ 
+ I know that sqlite doesn't perform well with extremely large database files even when they are supported (there used to be a comment on the sqlite website stating that if you need file sizes above 1GB you may want to consider using an enterprise rdbms. Can't find it anymore, might be related to an older version of sqlite). 
+ However, for my purposes I'd like to get an idea of how bad it really is before I consider other solutions. 
+ I'm talking about sqlite data files in the multi-gigabyte range, from 2GB onwards.
+Anyone have any experience with this? Any tips/ideas? 
+ 
+ So I did some tests with sqlite for very large files, and came to some conclusions (at least for my specific application). 
+ The tests involve a single sqlite file with either a single table, or multiple tables. Each table had about 8 columns, almost all integers, and 4 indices. 
+ The idea was to insert enough data until sqlite files were about 50GB. 
+ **Single Table**
+
+ I tried to insert multiple rows into a sqlite file with just one table. When the file was about 7GB (sorry I can't be specific about row counts) insertions were taking far too long. I had estimated that my test to insert all my data would take 24 hours or so, but it did not complete even after 48 hours.  
+ This leads me to conclude that a single, very large sqlite table will have issues with insertions, and probably other operations as well. 
+ I guess this is no surprise, as the table gets larger, inserting and updating all the indices take longer. 
+ **Multiple Tables**
+
+ I then tried splitting the data by time over several tables, one table per day. The data for the original 1 table was split to ~700 tables.  
+ This setup had no problems with the insertion, it did not take longer as time progressed, since a new table was created for every day. 
+ **Vacuum Issues**
+
+ As pointed out by i_like_caffeine, the VACUUM command is a problem the larger the sqlite file is. As more inserts/deletes are done, the fragmentation of the file on disk will get worse, so the goal is to periodically VACUUM to optimize the file and recover file space. 
+ However, as pointed out by  documentation , a full copy of the database is made to do a vacuum, taking a very long time to complete. So, the smaller the database, the faster this operation will finish. 
+ **Conclusions**
+
+ For my specific application, I'll probably be splitting out data over several db files, one per day, to get the best of both vacuum performance and insertion/delete speed. 
+ This complicates queries, but for me, it's a worthwhile tradeoff to be able to index this much data. An additional advantage is that I can just delete a whole db file to drop a day's worth of data (a common operation for my application). 
+ I'd probably have to monitor table size per file as well to see when the speed will become a problem. 
+ It's too bad that there doesn't seem to be an incremental vacuum method other than  auto vacuum . I can't use it because my goal for vacuum is to defragment the file (file space isn't a big deal), which auto vacuum does not do. In fact, documentation states it may make fragmentation worse, so I have to resort to periodically doing a full vacuum on the file. 
+ 
+ We are using DBS of 50 GB+ on our platform. no complains works great.
+Make sure you are doing everything right! Are you using predefined statements ? 
+*SQLITE 3.7.3 
+ 
+ Transactions 
+ Pre made statements  
+ Apply these settings (right after you create the DB) 
+ 
+ 
+ Hope this will help others, works great here 
+ 
+ I've created SQLite databases up to 3.5GB in size with no noticeable performance issues.  If I remember correctly, I think SQLite2 might have had some lower limits, but I don't think SQLite3 has any such issues.   
+ According to the  SQLite Limits  page, the maximum size of each database page is 32K.  And the maximum pages in a database is 1024^3.  So by my math that comes out to 32 terabytes as the maximum size.  I think you'll hit your file system's limits before hitting SQLite's! 
+ 
+ Much of the reason that it took > 48 hours to do your inserts is because of your indexes.  It is incredibly faster to: 
+ 1 - Drop all indexes
+2 - Do all inserts
+3 - Create indexes again 
+ 
+ Besides the usual recommendation: 
+ 
+ Drop index for bulk insert. 
+ Batch inserts/updates in large transactions. 
+ Tune your buffer cache/disable journal /w PRAGMAs. 
+ Use a 64bit machine (to be able to use lots of cache™). 
+ [added July 2014] Use  common table expression (CTE)  instead of running multiple SQL queries! Requires SQLite release 3.8.3.  
+ 
+ I have learnt the following from my experience with SQLite3: 
+ 
+ For maximum insert speed, don't use schema with any column constraint. ( Alter table later as needed  You can't add constraints with ALTER TABLE). 
+ Optimize your schema to store what you need. Sometimes this means breaking down tables and/or even compressing/transforming your data before inserting to the database. A great example is to storing IP addresses as (long) integers. 
+ One table per db file - to minimize lock contention. (Use  ATTACH DATABASE  if you want to have a single connection object. 
+ SQLite can store different types of data in the same column (dynamic typing), use that to your advantage. 
+ 
+ Question/comment welcome. ;-) 
+ 
+ I think the main complaints about sqlite scaling is: 
+ 
+ Single process write. 
+ No mirroring. 
+ No replication. 
+ 
+ 
+ I have a 7GB SQLite database.
+To perform a particular query with an inner join takes 2.6s
+In order to speed this up I tried adding indexes. Depending on which index(es) I added, sometimes the query went down to 0.1s and sometimes it went UP to as much as 7s.
+I think the problem in my case was that if a column is highly duplicate then adding an index degrades performance :( 
+ 
+ There used to be a statement in the SQLite documentation that the practical size limit of a database file was a few dozen GB:s. That was mostly due to the need for SQLite to "allocate a bitmap of dirty pages" whenever you started a transaction. Thus 256 byte of RAM were required for each MB in the database. Inserting into a 50 GB DB-file would require a hefty (2^8)*(2^10)=2^18=256 MB of RAM. 
+ But as of recent versions of SQLite, this is no longer needed. Read more  here . 
+ 
+ I've experienced problems with large sqlite files when using the vacuum command.   
+ I haven't tried the auto_vacuum feature yet.  If you expect to be updating and deleting  data often then this is worth looking at.   
+ 

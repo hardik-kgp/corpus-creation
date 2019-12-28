@@ -1,0 +1,41 @@
+*** oracle-update-hangs ***
+
+ I'm having trouble with an Oracle update.  The call to ExecuteNonQuery hangs indefinitely. 
+ The code: 
+ 
+ CommandTimeout is being set to 5, and the parameters are being set to small integer values.   
+ The query: 
+ 
+ The query runs quickly from sqlplus, and normally runs fast from my code, but every once in a while it hangs forever. 
+ I ran a query on v$locked_object, and there's one record referring to this table, but I think that's the update that isn't completing. 
+ There are two things I would like to know: What might cause the update to hang? 
+ More importantly, why isn't an exception being thrown here?  I would expect the call to wait five seconds, and then timeout. 
+ 
+ I'm bumping this due to its page rank in search results. 
+ In my case, it was because I had executed a query in SqlPlus, but I forgot to commit it. In this case, it was as Vincent stated: the row was locked in another session. 
+ Committing the SqlPlus update resolved the issue. 
+ 
+ When a simple update hangs it often means that you are blocked by another session. Oracle won't allow more than one transaction to update a row. Until a transaction has commited or rolled back its modifications it will lock the rows it has updated/deleted. This means that other session will have to wait if they want to modify the same rows. 
+ You should SELECT ... FOR UPDATE NOWAIT before you UPDATE if you don't want to hang indefinetely. 
+ 
+ I was having a similar issue that was being caused by a Sql command that hadn't been committed - I'm guessing the program crashed in the middle of one at some point. 
+ Here is how I fixed my issue: 
+ First, open SqlPlus and do a commit to fix the issue. 
+ Next, change the code to commit the transaction or rollback if an exception occurrs. That will keep the problem from occurring again. 
+ You could change your code to something like this: 
+ 
+ 
+ You can see what event your session is waiting on by querying V$SESSION_WAIT (after identifying the SID of the session, probably by looking at V$SESSION).  If the event is something like "enqueue", you are waiting on a lock held by another session, which does seem like a likely explanation in this case. 
+ 
+ seems like the database is waiting for a commit/rollback so it locks the row.  I would suggest adding  
+ 
+ 
+ I have been running into this problem frequently, and with more than just update queries (notably "INSERT INTO...SELECT FROM" queries). This is on Oracle 9i. 
+ I found the the solution, so decided to find this related SO topic:
+In the connections string, set: 
+ 
+ in the connection string.
+A full, working connection string might look like: 
+ 
+ Caveats: Setting pooling to false will require your query secure a new connection every time it is run. Queries that are run very frequently may experience a performance decrease compared to what they would have if ODP.NET were reliable. Considering the problem though, running a little slower is much better than hanging. 
+ 

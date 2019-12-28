@@ -1,0 +1,62 @@
+*** fastest-way-to-create-a-new-object-only-if-it-doesnt-already-exist-sqlalchemy ***
+
+ I want to get an object from the database if it already exists (based on provided parameters) or create it if it does not. 
+ Django's   (or  source ) does this.  Is there an equivalent shortcut in SQLAlchemy? 
+ I'm currently writing it out explicitly like this: 
+ 
+ 
+ That's basically the way to do it, there is no shortcut readily available AFAIK. 
+ You could generalize it ofcourse: 
+ 
+ 
+ Following the solution of @WoLpH, this is the code that worked for me (simple version): 
+ 
+ With this, I'm able to get_or_create any object of my model.   
+ Suppose my model object is : 
+ 
+ To get or create my object I write : 
+ 
+ 
+ I've been playing with this problem and have ended up with a fairly robust solution: 
+ 
+ I just wrote a  fairly expansive blog post  on all the details, but a few quite ideas of why I used this. 
+ 
+ It unpacks to a tuple that tells you if the object existed or not. This can often be useful in your workflow. 
+ The function gives the ability to work with   decorated creator functions (and attributes specific to them). 
+ The solution protects against Race Conditions when you have more than one process connected to the datastore. 
+ 
+ EDIT: I've changed   to   as explained in  this blog post . Note that these decisions are specific to the datastore used (Postgres in this case). 
+ EDIT 2: I’ve updated using a {} as a default value in the function as this is typical Python gotcha. Thanks for  the comment , Nigel! If your curious about this gotcha, check out  this StackOverflow question  and  this blog post . 
+ 
+ A modified version of erik's excellent  answer 
+ 
+ 
+ Use a  nested transaction  to only roll back the addition of the new item instead of rolling back everything (See this  answer  to use nested transactions with SQLite) 
+ Move  . If the created object has relations and it is assigned members through those relations, it is automatically added to the session. E.g. create a  , which has   and   as corresponding relationship, then doing   inside of   will add   to the session. This means that   must be inside   to benefit from an eventual rollback. Note that   automatically triggers a flush. 
+ 
+ Note that if using MySQL, the transaction isolation level must be set to   rather than   for this to work. Django's  get_or_create  (and  here ) uses the same stratagem, see also the Django  documentation . 
+ 
+ This SQLALchemy recipe  does the job nice and elegant. 
+ The first thing to do is to define a function that is given a Session to work with, and associates a dictionary with the Session() which keeps track of current  unique  keys. 
+ 
+ An example of utilizing this function would be in a mixin: 
+ 
+ And finally creating the unique get_or_create model: 
+ 
+ The recipe goes deeper into the idea and provides different approaches but I've used this one with great success. 
+ 
+ The closest semantically is probably: 
+ 
+ not sure how kosher it is to rely on a globally defined   in sqlalchemy, but the Django version doesn't take a connection so... 
+ The tuple returned contains the instance and a boolean indicating if the instance was created (i.e. it's False if we read the instance from the db). 
+ Django's   is often used to make sure that global data is available, so I'm committing at the earliest point possible. 
+ 
+ Depending on the isolation level you adopted, none of the above solutions would work.
+The best solution I have found is a RAW SQL in the following form: 
+ 
+ This is transactionally safe whatever the isolation level and the degree of parallelism are. 
+ Beware: in order to make it efficient, it would be wise to have an INDEX for the unique column. 
+ 
+ I slightly simplified @Kevin. solution to avoid wrapping the whole function in an  /  statement. This way there's only one  , which I find cleaner: 
+ 
+ 

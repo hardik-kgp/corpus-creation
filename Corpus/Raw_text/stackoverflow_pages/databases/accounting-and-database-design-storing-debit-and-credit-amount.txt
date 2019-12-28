@@ -1,0 +1,80 @@
+*** accounting-and-database-design-storing-debit-and-credit-amount ***
+
+ QUESTION:  In the case below should I have stored all my amount as positives decimal amounts then flag the amount as either being a "Debit" or "Credit" rather than storing debits as negative amount and credits as positive amount? 
+ 
+ In my database design, I store "debit" as negative amount, and credit as positive amount. 
+ Now in reporting sometimes the results come out wrong because if you do this 
+ TotalAmount = Amount-Fee, and if withdraw amount is $100, and fee is $1. 
+ You would end up with -$100-$1 = -$101, which is the  **incorrect result!.**
+
+ 
+ You can use the ABS function within sql server to get the absolute value. This would allow you to treat negative numbers as positive ones. 
+ eg: 
+ 
+ returns  , not  . 
+ 
+ Using one column for everything and then using negative numbers for either debits or credits doesn't work, as you've discovered.  Accounting values are not scalars -- they are vectors which contain an enum (debit or credit) and a fixed-point decimal number (which can be positive or negative).   
+ Any accounting transaction must contain an equal number of debits and credits.  If it doesn't, it's not a valid transaction. 
+ Likewise, an account balance is also that same sort of vector.  At any instant in time, the total debits and the total credits across all the accounts in an accounting system must be equal to each other, or else something broke.  
+ Another way of looking at this is to think of an accounting value as a complex number, where debits are real and credits are imaginary. This means that 4 debits + 3 credits = 4 + 3i.  This makes it obvious that you  can't  simplify that any further by collapsing the imaginary term into a negative real term -- it's not the same number line axis.  It would be the same as claiming that 4 + 3i = 4 - 3.  Not valid math. 
+ If a database could store complex numbers natively, then complex numbers would actually be a good way of storing accounting data, would probably clear up a lot of the confusion that programmers usually have about accounting, and would lead to all sorts of interesting properties.  For instance, a balanced transaction would always have a phase angle of 45 degrees, as would a balanced set of accounts.  But most databases need you to decompose the complex number into its real and imaginary terms before storage, and store those terms in different columns -- in the accounting world, the names of those two columns are "debits" and "credits", respectively. 
+ P.S.:  I'm aware that some folks do use negative for credits and positive for debits, but this takes great care to do right, and is fragile.  You have to keep track of the normal balance of any account every time you touch it -- for instance, since an asset account has a debit normal balance, then you can use a positive number to increase it.  But a liability account has a negative normal balance, so an increase in that account's value is a negative number.  You can't sum those two values together at any time -- they aren't the same thing.  A debit is something you have, while a credit is something you owe.  Putting both in the same column in a database table smells bad. 
+ 
+ As accounting is all based on journal entries, it might be best for your data model to follow from that.  This would mean having two columns in your table, one for debit and one for credit.  You then leave it up to the application to determine what should be considered a "positive" value and what should be considered "negative". (The question always arises - positive from whose point of view? When you transfer money between bank accounts, it a "negative" for one account but a "positive" for the other.) 
+ It's a while since I worked on this kind of thing, but I seem to remember that it is possible for the debit AND credit columns to contain both positive AND negative values.  Accountants have a different way of thinking about numbers than us programmers, so when writing software for them, it can simplify things if you try to work with their conventions. 
+ 
+ I work with the Sage Timberline accounting system and it saves debits as positive amounts and credits as negative amounts. In all reports, including the Trial Balance, you do debits + credits. Then you do negative debits for debit reversals and positive credits for credit reversals. Works fine 
+ 
+ OK, I'm a bit late to the party but there some interesting answers here and I thought I should add my take. 
+ To answer the question:  Should you store values as positive amounts and flag as debit or credit ? 
+ The short answer:  You don't need to add the flag, because any system automatically applies the flag 'debit' or 'credit' when you save the number in it's correct signed form.  It's the '-' sign.  Should you store values in one of two columns, debit or credit, instead ?  Definitely not !  Why save an empty field to every transaction in the system ?  A single column with the correct signed value is much easier to manage. 
+ The longer answer to the question title:  Accounting and Database Design, storing debit and credit amount. 
+ It's perfectly straightforward and robust as long as you understand double entry book keeping.   When you post a journal to the nominal ledger, you offer the user a debit field and a credit field for each line in the journal.  In your application you permit only one of the fields to have a value (per line) and it must be a positive, unsigned value.  When you write the transaction, if you have a debit you just write it as is.  If you have a value in the credit field, you reverse it and write it as a negative number.  The database sees only a single signed value in a single column, per line (record).  As any accountant will tell you a journal entry must balance so the database records for the journal transaction lines will add up to zero.  Application code must ensure that a journal has to be balanced. 
+ Now consider a purchase invoice that the user adds to the system.  Let's say we have this (unlikely) invoice for the Widget Company: 
+ £500 for steel bar 
+ £100 for a box of envelopes 
+ £10000 for a lathe 
+ £2120 purchase tax 
+ £12720 invoice total 
+ The application writes a single record to the documents table.  It has one-to-many links to the transaction table.  For the three-line invoice, 5 transaction lines are written by the application. 
+ £500 linked to Cost of Sales, a p&l general ledger account.  Debit balance = expense when in the p&l 
+ £100 linked to Stationery, a p&l general ledger account.    Debit balance = expense when in the p&l 
+ £10000 linked to Machinery, a balance sheet general ledger account.   Debit balance = asset when in the bs. 
+ £2120 linked to Input Tax Reclaimable, a bs gl account.  Debit balance = asset, we are owed money by the tax man 
+ -£12720 linked to Creditors Control, a bs gl account.  Credit balance = liability, we owe this to the supplier 
+ **£0.00 total value of 5 records written to the transaction table.**
+
+ Now consider a sales invoice that the user adds: 
+ £250 for premium widgets 
+ £250 for standard widgets 
+ £100 sales tax 
+ £600 invoice total 
+ Again a single record is written to the documents table.  For the two-line invoice, 4 transaction lines are written.  Because this is a sales invoice, the application must reverse the values behind the scenes.  Sales invoice lines are book keeping credits but the user doesn't expect to have to add them as negative values.   
+ £250- linked to Premium Widget Sales, a p&l gl account.  Credit balance = income/profit when in the p&l 
+ £250- linked to Standard Widget sales, a p&l gl account.   Credit balance = income/profit when in the p&l 
+ £100- linked to Output Tax Payable, a bs gl account.  Credit balance = liability when in the BS.  We owe this money to the tax man. 
+ £600 linked to Debtors Control, a bs gl account.  Debit balance = asset, we are owed this by the customer. 
+ **£0.00 total value of 4 records written to the transaction table.**
+
+ It's perfectly ok to add negative lines to the sales invoice if you want to give credit for something returned.  They just get reversed with all the other lines before writing the transactions.  More usually you would issue a credit note, which would have the lines written as debits to sales income, reducing the value of sales in the p&l. 
+ If the system is doing stock control, quantities are written into the transaction lines, and they are linked to the Product table. 
+ The bank entries often catch non-book keepers out.  They say, we put money in our bank so we credited the account.  Think of the bank as a person external to the business.  When you hand over your money for safe keeping, s/he becomes a debtor, and must hand your money back on demand.  So receipts into the bank are recorded as debits and payments out are recorded as credits.  When we receive payment from the customer we write two transaction lines: 
+ £600 linked to Bank Account, a bs gl account.  Debit balance = increases the value of the asset, we have more money. 
+ £600- linked to Debtors Control, a bs gl account.  Credit balance = reduces the value of the asset, we are owed less money. 
+ **£0.00 total value of 2 records written to the transaction table.**
+
+ If you follow this through you'll see that Debtors Control has £600 written to it when the sales invoice is raised, and £600- written to it when the payment is received.  Net balance = £0.00 which is what our customer now owes. 
+ So with the right design, relationships and indexes all the reporting is done from the combination of documents and transactions.  
+ And that's it. Any time you sum the transaction table it should always return zero.  There's no need to maintain two columns.  The application needs to do two things, it needs to be coded so that it applies the correct signing to the various transaction types, and it needs to present the transaction in one of two columns according to whether it is >0 or <0.  So you can have your trial balance, your customer and supplier ledgers, bank and cash accounts, and general ledger all nicely formatted into debit and credit columns. 
+ Building a system where both sides of the double entry are recorded in one transaction is appealing.  If a single transaction fails, it doesn't unbalance the accounts.  You would still have just one column for the value, signed.  You would record two gl foreign keys to each transaction, one for the value of what you've recorded, which could be a positive or negative value to represent debit or credit, and another gl foreign key to record the account that you are posting the opposing ('double entry') value to.  You might also need to record the gl fk for two tax control accounts as well, one for the output tax control account and one for the input tax control account.  So you might end up linking your transaction line to four gl accounts instead of just one (plus the links for the customer, supplier and product tables which applies to both methods).  The control accounts would have a very high volume of transactions linked to them.  A 10-line invoice would have 10 transactions linked to it instead of just one per document.  You would have to calculate the tax element for each invoice line individually instead of as a total for the document (you might do this anyway).  Finally you would have to have a special arrangement for a journal entry document which might include 10 lines as debits all offset by one line as a credit, so the single-transaction approach doesn't work here. 
+ 
+ Here is a transaction detail schema from a great book called "The Data Model Resource Book". This schema meets all the recording requirements without using two columns. 
+ 
+ Simple and effective, and it doesn't use extraneous columns as other answers here suggest. One column to store all the numeric value data and still gives you the ability to track asset and liability accounts properly. 
+ 
+ Though there is already an accepted answer which is very too the point of the question but I also want to share my opinion because it may help others in decide specially when they are designing their database! 
+ Overall both have their own cons and pros and matter can be easily ended by using   as in accepted answer! But the problem comes when you talk across teams where different people may have different mind and believe me saving (-ve) values caused more confusions actually, specially if they are directly reading values from database! 
+ I am not against of saving -ve values in database when debit in most cases but saving +ve leads to less confusions actually, even as database programmer, because we always have a column of telling (is it Debit or Credit) and who ever is going to write code can easily convert it at App Level. 
+ Only exception comes with using   at database level but in reality this is least used scenario because in accounting mostly we are showing running balances and at app level we could use (+) or (-ve). 
+ The point I want to raise is that the database can be used a Company perspective or Customer perspective and now companies have Data Analysts who think from both perspective and once we save just +ve numbers it becomes easier to remember because we already have a flag to know what value is what! 
+ 

@@ -1,0 +1,123 @@
+*** checking-if-a-user-changed-any-of-their-data-in-multiple-tables ***
+
+ In my database, I have several tables. One is a checkpoint table that makes note of a user choosing to finalize one of their projects. This table contains a timestamp that is automatically created. Whenever a user finalizes their project a new row is added to the checkpoint table (that way we can also keep a history of previous times the project was finalized).  
+ I have several other tables with timestamps (or tables that I could add timestamp columns too) that automatically update when their tables change.  
+ Is there a simple way to be able to tell if any of the other tables have updated their data since the project was last finalized? I do not need to know which tables have changed data just that there are tables that have changed data. 
+ For example, if a user changes data in one of their tables I want to be able to display a message indicating that their project has unfinalized data. 
+ There are a couple of ways that I have thought about doing this: 
+ 
+ Checking every single table to see if any timestamps are newer than the latest timestamp in the checkpoint table. 
+ Add an additional timestamp column (I already have a created and updated timestamp column) to the main project table. Most of the other tables are linked directly or indirectly to this main project table. Add triggers to every other table to update this timestamp when their data changes. I am not quite sure yet how to correctly set up a proper trigger for this. 
+ Creating a new table with just the project_id and a timestamp column. Add a trigger to the other tables as shown in option 2. 
+ 
+ As new modules are added, I will be adding more tables to the project so will need something that is easy to scale as well. 
+ Each of these approaches seems like there would be a lot of steps involved.  
+ Would one of these approaches be more efficient or viable than another? Is there another approach that I am not thinking about? If triggers are the best way to do this how would I go about setting up the trigger? 
+ A simplified overview of my tables looks like this: 
+ 
+ 
+ You really only have three solutions: Middleware, Triggers, and General Log File. 
+ **Middleware solution:**
+
+ Add a   field to each relevant table, and set the default value is set to "CURRENT_TIMESTAMP".  This will update the   field to the current time on every update.
+Assuming that users are going through some API, you can write a JOIN query where it returns the latest time stamp.  It would look like this. 
+ 
+ Now when a request routed to the tables you can run this query and if test == 0, then you return the message. 
+ 
+ **Trigger Solution:**
+
+ 
+ The advantages to this are that it is perhaps more elegant than the middleware solution.  The disadvantages are that triggers are not in plain view, and it is my experience, that when processes are in the background they eventually are forgotten.  In the long term, you could be left with this Jenga puzzle, which would make like difficult. 
+ **General Log File Solution:**
+
+ Mysql can log every query on the server.  It is possible to access this log file during the time, parse it out, and figure out if any tables were updated.  This way you can figure if anything was updated after the project was finalized. 
+ Turn on a general log file. 
+ 
+ Set the path of the log file. 
+ 
+ Confirm by going to the command terminal. 
+ 
+ You might need to reset MySQL. 
+ 
+ This script can you started...
+    
+
+ 
+ This will result in this... 
+ 
+ } 
+ From here you can use a library called  PHP-SQL-Parser  to parse out the query. 
+ The advantages to this approach might scale well, being that you will not have to add any columns to your database.  The disadvantages are that this will involve more code and that means more complexity.  You probably cannot really do this solution without writing unit tests for it. 
+ 
+ If I would have been at your situation, I would have made a table with fields project id (FK) and boolean for is_finalized. So every time a project is finalized, I would add an entry in it. 
+ 
+ before any update/insert, Just check if this key exists for my project. if exists, change it to 0 and while loading the file, Just check if the value is 0. If 0, then show the Message:  
+ It should show the message only if the key exists and the value is 0. If the project is not finalized. The table won't have the value, hence no message. 
+ Quite easy, faster in processing (rather than checking each timestamp) and extensible approach as it would be just dependent on the update or insert queries, which you can use in you upcoming modules in future. 
+ 
+ timestamp comparison could be messy to do multiple check. 
+ 
+ ...I do not need to know which tables have changed data just that there are tables that have changed data... 
+ 
+ Join-query to generate a (1) data-set, JSON/SERIALIZE it, then MD5, keep this hasted string into db. Next time compare it back,  **if there ANY different**
+, the data-set has been changed. This is the general idea in large data/file comparison / code-repo. 
+ but in light of... 
+ 
+ ..more tables to the project.. 
+ 
+ Then just use MD5 on each data-row in the table. Once changed the hashed string will be different. 
+ 
+ **Plan A:**
+ An off-the-wall solution: 
+ 
+ Set up Master-Slave.  The Slave will contain an 'old' copy of the data. 
+ Establish "delayed" replication.  Let's say 1 hour. 
+ Get  pt-table-checksum ; run it twice an hour. 
+ 
+ That will discover changes within an hour.  (The timings may need tweaking if data size is quite large or small.) 
+ **Plan B**
+
+ Deny all direct access from actual humans.  Instead, build an application that handles all normal accesses through some API.  Then I would instrument the API to collect whatever I choose. 
+ Ad Hoc queries (for which there is no API): 
+ 
+ Perhaps disallow them 
+ Perhaps have a review board (me) to admit their running. 
+ Perhaps have an API that runs the query, but immediately logs/emails/rings bells/whatever. 
+ 
+ 
+ Really not sure why these answers are suggesting reliance on IDs or complex data-logging, this is a fairly common problem with some very simple solutions. 
+ Use those parent/child relationships 
+ 
+ You already have a fairly well defined parent/child relationships, I assume to be: 
+ **main_project**
+    **parent**
+    **child**
+
+ Use them one of two ways: 
+ 
+ Update a date for   and   which stores the most recent date any   was modified. 
+ Use a combination of join/max/modified in a query utilizing  ,  , and  . 
+ 
+ **child_updated date**
+
+ 
+ Whenever updating  any   , also update the   dates for   and  . Similar for  , update  . This  can  be done with triggers, php, or some clever uses of joins or views to  **as**
+ the   objects. I would highly advise sticking to doing this with PHP models of those tables. 
+ **join/max/modified**
+
+ Just build a query to get you four values, then check them: 
+ 
+ checkpoint_table.main_project_finalized 
+ main_project.modified 
+ MAX(parent.modified) 
+ MAX(child.modified) 
+ 
+ These joins can get a bit tricky, so you'll have to play with this a bit. 
+ 
+ This will give you ONE row of all the dates you care about, allowing you to create some simple logic for it in PHP. 
+ 
+ 
+ There are some good solutions mentioned so far. Another one is to make use of MySQL's information schema. Doing this, you can for example select all tables that have a timestamp field with the name you know, and check their modification times. This is probably the most dynamic and seamless approach but not really the best one. I would typically only do something like this if I was building an interface on top of legacy or third party code and didn't have control of that part of the application. 
+ Architecturally I think the best approach is to have your application aware of pertinent tables / fields and do an audit of them. I am assuming that the data is relational to the object at question and therefore although they are foreign tables, they can still be easily checked for modifications. 
+ Another good idea would be to add versioning to all of the tables in question so that during this step in your application you can show what changed. 
+ 

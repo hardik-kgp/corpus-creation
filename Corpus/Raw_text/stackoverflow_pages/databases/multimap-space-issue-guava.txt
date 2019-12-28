@@ -1,0 +1,31 @@
+*** multimap-space-issue-guava ***
+
+ In my Java code, I am using Guava's Multimap ( com.google.common.collect.Multimap ) by using this: 
+ 
+ Here, Multimap key is some portion of a URL and value is another portion of the URL (converted into an integer). Now, I assign my JVM 2560 Mb (2.5 GB) heap space (by using Xmx and Xms). However, it can only store 9 millions of such (key,value) pairs of integers (approx 10 million). But, theoretically (according to memory occupied by  ) it should store more. 
+ Can anybody help me, 
+ 
+ Why is   using lots of memory?  I checked my code and without inserting pairs into the  , it only uses 1/2 MB of memory. 
+ 2. 
+ 
+ **Is there another way or home-baked solution to solve this memory issue?**
+ Means, Is there any way to reduce those object overheads as I want to store only int-int? In any other language ? Or any other solution (home-baked preferred) to solve issue I faced, means DB based or something like that solution. 
+ 
+ There's a huge amount of overhead associated with  . At a minimum: 
+ 
+ Each key and value is an   object, which (at a minimum) doubles the storage requirements of each   value. 
+ Each unique key value in the   is associated with a   of values (according to  the source , the   is a  ). 
+ Each   is created with default space for 8 values. 
+ 
+ So each key/value pair requires (at a minimum) perhaps an order of magnitude more space than you might expect for two   values. (Somewhat less when multiple values are stored under a single key.) I would expect 10 million key/value pairs to take perhaps 400MB. 
+ Although you have 2.5GB of heap space, I wouldn't be all that surprised if that's not enough. The above estimate is, I think, on the low side. Plus, it only accounts for how much is needed to store the map once it is built. As the map grows, the table needs to be reallocated and rehashed, which temporarily at least doubles the amount of space used. Finally, all this assumes that   values and object references require 4 bytes. If the JVM is using 64-bit addressing, the byte count probably doubles. 
+ 
+ Probably the simplest way to minimize the memory overhead would be to potentially mix  Trove's  primitive collection implementations (to avoid memory overhead of boxing) and Guava's  , something like 
+ 
+ That still has the overhead of boxing and unboxing on queries, but the memory it consumes just sitting there would be significantly reduced. 
+ 
+ It sounds like you need a sparse boolean matrix.   Sparse matrices / arrays in Java  should provide pointers to library code.  Then instead of putting (i, j) into the multimap, just put a 1 into the matrix at [i][j]. 
+ 
+ You could use probably an ArrayListMultimap, which requires less memory than a HashMultimap, since ArrayLists are smaller than HashSets. Or, you could modify Louis's Trove solution, replacing the Set with a List, to reduce memory usage further. 
+ Some applications depend on the fact that HashMultimap satisfies the SetMultimap interface, but most don't. 
+ 

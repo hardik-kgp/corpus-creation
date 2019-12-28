@@ -1,0 +1,121 @@
+*** when-and-why-are-database-joins-expensive ***
+
+ I'm doing some research into databases and I'm looking at some limitations of relational DBs.  
+ I'm getting that joins of large tables is very expensive, but I'm not completely sure why. What does the DBMS need to do to execute a join operation, where is the bottleneck? 
+How can denormalization help to overcome this expense? How do other optimization techniques (indexing, for example) help? 
+ Personal experiences are welcome! If you're going to post links to resources, please avoid Wikipedia. I know where to find that already. 
+ In relation to this, I'm wondering about the denormalized approaches used by cloud service databases like BigTable and SimpleDB. See  this question . 
+ 
+ Denormalising to improve performance? It sounds convincing, but it doesn't hold water. 
+ Chris Date, who in company with Dr Ted Codd was the original proponent of the relational data model, ran out of patience with misinformed arguments against normalisation and systematically demolished them using scientific method: he got large databases and  tested  these assertions.  
+ I think he wrote it up in  Relational Database Writings 1988-1991  but this book was later rolled into edition six of  Introduction to Database Systems , which is  the  definitive text on database theory and design, in its eighth edition as I write and likely to remain in print for decades to come. Chris Date was an expert in this field when most of us were still running around barefoot. 
+ He found that:  
+ 
+ Some of them hold for special cases 
+ All of them fail to pay off for general use 
+ All of them are significantly worse for other special cases  
+ 
+ It all comes back to mitigating the size of the working set. Joins involving properly selected keys with correctly set up indexes are cheap, not expensive, because they allow significant pruning of the result  before  the rows are materialised.  
+ Materialising the result involves bulk disk reads which are the most expensive aspect of the exercise by an order of magnitude. Performing a join, by contrast, logically requires retrieval of only the  keys . In practice, not even the key values are fetched: the key hash values are used for join comparisons, mitigating the cost of multi-column joins and radically reducing the cost of joins involving string comparisons. Not only will vastly more fit in cache, there's a lot less disk reading to do.  
+ Moreover, a good optimiser will choose the most restrictive condition and apply it before it performs a join, very effectively leveraging the high selectivity of joins on indexes with high cardinality.  
+ Admittedly this type of optimisation can also be applied to denormalised databases, but the sort of people who  want  to denormalise a schema typically don't think about cardinality when (if) they set up indexes.  
+ It is important to understand that table scans (examination of every row in a table in the course of producing a join) are rare in practice. A query optimiser will choose a table scan only when one or more of the following holds. 
+ 
+ There are fewer than 200 rows in the relation (in this case a scan will be cheaper) 
+ There are no suitable indexes on the join columns (if it's meaningful to join on these columns then why aren't they indexed? fix it) 
+ A type coercion is required before the columns can be compared (WTF?! fix it or go home)  **SEE END NOTES FOR ADO.NET ISSUE**
+
+ One of the arguments of the comparison is an expression (no index) 
+ 
+ Performing an operation is more expensive than not performing it. However, performing the  wrong  operation, being forced into pointless disk I/O and then discarding the dross prior to performing the join you really need, is  much  more expensive. Even when the "wrong" operation is precomputed and indexes have been sensibly applied, there remains significant penalty. Denormalising to precompute a join - notwithstanding the update anomalies entailed - is a commitment to a particular join. If you need a  different  join, that commitment is going to cost you  big . 
+ If anyone wants to remind me that it's a changing world, I think you'll find that bigger datasets on gruntier hardware just exaggerates the spread of Date's findings. 
+ For all of you who work on billing systems or junk mail generators (shame on you) and are indignantly setting hand to keyboard to tell me that you know for a fact that denormalisation is faster, sorry but you're living in one of the special cases - specifically, the case where you process  all  of the data, in-order. It's not a general case, and you  are  justified in your strategy. 
+ You are  not  justified in falsely generalising it. See the end of the notes section for more information on appropriate use of denormalisation in data warehousing scenarios. 
+ I'd also like to respond to  
+ 
+ Joins are just cartesian products with some lipgloss 
+ 
+ What a load of bollocks. Restrictions are applied as early as possible, most restrictive first. You've read the theory, but you haven't understood it. Joins are  treated  as "cartesian products to which predicates apply"  only  by the query optimiser. This is a symbolic representation (a normalisation, in fact) to facilitate symbolic decomposition so the optimiser can produce all the equivalent transformations and rank them by cost and selectivity so that it can select the best query plan. 
+ The only way you will ever get the optimiser to produce a cartesian product is to fail to supply a predicate:  
+ 
+ 
+ 
+ David Aldridge provides some important additional information. 
+ There is indeed a variety of other strategies besides indexes and table scans, and a modern optimiser will cost them all before producing an execution plan.  
+ A practical piece of advice: if it can be used as a foreign key then index it, so that an index strategy is  available  to the optimiser. 
+ I used to be smarter than the MSSQL optimiser. That changed two versions ago. Now it generally teaches  me . It is, in a very real sense, an expert system, codifying all the wisdom of many very clever people in a domain sufficiently closed that a rule-based system is effective. 
+ 
+ "Bollocks" may have been tactless. I am asked to be less haughty and reminded that math doesn't lie. This is true, but not all of the implications of mathematical models should necessarily be taken literally. Square roots of negative numbers are very handy if you carefully avoid examining their absurdity (pun there) and make damn sure you cancel them all out before you try to interpret your equation. 
+ The reason that I responded so savagely was that the statement as worded says that  
+ 
+ Joins  are  cartesian products... 
+ 
+ This may not be what was meant but it  is  what was written, and it's categorically untrue. A cartesian product is a relation. A join is a function. More specifically, a join is a relation-valued function. With an empty predicate it will produce a cartesian product, and checking that it does so is one correctness check for a database query engine, but nobody writes unconstrained joins in practice because they have no practical value outside a classroom. 
+ I called this out because I don't want readers falling into the ancient trap of confusing the model with the thing modelled. A model is an approximation, deliberately simplified for convenient manipulation.  
+ 
+ The cut-off for selection of a table-scan join strategy may vary between database engines. It is affected by a number of implementation decisions such as tree-node fill-factor, key-value size and subtleties of algorithm, but broadly speaking high-performance indexing has an execution time of  k  log  n  +  c . The C term is a fixed overhead mostly made of setup time, and the shape of the curve means you don't get a payoff (compared to a linear search) until  n  is in the hundreds. 
+ 
+ **Sometimes denormalisation is a good idea**
+
+ Denormalisation is a commitment to a particular join strategy. As mentioned earlier, this interferes with  other  join strategies. But if you have buckets of disk space, predictable patterns of access, and a tendency to process much or all of it, then precomputing a join can be very worthwhile.  
+ You can also figure out the access paths your operation typically uses and precompute all the joins for those access paths. This is the premise behind data warehouses, or at least it is when they're built by people who know why they're doing what they're doing, and not just for the sake of buzzword compliance. 
+ A properly designed data warehouse is produced periodically by a bulk transformation out of a normalised transaction processing system. This separation of the operations and reporting databases has the very desirable effect of eliminating the clash between OLTP and OLAP (online transaction processing ie data entry, and online analytical processing ie reporting).  
+ An important point here is that apart from the periodic updates, the data warehouse is  read only . This renders moot the question of update anomalies. 
+ Don't make the mistake of denormalising your OLTP database (the database on which data entry happens). It might be faster for billing runs but if you do that you will get update anomalies. Ever tried to get Reader's Digest to stop sending you stuff? 
+ Disk space is cheap these days, so knock yourself out. But denormalising is only part of the story for data warehouses. Much bigger performance gains are derived from precomputed rolled-up values: monthly totals, that sort of thing. It's  always  about reducing the working set. 
+ 
+ **ADO.NET problem with type mismatches**
+
+ Suppose you have a SQL Server table containing an indexed column of type varchar, and you use AddWithValue to pass a parameter constraining a query on this column. C# strings are Unicode, so the inferred parameter type will be NVARCHAR, which doesn't match VARCHAR.  
+ VARCHAR to NVARCHAR is a widening conversion so it happens implicitly - but say goodbye to indexing, and good luck working out why. 
+ 
+ **"Count the disk hits" (Rick James)**
+
+ If everything is cached in RAM,   are rather cheap.  That is, normalization does not have much  performance penalty . 
+ If a "normalized" schema causes   to hit the disk a lot, but the equivalent "denormalized" schema would not have to hit the disk, then denormalization wins a performance competition. 
+ 
+ Comment from original author: Modern database engines are very good at organising access sequencing to minimise cache misses during join operations. The above, while true, might be miscontrued as implying that joins are necessarily problematically expensive on large data. This would lead to cause poor decision-making on the part of inexperienced developers. 
+ 
+ 
+ What most commenters fail to note is the wide range of join methodologies available in a complex RDBMS, and the denormalisers invariably gloss over the higher cost of maintaining denormalised data. Not every join is based on indexes, and databases have a lot of optimised algotithms and methodologies for joining that are intended to reduce join costs. 
+ In any case, the cost of a join depends on its type and a few other factors. It needn't be expensive at all - some examples. 
+ 
+ A hash join, in which bulk data is equijoined, is very cheap indeed, and the cost only become significant if the hash table cannot be cached in memory. No index required. Equi-partitioning between the joined data sets can be a great help. 
+ The cost of a sort-merge join is driven by the cost of the sort rather than the merge -- an index-based access method can virtually eliminate the cost of the sort. 
+ The cost of a nested loop join on an index is driven by the height of the b-tree index and the access of the table block itself. It's fast, but not suitable for bulk joins. 
+ A nested loop join based on a cluster is much cheaper, with fewer logicAL IO'S required per join row -- if the joined tables are both in the same cluster then the join becomes very cheap through the colocation of joined rows. 
+ 
+ Databases are designed to join, and they're very flexible in how they do it and generally very performant unless they get the join mechanism wrong. 
+ 
+ I think the whole question is based on a false premise.  Joins on large tables are  not  necessarily expensive.  In fact,  **doing joins efficiently is one of the main reasons relational databases exist**
+ at all.  Joins on large  sets  often are expensive, but very rarely do you want to join the entire contents of large table A with the entire contents of large table B.  Instead, you write the query such that  only the important rows  of each table are used and the actual set kept by the join remains smaller.   
+ Additionally, you have the efficiencies mentioned by Peter Wone, such that only the important parts of each record need be in memory until the final result set is materialized.  Also, in large queries with many joins you typically want to start with the smaller table sets and work your way up to the large ones, so that the set kept in memory remains as small as possible as long as possible.   
+ When done properly, joins are generally the  best way  to compare, combine, or filter on large amounts of data. 
+ 
+ The bottleneck is pretty much  always  disk I/O, and even more specifically - random disk I/O (by comparison, sequential reads are fairly fast and can be cached with read ahead strategies).  
+ Joins  can  increase random seeks - if you're jumping around reading small parts of a large table. But, query optimizers look for that and will turn it into a sequential table scan (discarding the unneeded rows) if it thinks that'd be better. 
+ A single denormalized table has a similar problem - the rows are large, and so less fit on a single data page. If you need rows that are located far from another (and the large row size makes them further apart) then you'll have more random I/O. Again, a table scan may be forced to avoid this. But, this time, your table scan has to read more data because of the large row size. Add to that the fact that you're  copying data  from a single location to multiple locations, and the RDBMS has that much more to read (and cache). 
+ With 2 tables, you also get 2 clustered indexes - and can generally index more (because of less insert/update overhead) which can get you drastically increased performance (mainly, again, because indexes are (relatively) small, quick to read off disk (or cheap to cache), and lessen the amount of table rows you need to read from disk). 
+ About the only overhead with a join comes from figuring out the matching rows. Sql Server uses 3 different types of joins, mainly based on dataset sizes, to find matching rows. If the optimizer picks the wrong join type (due to inaccurate statistics, inadequate indexes, or just an optimizer bug or edge case) it can drastically affect query times. 
+ 
+ A loop join is farily cheap for (at least 1) small dataset.  
+ A merge join requires a sort of both datasets first. If you join on an indexed column, though, then the index is already sorted and no further work needs to be done. Otherwise, there is some CPU and memory overhead in sorting.  
+ The hash join requires both memory (to store the hashtable) and CPU (to build the hash). Again, this is fairly quick in relation to the disk I/O.  However , if there's not enough RAM to store the hashtable, Sql Server will use tempdb to store parts of the hashtable and the found rows, and then process only parts of the hashtable at a time. As with all things disk, this is fairly slow. 
+ 
+ In the optimal case, these cause no disk I/O - and so are negligible from a performance perspective.  
+ All in all, at worst - it should actually be faster to read the same amount of  logical  data from x joined tables, as it is from a single denormalized table because of the smaller disk reads. To read the same amount of  physical  data, there could be some slight overhead. 
+ Since query time is usually dominated by I/O costs, and the size of your data does not change (minus some very miniscule row overhead) with denormalization, there's not a tremendous amount of benefit to be had by just merging tables together. The type of denormalization that tends to increase performance, IME, is caching calculated values instead of reading the 10,000 rows required to calculate them. 
+ 
+ The order in which you're joining the tables is extremely important. If you have two sets of data try to build the query in a way so the smallest will be used first to reduce the amount of data the query has to work on. 
+ For some databases it does not matter, for example MS SQL does know the proper join order most of the time. 
+For some (like IBM Informix) the order makes all the difference. 
+ 
+ Deciding on whether to denormalize or normalize is fairly a straightforward process when you consider the complexity class of the join. For instance, I tend to design my databases with normalization when the queries are O(k log n) where k is relative to the desired output magnitude. 
+ An easy way to denormalize and optimize performance is to think about how changes to your normalize structure affect your denormalized structure. It can be problematic however as it may require transactional logic to work on a denormalized structured. 
+ The debate for normalization and denormalization isn't going to end since the problems are vast. There are many problems where the natural solution requires both approaches. 
+ As a general rule, I've always stored a normalized structure and denormalized caches that can be reconstructed. Eventually, these caches save my ass to solve the future normalization problems. 
+ 
+ Elaborating what others have said, 
+ Joins are just cartesian products with some lipgloss. {1,2,3,4}X{1,2,3} would give us 12 combinations (nXn=n^2). This computed set acts as a reference on which conditions are applied. The DBMS applies the conditions (like where both left and right are 2 or 3) to give us the matching condition(s). Actually it is more optimised but the problem is the same. The changes to size of the sets would increase the result size exponentially. The amount of memory and cpu cycles consumed all are effected in exponential terms. 
+ When we denormalise, we avoid this computation altogether, think of having a colored sticky, attached to every page of your book. You can infer the information with out using a reference. The penalty we pay is that we are compromising the essence of DBMS (optimal organisation of data) 
+ 

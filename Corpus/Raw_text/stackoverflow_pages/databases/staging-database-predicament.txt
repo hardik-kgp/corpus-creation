@@ -1,0 +1,56 @@
+*** staging-database-predicament ***
+
+ Suppose that there are 3 databases for 
+ 
+ Production  
+ Staging  
+ Dev 
+ 
+ As far as I know, Staging database need to be in sync with Production database
+But,  
+ When we are developing, we can do whatever we want with  **Dev**
+ database and change schema.
+Now here comes the Chicken & Egg problem. 
+ To test in Staging,  **Staging**
+ database schema need to be changed according to changes made in Dev database.  But the Staging database need to be in sync with Production. 
+ How do you guys get around this problem? 
+ 
+ Staging needs to be in sync with production, only up to the point where you are deploying new changes.  
+ That or make a 4th environment called Test where new upgrades are validated. We call ours UAT/Test, and it is typically a second database on the Staging server. 
+ Exact methodology will depend on how you are keeping things in sync. Are you actually using replication? Or just a backup/restore of Prod to Stage? 
+ 
+ You need to write all of you changes to the dev database as SQL migration scripts that get run in a certain order. Do not change the database structure unless it is in a script. Do not update, insert or delete any rows unless it is in a script. 
+ Ideally have a way to track which scripts have been run against any version of the database you find. 
+ Then you can update stage as follows. 
+ 
+ Dump production database  
+ Populate stage database with production dump  
+ Run migrations in stage 
+ Check migration worked (unit tests, manual checks) 
+ 
+ Once everything works ... 
+ 
+ Dump prod database with mysqldump command (as it may have changed) keeping backup on server  
+ Run migrations on prod  
+ Test migration has worked on prod  
+ Drink beer (while watching error logs)  
+ 
+ 
+ "Staging database need to be in sync with Production "  Not true. 
+ Production Schema ("design") is in sync with Staging Schema.  Staging comes first, production follows. 
+ Sometimes people move production data down to staging to help test, but that can be dangerous, depending on your industry. 
+ Staging is "Pure".   
+ Production is built from staging by putting real data into the pure staging schema. 
+ What some people do is have two databases. 
+ Today #1 is production, #2 is staging. 
+ Tomorrow we plan to do a change to the schema.  We upgrade #2 to the new design.  Then we move data from #1 to #2. 
+ Then, when we're done moving data, we switch application software to use #2 as production. 
+ We run with #2 as production until it's time for the next change. 
+ 
+ We use our staging database only to test our deployment mechanism. It matches production. 
+ We create our changes in development and periodically deploy them to QA. Once we are ready to go to production, we aggregate all changes into one release package. That release package is first tested on staging, and then if there are no deployment problems it is pushed to production. 
+ 
+ If you can afford to add a testing env, you may want to consider that.  
+ Otherwise you basically need to do your testing in your dev env. up to a point where you're confident enough with the release that you can make the schema changes in your staging env. Make frequent back-ups and have a good roll-back procedure so that if something goes wrong when you push the schema changes to staging you can always roll-back.  
+ Also, a good tool for comparing database schema is  SqlCompare . You should use something like this always before you push the schema changes. 
+ 

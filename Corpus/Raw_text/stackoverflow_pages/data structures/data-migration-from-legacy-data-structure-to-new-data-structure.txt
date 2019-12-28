@@ -1,0 +1,99 @@
+*** data-migration-from-legacy-data-structure-to-new-data-structure ***
+
+ Ok So here is the problem we are facing. 
+ Currently: 
+ 
+ We have a ton of Legacy Applications that have direct database access 
+ The data structure in the database is not normalized 
+ The current process / structure is used by almost all applications 
+ 
+ What we are trying to implement: 
+ 
+ Move all functionality to a RESTful service so no application has direct database access 
+ Implement a normalized data structure  
+ 
+ The problem we are having is how to implement this migration not only with the Applications but with the Database as well. 
+ Our current solution is to: 
+ 
+ Identify all the CRUD functionality and implement this in the new Web Service 
+ Create the new Applications to replace the Legacy Apps 
+ Point the New Applications to the new Web Service ( Still Pointing to the Old Data Structure ) 
+ Migrate the data in the databases to the new Structure 
+ Point the New Applications to the new Web Service ( Point to new Data Structure ) 
+ 
+ But as we are discussing this process we are looking at having to rewrite the New Web Service twice. Once for the Old Data Structure and Once for the New Data Structure, As currently we could not represent the old Data Structure to fit the new Data Structure for the new Web Service. 
+ I wanted to know if anyone has faced any challenges like this and how did you overcome these types of issues/implementation and such. 
+ 
+ **EDIT**
+: More explanation of synchronization using bi-directional triggers; updates for syntax, language and clarity. 
+ **Preamble**
+
+ I have faced similar problems on a data model upgrade on a large web application I worked on for 7 years, so I feel your pain. From this experience, I would propose the something a bit different - but hopefully one that will be a lot easier to implement. But first, an observation: 
+ Value to the organisation is the data - data will long outlive all your current applications. The business will constantly invent new ways of getting value out of the data it has captured which will engender new reports, applications and ways of doing business.  
+ So getting the new data structure right should be your most important goal. Don't trade getting the structure right against against other short term development goals, especially: 
+ 
+ Operational goals such as rolling out a new service 
+ Report performance (use materialized views, triggers or batch jobs instead)  
+ 
+ This structure will change over time so your architecture must allow for frequent additions and infrequent normalizations to it. This means that your data structure and any shared APIs to it (including RESTful services) must be properly versioned. 
+ **Why RESTful web services?**
+
+ You mention that your will "Move all functionality to a RESTful service so no application has direct database access". I need to ask a very important question with respect to the legacy apps: Why is this important and what value has it brought?  
+ I ask because: 
+ 
+ You lose ACID transactions (each call is a single transaction unless you implement some horrifically complicated WS-* standards) 
+ Performance degrades: Direct database connections will be faster (no web server work and translations to do) and have less latency (typically 1ms rather than 50-100ms) which will  **visibly**
+ reduce responsiveness in applications written for direct DB connections 
+ The database structure is not abstracted from the RESTful service, because you acknowledge that with the database normalization you have to rewrite the web services and rewrite the applications calling them. 
+ 
+ And the other cross-cutting concerns are unchanged:  
+ 
+ Manageability: Direct database connections can be monitored and managed with many generic tools here 
+ Security: direct connections are more secure than web services that your developers will write,  
+ Authorization: The database permission model is very advanced and as fine-grained as you could want 
+ Scaleability: The web service is a (only?) direct-connected database application and so scales only as much as the database 
+ 
+ You can migrate the database and keep the legacy applications running by maintaining a legacy RESTful API. But what if we can keep the legacy apps  **without**
+ introducing a 'legacy' RESTful service. 
+ **Database versioning**
+
+ Presumably the majority of the 'legacy' applications use SQL to directly access data tables; you may have a number of database views as well. 
+ One approach to the data migration is that the new database (with the new normalized structure in a new schema) presents the old structure as  **views**
+ to the legacy applications, typically from a different schema.  
+ This is actually quite easy to implement, but solves only reporting and read-only functionality. What about legacy application DML? DML can be solved using 
+ 
+ Updatable views for simple transformations 
+ Introducing stored procedures where updatable views not possible (eg "CALL insert_emp(?, ?, ?)" rather than "INSERT INTO EMP (col1, col2, col3) VALUES (?, ? ?)".  
+ Have a 'legacy' table that synchronizes with the new database with triggers and DB links. 
+ 
+ Having a legacy-format table with bi-directional synchronization to the new format table(s) using triggers is a brute-force solution and relatively ugly.  
+ You end up with identical data in two different schemas (or databases) and the possibility of data going out-of-sync if the synchronization code has bugs - and then you have the classic issues of the "two master" problem. As such, treat this as a last resort, for example when: 
+ 
+ The fundamental structure has changed (for example the changing the cardinality of a relation), or  
+ The translation to the legacy format is a complex function (eg if the legacy column is the square of the new-format column value and is set to "4", an updatable view cannot determine if the correct value is +2 or -2). 
+ 
+ When such changes are required in your data, there will be some significant change in code and logic  somewhere . You could implement in a compatibility layer (advantage: no change to legacy code) or change the legacy app (advantage: data layer is clean). This is a technical decision by the engineering team.  
+ Creating a compatibility database of the legacy structure using the approaches outlined above minimize changes to legacy applications (in some cases, the legacy application continues without any code change at all). This greatly reduces development and testing costs (for which there is no net functional gain to the business), and greatly reduces rollout risk. 
+ It also allows you to concentrate on the real value to the organisation: 
+ 
+ The new database structure 
+ New RESTful web services 
+ New applications (potentially build using the RESTful web services) 
+ 
+ **Positive aspect of web services**
+
+ Please don't read the above as a diatribe against web services, especially RESTful web services. When used for the right reason, such as for enabling web applications or integration between disparate systems, this is a good architectural solution. However, it might not be the best solution for managing your legacy apps during the data migration. 
+ 
+ What it seems like you ought to do is define a new data model ("normalized") and build a mapping from the normalized model back to the legacy model.  Then you can replace legacy direct calls with calls on the normalized one at your leisure.  This breaks no code.   
+ In parallel, you need to define what amounts to a (cerntralized) legacy db api, and map it to to your normalized model.  Now, at your leisure, replace the original legacy db calls with calls on the legacy db API.  This breaks no code. 
+ Once the original calls are completely replaced, you can switch the data model over to the real normalized one.   This should break no code, since everything is now going against the legacy db API or the normalized db API. 
+ Finally, you can replace the legacy db API calls and related code, with revised code that uses the normalized data API.   This requires careful recoding. 
+ To speed all this up, you want an automated code transformation tool to implement the code replacements.  
+ This document seems to have a good overview:   http://se-pubs.dbs.uni-leipzig.de/files/Cleve2006CotransformationsinDatabaseApplicationsEvolution.pdf   
+ 
+ Firstly, this seems like a very messy situation, and I don't think there's a "clean" solution. I've been through similar situations a couple of times - they weren't much fun. 
+ Firstly, the effort of changing your client apps is going to be significant - if the underlying domain changes (by introducing the concept of an address that is separate from a person, for instance), the client apps also change - it's not just a change in the way you access the data. The best way to avoid this pain is to write your API layer to reflect the business domain model of the future, and glue your old database schema into that; if there are new concepts you cannot reflect using the old data (e.g. "get /app/addresses/addressID"), throw a NotImplemented error. Where you can reflect the new model with the old data, wire it together as best you can, and then re-factor under the covers.  
+ Secondly, that means you need to build versioning into your API as a first-class concern - so you can tell clients that in version 1, features x, y and z throw "NotImplemented" exceptions. Each version should be backwards compatible, but add new features. That way, you can refactor features in version 1 as long as you don't break the service, and implement feature x in version 1.1, feature y in version 1.2 etc. Ideally, have a roadmap for your versions, and notify the client app owners if you're going to stop supporting a version, or release a breaking change.  
+ Thirdly, a set of automated integration tests for your API is the best investment you can make - they confirm that you've not broken features as you refactor.  
+ Hope this is of some use - I don't think there's a single, straightforward answer to your question.  
+ 

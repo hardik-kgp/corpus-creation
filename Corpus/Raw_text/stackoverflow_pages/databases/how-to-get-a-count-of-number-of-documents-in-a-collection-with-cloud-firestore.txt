@@ -1,0 +1,53 @@
+*** how-to-get-a-count-of-number-of-documents-in-a-collection-with-cloud-firestore ***
+
+ In Firestore, how can I get the total number of documents in a collection? 
+ For instance if I have 
+ 
+ I want to query how many people I have and get 2. 
+ I could do a query on /people and then get the length of the returned results, but that seems a waste, especially because I will be doing this on larger datasets. 
+ 
+ You currently have 3 options: 
+ Option 1: Client side 
+ This is basically the approach you mentioned. Select all from collection and count on the client side. This works well enough for small datasets but obviously doesn't work if the dataset is larger. 
+ Option 2: Write-time best-effort 
+ With this approach, you can use Cloud Functions to update a counter for each addition and deletion from the collection. 
+ This works well for any dataset size, as long as additions/deletions only occur at the rate less than or equal to 1 per second. This gives you a single document to read to give you the  almost current  count immediately. 
+ If need need to exceed 1 per second, you need to implement  distributed counters per our documentation . 
+ Option 3: Write-time exact 
+ Rather than using Cloud Functions, in your client you can update the counter at the same time as you add or delete a document. This means the counter will also be current, but you'll need to make sure to include this logic anywhere you add or delete documents. 
+ Like option 2, you'll need to implement distributed counters if you want to exceed per second 
+ 
+ If you use AngulareFire2, you can do (assuming   is injected in your constructor): 
+ 
+ Here,   is an array of all items in  . You don't need metadata so you can use   method directly. 
+ 
+ Aggregations are the way to go (firebase functions looks like the recommended way to update these aggregations as client side exposes info to the user you may not want exposed)  https://firebase.google.com/docs/firestore/solutions/aggregation 
+ Another way (NOT recommended) which is not good for large lists and involves downloading the whole list: res.size like this example: 
+ 
+ 
+ Be careful counting number of documents for  **large collections**
+ with a cloud function. It is a little bit complex with firestore database if you want to have a precalculated counter for every collection. 
+ **Code like this doesn't work in this case:**
+
+ 
+ The reason is because every cloud firestore trigger has to be idempotent, as firestore documentation say:  https://firebase.google.com/docs/functions/firestore-events#limitations_and_guarantees 
+ **Solution**
+
+ So, in order to prevent multiple executions of your code, you need to manage with events and transactions. This is my particular way to handle large collection counters: 
+ 
+ Use cases here: 
+ 
+ As you can see, the key to prevent multiple execution is the property called  **eventId**
+ in the context object. If the function has been handled many times for the same event, the event id will be the same in all cases. Unfortunately, you must have "events" collection in your database. 
+ 
+ **Following Dan Answer**
+: You can have a separated counter in your database and use Cloud Functions to maintain it. ( **Write-time best-effort**
+) 
+ 
+ This code shows you the complete example of how to do it:
+ https://gist.github.com/saintplay/3f965e0aea933a1129cc2c9a823e74d7 
+ 
+ Please check below answer I found on another thread. Your count should be atomic. Its required to use  **FieldValue.increment()**
+ function in such case. 
+ https://stackoverflow.com/a/49407570/3337028 
+ 

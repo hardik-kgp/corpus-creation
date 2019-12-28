@@ -1,0 +1,75 @@
+*** strange-mysql-read-only-error ***
+
+ I'm experiencing a strange MySQL error, seemingly related to the database's   flag. A Web application that uses MySQL is running on Debian 7.9. It was running well for weeks, if not more, while, suddenly, attempts to access the application-powered website started producing the following error message on a blank webpage: 
+ 
+ Error: 500 - SQLSTATE[HY000]: General error: 1290 The MySQL server is
+  running with the --read-only option so it cannot execute this
+  statement 
+ 
+ The following are the steps that I performed as part of my investigation: 
+ 
+ found and read read relevant info on the Internet (some pointed to MySQL's   flag); 
+ based on the above, tried to find the   flag in MySQL config. file ( ) - couldn't find it there, but read that the default value for the flag is OFF anyway; 
+ verified the filesystem to make sure there is plenty of disk space ( ):
+ 
+ ran  : all tables are OK; 
+ verified that there is plenty of RAM available on the server ( ):
+ 
+ finally, I have decided to take a "snapshot" of MySQL-related processes ( ) during the problem's existence and after a temporary fix (DB restart), hoping that it could give people additional context for ideas; here are the corresponding results: 
+ **Problem:**
+
+ 
+ **No problem:**
+
+ 
+ 
+ **UPDATE:**
+
+ I just experienced the issue again and decided to check whether the global read-only flag is set to OFF or not, assuming the latter. My assumption has confirmed: 
+ 
+ I guess, despite the default OFF value, since it is being overwritten by some process in the system, I will have to set the read-only flag to OFF explicitly and permanently via MySQL configuration file. Will report on results later in an answer. 
+ 
+ As I see it there are two broad reasons for why your database is being set to read only: 
+ **1) MySQL is setting itself read only**
+
+ I'm not sure what might cause MySQL to go read only, perhaps disk issues or corruption of database? In any case I'd expect something to appear in the logs, so check the MySQL (and system) logs. 
+ **2) A client is setting the database read only**
+
+ Clients connecting to MySQL can set the database read only using the command: 
+ 
+ however to do this the user is required to have   privileges. This permission shouldn't be needed for websites, applications, etc that are using MySQL - keep it only for an admin account that you use for administering the database. 
+ Lock down the permissions that each user has so they only have permission to do the things that they need on the databases / tables that are applicable. If you're using some out-of-the-box applications they should come with instructions detailing what permissions are required (e.g.  ). 
+ 
+ If you're in AWS Aurora,  you might be accessing the replica instance which is read-only  so you need to use the DB Cluster endpoint instead. 
+ 
+ Based on my question's comments (special thanks to @Eborbob) and my update, I have figured that some process in the system resets the   flag to  , which seem to trigger the issue and results in the website becoming inaccessible. In order to fix the problem as well as make this fix  persistent  across software and server restarts, I decided to update MySQL configuration file   and restart the DB server. 
+ After making the relevant update (in my case, addition) to the configuration file 
+ 
+ let's verify that the flag is indeed set to  : 
+ 
+ Finally, let's restart MySQL server (for some reason, a  dynamic reloading  of MySQL configuration ( ) didn't work, so I had to  **restart**
+ the database server explicitly: 
+ 
+ Voila! Now access to the website is restored. Will update my answer, if any changes will occur. 
+ 
+ I just experienced the same error and fixed it by connecting to the hostname of the mysql server as opposed to the IP address. I'm not sure why this fixed it but it did. Just FYI 
+ 
+ As Eborbob say it's probably a client,  
+ Did you check your backup tool ? 
+ Do you use some SQL proxy like proxySQL or maxscale ?
+For exemple Mascale can enforce readonly by monitoring :  https://jira.mariadb.org/browse/MXS-1859 
+ Replication Manager can also change READ ONLY flag 
+ 
+ The below error:-
+The MySQL server is running with the --read-only option so it cannot execute this statement 
+ It occurs when a user not having the write permission for the sql db tries to insert/update some data into the db. 
+ It is quite a valid security error, as it is stating that you currently are having just --read-only rights and hence cannot execute a query that has anything to do with writing. 
+ To resolve this error:-
+Get the write access from the DBA. 
+ e.g. 
+ 
+ The above query will grant all privileges to the user with username 'user'. 
+ 
+ set global read_only = off; 
+make read only mode off later it will work sure.  
+ 

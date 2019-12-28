@@ -1,0 +1,17 @@
+*** zero-downtime-or-near-zero-db-schema-changes ***
+
+ I was wondering how/if people have worked around db schema changes that would otherwise cause a production system to be down. It seems with additive changes that are constrained in some way (e.g. unique constraint) would be difficult to do b/c the app and the db must change at the same time otherwise errors will occur either in the data or in the application.  
+ I have thought about maybe switching to a slave db (using mysql replication) and running the schema changes on the master but then you would need to somehow capture the update queries applied to the slave that where not applied to the master and you would run the risk of not having a backup server. 
+ What techniques have people used to work around these problems? 
+ Thanks,
+manish 
+ 
+ I'd say you're close on the idea; effectively, I'd have a master and slave, with the master being live, and the slave having the changes replicated to it; pause the replication on the slave, and then perform the schema changes on the slave, and once the schema changes are done, unpause the replication; once that whole process is complete, pause the master for a very short period of time to assure that the replicated changes are flushed on the slave, and then switch the master and slave.  That should do what you need. 
+ Note that this only works if the changes you're making to the schema aren't touched by the pending replication commands; this generally is best done at low-traffic times to assure that the collision is unlikely.  Note that because this makes no changes to the master until the slave has completely updated the schema and and replicating changes, it's very safe on the master. 
+ 
+ It depends on how you make your schema changes, previously we would try to make sure that the schema changes implemented were backwards compatible with the previous version of the application.  This worked well for minor (and fairly major) projects.  It also meant that if we had a serious performance problem with the application (perish the thought) then rolling back the code was a simple, rather than arduous task.   
+ 
+ The only real way around this is to have a cluster database, or a master/slave as you suggested.  Typically you take one node offline and perform the upgrades.  Once that has been accomplished, you typically run a synchronization from the current master to the newly upgraded system that understands how to translate the data from the old schema to the new.  (During the sync, the master may be put into a read-only mode briefly.) 
+ Then you switch master/slave roles and upgrade the other database schema.  Sync them back up, and bring the upgraded slave back online. 
+ In practice this can be very hard to get right, especially if you have significant schema changes. 
+ 

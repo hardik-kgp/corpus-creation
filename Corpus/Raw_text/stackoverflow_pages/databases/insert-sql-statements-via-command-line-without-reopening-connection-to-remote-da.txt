@@ -1,0 +1,75 @@
+*** insert-sql-statements-via-command-line-without-reopening-connection-to-remote-da ***
+
+ I have a large amount of data files to process and to be stored in the remote database. Each line of a data file represents a row in the database, but must be formatted before inserting into the database. 
+ My first solution was to process data files by writing bash scripts and produce SQL data files, and then import the dump SQL files into the database. This solution seems to be too slow and as you can see involves an extra step of creating intermediary SQL file. 
+ My second solution was to write bash scripts that while processing each line of the data file, creates and   statement and sends the SQL statement to the remote database:  
+ 
+ i.e. does not create SQL file. This solution, however, has one major issue that I am searching an advice on: 
+ **Each time I have to reconnect to the remote database to insert one single row.**
+  
+ Is there a way to connect to the remote database, stay connected and then "pipe" or "send" the insert-SQL-statement without creating a huge SQL file? 
+ 
+ **Answer to your **
+**actual question**
+
+ **Yes**
+. You can use a  named pipe  instead of creating a file. Consider the following demo.   
+ Create a schema   in my database   for testing: 
+ 
+ Create a named pipe (fifo) from the shell like this: 
+ 
+ Either  **1)**
+ call the SQL command   using a named pipe  **on the server**
+: 
+ 
+ This will acquire an  **exclusive lock**
+ on the table   in the database. The connection stays open until the fifo gets data. Be careful not to leave this open for too long! You can call this  after  you have filled the pipe to minimize blocking time. You can chose the sequence of events. The command executes as soon as two processes bind to the pipe. The first waits for the second.   
+ Or  **2)**
+ you can execute SQL from the pipe  **on the client**
+: 
+ 
+ This is better suited for your case. Also, no table locks until SQL is executed in one piece. 
+ Bash will appear blocked. It is waiting for input to the pipe. To do it all from one bash instance, you can send the waiting process to the background instead. Like this: 
+ 
+ 
+ Either way, from the same bash or a different instance, you can  **fill the pipe**
+ now. 
+Demo with three rows for variant  **1)**
+: 
+ 
+ (Take care to use tabs as delimiters or instruct  COPY  to accept a different delimiter using  ) 
+That will trigger the pending psql with the COPY command to execute and return: 
+ 
+ Demo for for variant  **2)**
+: 
+ 
+ Delete the named pipe after you are done: 
+ 
+ Check success: 
+ 
+ **Useful links for the code above**
+
+ Reading compressed files with postgres using named pipes 
+ Introduction to Named Pipes 
+ Best practice to run bash script in background 
+ 
+ **Advice you may or may not not need**
+
+ For bulk   you have better solutions than a separate  INSERT  per row. Use this syntax variant: 
+ 
+ Write your statements to a file and do one mass   like this: 
+ 
+ (5432 or whatever port the db-cluster is listening on) 
+  can hold multiple SQL statements. In fact, it's common practise to restore / deploy whole databases like that. Consult the  manual about the   parameter, or in bash:  . 
+ Or, if you can transfer the (compressed) file to the server, you can use  **COPY**
+ to insert the (decompressed) data even faster. 
+ You can also do some or all of the processing inside PostgreSQL. For that you can   (or  ) a temporary table and use plain SQL statements to prepare and finally INSERT / UPDATE your tables. I do that a lot. Be aware that temporary tables live and die with the session.   
+ You could use a GUI like  pgAdmin  for comfortable handling. A session in an SQL Editor window remains open until you close the window. (Therefore, temporary tables live until you close the window.) 
+ 
+ I know I'm late to the party, but why couldn't you combine all your   statements into a single string, with a semicolon marking the end of each statement? (Warning! Pseudocode ahead...) 
+ Instead of: 
+ 
+ Use: 
+ 
+ That way you don't have to create anything on your filesystem, do a bunch of redirection, run any tasks in the background, remember to delete anything on your filesystem afterwards, or even remind yourself what a named pipe is. 
+ 

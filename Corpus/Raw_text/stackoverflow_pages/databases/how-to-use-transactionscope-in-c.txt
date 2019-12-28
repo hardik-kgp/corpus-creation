@@ -1,0 +1,69 @@
+*** how-to-use-transactionscope-in-c ***
+
+ I am trying to use  , but keep getting the exception below. 
+The app is running on a different machine than the database, if that matters.  I am using SQL Server 2005. 
+ 
+ Network access for Distributed Transaction Manager (MSDTC) has been disabled. Please enable DTC for network access in the security configuration 
+  for MSDTC using the Component Services Administrative tool. 
+ 
+ 
+ **Edit**
+
+ I made some changes based on the feedback. Now I'm getting this error: 
+ 
+ "Error HRESULT E_FAIL has been returned from a call to a COM component." 
+  "Communication with the underlying transaction manager has failed." 
+ 
+ **Solution**
+
+I think the accepted answer fixed the initial issue I was getting.  The 2nd error seems to be specific to Entity Framework. I'll post another question for it. 
+ **Here are the properties on the client:**
+
+ Client http://www.portnine.com/data/images/Misc/client.jpg 
+ **Here are the properties on the server:**
+
+ Server http://www.portnine.com/data/images/Misc/server.jpg 
+ 
+ You need to enable network DTC access as described in this  Microsoft TechNet Article . This change may have to be made on both the database and application servers. Often times DTC is already turned on a database server so I'd look at the application server first. 
+ Here is a screen shot of what we use except for the "Allow Remote Administration" option:
+ 
+ I have not run into the HRESULT E_Fail issue you are now having but this article on  XP SP2 and transactions  had this interesting suggestion: 
+ 
+ Another configuration setting that you
+  need to be aware (although I consider
+  it to be an uncommon scenario) is
+  RestrictRemoteClients registry key. If
+  the value of this key is set to 2
+  (RPC_RESTRICT_REMOTE_CLIENT_HIGH) then
+  MSDTC network transactions will not be
+  able to work properly. MSDTC supports
+  only RPC_RESTRICT_REMOTE_CLIENT_NONE
+  (0) and
+  RPC_RESTRICT_REMOTE_CLIENT_DEFAULT (1)
+  values. See
+   http://www.microsoft.com/technet/prodtechnol/winxppro/maintain/sp2netwk.mspx#XSLTsection128121120120 
+  for more info on
+  RestrictRemoteClients. 
+ 
+ Finally, while not specific to your issue a very important thing to note about using the   class is that its default setting is to utilize a  Transaction Isolation Level of Serializable . Serializable is the most restrictive of the isolation levels and frankly its surprising that it was chosen as the default. If you do not need this level of locking I would highly recommend setting the isolation level to a less restrictive option (ReadCommitted) when instantiating a  : 
+ 
+ 
+ Control Panel - Administrative Tools - Component Services - My Computer properties - MSDTC tab - Security Configuration tab - Network DTC Access (checked) / Allow Remote Clients (checked) / Allow Inbound (checked) / Allow Outbound (checked) / Enable TIP Transactions (checked) 
+ Reboot computer. 
+ 
+ Depending on the backend you are using, TransactionScope often requires the Distributed Transaction Manager to be enabled.  Some details are  on this MSDN blog . 
+ Also, if you use multiple resources, DTC may be required.  Enabling DTC may be required in your situation, or making sure you're using SQL Server 2005 and sticking to what would be doable in lightweight transactions. 
+ 
+ You need to enable DTC for network access in the security configuration for MSDTC using the Component Services Administrative tool.  
+ 
+ If you are using SQL Server 2000,   will cause all transactions to be promoted to Distributed Transactions, requiring MS Distributed Transaction Coordinator to be running. 
+ You can fix this by starting the MSDTC service, upgrading to SQL Server 2005, or implement something like my codeproject solution:  http://www.codeproject.com/KB/database/typed_dataset_transaction.aspx 
+ I've never needed to do it, but you should also check Ocdecio's answer for configuring the network security settings for DTC, too. 
+ 
+ You need to enable network DTC access for both the database server and the server where the application runs on.  
+ You will also need to verify that connections will not be blocked by a firewall. Since a connection will be initiated from the database server to the application machine, it is equally important to add MSDTC to the list of firewall exceptions on the application machine. 
+ 
+ I had the same problem running integration tests. 
+ I posted a question about this  here 
+ but eventually I found a way around it.  Although, I wouldn't recommend doing that for production code.  I was doing it within the context of testing. 
+ 

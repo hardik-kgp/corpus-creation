@@ -1,0 +1,72 @@
+*** getting-events-from-a-database ***
+
+ I am not very familiar with databases and what they offer outside of the CRUD operations. 
+ My research has led me to  **triggers**
+. Basically it looks like triggers offer this type of functionality: 
+ 
+ (from  Wikipedia ) 
+ There are typically three triggering events that cause triggers to "fire": 
+ 
+ INSERT event (as a new record is being inserted into the database). 
+ UPDATE event (as a record is being changed). 
+ DELETE event (as a record is being deleted). 
+ 
+ 
+ My question is: is there some way I can be notified in Java (preferably including the data that changed) by the database when a record is Updated/Deleted/Inserted using some sort of trigger semantics?  
+ What might be some alternate solutions to this problem? How can I listen to database events? 
+ **The main reason I want to do this is a scenario like this**
+: 
+ I have 5 client applications all in different processes/existing across different PCs.  They all share a common database (Postgres in this case). 
+ Lets say one client changes a record in the DB that all 5 of the clients are "interested" in. I am trying to think of ways for the clients to be "notified" of the change (preferably with the affected data attached) instead of them querying for the data at some interval. 
+ 
+ Using Oracle you can setup a Trigger on a table and then have the trigger send a JMS message. Oracle has two different JMS implementations. You can then have a process that will 'listen' for the message using the JDBC Driver. I have used this method to push changes out to my application vs. polling.
+If you are using a Java database (H2) you have additional options. In my current application (SIEM) I have triggers in H2 that publish change events using JMX. 
+ 
+ Don't mix up the database (which contains the data), and events on that data. 
+ Triggers are one way, but normally you will have a persistence layer in your application. This layer can choose to fire off events when certain things happen - say to a JMS topic. 
+ Triggers are a last ditch thing, as you're operating on relational items then, rather than "events" on the data. (For example, an "update", could in reality map to a "company changed legal name" event) If you rely on the db, you'll have to map the inserts & updates back to real life events.... which you already knew about! 
+ You can then layer other stuff on top of these notifications - like event stream processing - to find events that others are interested in. 
+ James 
+ 
+ Hmm.  So you're using PostgreSQL and you want to "listen" for events and be "notified" when they occur? 
+ http://www.postgresql.org/docs/8.3/static/sql-listen.html 
+ http://www.postgresql.org/docs/8.3/static/sql-notify.html 
+ Hope this helps! 
+ 
+ Calling external processes from the database is very vendor specific.  
+ Just off the top of my head: 
+ 
+ SQLServer can call CLR programs from
+triggers, 
+ postgresql can call arbitrary C
+functions loaded dynamically, 
+ MySQL can call arbitrary C functions,
+but they must be compiled in, 
+ Sybase can make system calls if set
+up to do so. 
+ 
+ 
+ The simplest thing to do is to have the insert/update/delete triggers make an entry in some log table, and have your java program monitor that table.  Good columns to have in your log table would be things like EVENT_CODE, LOG_DATETIME, and LOG_MSG. 
+ Unless you require very high performance or need to handle 100Ks of records, that is probably sufficient. 
+ 
+ I think you're confusing two things. They are both highly db vendor specific. 
+ The first I shall call "triggers". I am sure there is at least one DB vendor who thinks triggers are different than this, but bear with me. A trigger is a server-side piece of code that can be attached to table. For instance, you could run a PSQL stored procedure on every update in table X. Some databases allow you to write these in real programming languages, others only in their variant of SQL. Triggers are typically reasonably fast and scalable. 
+ The other I shall call "events". These are triggers that fire in the database that allow you to define an event handler in your client program. IE, any time there are updates to the clients database, fire updateClientsList in your program. For instance, using python and firebird see  http://www.firebirdsql.org/devel/python/docs/3.3.0/beyond-python-db-api.html#database-event-notification 
+ I believe the previous suggestion to use a monitor is an equivalent way to implement this using some other database. Maybe oracle? MSSQL Notification services, mentioned in another answer is another implementation of this as well. 
+ I would go so far as to say you'd better REALLY know why you want the database to notify your client program, otherwise you should stick with server side triggers. 
+ 
+ What you're asking completely depends on both the database you're using and the framework you're using to communicate with your database. 
+ If you're using something like Hibernate as your persistence layer, it has a set of listeners and interceptors that you can use to monitor records going in and out of the database. 
+ 
+ There are a few different techniques here depending on the database you're using.  One idea is to poll the database (which I'm sure you're trying to avoid).  Basically you could check for changes every so often. 
+ Another solution (if you're using SQL Server 2005) is to use Notification Services, although this techonology is supposedly being replaced in SQL 2008 (we haven't seen a pure replacement yet, but Microsoft has talked about it publicly). 
+ 
+ If you are using Oracle, check out this  previous post . 
+ 
+ This is usually what the standard client/server application is for. If all inserts/updates/deletes go through the server application, which then modifies the database, then client applications can find out much easier what changes were made. 
+ 
+ If you are using postgresql it has capability to listen  notifications  from JDBC client. 
+ 
+ I would suggest using a timestamp column, last updated, together with possibly the user updating the record, and then let the clients check their local record timestamp against that of the persisted record. 
+ The added complexity of adding a callback/trigger functionality is just not worth it in my opinion, unless supported by the database backend and the client library used, like for instance the notification services offered for SQL Server 2005 used together with ADO.NET. 
+ 

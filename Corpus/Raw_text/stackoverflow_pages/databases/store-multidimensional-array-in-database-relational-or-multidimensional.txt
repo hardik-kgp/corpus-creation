@@ -1,0 +1,134 @@
+*** store-multidimensional-array-in-database-relational-or-multidimensional ***
+
+ I have read numerous posts along the lines of  multidimensional to single dimension ,  multidimensional database , and so on, but none of the answers helped. I did find a lot of documentation on Google but that only provided background information and didn't answer the question at hand. 
+ I have a lot of strings that are related to one another. They are needed in a PHP script. The structure is hierarchical. Here is an example. 
+ 
+ Each indent supposes a new level in the multidimensional array. 
+ The goal is to retrieve an element with PHP by name and all its descendants. If for instance I query for A, I want to receive an array of string containing  . The 'issue' is that queries can also be made to lower-level elements. If I query AEE, I want to get  . 
+ As I understand the concept of relational databases, this means that I cannot use a relational database because there is no common 'key' between elements. The solution that I thought is possible, is assigning PARENT elements to each cell. So, in a table: 
+ 
+ By doing so, I think you should be able to query the given string, and all items that share this parent, and then recursively go down this path until no more items are found.  However , this seems rather slow to me because the whole search space would need to be looked through on each level - which is exactly what you don't want in a multidimensional array.  
+ So I am a bit at loss. Note that there are actually around 100,000 strings structured in this way, so speed is important. Luckily the database is static and would not change. How can I store such a data structure in a database without having to deal with long loops and search times?  And which kind of database software and data type is best suited for this?  It has come to my attention that PostgreSQL is already present on our servers so I'd rather stick with that. 
+ As I said I am new to databases but I am very eager to learn. Therefore, I am looking for an extensive answer that goes into detail and provides advantages and disadvantages of a certain approach. Performance is key. An expected answer would contain the best database type and language for this use case, and also script in that language to build such a structure. 
+ 
+ 
+ The goal is to retrieve an element with PHP by name and all its descendants. 
+ 
+ If that is all you need, you can use a LIKE search 
+ 
+ With an index beginning with   this is a range check, which is fast. 
+ If your data doesn't look like that, you can create a   column which looks like a directory path and contains all nodes "on the way/path" from root to the element. 
+ 
+ To retrieve all descendants of 'AE' (including itself) your query would be 
+ 
+ or (MySQL specific concatenation) 
+ 
+ Result: 
+ 
+ **Demo**
+
+ **Performance**
+
+ I have created 100K rows of fake data on  MariaDB  with the  sequence plugin  using the following script: 
+ 
+ **Tests**
+
+ Count all elements under the root: 
+ 
+ Get subtree elements under a specific node: 
+ 
+ Result: 
+ 
+ **PostgreSQL**
+
+ This also works for PostgreSQL. Only the string concatenation syntax has to be changed: 
+ 
+ **Demo:**
+  sqlfiddle  -  rextester 
+ **How does the search work**
+
+ If you look at the test example, you'll see that all paths in the result begin with '1/4/11/14/614/4284/'. That is the path of the subtree root with  . If the   column is indexed, the engine will find them all efficiently, because the index is sorted by  . It's like you would want to find all the words that begin with 'pol' in a dictionary with 100K words. You wouldn't need to read the entire dictionary. 
+ 
+ **Performance**
+
+ As others have already mentioned, performance shouldn't be an issue as long as you use a suitable indexed primary key and ensure that relations use foreign keys. In general, an RDBMS is highly optimised to efficiently perform joins on indexed columns and referential integrity can also provide the advantage of preventing orphans. 100,000 may sound a lot of rows but this isn't going to stretch an RDBMS as long as the table structure and queries are well designed. 
+ **Choice of RDBMS**
+
+ One factor in answering this question lies in choosing a database with the ability to perform a recursive query via a Common Table Expression (CTE), which can be very useful to keep the queries compact or essential if there are queries that do not limit the number of descendants being traversed. 
+ Since you've indicated that you are free to choose the RDBMS but it must run under Linux, I'm going to throw PostgreSQL out there as a suggestion since it has this feature and is freely available.  (This choice is of course very subjective and there are advantages and disadvantages of each but a few other contenders I'd be tempted to rule out are MySQL since  it doesn't currently support CTEs , MariaDB since  it doesn't currently support *recursive* CTEs , SQL Server since  it doesn't currently support Linux . Other possibilities such as Oracle may be dependent on budget / existing resources.) 
+ **SQL**
+
+ Here's an example of the SQL you'd write to perform your first example of finding all the descendants of 'A': 
+ 
+ **Explanation**
+
+ The above SQL sets up a "Common Table Expression", i.e. a   to run whenever its alias (in this case  ) is referenced. The recursion happens because this is referenced within itself. The first part of the   picks the cell at the top of the hierarchy. Its descendants are all found by carrying on joining on children in the second part of the   until no further records are found. 
+ **Demo**
+
+ The above query can be seen in action on the sample data here:  http://rextester.com/HVY63888 
+ 
+ You absolutely can do that (if I've read your question correctly). 
+ Depending on your RDBMS you might have to choose a different way. 
+ Your basic structure of having a parent is correct. 
+ SQL Server use recursive common table expression (CTE) to anchor the start and work down 
+ https://technet.microsoft.com/en-us/library/ms186243(v=sql.105).aspx 
+ Edit: For Linux use the same in PostgreSQL  https://www.postgresql.org/docs/current/static/queries-with.html 
+ Oracle has a different approach, though I think you might be able to use the CTE as well. 
+ https://oracle-base.com/articles/misc/hierarchical-queries 
+ For 100k rows I don't imagine performance will be an issue, though I'd still index PK & FK because that's the right thing to do.  If you're really concerned about speed then reading it into memory and building a hash table of linked lists might work. 
+ Pros & cons - it pretty much comes down to readability and suitability for your RDBMS. 
+ It's an already solved problem (again, assuming I've not missed anything) so you'll be fine. 
+ 
+ I have two words for you...  **"RANGE KEYS"**
+  
+ You may find this technique to be incredibly powerful and flexible.  You'll be able to navigate your hierarchies with ease, and support variable depth aggregation without the need for recursion. 
+ In the demonstration below, we'll build the hierarchy via a recursive CTE.  For larger hierarchies 150K+, I'm willing to share a much faster build in needed. 
+ Since your hierarchies are slow moving (like mine), I tend to store them in a normalized structure and rebuild as necessary. 
+ How about some actual code? 
+ 
+ 
+ **Show The Entire Hier**
+ I added the Title and Nesting for readability 
+ 
+   
+ Just to state the obvious, the Range Keys are R1 and R2.  You may also notice that R1 maintains the presentation sequence.  Leaf nodes are where R1=R2 and Parents or rollups define the span of ownership. 
+ 
+ **To Show All Descendants**
+
+ 
+ 
+ 
+ **To Show Path**
+
+ 
+ 
+ Clearly these are rather simple illustrations.  Over time, I have created a series of helper functions, both Scalar and Table Value Functions.  I should also state that you should NEVER hard code range key in your work because they will change.   
+ **In Summary**
+
+ If you have a point (or even a series of points), you'll have its range and therefore you'll immediately know where it resides and what rolls into it. 
+ 
+ This approach does not depend on the existence of a path or parent column. It is relational not recursive.  
+ Since the table is static create a  materialized view  containing just the leaves to make searching faster: 
+ 
+ A materialized view is computed once at creation not at each query like a plain view. Create an index to speed it up: 
+ 
+ If eventually the source table is altered just refresh the view: 
+ 
+ The search function receives text and returns a text array: 
+ 
+ Pass the desired match to the function: 
+ 
+ Test data: 
+ 
+ 
+ For your scenario, I would suggest you to use  Nested Sets Approach in PostgreSQL . It is XML tags based querying using Relational database.  
+ **Performance**
+
+ If you index on  lft  and  rgt  columns, then you don't require recursive queries to get the data. Even though, the data seems huge, the retrieval will be very fast.  
+ **Sample**
+
+ 
+ **Demo**
+
+ Querying using Nested Sets approach 
+ 

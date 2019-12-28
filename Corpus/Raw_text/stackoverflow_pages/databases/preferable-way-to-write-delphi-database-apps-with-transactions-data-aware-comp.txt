@@ -1,0 +1,67 @@
+*** preferable-way-to-write-delphi-database-apps-with-transactions-data-aware-comp ***
+
+ What is the preferable way to write Delphi database applications using transactions and also data-aware components? 
+ I have to write a client app that access InnoDB tables, and do some master-detail kind of things inside transactions. After doing some research on transactions (from general point-of-view), then I humbly make a conclusion that non data-aware components and hand-coded SQL would be the "perfect match" of transactions; But the data-aware components wouldn't be. They don't seem to be made for each other. 
+ I have the real need to use transactions, but on the other hand I could not just throw the data-aware components away because they greatly simplify things. 
+ Could somebody please enlighten me? I have been Googling it, but I have not found any useful answer. Perhaps because my English is not good enough that my keywords are limited. 
+ BTW, I'm using Delphi 7 and currently evaluating UniDAC as the data access library.  
+ Thank you. 
+ **EDIT**
+
+ Example to describe an aspect of my question: 
+ Imagine a form with 2 DBGrids on it. The first grid is MasterGrid and above it are these buttons: Add, Edit & Delete. The second grid is DetailGrid. If the user click Add, then it go like this: 
+ 
+ Connection.StartTransaction 
+ Master.Append then Master.Post then Master.Edit (so the master dataset has the autoincrement primary key, and it is editable now) 
+ Show the editing form modally, in which the user fills the master records, and also add some detail records using another form. 
+ If the user click OK, the app would do Master.Post and Connection.Commit. If the user click Cancel, then the app would do Connection.Rollback. 
+ 
+ I know that transactions should be as short as possible, but you can see above that the transaction is only as short as the speed of the user filling the form.  
+ If I were using non data-aware components, I would make custom insert SQLs based from user input, then execute the SQL between StartTransaction and Commit. So I can achieve very short transaction. 
+ **EDIT 2**
+
+ I thank all of you for your kind participation. I pick the answer from vcldeveloper because it is the closest solution to my current need.  
+ 
+ Others mentioned using a combination of DatasetProvider and ClientDataset to have a batch update, but in case of using ADO or UniDAC components, you do not need the extra layer of DatasetProvider + ClientDataset, because both ADO and UniDAC support batch updates. 
+ For  **ADO**
+, what you should do is to set  **LockType**
+ of your dataset to  **ltBatchOptimistic**
+. For  **UniDAC**
+, you should set  **CacheUpdate**
+ property to  **True**
+. 
+ This change makes your dataset to cache all the changes you make on its in-memory recordset, and send them alltogether to database only when you call  **UpdateBatch**
+ method (ADO) or  **ApplyUpdates**
+ method (UniDAC). 
+ Now what you should do is to let your user insert/edit a record in the master dataset and whatever records he/she wants in the details dataset using whatever data-aware components you like. All the changes would be cached. When your user is done, you can start a new transaction, and first call UpdateBatch (or ApplyUpdate in case of UniDAC) for the master dataset, and then for the details dataset, and if everything goes fine, commit the transaction. 
+ **This will make your transactions short without needing the extra layer of ClientDataset.**
+
+ Regards 
+ 
+ I understand your question, I think. When opening a TADODataSet with e.g. 10 rows of data to be edited on a form, with data-aware components, there are situations in which you would want to cache all the changes made to all of the 10 rows (and possibly deletions and insertions) and commit it as one batch. You cannot open the transaction on the first change, for that would block other users changing the same data. Transactions should be as short as possible.  
+ What I do in sketched scenario is use the following components in a chain: 
+ TADOConnection >> TADODataSet >> TDataSetProvider >> TClientDataSet >> TDataSource >> TDBEdits etc. 
+ Now all changes are cached in TClientDataSet and you can call it's method ApplyUpdates to post all changes in one fast transaction. Mind that it's also possible to use multiple TADODataSets and multiple TClientDataSets for a master-detail(-detail-etc) structure with nested datasets. All master-detail changes may also be cached and applied in one batch in one transaction. See the help and resources elsewhere for all the details about implementing this. At first it's not easy. But if you figured it out it's easy and offers tons of possibilities. (Offline editing, examining changes before applying them, etc.) 
+ 
+ To avoid the need to perform large transactions I use  **DataSetProviders**
+ and  **ClientDatasets**
+ (even locally).   
+ Consider using this as a kind of cache and it gives you the best of both worlds.  You can use data-aware controls to simplify things while working on the UI.  User actions over the datasets are "recorded" by the ClientDataSets (kind of database cache). 
+ When your user are ready to  save  the changes to the database (for example, the invoice data is all in place), you call the  **ApplyUpdates**
+ method for the dataset(s).   
+ In the simplest scenario, where all datasets are in master-detail relationship (nested by the provider), the provider starts and commits/rollbacks the transaction by itself, so you're in a all or nothing situation automatically. 
+ If you have more complex relationships, you can call StartTransaction before start applying updates for each involved ClientDataSet sets, and at the end call Commit or Rollback as needed).  The logic for the provider is if the connection has an active transaction when ApplyUpdates is called, then it does nothing with transaction, but simply post changes to database, assuming you're in control of the transaction. 
+ You have to read about TClientDataSet and how to handle the OnReconcileError and experiment with the technology before putting it in production environments, but it works very, very well for me. 
+ My 2 cents. 
+ 
+ You are absolutely right that a  **write**
+ transaction should be as short as possible, and it should not be alive all the time while a user is filling the form. 
+ The general solution, as already answered, is to use an intermediate tier (a ClientDataSet). But the real problem with your scenario is that you cannot obtain an autoincrement value for the Master table without Master.Append and Master.Post, and consequently you start a  **write**
+ transaction long before it is actually required. 
+ So if you don't want to use the intermediate tier and still use data-aware components with short  **write**
+ transactions you should think of a database that supports obtaining an autoincremented value without executing INSERT (to master table). The example is  **Firebird**
+ database, and FibPlus data access components for Firebird fully support this feature. 
+ 
+ Transactions should be as short as  needed . The problem is how different databases handle locking. Databases that perform only row-level locking and can return immediately from a lock without waiting have far less probabilty to deadlock. Usually inserts are less problematic (although other user won't see new rows until committed, depending on the isolation level), updates and deletes are more problematic.
+Committing too often could be "bad" as well. Caching changes and applying them in a single operations is another possibility - but you have to handle issues due to other users changing records meanwhile. There is no a "better" solution - everything depends on the actual needs. For some applications (and some databases) keeping the record locked as long as they are changing is ok, for others may not. Batch updates may be ok in some scenarios and not in others. You have to select the model that works best for your application and database. 
+ 

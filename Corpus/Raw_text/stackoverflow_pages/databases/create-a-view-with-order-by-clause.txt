@@ -1,0 +1,88 @@
+*** create-a-view-with-order-by-clause ***
+
+ I'm trying to create a view with an   clause. I have create it successfully on SQL Server 2012 SP1, but when I try to re-create it on SQL Server 2008 R2, I get this error:  
+ 
+ Msg 102, Level 15, State 1, Procedure TopUsers, Line 11 Incorrect
+  syntax near 'OFFSET'. 
+ 
+ The code to create the view is 
+ 
+ ===================== 
+ This is a screen shot of the diagram
+ 
+ I wish to return users'   and the   and order this result desc, so the user with the biggest result with be on the top. 
+ 
+ I'm not sure what you think this   is accomplishing? Even if you  do  put   in the view in a legal way (e.g. by adding a   clause), if you just select from the view, e.g.   without an   clause, SQL Server is free to return the rows in the most efficient way, which won't necessarily match the order you expect. This is because   is overloaded, in that it tries to serve two purposes: to sort the results and to dictate which rows to include in  . In this case,   always wins (though depending on the index chosen to scan the data, you might observe that your order is working as expected - but this is just a coincidence). 
+ **In order to accomplish what you want, you need to add your **
+** clause to the queries that pull data from the view, not to the code of the view itself.**
+
+ So your view code should just be: 
+ 
+ The   is meaningless so should not even be included. 
+ 
+ To illustrate, using AdventureWorks2012, here is an example: 
+ 
+ Results: 
+ 
+ And you can see from the execution plan that the   and   have been absolutely ignored and optimized away by SQL Server: 
+ 
+ There is no   operator at all, and no sort. SQL Server has optimized them away completely. 
+ Now, if you change the view to say  , you will then just happen to get the ordering that the view states, but only - as mentioned before - by coincidence. 
+ But if you change your outer query to perform the   you wanted: 
+ 
+ You get the results ordered the way you want: 
+ 
+ And the plan still has optimized away the  /  in the view, but a sort is added (at no small cost, mind you) to present the results ordered by  : 
+ 
+ So, moral of the story,  **do not put ORDER BY in views. Put ORDER BY in the queries that reference them.**
+ And if the sorting is expensive, you might consider adding/changing an index to support it. 
+ 
+ I've had success forcing the view to be ordered using 
+ 
+ Unfortunately using   does not work due the issue  here . 
+ 
+ From Sql 2012 you can force ordering in views and subqueries with OFFSET 
+ 
+ Warning: this should only be used on small lists because OFFSET forces the full view to be evaluated even if further joins or filters on the view reduce its size! 
+ There is no good way to force ordering in a view without a side effect really and for good reason. 
+ 
+ As one of the comments in this posting suggests using stored procedures to return the data... I think that is the best answer.  In my case what I did is wrote a   to encapsulate the query logic and joins, then I wrote a   to return the data sorted and the proc also includes other enhancement features such as parameters for filtering the data.   
+ Now you have to option to query the view, which allows you to manipulate the data further.  Or you have the option to execute the stored proc, which is quicker and more precise output.   
+ **STORED PROC Execution to query data**
+
+   
+ **VIEW Definition**
+
+ 
+ **STORED PROC Definition**
+
+ 
+ 
+ Just use TOP 100 Percent in the Select: 
+ 
+ 
+ Error is:  
+ And solution is :  
+ 
+ Please try the below logic. 
+ 
+ 
+ In order to add an ORDER BY to a View Perform the following 
+ 
+ 
+ use Procedure 
+ Create proc MyView
+as
+ begin
+  SELECT TOP 99999999999999
+  Column1,
+  Column2
+  FROM
+  dbo.Table
+  Order by
+  Column1
+end 
+ **execute procedure**
+
+ exec MyView 
+ 

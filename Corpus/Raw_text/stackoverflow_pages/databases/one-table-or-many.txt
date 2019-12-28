@@ -1,0 +1,153 @@
+*** one-table-or-many ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ I'm  trying to design an application to hold academic reference information. The problem is that each different type of reference (eg. journal articles, books, newspaper articles etc) requires different information. For example a journal reference requires both a journal title and an article title, and also a page number, whereas a book requires a publisher and a publication date which journal articles do not require. 
+ Therefore, should I have all the references stored in one table in my database and just leave fields blank when they don't apply, or should I have various tables such as BookReferences, JournalReferences, NewspaperReferences and put the appropriate references in each one. The problem then would be that it would make searching through all the references rather more difficult, and also editing would have to be done rather more separately probably. 
+ (I'm planning to use Ruby on Rails for this project by the way, but I doubt that makes any difference to this design question) 
+ **Update:**
+
+ Any more views on this? I hoped to get a simple answer saying that a particular method was definitely considered 'the best' - but as usual things aren't quite as simple as this. The Single-Table Inheritance option looks quite interesting, but there isn't much information on it that I can find very easily - I may post another question on this site about that. 
+ I'm split between  Olvak's answer  and  Corey's answer . Corey's answer gives a good reason why Olvak's isn't the best, but Olvak's answer gives good reasons why Corey's isn't the best! I never realised this could be so difficult... 
+ Any further advice much appreciated! 
+ 
+ I'd go for having a single table for all references, but additional tables like BookReferences and so on for metadata not applicable for all reference types. 
+ Searching and querying would not be more difficult - after all you could just create a view which aggregates all information as in the single-table solution, and then query that view further. 
+ Having everything in one table with lots of nulls might seem like the simpler solution, but actually it will lead to lots of trouble. For example: With separate tables you can define which fields are  required  for every BookReference, but if everything is in one table, every field has to be nullable and therefore optional. It would also be easier to insert invalid data, like a book reference which also erroneously contains a non-null journal name. 
+ Edit: Some people seem to fear joins.  Don't fear the join!  If you use the exact same join in several queries that would indeed be tedious, but in that case the join should be defined in a  view , and you queries should query that view. Views are really the basic abstraction in relational databases, and you should use them for the same reasons you use functions in code: to avoid repetition, and to encapsulate and create abstractions. 
+ Edit: There are some comments regarding performance. It's very hard to guess beforehand about performance of DB schemas, because it is often non-intuitive. For example a join between several tables can easily be faster than a full table scan of a single table - it all depends on the type of query, the nature of the data, the available indexes and so on. Additionally, in many database systems you can use features like materialized views to optimize performance for different queries without compromising the logical model. "Denormalization for performance" is mostly cargo cult these days IMHO, unless you are Google or Flickr. 
+ 
+ "life is easier with the one big table": I've seen the natural consequence of this, being a 100+ column table, and I can tell you I find this no joy to work with. 
+ The main problem is that the designers of such tables tend to omit the constraints required to ensure data integrity. For example, the OP says: 
+ 
+ a journal reference requires both a journal title and an article title, and also a page number, whereas a book requires a publisher and a publication date which journal articles do not require 
+ 
+ ...which implies the following constraints: 
+ 
+ ...and I suspect that's only the tip of the iceberg! 
+ It's my hope that after writing several hundred such constraints the designer may have second thoughts about all those nullable columns :) 
+ 
+ My advise is to start by designing the database properly, that is using normalisation to ensure tables only contain data about one thing (book, journal, etc.) and that attributes are stored in the right table. 
+ If in the future it creates performance problems you can de-normalise it into less tables, but this is unlikely to be a problem unless you have a huge database. 
+ Create one table that will hold the common attributes for all references. 
+ Create separate tables to hold the attributes that are specific to each type of reference. 
+ The other issue is whether you will have many references to a single work,e.g. hundreds of references to a particular journal. Normalisation would then suggest you have a table that holds the journals (title, author,journal), a table that holds the reference information that is specific to journals (article, page), and another table that holds data that is common to all references (date of reference, type of reference).  
+ 
+ Having single table with "type" field will be problematic when adding a new reference type that needs extra fields. Extending type field values is no problem but you would have to add columns to the table, fill default values for all current rows, etc. 
+ Having separate tables would make it snap-easy to add new reference type (and automatically generate a form for it!) and searching wouldn't be any harder. 
+ 
+ Rails supports Single-Table inheritance and Polymorphic ActiveRecord types. I would suggest looking into these - ActiveRecord has some opinions on how the database should be structured. 
+ 
+ I think you have to look ahead at what the SQL will look like for each of the solutions.  If you go through that excercise, then you'll find that putting everything in one table is the easiest to code and will probably lead to having the best performance.  It's easier to separate out the things you want from one table then it is to put things together from multiple tables. 
+ Lets say my-one-big-table looks like this: 
+ 1 id 
+2 type 
+3 field-common-to-book-and-journal 
+4 field-specific-to-book 
+5 field-specific-to-journal 
+ If I am just interested in books, I can create a view, or just plain sql, like this: 
+ 
+ So, it's easy to simulate that the data is in separate tables when I want to. 
+ But, if I start off by putting the data in seperate tables then I'll end up writing SQL like this: 
+ 
+ I don't know about other databases, but doing unions in SQL Server can be costly and there are restrictions when working with datatypes like ntext. 
+ If you follow olavk's advice then your SQL for combining types in one query would end up looking like this: 
+ 
+ I've worked with systems that used all three of these ways and by far, life is easier with the one big table. 
+ 
+ Alot of which would be best depends on how many different fields and the field sizes, you have a restriction on total row size (this can be ignored to some extent knowing that all fields will never all be filled in, but once you get to where the pages are too wide, the actually storage in the datbase ends up splitting the information making retrieval take longer.  So if the information is small and (this is important) not likely to change much (it would be a rare event to need to add new type of information not already considered), then the single table is the better route. If the table would be too wide or if it would be subject to many possible changes in the type of data that needs to be stored, then the spearate table would be a better approach although it will always be harder to query properly. If you often want to query multiple types of refernces at the same time, the large table is a more efficient approach.  If you usually only need to grab one at a time, you lose very little in terms of efficiency in having the joins.  
+ If you choose to go with the one table route, make sure to put triggers on the table enforcing the data integrity rules for each type of data. You will need this because you can't rely on making the fields required. 
+ One issue with having the separate tables is that you don't know until run time which of the tables you need to join to. This puts you in the realm of dynamic SQl which I'm not a fan of (for security and efficiency and maintenance reasons) or makes you do left joins to tables you may or may not need which is inefficient. 
+ Another possiblity is to store the whole refence string in one larger field and use the user interface to check to make sure all required parts are there before concatinating the record and sending the information to the database. This would be the fastest to query by far for most queries which want all the information but would be a pain if you need to pull only some of the data out. It also relys on all data being inserted through the user interface which may or may not be the case for you. In all honesty, I can't see where you would need this information broken out separately, so this is the approach I'd probably take. But I don't know your business rules, so take that with a grain of salt. 
+ 
+ There's another option: not one I'd fully endorse, but it's still another option: 
+ Use three tables: 
+ 
+  can be the type of reference, and if you make it an integer with values increase by powers of two (1, 2, 4, 8...) then they can be added together to make a bitmask in the fieldDef table. 
+ **Pros**
+: very simple and extensible. If you come up with another type of reference, or a new field type for an existing reference type, it can be added in very quickly. Forms can be automatically generated for each reference type. All data is stored in one place, meaning you don't need to keep track of multiple schemas  (schemata?)  for  CRUD operations . 
+ **Cons**
+: this is the stuff that The Daily WTF is made on. Select statements can become very confusing and complicated. The database can't perform type-checking (eg: for dates, etc), and the generic "value" field will not be optimised for the data being stored in it. 
+ 
+ I don't find the need to join tables particularly tedious; I'd take the more normalized approach here. 
+ 
+ one table and a "type" field would be my suggestion 
+ 
+ You're asking about database normalization. Jeff Atwood wrote about it in his post  Maybe Normalizing Isn't Normal . It's a good read. 
+ 
+ What I've ended up doing in the past is using sub-categories: having a single table with all  common  fields inside it, and then several tables which can have a zero-or-one relationship to the "core" table. 
+ The example below is similar to something we use "in the wild"; it basically builds a hierarchical data structure, where each node may be a folder or document: 
+ 
+CREATE TABLE Node (
+  Id int identity primary key,
+  ParentId int null references Node.ParentId,
+  Name varchar(50) not null,
+  Description varchar(max) null
+)
+
+CREATE TABLE Doc (
+  Id int primary key references Node.Id,
+  FileExtension char(3) not null,
+  MimeType varchar(50) not null,
+  ContentLength bigint not null,
+  FilePathOnDisk varchar(255)
+)
+
+CREATE TABLE Folder (
+  Id int primary key references Node.Id,
+  ReadOnly bit not null
+)
+ 
+ So your   sproc will do: 
+ 
+SELECT n.Id, n.ParentId, n.Name, n.Description, f.ReadOnly
+FROM Node n 
+JOIN Folder f ON n.Id = f.Id
+WHERE f.Id = @Id
+ 
+ This translates quite nicely into class-based inheritance: 
+ 
+public class Folder : Node
+{
+  public bool IsReadOnly { get; set; }
+  ...etc
+}
+ 
+ 
+ Olavk makes good points, and Corey gives a great detailed explanation. Reading Corey's info, though, gives me a conclusion of Olavk's answer. Keep in mind that depending on what you're doing with the information, you may end up 2-staging your query. Find the item, then for each reference, do a direct select on what was of interest. 
+ Also consider the idea of storing everything in multiple tables and reading it from a single table. I do this for a large database I have where most of the queries need certain common information, but the full multiple table layout is still required. The inserts are slowed down a little by the triggers that they kick off (in my case, one per file where each file is responsible for up to a million rows inserted), but my later select queries can go from minutes to single digit seconds. 
+ Data warehousing :) 
+ 
+ I had a discussion about these issues some time ago with my superior. Of course, I couldn't prove that " **hierarchical multi-table**
+ approach" (see  olavk's answer ) is better, but I felt it! I would always choose this method. One root table with all the fields that entities have in common, and 1-1 child tables with fields they don't have in common. If need this approach can be extended to more child tables, as long as business logic and other entities will have something out of it. That is, I don't think one needs to go overboard with this. 
+ I'm also against creating  **separate "child" tables**
+ without the root table, where each table has a copy of the same fields. I think  Corey's answer  suggests such an approach as an example of a bad multi-table model, and he criticizes it as well. I would like to add that having to write joins isn't the main issue with that. It isn't an issue at all, since most of database queries have many joins, and it's a normal thing. It's difficult creating relationships with other tables - you always need an Id and a TypeId to know which table links to it. In the case of a root table, you only need the Id. 
+ 
+ How about both?  **Have your cake and eat it too!**
+
+ There's another option somewhere between the "one big table" and the "fully normalized" DB that really combines the best of both worlds: You can use something called  materialized views , which are like views in that they are just as flexible and you query as many tables as needed, setting up all the joins etc., but they're also like tables in that the results are actually stored in a table.   
+ The nice thing about this is that once you set this up and decide when it is to be refreshed (everytime one of the underlying table sis changes, or maybe just once per night) you don't have worry about it anymore. You can query the materialized view as if it were one big table (because it is), and performance will be fast (faster than using the select statement that is behind it). Most importantly, you don't have the headaches of maintaining data integrity. That's what the DB is there to handle. 
+ If you don't have a DB that supports this out of the box, you can still use this idea by building a table out of the results of the view as a batch job each night. 
+ 

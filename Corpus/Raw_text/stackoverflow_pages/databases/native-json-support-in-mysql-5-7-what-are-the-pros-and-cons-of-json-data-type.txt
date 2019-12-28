@@ -1,0 +1,112 @@
+*** native-json-support-in-mysql-5-7-what-are-the-pros-and-cons-of-json-data-type ***
+
+ In MySQL 5.7 a new data type for storing  JSON data in MySQL  tables has been
+added. It will obviously be a great change in MySQL. They listed some benefits  
+ 
+ **Document Validation**
+ - Only valid JSON documents can be stored in a
+  JSON column, so you get automatic validation of your data.  
+ **Efficient Access**
+ - More importantly, when you store a JSON document in a JSON column, it is not stored as a plain text value. Instead, it is stored
+  in an optimized binary format that allows for quicker access to object
+  members and array elements.  
+ **Performance**
+ - Improve your query
+  performance by creating indexes on values within the JSON columns.
+  This can be achieved with “functional indexes” on virtual columns. 
+ **Convenience**
+ - The additional inline syntax for JSON columns makes it
+  very natural to integrate Document queries within your SQL. For
+  example (features.feature is a JSON column):  
+ 
+ WOW ! they include some great features. Now it is easier to manipulate data. Now it is possible to store more complex data in column.
+So MySQL is now flavored with NoSQL. 
+ Now I can imagine a query for JSON data something like 
+ 
+ So can I store huge small relations in few json colum? Is it good? Does it break normalization.  **If this is possible then I guess it will act like NoSQL in a MySQL column**
+. I really want to know more about this feature. Pros and cons of MySQL JSON data type. 
+ 
+ 
+ Using a column inside an expression or function like this spoils any chance of the query using an index to help optimize the query. The query shown above is forced to do a table-scan. 
+ The claim about "efficient access" is misleading. It means that after the query examines a row with a JSON document, it can extract a field without having to parse the text of the JSON syntax. But it still takes a table-scan to search for rows. In other words, the query must examine every row. 
+ By analogy, if I'm searching a telephone book for people with first name "Bill", I still have to read every page in the phone book, even if the first names have been highlighted to make it slightly quicker to spot them. 
+ MySQL 5.7 allows you to define a virtual column in the table, and then create an index on the virtual column. 
+ 
+ Then if you query the virtual column, it can use the index and avoid the table-scan. 
+ 
+ Or even if you query the exact expression that the virtual column is based on (as in your original query), then it can also use the index. 
+ This is nice, but it kind of misses the point of using JSON. The attractive part of using JSON is that it allows you to add new attributes without having to do ALTER TABLE. But it turns out you have to define an extra (virtual) column anyway, if you want to search JSON fields with the help of an index. 
+ But you don't have to define virtual columns and indexes for  every  field in the JSON document—only those you want to search or sort on. There could be other attributes in the JSON that you only need to extract in the select-list like the following: 
+ 
+ I would generally say that this is the best way to use JSON in MySQL. Only in the select-list. 
+ When you reference columns in other clauses (JOIN, WHERE, GROUP BY, HAVING, ORDER BY), it's more efficient to use conventional columns, not fields within JSON documents. 
+ I presented a talk called  How to Use JSON in MySQL Wrong  at the Percona Live conference in April 2018. I'll update and repeat the talk at Oracle Code One in the fall. 
+ There are other issues with JSON. For example, in my tests it required 2-3 times as much storage space for JSON documents compared to conventional columns storing the same data. 
+ MySQL is promoting their new JSON capabilities aggressively, largely to dissuade people against migrating to MongoDB. But document-oriented data storage like MongoDB is fundamentally a non-relational way of organizing data. It's different from relational. I'm not saying one is better than the other, it's just a different technique, suited to different types of queries.  
+ You should choose to use JSON when JSON makes your queries more efficient.  
+ **Don't choose a technology just because it's new, or for the sake of fashion.**
+
+ 
+ The following from  MySQL 5.7 brings sexy back with JSON  sounds good to me: 
+ 
+ Using the JSON Data Type in MySQL comes with two advantages over
+  storing JSON strings in a text field: 
+ Data validation. JSON documents will be automatically validated and
+  invalid documents will produce an error. Improved internal storage
+  format. The JSON data is converted to a format that allows quick read
+  access to the data in a structured format. The server is able to
+  lookup subobjects or nested values by key or index, allowing added
+  flexibility and performance.  
+ 
+ ... 
+ 
+ Specialised flavours of NoSQL stores
+  (Document DBs, Key-value stores and Graph DBs) are probably better
+  options for their specific use cases, but the addition of this
+  datatype might allow you to reduce complexity of your technology
+  stack. The price is coupling to MySQL (or compatible) databases. But
+  that is a non-issue for many users. 
+ 
+ Note the language about  **document validation**
+ as it is an important factor. I guess a battery of tests need to be performed for comparisons of the two approaches. Those two being: 
+ 
+ Mysql with JSON datatypes  
+ Mysql without 
+ 
+ The net has but shallow slideshares as of now on the topic of mysql / json / performance from what I am seeing.  
+ Perhaps your post can be a hub for it. Or perhaps performance is an after thought, not sure, and you are just excited to not create a bunch of tables. 
+ 
+ I got into this problem recently, and I sum up the following experiences: 
+ 1, There isn't a way to solve all questions.
+2, You should use the JSON properly. 
+ One case: 
+ I have a table named:  , and it must  two columns:  ,  .
+  is a localized string, it content should like: 
+ 
+ And   should be like this: 
+ 
+ As you can see, both the   and the   can be saved as JSON, and it works! 
+ However, if I use the   to search this table very frequently, what should I do? Use the  , ...? Obviously, it's not a good idea to save it as JSON anymore, we should save it to an independent table: . 
+ From the above case, I think you should keep these ideas in mind: 
+ 
+ Why MYSQL support JSON?  
+ Why you want to use JSON? Did your business logic just need this? Or there is something else? 
+ Never be lazy 
+ 
+ Thanks 
+ 
+ From my experience, JSON implementation at least in MySql 5.7 is not very useful due to its poor performance.
+Well, it is not so bad for reading data and  validation. However, JSON modification is 10-20 times slower with MySql that with Python or PHP.
+Lets imagine very simple JSON: 
+ 
+ Lets suppose we have to convert it to something like that: 
+ 
+ You can create simple script with Python or PHP that will select all rows and update them one by one. You are not forced to make one huge transaction for it, so other applications will can use the table in parallel. Of course, you can also make one huge transaction if you want, so you'll get guarantee that MySql will perform "all or nothing", but other applications will most probably not be able to use database during transaction execution. 
+ I have 40 millions rows table, and Python script updates it in 3-4 hours. 
+ Now we have MySql JSON, so we don't need Python or PHP anymore, we can do something like that: 
+ 
+ It looks simple and excellent. However, its speed is 10-20 times slower than Python version, and it is single transaction, so other applications can not modify the table data in parallel. 
+ So, if we want to just duplicate JSON key in 40 millions rows table, we need to not use table at all during 30-40 hours. It has no sence. 
+ About reading data, from my experience direct access to JSON field via   in   is also extremelly slow (much slower that   with   on not indexed column). Virtual generated columns perform much faster, however, if we know our data structure beforehand, we don't need JSON, we can use traditional columns instead. When we use JSON where it is really useful, i. e. when data structure is unknown or changes often (for example, custom plugin settings), virtual column creation on regular basis for any possible new columns doesn't look like good idea. 
+ Python and PHP make JSON validation like a charm, so it is questionable do we need JSON validation on MySql side at all. Why not also validate XML, Microsoft Office documents or check spelling? ;) 
+ 

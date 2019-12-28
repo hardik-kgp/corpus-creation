@@ -1,0 +1,48 @@
+*** is-it-a-bad-idea-to-use-guids-as-primary-keys-in-ms-sql ***
+
+ We have a system that uses UniqueIdentifier as the primary key of each of the tables. It has been brought to our attention that this is a bad idea. I have seen similar post on the subject but I am interested in any MS SQL performance and other potential problems I may encounter due to this decision.   
+ 
+ There are pros and cons: 
+ This article  covers everything. 
+ GUID Pros 
+ 
+ Unique across every table, every database, every server 
+ Allows easy merging of records from different databases 
+ Allows easy distribution of databases across multiple servers 
+ You can generate IDs anywhere, instead of having to roundtrip to the database 
+ Most replication scenarios require GUID columns anyway  
+ 
+ GUID Cons 
+ 
+ It is a whopping 4 times larger than the traditional 4-byte index value; this can have serious performance and storage implications if you're not careful 
+ Cumbersome to debug (where userid='{BAE7DF4-DDF-3RG-5TY3E3RF456AS10}') 
+ The generated GUIDs should be partially sequential for best performance (eg, newsequentialid() on SQL 2005) and to enable use of clustered indexes  
+ 
+ 
+ I wrote a post about this last week with some code to show you what happens:  Some Simple Code To Show The Difference Between Newid And Newsequentialid 
+ Basically if you use newid() instead of Newsequentialid() you get horrible page splits if your PK is a clustered index (which it will be by default) 
+ 
+ Personally, I'd use an int or bigint for the PK, but just put in another "Guid" column for those situations where you need an unguessable "key" for that record, and generate the Guid when you insert the row. 
+ 
+ It will be bad if you will need to do joins over large sets (let's say 100,000ths). Been there, suffered that. 
+ Later Edit : I also encountered an even worse screw-up (can't call it "approach") : storing GUIDs in char(36) columns!! 
+ 
+ A GUID is a powerful datatype for identifying a row, since it is almost guarenteed to be unique, this allows a lot of flexibiliy for example you can generate the Guid in the application tier which can greatly simplify saving your relationships.  
+ As was said the big downside is the page splits which will occur if your PK is a clustered index; however, you can solve this by two ways. You could use the NewSequentialId() or you can set the PK to be non-clustered. I'd recommend you build your database based on your data requirements, and if you need a GUID use it, and then optimize around it. And validate its performance in your environment.  
+ 
+ Jimmy Nilsson  wrote a fantastic article about GUIDs vs. INTs and combined GUIDS .
+Conclusions...don't fear the GUID...well composite guids anyway. 
+ 
+ It is a "bad" idea. It can be slow. You it isn't really good for fast searching with indexes either. The only real time that we use GUID or UniqueIDs is when we have to keep data items connected across databases, typically when we have a server database and a local database for an application (for disconnected systems). You really have no other way to keep things together other than guids. For indexes and primary keys, you want to use an integer value and try to link things with association tables rather than using guids all over the place. 
+ 
+ The best reason I have found for using them is when replicating databases.  Even then, there can be better ways of handling that like multi-part primary keys that include ID and maybe location.  If you don't need that capability, I suggest sticking with some form of integer. 
+ 
+ It is bad if you want to do fast writes to the database.  If you are going to do massive insertions then it is better to use a different datatype. 
+ 
+ It can also really slow down your database reads because primary keys are created with clustered indexes unless told otherwise. A guid is the worst type to have as your clustered index and a int or bigint would serve as a better primary key or clustered index 
+ 
+ I wouldn't say its  **bad**
+, per se.  I've talked to a lot of people who swear by it, although I find it a little verbose.  I would agree with   and say you should use a regular integer for the ID but also include a GUID (which you need for replication anyway) "just in case" 
+ 
+ If you're doing any sort of database replication GUIDs are your best friend! 
+ 

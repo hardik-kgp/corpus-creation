@@ -1,0 +1,87 @@
+*** mysql-one-to-one-relation ***
+
+ I'm trying to achieve One To One relation in MySQL database. For example, let's say I have Users table and Accounts table. And I want to be sure there is User can have only one account. And that there can be only one Account per user. 
+ I found two solutions for this but don't know what to use, and are there any other options. 
+ **First solution:**
+
+ 
+ In this example, I define the foreign key in accounts pointing to the primary key in users.
+And then I make foreign key UNIQUE, so there can't be two identical users in accounts.
+To join tables I would use this query: 
+ 
+ **Second solution:**
+
+ 
+ In this example, I create a foreign key that points from the primary key to a primary key in another table. Since Primary Keys are UNIQUE by default, this makes this relation One to One.
+To join tables I can use this: 
+ 
+ Now the questions: 
+ 
+ What is the best way to create One to One relation in MySQL? 
+ Are there any other solutions other than these two? 
+ 
+ I'm using MySQL Workbench, and when I design One To One relation in EER diagram and let MySQL Workbench produce SQL code, I get One to Many relation :S That's what's confusing me :S 
+ And if I import any of these solutions into MySQL Workbench EER diagram, it recognizes relations as One to Many :S That's also confusing. 
+ So, what would be the best way to define One to One relation in MySQL DDL. And what options are there to achieve this? 
+ 
+ 
+ Since Primary Keys are UNIQUE by default, this makes this relation One to One. 
+ 
+ No, that makes the relation "one to zero or one". Is that what you actually need? 
+ If  **yes**
+, then then your "second solution" is better: 
+ 
+ it's simpler, 
+ takes less storage 1  (and therefore makes cache "larger") 
+ hes less indexes to maintain 2 , which benefits data manipulation, 
+ and (since you are using InnoDB) naturally  clusters  the data, so users that are close together will have their accounts stored close together as well, which may benefit cache locality and certain kinds of range scans. 
+ 
+ BTW, you'll need to make   an ordinary integer (not auto-increment) for this to work. 
+ If  **no**
+, see below... 
+ 
+ What is the best way to create One to One relation in MySQL? 
+ 
+ Well, "best" is an overloaded word, but the "standard" solution would be the same as in any other database: put both entities (user and account in your case) in the same physical table. 
+ 
+ Are there any other solutions other than these two? 
+ 
+ Theoretically, you could make circular FKs between the two PKs, but that would require  deferred  constraints to resolve the chicken-and-egg problem, which are unfortunately not supported under MySQL. 
+ 
+ And if I import any of these solutions into MySQL Workbench EER diagram, it recognizes relations as One to Many :S Thats also confusing. 
+ 
+ I don't have much practical experience with that particular modeling tool, but I'm guessing that's because it is "one to many" where "many" side was capped at 1 by making it unique. Please remember that "many" doesn't mean "1 or many", it means "0 or many", so the "capped" version really means "0 or 1". 
+ 
+ 1  Not just in the storage expense for the additional field, but for the secondary index as well. And since you are using InnoDB which  always clusters tables , beware that secondary indexes are even more expensive in clustered tables than they are in heap-based tables. 
+ 2  InnoDB  requires indexes  on foreign keys. 
+ 
+ Your first approach creates two candidate keys in the accounts table:   and  . 
+ I therefore suggest the second approach i.e. using the foreign key as the primary key. This: 
+ 
+ uses one less column 
+ allows you to uniquely identify each row 
+ allows you to match account with user 
+ 
+ 
+ What about the following approach 
+ 
+ Create Table user 
+ 
+ Create Table account with a unique index on   and   with a foreign key relation to user/account and a primary key on  
+ 
+ Create Table user2account 
+ 
+ 
+ While this solution has the largest footprint in the database, there are some advantages. 
+ 
+ Putting the FK_Key in either the user table or the account table is something that I expect to be a one to many releation (user has many accounts ...) 
+ While this   approach is mainly used to define a many to many relationship, adding a UNIQUE constraint on   and on   will prevent creating something else than a one to one relation. 
+ 
+ The main advantage I see in this solution is that you can divide the work in different code layers or departements in a company 
+ 
+ Department A is responsible for creating users, this is possible even without write permission to accounts table 
+ Departement B is responsible for creating accounts, this is possible even without write permission to user table 
+ Departement C is responsible for creating the mapping, this is possible even without write permission to user or account table  
+ Once Departement C has created a mapping neither the user nor the account can be deleted by departement A or B without asking departement C to delete the mapping first. 
+ 
+ 

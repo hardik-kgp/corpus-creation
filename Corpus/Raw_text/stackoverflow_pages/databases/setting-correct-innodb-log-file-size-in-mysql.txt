@@ -1,0 +1,48 @@
+*** setting-correct-innodb-log-file-size-in-mysql ***
+
+ We ran an alter table today today that took down the DB.  We failed over to the slave, and in the post-mortem, we discovered this in the mysql  
+ 
+ This error rings true because we were working on a very large table that contains BLOB data types. 
+ The  best answer  we found online said 
+ 
+ To solve it, you need to stop MySQL cleanly (very important), delete the existing InnoDB log files (probably lb_logfile* in your MySQL data directory, unless you've moved them), then adjust the innodb_log_file_size to suit your needs, and then start MySQL again. This article from the MySQL performance blog might be instructive. 
+ 
+ and in the comments  
+ 
+ Yes, the database server will effectively hang for any updates to InnoDB tables when the log fills up. It can cripple a site.  
+ 
+ which is I guess what happened, based on our current (default)   of 48mb? 
+ 
+ So, this leads me to two pointed questions and one open-ended one: 
+ 
+ How do we determine the largest row so we can set our   to be bigger than that? 
+ What is the consequence of the action in step 1?  I'd read about long recovery times with bigger logs. 
+ Is there anything else I should worry about regarding migrations, considering that we have a large table (650k rows, 6169.8GB) with unrestrained, variable length BLOB fields. 
+ 
+ We're running mysql 5.6 and here's our  . 
+ 
+ As a follow-up to the suggestions listed below, I began investigation into the file size of the table in question.  I ran a script that wrote the combined byte size of the three BLOB fields to a table called  .  Here's the result of getting the largest byte size: 
+ 
+ This makes me believe that the average row size is closer to 1mb than the 10 suggested.  Maybe the table size I listed earlier includes the indexes, too? 
+ I ran 
+ 
+ 
+ **0. Preliminary information**
+
+ Your settings: 
+ 
+ Therefore your " log group capacity " = 2 x 50331648 = 96 MB 
+ **1. How to determine the largest row**
+
+ There is no direct method. But one can easily calculate the size of one given row  based on these tables  (compression should not matter to us here, if, as I assume, rows are not compressed in the log files). 
+ **2. Impact of **
+
+ Reference manual : 
+ 
+ The larger the value, the less checkpoint flush activity is needed in the buffer pool, saving disk I/O. Larger log files also make crash recovery slower, although improvements to recovery performance in MySQL 5.5 and higher make the log file size less of a consideration. 
+ 
+ **3. Anything else to worry about**
+
+ 6169.8 GB / 650k rows = about 10 MB per row on average
+This is a serious problem per se if you intend to use your database in a transactional, multi-user situation. Consider storing your  's as files outside of the database. Or, at least, store them in a separate MyISAM (non-transactional) table. 
+ 

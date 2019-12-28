@@ -1,0 +1,137 @@
+*** what-are-the-best-practices-for-sqlite-on-android ***
+
+ What would be considered the best practices when executing queries on an SQLite database within an Android app? 
+ Is it safe to run inserts, deletes and select queries from an AsyncTask's doInBackground? Or should I use the UI Thread? I suppose that database queries can be "heavy" and should not use the UI thread as it can lock up the app - resulting in an  Application Not Responding  (ANR). 
+ If I have several AsyncTasks, should they share a connection or should they open a connection each? 
+ Are there any best practices for these scenarios? 
+ 
+ Inserts, updates, deletes and reads are generally OK from multiple threads, but Brad's  answer  is not correct.  You have to be careful with how you create your connections and use them.  There are situations where your update calls will fail, even if your database doesn't get corrupted. 
+ **The basic answer.**
+
+ The SqliteOpenHelper object holds on to one database connection.  It appears to offer you a read and write connection, but it really doesn't.  Call the read-only, and you'll get the write database connection regardless. 
+ So, one helper instance, one db connection.  Even if you use it from multiple threads, one connection at a time.  The SqliteDatabase object uses java locks to keep access serialized.  So, if 100 threads have one db instance, calls to the actual on-disk database are serialized. 
+ So, one helper, one db connection, which is serialized in java code.  One thread, 1000 threads, if you use one helper instance shared between them, all of your db access code is serial.  And life is good (ish). 
+ If you try to write to the database from actual distinct connections at the same time, one will fail.  It will not wait till the first is done and then write.  It will simply not write your change.  Worse, if you don’t call the right version of insert/update on the SQLiteDatabase, you won’t get an exception.  You’ll just get a message in your LogCat, and that will be it. 
+ So, multiple threads?  Use one helper.  Period.  If you KNOW only one thread will be writing, you MAY be able to use multiple connections, and your reads will be faster, but buyer beware.  I haven't tested that much. 
+ Here's a blog post with far more detail and an example app. 
+ 
+ Android Sqlite Locking  (Updated link 6/18/2012) 
+ Android-Database-Locking-Collisions-Example by touchlab  on GitHub 
+ 
+ Gray and I are actually wrapping up an ORM tool, based off of his Ormlite, that works natively with Android database implementations, and follows the safe creation/calling structure I describe in the blog post.  That should be out very soon.  Take a look. 
+ 
+ In the meantime, there is a follow up blog post: 
+ 
+ Single SQLite connection 
+ 
+ Also checkout the fork by  2point0  of the previously mentioned locking example: 
+ 
+ Android-Database-Locking-Collisions-Example by 2point0  on GitHub 
+ 
+ 
+ **Concurrent Database Access**
+
+ Same article on my blog(I like formatting more) 
+ I wrote small article which describe how to make access to your android database thread safe. 
+ 
+ Assuming you have your own  **SQLiteOpenHelper**
+. 
+ 
+ Now you want to write data to database in separate threads. 
+ 
+ You will get following message in your logcat and one of your changes will not be written. 
+ 
+ This is happening because every time you create new  SQLiteOpenHelper  object you are actually making new database connection. If you try to write to the database from actual distinct connections at the same time, one will fail. (from answer above) 
+ To use database with multiple threads we need to make sure we are using one database connection. 
+ Let’s make singleton class  Database Manager  which will hold and return single  SQLiteOpenHelper  object. 
+ 
+ Updated code which write data to database in separate threads will look like this. 
+ 
+ This will bring you another crash. 
+ 
+ Since we are using only one database connection, method  getDatabase()  return same instance of  SQLiteDatabase  object for  Thread1  and  Thread2 . What is happening,  Thread1  may close database, while  Thread2  is still using it. That’s why we have  IllegalStateException  crash. 
+ We need to make sure no-one is using database and only then close it. Some folks on stackoveflow recommended to never close your  SQLiteDatabase . This will result in following logcat message. 
+ 
+ **Working sample**
+
+ 
+ Use it as follows. 
+ 
+ Every time you need database you should call  openDatabase()  method of  DatabaseManager  class. Inside this method, we have a counter, which indicate how many times database is opened. If it equals to one, it means we need to create new database connection, if not, database connection is already created.  
+ The same happens in  closeDatabase()  method. Every time we call this method, counter is decreased, whenever it goes to zero, we are closing database connection. 
+ 
+ Now you should be able to use your database and be sure it's thread safe. 
+ 
+ 
+ Use a   or   for long-running operations (50ms+). Test your app to see where that is. Most operations (probably) don't require a thread, because most operations (probably) only involve a few rows. Use a thread for bulk operations. 
+ Share one   instance for each DB on disk between threads and implement a counting system to keep track of open connections. 
+ 
+ 
+ Are there any best practices for these scenarios? 
+ 
+ Share a static field between all your classes. I used to keep a singleton around for that and other things that need to be shared. A counting scheme (generally using AtomicInteger) also should be used to make sure you never close the database early or leave it open. 
+ 
+ My solution: 
+ 
+ For the most current version, see  https://github.com/JakarCo/databasemanager  but I'll try to keep the code up to date here as well. If you want to understand my solution, look at the code and read my notes. My notes are usually pretty helpful. 
+ 
+ copy/paste the code into a new file named  . (or download it from github) 
+ extend   and implement   and   like you normally would. You can create multiple subclasses of the one   class in order to have different databases on disk. 
+ Instantiate your subclass and call   to use the   class. 
+ Call   for each subclass you instantiated 
+ 
+ The code to  **copy/paste**
+: 
+ 
+ 
+ The Database is very flexible with multi-threading. My apps hit their DBs from many different threads simultaneously and it does just fine. In some cases I have multiple processes hitting the DB simultaneously and that works fine too.  
+ Your async tasks - use the same connection when you can, but if you have to, its OK to access the DB from different tasks.  
+ 
+ Dmytro's answer works fine for my case.
+I think it's better to declare the function as synchronized. at least for my case, it would invoke null pointer exception otherwise, e.g. getWritableDatabase not yet returned in one thread and openDatabse called in another thread meantime. 
+ 
+ 
+ after struggling with this for a couple of hours, I've found that you can only use one db helper object per db execution.  For example, 
+ 
+ as apposed to: 
+ 
+ creating a new DBAdapter each time the loop iterates was the only way I could get my strings into a database through my helper class. 
+ 
+ My understanding of SQLiteDatabase APIs is that in case you have a multi threaded application, you cannot afford to have more than a 1 SQLiteDatabase object pointing to a single database.  
+ The object definitely can be created but the inserts/updates fail if different threads/processes (too) start using different SQLiteDatabase objects (like how we use in JDBC Connection).  
+ The only solution here is to stick with 1 SQLiteDatabase objects and whenever a startTransaction() is used in more than 1 thread, Android manages the locking across different threads and allows only 1 thread at a time to have exclusive update access.  
+ Also you can do "Reads" from the database and use the same SQLiteDatabase object in a different thread (while another thread writes) and there would never be database corruption i.e "read thread" wouldn't read the data from the database till the "write thread" commits the data although both use the same SQLiteDatabase object. 
+ This is different from how connection object is in JDBC where if you pass around (use the same) the connection object between read and write threads then we would likely be printing uncommitted data too.  
+ In my enterprise application, I try to use conditional checks so that the UI Thread never have to wait, while the BG thread holds the SQLiteDatabase object (exclusively). I try to predict UI Actions and defer BG thread from running for 'x' seconds. Also one can maintain PriorityQueue to manage handing out SQLiteDatabase Connection objects so that the UI Thread gets it first. 
+ 
+ You can try to apply new architecture approach  anounced  at Google I/O 2017. 
+ It also includes new ORM library called  Room 
+ It contains three main components: @Entity, @Dao and @Database 
+ User.java 
+ 
+ UserDao.java 
+ 
+ AppDatabase.java 
+ 
+ 
+ Having had some issues, I think I have understood why I have been going wrong. 
+ I had written a database wrapper class which included a   which called the helper close as a mirror of   which called getWriteableDatabase and then have migrated to a  . The model for   does not use   which I think is a big clue as the code does use   In some instances I was still doing direct access (screen validation queries in the main so I migrated to a getWriteableDatabase/rawQuery model. 
+ I use a singleton and there is the slightly ominous comment in the close documentation  
+ 
+ Close  **any**
+ open database object 
+ 
+ (my bolding). 
+ So I have had intermittent crashes where I use background threads to access the database and they run at the same time as foreground. 
+ So I think   forces the database to close regardless of any other threads holding references - so   itself is not simply undoing the matching   but force closing  **any**
+ open requests. Most of the time this is not a problem as the code is single threading, but in multi-threaded cases there is always the chance of opening and closing out of sync. 
+ Having read comments elsewhere that explains that the SqLiteDatabaseHelper code instance counts, then the only time you want a close is where you want the situation where you want to do a backup copy, and you want to force all connections to be closed and force SqLite to write away any cached stuff that might be loitering about - in other words stop all application database activity, close just in case the Helper has lost track, do any file level activity (backup/restore) then start all over again.  
+ Although it sounds like a good idea to try and close in a controlled fashion, the reality is that Android reserves the right to trash your VM so any closing is reducing the risk of cached updates not being written, but it cannot be guaranteed if the device is stressed, and if you have correctly freed your cursors and references to databases (which should not be static members) then the helper will have closed the database anyway. 
+ So my take is that the approach is: 
+ Use getWriteableDatabase to open from a singleton wrapper. (I used a derived application class to provide the application context from a static to resolve the need for a context). 
+ Never directly call close. 
+ Never store the resultant database in any object that does not have an obvious scope and rely on reference counting to trigger an implicit close(). 
+ If doing file level handling, bring all database activity to a halt and then call close just in case there is a runaway thread on the assumption that you write proper transactions so the runaway thread will fail and the closed database will at least have proper transactions rather than potentially a file level copy of a partial transaction. 
+ 
+ I know that the response is late, but the best way to execute sqlite queries in android is through a custom content provider. In that way the UI is decoupled with the database class(the class that extends the SQLiteOpenHelper class). Also the queries are executed in a background thread(Cursor Loader).  
+ 

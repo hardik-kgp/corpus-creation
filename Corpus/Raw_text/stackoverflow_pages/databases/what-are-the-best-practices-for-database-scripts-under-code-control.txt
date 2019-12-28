@@ -1,0 +1,72 @@
+*** what-are-the-best-practices-for-database-scripts-under-code-control ***
+
+ We are currently reviewing how we store our database scripts (tables, procs, functions, views, data fixes) in subversion and I was wondering if there is any consensus as to what is the best approach? 
+ Some of the factors we'd need to consider include: 
+ 
+ Should we checkin 'Create' scripts or checkin incremental changes with 'Alter' scripts 
+ How do we keep track of the state of the database for a given release 
+ It should be easy to build a database from scratch for any given release version 
+ Should a table exist in the database listing the scripts that have run against it, or the version of the database etc. 
+ 
+ Obviously it's a pretty open ended question, so I'm keen to hear what people's experience has taught them. 
+ 
+ After a few iterations, the approach we took was roughly like this: 
+ One file per table and per stored procedure. Also separate files for other things like setting up database users, populating look-up tables with their data. 
+ The file for a table starts with the CREATE command and a succession of ALTER commands added as the schema evolves. Each of these commands is bracketed in tests for whether the table or column already exists. This means each script can be run in an up-to-date database and won't change anything. It also means that for any old database, the script updates it to the latest schema. And for an empty database the CREATE script creates the table and the ALTER scripts are all skipped.  
+ We also have a program (written in Python) that scans the directory full of scripts and assembles them in to one big script. It parses the SQL just enough to deduce dependencies between tables (based on foreign-key references) and order them appropriately. The result is a monster SQL script that gets the database up to spec in one go. The script-assembling program also calculates the MD5 hash of the input files, and uses that to update a version number that is written in to a special table in the last script in the list. 
+ Barring accidents, the result is that the database script for a give version of the source code creates the schema this code was designed to interoperate with. It also means that there is a single (somewhat large) SQL script to give to the customer to build new databases or update existing ones. (This was important in this case because there would be many instances of the database, one for each of their customers.) 
+ 
+ There is an interesting article at this link:
+ https://blog.codinghorror.com/get-your-database-under-version-control/ 
+ It advocates a baseline 'create' script followed by checking in 'alter' scripts and keeping a version table in the database. 
+ 
+ The upgrade script option 
+ Store each change in the database as a separate sql script. Store each group of changes in a numbered folder. Use a script to apply changes a folder at a time and record in the database which folders have been applied. 
+ Pros:
+Fully automated, testable upgrade path 
+ Cons:
+Hard to see full history of each individual element
+Have to build a new database from scratch, going through all the versions 
+ 
+ I tend to check in the initial create script. I then have a DbVersion table in my database and my code uses that to upgrade the database on initial connection if necessary. For example, if my database is at version 1 and my code is at version 3, my code will apply the ALTER statements to bring it to version 2, then to version 3. I use a simple fallthrough switch statement for this. 
+ This has the advantage that when you deploy a new version of your application, it will automatically upgrade old databases and you never have to worry about the database being out of sync with the software. It also maintains a very visible change history. 
+ This isn't a good idea for all software, but variations can be applied. 
+ 
+ You could get some hints by reading how this is done with  Ruby On Rails' migrations . 
+The best way to understand this is probably to just try it out yourself, and then inspecting the database manually. 
+ Answers to each of your factors: 
+ 
+ Store CREATE scripts.  If you want to checkout version x.y.z then it'd be nice to simply run your create script to setup the database immediately.  You  could  add ALTER scripts as well to go from the previous version to the next (e.g., you commit version 3 which contains a version 3 CREATE script and a version 2 → 3 alter script). 
+ See the Rails migration solution.  Basically they keep the table version number in the database, so you always know. 
+ Use CREATE scripts. 
+ Using version numbers would probably be the most generic solution — script names and paths can change over time. 
+ 
+ My two cents! 
+ 
+ We create a branch in Subversion and all of the database changes for the next release are scripted out and checked in.  All scripts are repeatable so you can run them multiple times without error.  
+ We also link the change scripts to issue items or bug ids so we can hold back a change set if needed.  We then have an automated build process that looks at the issue items we are releasing and pulls the change scripts from Subversion and creates a single SQL script file with all of the changes sorted appropriately.   
+ This single file is then used to promote the changes to the Test, QA and Production environments.  The automated build process also creates database entries documenting the version (branch plus build id.)   We think this is the best approach with enterprise developers. More details on how we do this can be found  HERE   
+ 
+ The create script option: 
+ Use create scripts that will build you the latest version of the database from scratch, which is empty except the default lookup data. 
+ Use standard version control techniques to store,branch,tag versions and view histories of your objects. 
+ When upgrading a live database (where you don't want to loose data), create a blank second copy of the database at the new version and use a tool like red-gate's  link text 
+ Pros: 
+Changes to files are tracked in a standard source-code like manner 
+ Cons:
+Reliance on manual use of a 3rd party tool to do actual upgrades (no/little automation) 
+ 
+ Our company checks them in simply because someone decided to put it in some SOX document that we do.  It makes no sense to me at all, except possible as a reference document.  I can't see a time we'd pull them out and try and use them again, and if we did we'd have to know which one ran first and which one to run after which.  Backing up the database is much more important then keeping the Alter scripts. 
+ 
+ for every release we need to give one update.sql file which contains all the new table scripts, alter statements, new/modified packages,roles,etc. This file is used to upgrade the database from 1 version to 2. 
+ What ever we include in update.sql file above one all this statements need to go to individual respective files. like alter statement has to go to table as a new column (table script has to be modifed not Alter statement is added after create table script in the file) in the same way new tables, roles etc. 
+ So whenever if user wants to upgrade he will use the first update.sql file to upgrade.
+If he want to build from scrach then he will use the build.sql which already having all the above statements, it makes the database in sync. 
+ sriRamulu
+Sriramis4u@yahoo.com 
+ 
+ In my case, I build a SH script for this work:  https://github.com/reduardo7/db-version-updater 
+ 
+ There is an interesting article with new URL at:  https://blog.codinghorror.com/get-your-database-under-version-control/   
+ It a bit old but the concepts are still there. Good Read! 
+ 

@@ -1,0 +1,90 @@
+*** how-do-you-avoid-adding-timestamp-fields-to-your-tables ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ I have a question regarding the two additional columns (timeCreated, timeLastUpdated) for each record that we see in many solutions. My question: Is there a better alternative? 
+ Scenario: You have a huge DB (in terms of tables, not records), and then the customer comes and asks you to add "timestamping" to 80% of your tables. 
+ I believe this can be accomplished by using a separate table (TIMESTAMPS). This table would have, in addition to the obvious timestamp column, the table name and the primary key for the table being updated. (I'm assuming here that you use an int as primary key for most of your tables, but the table name would most likely have to be a string). 
+ To picture this suppose this basic scenario. We would have two tables: 
+ PAYMENT :- (your usual records) 
+TIMESTAMP :- {current timestamp} + { ,  ,  } 
+ Note that in this design you don't need those two "extra" columns in your native payment object (which, by the way, might make it thru your ORM solution) because you are now indexing by   and  . In addition,   will tell you if the entry is for insertion (e.g "1"), update (e.g "2"), and anything else you may want to add, like "deletion". 
+ I would like to know what do you think about this design. I'm most interested in best practices, what works and scales over time. References, links, blog entries are more than welcome. I know of at least one patent (pending) that tries to address this problem, but it seems details are not public at this time. 
+ Cheers,
+Eduardo 
+ 
+ While you're at it, also record the user who made the change.  
+ The flaw with the separate-table design (in addition to the join performance highlighted by others) is that it makes the assumption that  every  table has an identity column for the key.  That's not always true. 
+ If you use SQL Server, the new 2008 version supports something they call   that should take away a lot of the pain you're talking about.  I think Oracle may have something similar as well. 
+ 
+ Update: Apparently Oracle calls it the same thing as SQL Server.  Or rather, SQL Server calls it the same thing as Oracle, since Oracle's implementation came first ;) 
+ http://www.oracle.com/technology/oramag/oracle/03-nov/o63tech_bi.html 
+ 
+ I have used a design where each table to be audited had two tables: 
+ 
+ A database trigger is created that populates   everytime anything is done to  .  This way you have a record of every single change made to the table, and when.  The application has no real knowledge of this, since it is maintained by a database trigger. 
+ It works reasonably well and doesn't require any changes to application code to implement. 
+ 
+ I think I prefer adding the timestamps to the individual tables.  Joining on your timestamp table on a composite key -- one of which is a string -- is going to be slower and if you have a large amount of data it will eventually be a real problem. 
+ Also, a lot of the time when you are looking at timestamps, it's when you're debugging a problem in your application and you'll want the data right there, rather than always having to join against the other table. 
+ 
+ The advantage of the method you suggest is that it gives you the option of adding other fields to your TIMESTAMP table, like tracking the user who made the change.  You can also track edits to sensitive fields, for example who repriced this contract? 
+ Logging record changes in a separate file means you can show multiple changes to a record, like: 
+ mm/dd/yy  hh:mm:ss  Added by XXX
+mm/dd/yy  hh:mm:ss  Field PRICE Changed by XXX, 
+mm/dd/yy  hh:mm:ss  Record deleted by XXX 
+ One disadvantage is the extra code the will perform inserts into your TIMESTAMPS table to reflect changes in your main tables. 
+ 
+ If you set up the time-stamp stuff to run off of triggers, than any action that can set off a trigger (Reads?) can be logged. Also there might be some locking advantages.  
+ (Take all that with a grain of salt, I'm no DBA or SQL guru) 
+ 
+ Yes, I like that design, and use it with some systems.  Usually, some variant of: 
+ 
+ 
+ One nightmare with your design is that every single insert, update or delete would have to hit that table. This can cause major performance and locking issues. It is a bad idea to generalize a table like that (not just for timestamps). It would also be a nightmare to get the data out of.  
+ If your code would break at the GUI level from adding fields you don't want the user to see, you are incorrectly writing the code to your GUI which should specify only the minimum number of columns you need and never select *. 
+ 
+ I think the extra joins you will have to perform to get the Timestamps will be a slight performance hit and  a pain the neck.  Other than that I see no problem. 
+ 
+ We did exactly what you did.  It is great for the object model and the ability to add new stamps and differant types of stamps to our model with minimal code.  We were also tracking the user that made the change, and a lot of our logic was heavily based on these stamps.  It woked very well. 
+ One drawback is reporting, and/or showing a lot of differant stamps on on screen.  If you are doing it the way we did it, it caused a lot of joins.  Also,back ending changes was a pain. 
+ 
+ Our solution is to maintain a "Transaction" table, in addition to our "Session" table. UPDATE, INSERT and DELETE instructions are all managed through a "Transaction" object and each of these SQL instruction is stored in the "Transaction" table once it has been successfully executed on the database. This "Transaction" table has other fields such as transactiontType (I for INSERT, D for DELETE, U for UPDATE), transactionDateTime, etc, and a foreign key "sessionId", telling us finally who sent the instruction. It is even possible, through some code, to identify who did what and when (Gus created the record on monday, Tim changed the Unit Price on tuesday, Liz added an extra discount on thursday, etc). 
+ Pros for this solution are: 
+ 
+ you're able to tell "what who and when", and to show it to your users! (you'll need some code to analyse SQL statements) 
+ if your data is replicated, and replication fails, you can rebuild your database through this table 
+ 
+ Cons are 
+ 
+ 100 000 data updates per month mean 100 000 records in Tbl_Transaction 
+ Finally, this table tends to be 99% of your database volume 
+ 
+ Our choice: all records older than 90 days are automatically deleted every morning 
+ 
+ Philippe, 
+ Don't simply delete those older than 90 days, move them first to a separate DB or write them to text file, do something to preserve them, just move them out of the main production DB. 
+ If ever comes down to it, most often it is a case of "he with the most documentation wins"! 
+ 

@@ -1,0 +1,103 @@
+*** in-what-way-does-denormalization-improve-database-performance ***
+
+ I heard a lot about denormalization which was made to improve performance of certain application. But I've never tried to do anything related. 
+ So, I'm just curious, which places in normalized DB makes performance worse or in other words, what are denormalization principles? 
+ How can I use this technique if I need to improve performance?    
+ 
+ Denormalization is a  **time-space**
+ trade-off. Normalized data takes less space, but may require join to construct the desired result set, hence more time. If it's denormalized, data are replicated in several places. It then takes more space, but the desired view of the data is readily available.  
+ There are other time-space optimizations, such as 
+ 
+ denormalized view 
+ precomputed columns 
+ 
+ As with any of such approach, this improves  **reading data**
+ (because they are readily available), but  **updating data**
+ becomes more costly (because you need to update the replicated or precomputed data). 
+ 
+ Denormalization is generally used to either: 
+ 
+ Avoid a certain number of queries 
+ Remove some joins 
+ 
+ The basic idea of denormalization is that you'll add redundant data, or group some, to be able to get those data more easily -- at a smaller cost; which is better for performances. 
+ 
+A quick examples? 
+ 
+ Consider a "Posts" and a "Comments" table, for a blog
+
+ 
+ For each Post, you'll have several lines in the "Comment" table 
+ This means that to display a list of posts with the associated number of comments, you'll have to:
+
+ 
+ Do one query to list the posts 
+ Do one query per post to count how many comments it has  (Yes, those can be merged into only one, to get the number for all posts at once) 
+ Which means several queries. 
+ 
+ 
+ Now, if you add a "number of comments" field into the Posts table:
+
+ 
+ You only need one query to list the posts 
+ And no need to query the Comments table: the number of comments are already de-normalized to the Posts table. 
+ And only one query that returns one more field is better than more queries. 
+ 
+ 
+ Now, there are some costs, yes: 
+ 
+ First, this costs some place on both disk and in memory, as you have some redundant informations:
+
+ 
+ The number of comments are stored in the Posts table 
+ And you can also find those number counting on the Comments table 
+ 
+ Second, each time someone adds/removes a comment, you have to:
+
+ 
+ Save/delete the comment, of course 
+ But also, update the corresponding number in the Posts table. 
+ But, if your blog has a lot more people reading than writing comments, this is probably not so bad. 
+ 
+ 
+ 
+ The word "denormalizing" leads to confusion of the design issues.  Trying to get a high performance database by denormalizing is like trying to get to your destination by driving away from New York.  It doesn't tell you which way to go. 
+ What you need is a good design discipline, one that produces a simple and sound design, even if that design sometimes conflicts with the rules of normalization.   
+ One such design discipline is star schema.  In a star schema, a single fact table serves as the hub of a star of tables.  The other tables are called dimension tables, and they are at the rim of the schema.  The dimensions are connected to the fact table by relationships that look like the spokes of a wheel.  Star schema is basically a way of projecting multidimensional design onto an SQL implementation. 
+ Closely related to star schema is snowflake schema, which is a little more complicated. 
+ If you have a good star schema, you will be able to get a huge variety of combinations of your data with no more than a three way join, involving two dimensions and one fact table.  Not only that, but many OLAP tools will be able to decipher your star design automatically, and give you point-and-click, drill down, and graphical analysis access to your data with no further programming. 
+ Star schema design occasionally violates second and third normal forms, but it results in more speed and flexibility for reports and extracts.  It's most often used in data warehouses, data marts, and reporting databases.  You'll generally have much better results from star schema or some other retrieval oriented design,  than from just haphazard "denormalization". 
+ 
+ The critical issues in denormalizing are: 
+ 
+ Deciding what data to duplicate and why   
+ Planning how to keep the data in synch 
+ Refactoring the queries to use the denormalized fields. 
+ 
+ One of the easiest types of denormalizing is to populate an identity field to tables to avoid a join. As identities should not ever change, this means the issue of keeping the data in sync rarely comes up. For instance, we populate our client id to several tables because we often need to query them by client and  do not necessarily need, in the queries, any of the data in the tables that would be between the client table and the table we are querying if the data was totally normalized. You still have to do one join to get the client name, but that is better than joining to 6 parent tables to get the client name when that is the only piece of data you need from outside the table you are querying.  
+ However, there would be no benefit to this unless we were often doing queries where data from the intervening tables was needed. 
+ Another common denormalization might be to add a name field to other tables. As names are inherently changeable, you need to ensure that the names stay in synch with triggers. But if this saves you from joining to 5 tables instead of 2, it can be worth the cost of the slightly longer insert or update. 
+ 
+ If you have certain requirement, like reporting etc., it can help to denormalize your database in various ways: 
+ 
+ introduce certain data duplication to save yourself some JOINs (e.g. fill certain information into a table and be ok with duplicated data, so that all the data in that table and doesn't need to be found by joining another table) 
+ you can pre-compute certain values and store them in a table column, insteda of computing them on the fly, everytime to query the database. Of course, those computed values might get "stale" over time and you might need to re-compute them at some point, but just reading out a fixed value is typically cheaper than computing something (e.g. counting child rows) 
+ 
+ There are certainly more ways to denormalize a database schema to improve performance, but you just need to be aware that you do get yourself into a certain degree of trouble doing so. You need to carefully weigh the pros and cons - the performance benefits vs. the problems you get yourself into - when making those decisions. 
+ 
+ Consider a database with a properly normalized parent-child relationship.   
+ Let's say the cardinality is an average of 2x1.   
+ You have two tables, Parent, with  p  rows.  Child with 2x  p  rows. 
+ The join operation means for  p  parent rows, 2x  p  child rows must be read.  The total number of rows read is  p  + 2x  p .   
+ Consider denormalizing this into a single table with only the child rows, 2x  p .  The number of rows read is 2x  p .   
+ Fewer rows == less physical I/O == faster. 
+ 
+ As per the last section of this article, 
+ https://technet.microsoft.com/en-us/library/aa224786%28v=sql.80%29.aspx 
+ one could use Virtual Denormalization, where you create Views with some denormalized data for running more simplistic SQL queries faster, while the underlying Tables remain normalized for faster add/update operations (so long as you can get away with updating the Views at regular intervals rather than in real-time).  I'm just taking a class on Relational Databases myself but, from what I've been reading, this approach seems logical to me. 
+ 
+ **Benefits of de-normalization over normalization**
+
+ Basically de-normalization is used for DBMS not for RDBMS. As we know that RDBMS works with normalization, which means no repeat data again and again. But still repeat some data when you use foreign key.  
+ When you use DBMS then there is a need to remove normalization. For this, there is a need for repetition. But still, it improves performance because there is no relation among the tables and each table has indivisible existence. 
+ 

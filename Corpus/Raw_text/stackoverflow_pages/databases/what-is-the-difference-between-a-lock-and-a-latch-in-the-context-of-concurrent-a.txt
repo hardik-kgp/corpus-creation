@@ -1,0 +1,86 @@
+*** what-is-the-difference-between-a-lock-and-a-latch-in-the-context-of-concurrent-a ***
+
+ I am trying to understand a paper on concurrent B-tree, in which the author mentioned latch vs lock, and how latches do not need a "Lock Manager". I have been trying to figure out what are differences between those two for two days. 
+ Google resulting in: 
+ "locks assure logical consistency of data.  They are implemented via a lock table, held for a long time (e.g. 2PL), and part of the deadlock detection mechanism. 
+ latches are like semaphores. They assure physical consistency of data and resources, which are not visible at the transactional level" 
+ However, I am still pretty confused. Can some one elaborate on this? and what exactly does a lock manager do?  
+ Thanks in advance. 
+ 
+ From CMU 15-721 (Spring 2016), lecture 6 presentation, slides 25 and 26, which cites  A Survey of B-Tree Locking Techniques  by Goetz Graefe: 
+ **Locks**
+  
+→ Protects the index’s logical contents from other txns.  
+→ Held for txn duration. 
+→ Need to be able to rollback changes. 
+ **Latches**
+
+→ Protects the critical sections of the index’s internal data structure from other threads. 
+→ Held for operation duration. 
+→ Do not need to be able to rollback changes. 
+ 
+ 
+ 
+ It really depends on your DBMS, but here's a good explanation for Oracle. 
+ http://www.dba-oracle.com/t_lru_latches.htm 
+ 
+ Latches are like locks for RAM memory
+  structures to prevent concurrent
+  access and ensure serial execution of
+  kernel code.  The LRU (least recently
+  used) latches are used when seeking,
+  adding, or removing a buffer from the
+  buffer cache, an action that can only
+  be done by one process at a time. 
+ 
+ 
+ Another name for a latch is 'spin lock'. It's a simple 'while loop' until bit will be zero (depending on implementation). The execution thread is never asleep while the latch is not available. No any queue. A spin lock is useful for short-time memory object locking, but wasteful if held for a longer duration. See the  "Spinlock" article on Wikipedia 
+ Locks are usually supported by the system and in case that they are taken, your thread will be put to sleep so it won't consume any processor resources. Each lock keeps an internal queue of all suspended threads.  
+ The lock manager is the subsystem that can provide you as spin locks as heavyweight locks for concurrency support. 
+ See also the  article by Tom Kyte about latches and locks . 
+ 
+ Following is from  **SQL Server**
+ stand point. 
+ Latches are short-term light weight synchronization objects. Unlike locks, latches do not hold till the entire logical transaction. They hold only on the operation on the  . 
+ Latches are used by the engine for synchronization of multiple threads (for example trying to insert on a table). Latches are not for developer or application - it is for the engine to do it's task. Latches are internal control mechanism. Whereas locks are for the developer and application to control. Latches are for internal memory consistency. Locks are for logical transactional consistency. 
+ Waits caused by latches are very important for diagnosing performance issues. Take a look at  Diagnosing and Resolving Latch Contention on SQL Server - Whitepaper . The   is an important wait type. 
+ References 
+ 
+ SQL Server Latches and their indication of performance issues 
+ Knee-Jerk Wait Statistics : PAGELATCH 
+ Inside SQL Server: Indexing and Locking 
+ 
+ 
+ **The different between Locks and Latches:**
+
+ **Reference taken from this blog.**
+
+ Locks ensure that same record cannot be modified by two different connections and Latches ensure that record resides in a proper data page for further reading and writing operation. 
+ Locks provide a consistency of logical transaction and Latches provide a consistency of the memory area. 
+ The DBA can control and manage database locks by applying different Isolation Levels and for Latches, DBA doesn’t have any control because it’s managed by the SQL Server. 
+ 
+ Quoting from  OLTP Through the Looking Glass, and What We Found There  by Stonebraker et al. 
+ 
+ Locking. Traditional two-phase locking poses a sizeable overhead since all accesses to database structures are governed by a separate entity, the Lock Manager. 
+ Latching. In a multi-threaded database, many data structures have to be latched before they can be accessed. Removing this feature and going to a single-threaded approach has a noticeable performance impact. 
+ 
+ This interpretation then associates locking with database level objects e.g. rows, whereas latches operate at the lower level of data structures. 
+ 
+ According to paper  Architecture of a Database System  p223. 
+ 
+ Latches differ from locks in a number of ways: 
+ 
+ Locks are kept in the lock table and located via hash tables; latches reside in memory near the resources they protect, and are accessed via direct addressing. 
+ In a strict 2PL implementation, locks are subject to the strict 2PL protocol. Latches may be acquired or dropped during a transaction based on special-case internal logic. 
+ Lock acquisition is entirely driven by data access, and hence the order and lifetime of lock acquisitions is largely in the hands of applications and the query optimizer. Latches are acquired by specialized code inside the DBMS, and the DBMS internal code issues latch requests and released strategically. 
+ Locks are allowed to produce deadlock, and lock deadlocks are detected and resolved via transactional restart. Latch deadlock must be avoided; the occurrence of a latch deadlock represents a bug in the DBMS code. 
+ Latches are implemented using an atomic hardware instruction or, in rare cases, where this is not available, via mutual exclusion in the OS kernel. 
+ Latch calls take at most a few dozen CPU cycles whereas lock requests take hundreds of CPU cycles. 
+ The lock manager tracks all the locks held by a transaction and automatically releases the locks in case the transaction throws an exception, but internal DBMS routines that manipulate latches must carefully track them and include manual cleanup as part of their exception handling. 
+ Latches are not tracked and so cannot be automatically released if the task faults. 
+ 
+ 
+ 
+ Locks can be added on database entities, e.g. tuples, transactions. 
+ Latches can be added on underlined data representation, e.g. page table in memory which maps page identifier to a specific frame. 
+ 

@@ -1,0 +1,21 @@
+*** simulating-relations-in-mongodb ***
+
+ Being one of the most popular NoSQL solutions MongoDB has most of the advantages of this approach. But one issue I'm still struggling with is how reflect object relations in NoSQL data store, specifically - MongoDB. 
+ For example, let's consider a simple data model: User, Post and Comment. It is clear to me that comments have no value on their own and thus become embedded objects for Posts. But when it comes to users - that becomes tricky because User is an entity on its own, not coupled with Post. Now in case I need to list posts with user full names and links to profiles on a web page, I would need to have a list of posts and information about posts authors (name and id at least). 
+ I see 2 possible solutions here: 
+ 
+ De-normalize the data in a way that each post entry contains its author's ID and full name (and any other user attributes I might need when listing posts). This way I would make querying for the data really simple but wheneve user updates his/her profile I would need to update all the posts by the user as well. But then I need to also store user attributes in the comments objects which means that updating user profile essentially requires me to update all the posts that have at least one comment by the user unless I want to store comments in a separate collections. 
+ Only store user ID in the post object and run 2 queries: one to get a list of posts and another one to get list of users where user id is in the list of post authors. This requires  2 queries and extra processing in my application code to map users to the posts. 
+ 
+ I'm sure I'm not the first one facing this issue but unfortunately I have not found any best practices on this topic so far. Opinions? 
+ 
+ Both are valid solutions, the advantage of solution 1 is that you can show a page like this with retrieving only one document from the db. Users don't update their profile very often and you can update all posts and embedded comments async after a user profile is changed. You can index the posts and embedded comments on userid so the update should be fast. Updating in mongodb is very speedy because mongodb does an update-in-place and you can't rollback or commit so mongodb doesn't have to log the changes.  
+ However users on sites like stackoverflow also have a reputation and this reputation changes a lot more than their profile.  
+ Solution 2 requires the retrieving of more documents per page, however you can use the $in operator with a list of userid's (userid of post+userid's of comments) so you only need two "selects statements".   
+ 
+ I faced a similar issue and this  is how I solved it : 
+ (When I solved this issue, my driving motivation was to avoid joins) 
+ use 2 separate collection : one for USERS and one for POSTS. Store the user object  along with the post in the posts collections.  Do not update the posts collection when the user object is changed.  maintain the user information is the USERS collection. Sure the post data would end up containing stale  user information but how often does the user change his/her profile. 
+ If you have to show the absolute latest user information along with each posts , then retrieve the user information from a cache. 
+ Hope this works for you.  My solution is still in development so I do not have load test results to share with you. 
+ 

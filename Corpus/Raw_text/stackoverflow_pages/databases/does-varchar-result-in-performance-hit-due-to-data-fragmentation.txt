@@ -1,0 +1,34 @@
+*** does-varchar-result-in-performance-hit-due-to-data-fragmentation ***
+
+ How are varchar columns handled internally by a database engine? 
+ For a column defined as  , the DBMS allocates 100 contiguous bytes on the disk. However, for a column defined as  , that presumably isn't the case, since the whole point of   is to not allocate any more space than required to store the actual data value stored in the column. So, when a user updates a database row containing an empty   column to a value consisting of 80 characters for instance, where does the space for that 80 characters get allocated from? 
+ It seems that   columns must result in a fair amount of fragmentation of the actual database rows, at least in scenarios where column values are initially inserted as blank or NULL, and then updated later with actual values. Does this fragmentation result in degraded performance on database queries, as opposed to using char type values, where the space for the columns stored in the rows is allocated contiguously? Obviously using   results in less disk space than using char, but is there a performance hit when optimizing for query performance, especially for columns whose values are frequently updated after the initial insert? 
+ 
+ The data structures used inside a database engine is far more complex than you are giving it credit for!  Yes, there are issues of fragmentation and issues where updating a varchar with a large value can cause a performance hit, however its difficult to explain /understand what the implications of those issues are without a fuller understanding of the datastructures involved. 
+ For MS Sql server you might want to start with understanding pages - the fundamental unit of storage (see  http://msdn.microsoft.com/en-us/library/ms190969.aspx ) 
+ In terms of the performance implications of fixes vs variable storage types on performance there are a number of points to consider: 
+ 
+ Using variable length columns can improve performance as it allows more rows to fit on a single page, meaning fewer reads 
+ Using variable length columns requires special offset values, and the maintenance of these values requires a slight overhead, however this extra overhead is generally neglible. 
+ Another potential cost is the cost of increasing the size of a column when the page containing that row is nearly full 
+ 
+ As you can see, the situation is rather complex - generally speaking however you can trust the database engine to be pretty good at dealing with variable data types and they should be the data type of choice when there may be a significant variance of the length of data held in a column. 
+ At this point I'm also going to recommend the excellent book "Microsoft Sql Server 2008 Internals" for some more insight into how complex things like this really get! 
+ 
+ You make a lot of assumptions in your question that aren't necessarily true. 
+ The type of the a column in any DBMS tells you nothing at all about the nature of the storage of that data unless the documentation clearly tells you how the data is stored.  IF that's not stated, you don't know how it is stored and the DBMS is free to change the storage mechanism from release to release. 
+ In fact some databases store CHAR fields internally as VARCHAR, while others make a decision about how to the store the column based on the declared size of the column.  Some database store VARCHAR with the other columns, some with BLOB data, and some implement other storage,  Some databases always rewrite the entire row when a column is updated, others don't.  Some pad VARCHARs to allow for limited future updating without relocating the storage. 
+ The DBMS is responsible for figuring out how to store the data and return it to you in a speedy and consistent fashion.  It always amazes me how many people to try out think the database, generally in advance of detecting any performance problem. 
+ 
+ The answer will depend on the specific DBMS.  For Oracle, it is certainly possible to end up with fragmentation in the form of "chained rows", and that incurs a performance penalty.  However, you can mitigate against that by pre-allocating some empty space in the table blocks to allow for some expansion due to updates.  However, CHAR columns will typically make the table much bigger, which has its own impact on performance.  CHAR also has other issues such as blank-padded comparisons which mean that, in Oracle, use of the CHAR datatype is  **almost never**
+ a good idea. 
+ 
+ Your question is too general because different database engines will have different behavior. If you really need to know this, I suggest that you set up a benchmark to write a large number of records and time it. You would want enough records to take at least an hour to write. 
+ As you suggested, it would be interesting to see what happens if you write insert all the records with an empty string ("") and then update them to have 100 characters that are reasonably random, not just 100 Xs. 
+ If you try this with SQLITE and see no significant difference, then I think it unlikely that the larger database servers, with all the analysis and tuning that goes on, would be worse than SQLITE. 
+ 
+ This is going to be completely database specific.  
+ I do know that in Oracle, the database will reserve a certain percentage of each block for future updates (The PCTFREE parameter).  For example, if PCTFREE is set to 25%, then a block will only be used for new data until it is 75% full.  By doing that, room is left for rows to grow.  If the row grows such that the 25% reserved space is completely used up, then you do end up with chained rows and a performance penalty.  If you find that a table has a large number of chained rows, you can tune the PCTFREE for that table.  If you have a table which will never have any updates at all, a PCTFREE of zero would make sense 
+ 
+ In SQL Server varchar (except varchar(MAX)) is generally stored together with the rest of the row's data (on the same page if the row's data is < 8KB and on the same extent if it is < 64KB. Only the large data types such as TEXT, NTEXT, IMAGE, VARHCAR(MAX), NVARHCAR(MAX), XML and VARBINARY(MAX) are stored seperately. 
+ 

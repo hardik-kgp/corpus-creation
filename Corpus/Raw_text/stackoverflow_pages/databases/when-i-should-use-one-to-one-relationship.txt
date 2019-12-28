@@ -1,0 +1,80 @@
+*** when-i-should-use-one-to-one-relationship ***
+
+ Sorry for that noob question but is there any real needs to use one-to-one relationship with tables in your database? You can implement all necessary fields inside one table. Even if data becomes very large you can enumerate column names that you need in   statement instead of using  . When do you really need this separation? 
+ 
+ **1 to 0..1**
+
+ 
+ The "1 to 0..1" between super and sub-classes is used as a part of "all classes in separate tables" strategy for  implementing inheritance . 
+ A "1 to 0..1" can be represented in a single table with "0..1" portion covered by NULL-able fields. However, if the relationship is  mostly  "1 to 0" with only a few "1 to 1" rows, splitting-off the "0..1" portion into a separate table might save some storage (and cache performance) benefits. Some databases are thriftier at storing NULLs than others, so a "cut-off point" where this strategy becomes viable can vary considerably. 
+ 
+ **1 to 1**
+
+ 
+ The real "1 to 1" vertically partitions the data, which may have implications for caching. Databases typically implement caches at the page level, not at the level of individual fields, so even if you select only a few fields from a row, typically the whole page that row belongs to will be cached. If a row is very wide and the selected fields relatively narrow, you'll end-up caching a lot of information you don't actually need. In a situation like that, it may be useful to vertically partition the data, so  only  the narrower, more frequently used portion or rows gets cached, so more of them can fit into the cache, making the cache effectively "larger". 
+ Another use of vertical partitioning is to change the locking behavior: databases typically cannot lock at the level of individual fields, only the whole rows. By splitting the row, you are allowing a lock to take place on only one of its halfs. 
+ Triggers are also typically table-specific. While you can theoretically have just one table and have the trigger ignore the "wrong half" of the row, some databases may impose additional limits on what a trigger can and cannot do that could make this impractical. For example, Oracle doesn't let you modify the mutating table - by having separate tables, only one of them may be mutating so you can still modify the other one from your trigger. 
+ Separate tables may allow more granular security. 
+ 
+ These considerations are irrelevant in most cases, so in most cases you should consider merging the "1 to 1" tables into a single table. 
+ 
+ If data in one table is related to, but does not 'belong' to the entity described by the other, then that's a candidate to keep it separate. 
+ This could provide advantages in future, if the separate data needs to be related to some other entity, also. 
+ 
+ If you place two one-to-one tables in one, its likely you'll have  semantics issue. For example, if every device has one remote controller, it doesn't sound quite good to place the device and the remote controller with their bunch of characteristics in one table. You might even have to spend time figuring out if a certain attribute belongs to the device or the remote controller. 
+ There might be cases, when half of your columns will stay empty for a long while, or will not ever be filled in. For example, a car could have one trailer with a bunch of characteristics, or might have none. So you'll have lots of unused attributes. 
+ If your table has 20 attributes, and only 4 of them are used occasionally, it makes sense to break the table into 2 tables for performance issues.  
+ In such cases it isn't good to have everything in one table. Besides, it isn't easy to deal with a table that has 45 columns! 
+ 
+ My 2 cents. 
+ I work in a place where we all develop in a large application, and everything is a module. For example, we have a   table, and we have a module that adds facebook details for a user, another module that adds twitter details to a user. We could decide to unplug one of those modules and remove all its functionality from our application. In this case, every module adds their own table with 1:1 relationships to the global   table, like this: 
+ 
+ 
+ The most sensible time to use this would be if there were two separate concepts that would only ever relate in this way. For example, a Car can only have one current Driver, and the Driver can only drive one car at a time - so the relationship between the concepts of Car and Driver would be 1 to 1. I accept that this is contrived example to demonstrate the point. 
+ Another reason is that you want to specialize a concept in different ways. If you have a Person table and want to add the concept of different types of Person, such as Employee, Customer, Shareholder - each one of these would need different sets of data. The data that is similar between them would be on the Person table, the specialist information would be on the specific tables for Customer, Shareholder, Employee. 
+ Some database engines struggle to efficiently add a new column to a very large table (many rows) and I have seen extension-tables used to contain the new column, rather than the new column being added to the original table. This is one of the more suspect uses of additional tables. 
+ You may also decide to divide the data for a single concept between two different tables for performance or readability issues, but this is a reasonably special case if you are starting from scratch - these issues will show themselves later. 
+ 
+ not very often. 
+ you may find some benefit if you need to implement some security - so some users can see some of the columns (table1) but not others (table2).. 
+ of course some databases (Oracle) allow you to do this kind of security in the same table, but some others may not. 
+ 
+ You are referring to database normalization.  One example that I can think of in an application that I maintain is Items.  The application allows the user to sell many different types of items (i.e. InventoryItems, NonInventoryItems, ServiceItems, etc...).  While I could store all of the fields required by every item in one Items table, it is much easier to maintain to have a base Item table that contains fields common to all items and then separate tables for each item type (i.e. Inventory, NonInventory, etc..) which contain fields specific to only that item type.  Then, the item table would have a foreign key to the specific item type that it represents.  The relationship between the specific item tables and the base item table would be one-to-one. 
+ Below, is an article on normalization. 
+ http://support.microsoft.com/kb/283878 
+ 
+ As with all design questions the answer is "it depends."  
+ There are few considerations:  
+ 
+ how large will the table get (both in terms of fields and rows)? It can be inconvenient to house your users' name, password with other less commonly used data both from a maintenance and programming perspective 
+ fields in the combined table which have constraints could become cumbersome to manage over time. for example, if a trigger needs to fire for a specific field, that's going to happen for every update to the table regardless of whether that field was affected.  
+ how certain are you that the relationship will be 1:1? As  This  question points out, things get can complicated quickly.  
+ 
+ 
+ Another use case can be the following: you might import data from some source and update it daily, e.g. information about books. Then, you add data yourself about some books. Then it makes sense to put the imported data in another table than your own data. 
+ 
+ I normally encounter two general kinds of 1:1 relationship in practice: 
+ 
+ IS-A relationships, also known as supertype/subtype relationships. This is when one kind of entity is actually a type of another entity (EntityA IS A EntityB). Examples: 
+ 
+ Person entity, with separate entities for Accountant, Engineer, Salesperson, within the same company. 
+ Item entity, with separate entities for Widget, RawMaterial, FinishedGood, etc. 
+ Car entity, with separate entities for Truck, Sedan, etc. 
+ 
+ In all these situations, the supertype entity (e.g. Person, Item or Car) would have the attributes common to all subtypes, and the subtype entities would have attributes unique to each subtype. The primary key of the subtype would be the same as that of the supertype. 
+ "Boss" relationships. This is when a person is the unique boss or manager or supervisor of an organizational unit (department, company, etc.). When there is only one boss allowed for an organizational unit, then there is a 1:1 relationship between the person entity that represents the boss and the organizational unit entity. 
+ 
+ 
+ First, I think it is a question of modelling and defining what consist a separate entity. Suppose you have   with one and only one single  . Of course you could implement everything in a single table  , but if, in the future you allow him to have 2 or more addresses, then you will need to refactor that (not a problem, but take a conscious decision). 
+ I can also think of an interesting case not mentioned in other answers where splitting the table could be useful: 
+ Imagine, again, you have   with a single   each, but this time it is optional to have an address. Of course you could implement that as a bunch of  -able columns such as  . But suppose that given that you  do have  an address the state is not optional, but the ZIP is. How to model that in a single table? You could use a constraint on the   table, but it is much easier to divide in another table and make the foreign_key NULLable. That way your model is much more explicit in saying that the  entity    is optional, and that the   is an optional attribute of that entity. 
+ 
+ In my time of programming i encountered this only in one situation. Which is when there is a 1-to-many and an 1-to-1 relationship between the same 2 entities ("Entity A" and "Entity B"). 
+ When "Entity A" has multiple "Entity B" and "Entity B" has only 1 "Entity A"
+and
+"Entity A" has only 1 current "Entity B" and "Entity B" has only 1 "Entity A". 
+ For example, a Car can only have one current Driver, and the Driver can only drive one car at a time - so the relationship between the concepts of Car and Driver would be 1 to 1. - I borrowed this example from @Steve Fenton's answer 
+ Where a Driver can drive multiple Cars, just not at the same time. So the Car and Driver entities are 1-to-many or many-to-many. But if we need to know who the current driver is, then we also need the 1-to-1 relation. 
+ 
+ Another use case might be if the maximum number of columns in the database table is exceeded. Then you could join another table using OneToOne 
+ 

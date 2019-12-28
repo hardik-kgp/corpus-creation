@@ -1,0 +1,278 @@
+*** memcached-vs-redis ***
+
+ We're using a Ruby web-app with  Redis  server for caching. Is there a point to test  Memcached  instead? 
+ What will give us better performance? Any pros or cons between Redis and Memcached? 
+ Points to consider: 
+ 
+ Read/write speed. 
+ Memory usage. 
+ Disk I/O dumping. 
+ Scaling. 
+ 
+ 
+ Summary (TL;DR) 
+ **Updated June 3rd, 2017**
+
+ Redis is more powerful, more popular, and better supported than memcached. Memcached can only do a small fraction of the things Redis can do. Redis is better even where their features overlap. 
+ For anything new, use Redis. 
+ Memcached vs Redis: Direct Comparison 
+ Both tools are powerful, fast, in-memory data stores that are useful as a cache. Both can help speed up your application by caching database results, HTML fragments, or anything else that might be expensive to generate. 
+ **Points to Consider**
+
+ When used for the same thing, here is how they compare using the original question's "Points to Consider": 
+ 
+ **Read/write speed**
+: Both are extremely fast. Benchmarks vary by workload, versions, and many other factors but generally show redis to be as fast or almost as fast as memcached. I recommend redis, but not because memcached is slow. It's not. 
+ **Memory usage**
+: Redis is better.
+
+ 
+ memcached: You specify the cache size and as you insert items the daemon quickly grows to a little more than this size. There is never really a way to reclaim any of that space, short of restarting memcached. All your keys could be expired, you could flush the database, and it would still use the full chunk of RAM you configured it with. 
+ redis: Setting a max size is up to you. Redis will never use more than it has to and will give you back memory it is no longer using. 
+ I stored 100,000 ~2KB strings (~200MB) of random sentences into both. Memcached RAM usage grew to ~225MB. Redis RAM usage grew to ~228MB. After flushing both, redis dropped to ~29MB and memcached stayed at ~225MB. They are similarly efficient in how they store data, but only one is capable of reclaiming it. 
+ 
+ **Disk I/O dumping**
+: A clear win for redis since it does this by default and has very configurable persistence. Memcached has no mechanisms for dumping to disk without 3rd party tools. 
+ **Scaling**
+: Both give you tons of headroom before you need more than a single instance as a cache. Redis includes tools to help you go beyond that while memcached does not. 
+ 
+ **memcached**
+
+ Memcached is a simple volatile cache server. It allows you to store key/value pairs where the value is limited to being a string up to 1MB. 
+ It's good at this, but that's all it does. You can access those values by their key at extremely high speed, often saturating available network or even memory bandwidth. 
+ When you restart memcached your data is gone. This is fine for a cache. You shouldn't store anything important there. 
+ If you need high performance or high availability there are 3rd party tools, products, and services available. 
+ **redis**
+
+ Redis can do the same jobs as memcached can, and can do them better. 
+ Redis can  act as a cache  as well. It can store key/value pairs too. In redis they can even be up to 512MB. 
+ You can turn off persistence and it will happily lose your data on restart too. If you want your cache to survive restarts it lets you do that as well. In fact, that's the default. 
+ It's super fast too, often limited by network or memory bandwidth. 
+ If one instance of redis/memcached isn't enough performance for your workload, redis is the clear choice. Redis includes  cluster support  and comes with high availability tools ( redis-sentinel ) right "in the box". Over the past few years redis has also emerged as the clear leader in 3rd party tooling. Companies like Redis Labs, Amazon, and others offer many useful redis tools and services. The ecosystem around redis is much larger. The number of large scale deployments is now likely greater than for memcached. 
+ The Redis Superset 
+ Redis is more than a cache. It is an in-memory data structure server. Below you will find a quick overview of things Redis can do beyond being a simple key/value cache like memcached.  Most  of redis' features are things memcached cannot do. 
+ **Documentation**
+
+ Redis is better documented than memcached. While this can be subjective, it seems to be more and more true all the time. 
+ redis.io  is a fantastic easily navigated resource. It lets you  try redis in the browser  and even gives you live interactive examples with each command in the docs. 
+ There are now 2x as many stackoverflow results for redis as memcached. 2x as many Google results. More readily accessible examples in more languages. More active development. More active client development. These measurements might not mean much individually, but in combination they paint a clear picture that support and documentation for redis is greater and much more up-to-date. 
+ **Persistence**
+
+ By default redis persists your data to disk using a mechanism called snapshotting. If you have enough RAM available it's able to write all of your data to disk with almost no performance degradation. It's almost free! 
+ In snapshot mode there is a chance that a sudden crash could result in a small amount of lost data. If you absolutely need to make sure no data is ever lost, don't worry, redis has your back there too with AOF (Append Only File) mode. In this persistence mode data can be synced to disk as it is written. This can reduce maximum write throughput to however fast your disk can write, but should still be quite fast. 
+ There are many configuration options to fine tune persistence if you need, but the defaults are very sensible. These options make it easy to setup redis as a safe, redundant place to store data. It is a  real  database. 
+ **Many Data Types**
+
+ Memcached is limited to strings, but Redis is a data structure server that can serve up many different data types. It also provides the commands you need to make the most of those data types. 
+ **Strings (**
+**commands**
+**)**
+
+ Simple text or binary values that can be up to 512MB in size. This is the only data type redis and memcached share, though memcached strings are limited to 1MB. 
+ Redis gives you more tools for leveraging this datatype by offering commands for bitwise operations, bit-level manipulation, floating point increment/decrement support, range queries, and multi-key operations. Memcached doesn't support any of that. 
+ Strings are useful for all sorts of use cases, which is why memcached is fairly useful with this data type alone. 
+ **Hashes (**
+**commands**
+**)**
+
+ Hashes are sort of like a key value store within a key value store. They map between string fields and string values. Field->value maps using a hash are slightly more space efficient than key->value maps using regular strings. 
+ Hashes are useful as a namespace, or when you want to logically group many keys. With a hash you can grab all the members efficiently, expire all the members together, delete all the members together, etc. Great for any use case where you have several key/value pairs that need to grouped. 
+ One example use of a hash is for storing user profiles between applications. A redis hash stored with the user ID as the key will allow you to store as many bits of data about a user as needed while keeping them stored under a single key. The advantage of using a hash instead of serializing the profile into a string is that you can have different applications read/write different fields within the user profile without having to worry about one app overriding changes made by others (which can happen if you serialize stale data). 
+ **Lists (**
+**commands**
+**)**
+
+ Redis lists are ordered collections of strings. They are optimized for inserting, reading, or removing values from the top or bottom (aka: left or right) of the list. 
+ Redis provides many  commands  for leveraging lists, including commands to push/pop items, push/pop between lists, truncate lists, perform range queries, etc. 
+ Lists make great durable, atomic, queues. These work great for job queues, logs, buffers, and many other use cases. 
+ **Sets (**
+**commands**
+**)**
+
+ Sets are unordered collections of unique values. They are optimized to let you quickly check if a value is in the set, quickly add/remove values, and to measure overlap with other sets. 
+ These are great for things like access control lists, unique visitor trackers, and many other things. Most programming languages have something similar (usually called a Set). This is like that, only distributed. 
+ Redis provides several  commands  to manage sets. Obvious ones like adding, removing, and checking the set are present. So are less obvious commands like popping/reading a random item and commands for performing unions and intersections with other sets. 
+ **Sorted Sets (**
+**commands**
+**)**
+
+ Sorted Sets are also collections of unique values. These ones, as the name implies, are ordered. They are ordered by a score, then lexicographically. 
+ This data type is optimized for quick lookups by score. Getting the highest, lowest, or any range of values in between is extremely fast. 
+ If you add users to a sorted set along with their high score, you have yourself a perfect leader-board. As new high scores come in, just add them to the set again with their high score and it will re-order your leader-board. Also great for keeping track of the last time users visited and who is active in your application. 
+ Storing values with the same score causes them to be ordered lexicographically (think alphabetically). This can be useful for things like auto-complete features. 
+ Many of the sorted set  commands  are similar to commands for sets, sometimes with an additional score parameter. Also included are commands for managing scores and querying by score. 
+ **Geo**
+
+ Redis has several  commands  for storing, retrieving, and measuring geographic data. This includes radius queries and measuring distances between points. 
+ Technically geographic data in redis is stored within sorted sets, so this isn't a truly separate data type. It is more of an extension on top of sorted sets. 
+ **Bitmap and HyperLogLog**
+
+ Like geo, these aren't completely separate data types. These are commands that allow you to treat string data as if it's either a bitmap or a hyperloglog. 
+ Bitmaps are what the bit-level operators I referenced under   are for. This data type was the basic building block for reddit's recent collaborative art project:  r/Place . 
+ HyperLogLog allows you to use a constant extremely small amount of space to count almost unlimited unique values with shocking accuracy. Using only ~16KB you could efficiently count the number of unique visitors to your site, even if that number is in the millions. 
+ **Transactions and Atomicity**
+
+ Commands in redis are atomic, meaning you can be sure that as soon as you write a value to redis that value is visible to all clients connected to redis. There is no wait for that value to propagate. Technically memcached is atomic as well, but with redis adding all this functionality beyond memcached it is worth noting and somewhat impressive that all these additional data types and features are also atomic. 
+ While not quite the same as transactions in relational databases, redis also has  transactions  that use "optimistic locking" ( WATCH / MULTI / EXEC ). 
+ **Pipelining**
+
+ Redis provides a feature called ' pipelining '. If you have many redis commands you want to execute you can use pipelining to send them to redis all-at-once instead of one-at-a-time. 
+ Normally when you execute a command to either redis or memcached, each command is a separate request/response cycle. With pipelining, redis can buffer several commands and execute them all at once, responding with all of the responses to all of your commands in a single reply. 
+ This can allow you to achieve even greater throughput on bulk importing or other actions that involve lots of commands. 
+ **Pub/Sub**
+
+ Redis has  commands  dedicated to  pub/sub functionality , allowing redis to act as a high speed message broadcaster. This allows a single client to publish messages to many other clients connected to a channel. 
+ Redis does pub/sub as well as almost any tool. Dedicated message brokers like  RabbitMQ  may have advantages in certain areas, but the fact that the same server can also give you persistent durable queues and other data structures your pub/sub workloads likely need, Redis will often prove to be the best and most simple tool for the job. 
+ **Lua Scripting**
+
+ You can kind of think of  lua scripts  like redis's own SQL or stored procedures. It's both more and less than that, but the analogy mostly works. 
+ Maybe you have complex calculations you want redis to perform. Maybe you can't afford to have your transactions roll back and need guarantees every step of a complex process will happen atomically. These problems and many more can be solved with lua scripting. 
+ The entire script is executed atomically, so if you can fit your logic into a lua script you can often avoid messing with optimistic locking transactions. 
+ **Scaling**
+
+ As mentioned above, redis includes built in support for clustering and is bundled with its own high availability tool called  . 
+ Conclusion 
+ Without hesitation I would recommend redis over memcached for any new projects, or existing projects that don't already use memcached. 
+ The above may sound like I don't like memcached. On the contrary: it is a powerful, simple, stable, mature, and hardened tool. There are even some use cases where it's a little faster than redis. I love memcached. I just don't think it makes much sense for future development. 
+ Redis does everything memcached does, often better. Any performance advantage for memcached is minor and workload specific. There are also workloads for which redis will be faster, and many more workloads that redis can do which memcached simply can't. The tiny performance differences seem minor in the face of the giant gulf in functionality and the fact that both tools are so fast and efficient they may very well be the last piece of your infrastructure you'll ever have to worry about scaling. 
+ There is only one scenario where memcached makes more sense: where memcached is already in use as a cache. If you are already caching with memcached then keep using it, if it meets your needs. It is likely not worth the effort to move to redis and if you are going to use redis just for caching it may not offer enough benefit to be worth your time. If memcached isn't meeting your needs, then you should probably move to redis. This is true whether you need to scale beyond memcached or you need additional functionality. 
+ 
+ Use Redis if  
+ 
+ You require selectively deleting/expiring items in the cache. (You need this) 
+ You require the ability to query keys of a particular type. eq. 'blog1:posts:*', 'blog2:categories:xyz:posts:*'. oh yeah! this is very important. Use this to invalidate certain types of cached items selectively. You can also use this to invalidate fragment cache, page cache, only AR objects of a given type, etc. 
+ Persistence (You will need this too, unless you are okay with your cache having to warm up after every restart. Very essential for objects that seldom change) 
+ 
+ Use memcached if 
+ 
+ Memcached gives you headached!  
+ umm... clustering? meh. if you gonna go that far, use Varnish and Redis for caching fragments and AR Objects. 
+ 
+ From my experience I've had much better stability with Redis than Memcached 
+ 
+ Memcached is multithreaded and fast. 
+ Redis has lots of features and is very fast, but completely limited to one core as it is based on an event loop. 
+ We use both. Memcached is used for caching objects, primarily reducing read load on the databases. Redis is used for things like sorted sets which are handy for rolling up time-series data. 
+ 
+ **This is too long to be posted as a comment to already accepted answer, so I put it as a separate answer**
+
+ One thing also to consider is whether you expect to have a hard upper memory limit on your cache instance. 
+ Since redis is an nosql database with tons of features and caching is only one option it can be used for, it allocates memory as it needs it — the more objects you put in it, the more memory it uses. The   option does not strictly enforces upper memory limit usage. As you work with cache, keys are evicted and expired; chances are your keys are not all the same size, so internal memory fragmentation occurs. 
+ By default redis uses  jemalloc  memory allocator, which tries its best to be both memory-compact and fast, but it is a general purpose memory allocator and it cannot keep up with lots of allocations and object purging occuring at a high rate. Because of this, on some load patterns redis process can apparently leak memory because of internal fragmentation. For example, if you have a server with 7 Gb RAM and you want to use redis as non-persistent LRU cache, you may find that redis process with   set to 5Gb over time would use more and more memory, eventually hitting total RAM limit until out-of-memory killer interferes. 
+ memcached is a better fit to scenario described above, as it manages its memory in a completely different way. memcached allocates one big chunk of memory — everything it will ever need — and then manages this memory by itself, using its own implemented  slab allocator . Moreover, memcached tries hard to keep internal fragmentation low, as it actually  uses per-slab LRU algorithm , when LRU evictions are done with object size considered. 
+ With that said, memcached still has a strong position in environments, where memory usage has to be enforced and/or be predictable. We've tried to use latest stable redis (2.8.19) as a drop-in non-persistent LRU-based memcached replacement in workload of 10-15k op/s, and it leaked memory A LOT; the same workload was crashing Amazon's ElastiCache redis instances in a day or so because of the same reasons. 
+ 
+ Memcached is good at being a simple key/value store and is good at doing key => STRING. This makes it really good for session storage. 
+ Redis is good at doing key => SOME_OBJECT. 
+ It really depends on what you are going to be putting in there.  My understanding is that in terms of performance they are pretty even. 
+ Also good luck finding any objective benchmarks, if you do find some kindly send them my way. 
+ 
+ If you don't mind a crass writing style,  Redis vs Memcached  on the Systoilet blog is worth a read from a usability standpoint, but be sure to read the back & forth in the comments before drawing any conclusions on performance; there are some methodological problems (single-threaded busy-loop tests), and Redis has made some improvements since the article was written as well.  
+ And no benchmark link is complete without confusing things a bit, so also check out some conflicting benchmarks at  Dormondo's LiveJournal  and  the Antirez Weblog .  
+ Edit  -- as Antirez points out, the Systoilet analysis is rather ill-conceived. Even beyond the single-threading shortfall, much of the performance disparity in those benchmarks can be attributed to the client libraries rather than server throughput. The benchmarks at  the Antirez Weblog  do indeed present a much more apples-to-apples (with the same mouth) comparison. 
+ 
+ I got the opportunity to use both memcached and redis together in the caching proxy that i have worked on , let me share you where exactly i have used what and reason behind same.... 
+ Redis > 
+ 1) Used for indexing the cache content , over the cluster . I have more than billion keys in spread over redis clusters , redis response times is quite less and stable . 
+ 2) Basically , its a key/value store , so where ever in you application you have something similar, one can use redis with bothering much. 
+ 3) Redis persistency, failover and backup (AOF ) will make your job easier . 
+ Memcache > 
+ 1) yes , an optimized memory that can be used as cache . I used it for storing cache content getting accessed very frequently (with 50 hits/second)with size less than 1 MB . 
+ 2) I allocated only 2GB out of 16 GB for memcached that too when my single content size was >1MB  . 
+ 3) As the content grows near the limits , occasionally i have observed higher response times in the stats(not the case with redis) . 
+ If you ask for overall experience Redis is much green as it is easy to configure, much flexible with stable robust features.  
+ Further , there is a benchmarking result available at this  link  , below are few higlight from same, 
+ 
+ 
+ Hope this helps!! 
+ 
+ Another bonus is that it can be very clear how memcache is going to behave in a caching scenario, while redis is generally used as a persistent datastore, though it can be configured to behave just like memcached aka evicting Least Recently Used items when it reaches max capacity.    
+ Some apps I've worked on use both just to make it clear how we intend the data to behave - stuff in memcache, we write code to handle the cases where it isn't there - stuff in redis, we rely on it being there. 
+ Other than that Redis is generally regarded as superior for most use cases being more feature-rich and thus flexible. 
+ 
+ Test. Run some simple benchmarks. For a long while I considered myself an old school rhino since I used mostly memcached and considered Redis the new kid. 
+ With my current company Redis was used as the main cache. When I dug into some performance stats and simply started testing, Redis was, in terms of performance, comparable or minimally  **slower**
+ than MySQL. 
+ Memcached, though simplistic, blew Redis out of water  **totally**
+. It scaled much better: 
+ 
+ for bigger values (required change in slab size, but worked) 
+ for multiple concurrent requests 
+ 
+ Also, memcached eviction policy is in my view, much better implemented, resulting in overall more stable average response time while handling more data than the cache can handle. 
+ Some benchmarking revealed that Redis, in our case, performs very poorly. This I believe has to do with many variables: 
+ 
+ type of hardware you run Redis on 
+ types of data you store 
+ amount of gets and sets 
+ how concurrent your app is 
+ do you need data structure storage 
+ 
+ Personally, I don't share the view Redis authors have on concurrency and multithreading. 
+ 
+ It would not be wrong, if we say that redis is combination of (cache + data structure) while memcached is just a cache. 
+ 
+ One major difference that hasn't been pointed out here is that Memcache has an upper memory limit at all times, while Redis does not by default (but can be configured to). If you would always like to store a key/value for certain amount of time (and never evict it because of low memory) you want to go with Redis. Of course, you also risk the issue of running out of memory... 
+ 
+ A very simple test to set and get 100k unique keys and values against redis-2.2.2 and memcached. Both are running on linux VM(CentOS) and my client code(pasted below) runs on windows desktop. 
+ **Redis**
+
+ 
+ Time taken to store 100000 values is = 18954ms 
+ Time taken to load 100000 values is = 18328ms 
+ 
+ **Memcached**
+
+ 
+ Time taken to store 100000 values is = 797ms 
+ Time taken to retrieve 100000 values is = 38984ms 
+ 
+ 
+ 
+ 
+ The biggest remaining reason is specialization. 
+ Redis can do a lot of different things and one side effect of that is developers may start using a lot of those different feature sets on the same instance. If you're using the LRU feature of Redis for a cache along side hard data storage that is NOT LRU it's entirely possible to run out of memory. 
+ If you're going to setup a dedicated Redis instance to be used ONLY as an LRU instance to avoid that particular scenario then there's not really any compelling reason to use Redis over Memcached. 
+ If you need a reliable "never goes down" LRU cache...Memcached will fit the bill since it's impossible for it to run out of memory by design and the specialize functionality prevents developers from trying to make it so something that could endanger that. Simple separation of concerns. 
+ 
+ Memcached will be faster if you are interested in performance, just even because Redis involves networking (TCP calls). Also internally Memcache is faster. 
+ Redis has more features as it was mentioned by other answers. 
+ 
+ We thought of Redis as a load-takeoff for our project at work. We thought that by using a module in   called   or something similar we would have awesome speed but when testing with AB-test we're proven wrong. 
+ Maybe the module was bad or our layout but it was a very simple task and it was even faster to take data with php and then stuff it into MongoDB. We're using APC as caching-system and with that php and MongoDB. It was much much faster then   Redis module. 
+ My tip is to test it yourself, doing it will show you the results for your environment. We decided that using Redis was unnecessary in our project as it would not make any sense. 
+ 
+ **Redis is better.**
+
+ The Pros of   are  , 
+ 
+ It has a lot of data storage options such  as  string  , sets , sorted sets ,  hashes ,  bitmaps 
+ Disk Persistence of records  
+ Stored Procedure (  scripting)  support 
+ Can act as a Message Broker using PUB/SUB 
+ 
+ Whereas   is an in-memory key value cache type system. 
+ 
+ No support for various data type storages like lists , sets as in
+redis.   
+ The major con is Memcache has no disk persistence . 
+ 
+ 
+ Well I mostly used both with my apps, Memcache for cache the sessions and redis for doctrine/orm queries objects.
+In terms of performance both are almost same.  
+ 
+ Here  is the really great article/differences provided by Amazon 
+ Redis is a clear winner comparing with memcached.  
+ Only one plus point for Memcached
+ **It is multithreaded and fast. Redis has lots of great features and is very fast, but limited to one core.**
+
+ **Great points about Redis, which are not supported in Memcached**
+
+ 
+ Snapshots - User can take a snapshot of Redis cache and persist on
+   secondary storage any point of time.    
+ Inbuilt support for many data structures like Set, Map, SortedSet,
+List, BitMaps etc. 
+ Support for Lua scripting in redis 
+ 
+ 

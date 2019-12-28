@@ -1,0 +1,47 @@
+*** the-ultimate-mysql-legacy-database-nightmare ***
+
+ Table1:
+Everything including the kitchen sink. Dates in the wrong format (year last so you cannot sort on that column), Numbers stored as VARCHAR, complete addresses in the 'street' column, firstname and lastname in the firstname column, city in the lastname column, incomplete addresses, Rows that update preceeding rows by moving data from one field to another based on some set of rules that has changed over the years, duplicate records, incomplete records, garbage records... you name it... oh and of course not a TIMESTAMP or PRIMARY KEY column in sight. 
+ Table2:
+Any hope of normalization went out the window upon cracking this baby open. 
+We have a row for each entry AND update of rows in table one. So duplicates like there is no tomorrow (800MB worth) and columns like Phone1 Phone2 Phone3 Phone4 ... Phone15 (they are not called phone. I use this for illustration) The foriegn key is.. well take guess. There are three candidates depending on what kind of data was in the row in table1 
+ Table3:
+Can it get any worse. Oh yes.
+The "foreign key is a VARCHAR column combination of dashes, dots, numbers and letters! if that doesn't provide the match (which it often doesn't) then a second column of similar product code should. Columns that have names that bear NO correlation to the data within them, and the obligatory Phone1 Phone2 Phone3 Phone4... Phone15. There are columns Duplicated from Table1 and not a TIMESTAMP or PRIMARY KEY column in sight. 
+ Table4: was described as a work in progess and subject to change at any moment. It is essentailly simlar to the others. 
+ At close to 1m rows this is a BIG mess. Luckily it is not my big mess. Unluckily I have to pull out of it a composit record for each "customer". 
+ Initially I devised a four step translation of Table1 adding a PRIMARY KEY and converting all the dates into sortable format. Then a couple more steps of queries that returned filtered data until I had Table1 to where I could use it to pull from the other tables to form the composit. After weeks of work I got this down to one step using some tricks. So now I can point my app at the mess and pull out a nice clean table of composited data. Luckily I only need one of the phone numbers for my purposes so normalizing my table is not an issue.  
+ However this is where the real task begins, because every day hundreds of employees add/update/delete this database in ways you don't want to imagine and every night I must retrieve the new rows. 
+ Since existing rows in any of the tables can be changed, and since there are no TIMESTAMP ON UPDATE columns, I will have to resort to the logs to know what has happened. Of course this assumes that there is a binary log, which there is not! 
+ Introducing the concept went down like lead balloon. I might as well have told them that their children are going to have to undergo experimental surgery. They are not exactly hi tech... in case you hadn't gathered... 
+ The situation is a little delicate as they have some valuable information that my company wants badly. I have been sent down by senior management of a large corporation (you know how they are) to "make it happen". 
+ I can't think of any other way to handle the nightly updates, than parsing the bin log file with yet another application, to figure out what they have done to that database during the day and then composite my table accordingly. I really only need to look at their table1 to figure out what to do to my table. The other tables just provide fields to flush out the record. (Using MASTER SLAVE won't help because I will have a duplicate of the mess.) 
+ The alternative is to create a unique hash for every row of their table1 and build a hash table. Then I would go through the ENTIRE database every night checking to see if the hashs match. If they do not then I would read that record and check if it exists in my database, if it does then I would update it in my database, if it doesn't then its a new record and I would INSERT it. This is ugly and not fast, but parsing a binary log file is not pretty either. 
+ I have written this to help get clear about the problem. often telling it to someone else helps clarify the problem making a solution more obvious. In this case I just have a bigger headache! 
+ Your thoughts would be greatly appreciated. 
+ 
+ The Log Files (binary Logs) were my first thought too. If you knew how they did things you would shudder. For every row there are many many entries in the log as pieces are added and changed. Its just HUGE!
+For now I settled upon the Hash approach. With some clever file memory paging this is quite fast. 
+ 
+ I am not a MySQL person, so this is coming out of left field. 
+ But I think the log files might be the answer. 
+ Thankfully,  you really only need to know 2 things from the log. 
+ You need the record/rowid, and you need the operation. 
+ In most DB's, and I assume MySQL, there's an implicit column on each row, like a rowid or recordid, or whatever. It's the internal row number used by the database. This is your "free" primary key. 
+ Next, you need the operation. Notably whether it's an insert, update, or delete operation on the row. 
+ You consolidate all of this information, in time order, and then run through it. 
+ For each insert/update, you select the row from your original DB, and insert/update that row in your destination DB. If it's a delete, then you delete the row. 
+ You don't care about field values, they're just not important. Do the whole row. 
+ You hopefully shouldn't have to "parse" binary log files, MySQL already must have routines to do that, you just need to find and figure out how to use them (there may even be some handy "dump log" utility you could use). 
+ This lets you keep the system pretty simple, and it should only depend on your actual activity during the day, rather than the total DB size. Finally, you could later optimize it by making it "smarter". For example, perhaps they insert a row, then update it, then delete it. You would know you can just ignore that row completely in your replay. 
+ Obviously this takes a bit of arcane knowledge in order actually read the log files, but the rest should be straightforward. I would like to think that the log files are timestamped as well, so you can know to work on rows "from today", or whatever date range you want. 
+ 
+ Can't you use the existing code which accesses this database and adapt it to your needs? Of course, the code must be horrible, but it  **might**
+ handle the database structure for you, no? You could hopefully concentrate on getting your work done instead of playing archaeologist then. 
+ 
+ you might be able to use maatkit's mk-table-sync tool to synchronise a staging database (your database is only very small, after all). This will "duplicate the mess" 
+ You could then write something that, after the sync, does various queries to generate a set of more sane tables that you can then report off. 
+ I imagine that this could be done on a daily basis without a performance problem. 
+ Doing it all off a different server will avoid impacting the original database.  
+ The only problem I can see is if some of the tables don't have primary keys. 
+ 

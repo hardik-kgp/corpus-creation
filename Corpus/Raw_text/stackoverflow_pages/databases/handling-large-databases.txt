@@ -1,0 +1,140 @@
+*** handling-large-databases ***
+
+ I have been working in a web project(asp.net) for around six months. The final product is about to go live. The project uses SQL Server as the database. We have done performance testing with some large volumes of data, results show that performance degrades when data becomes too large, say 2 million rows (timeout issues, delayed reponses, etc). At first we were using fully normailized database, but now we made it partially normalized due to performance issues (to reduce joins). First of all, is it the right decision?
+Plus what are the possible solutions when data size becomes very large, as the no. of clients increase in future?  
+ I would like to add further: 
+ 
+ 2 million rows are entity tables, tables resolving the relations have much larger rows. 
+ Performance degrades when data + no. of users increases.  
+ Denormalization was done after identifying the heavily used queries. 
+ We are also using some heavy amount of xml columns and xquery. Can this be the cause? 
+ A bit off the topic, some folks in my project say that dynamic sql query is faster than a stored procedure approach. They have done some kind of performance testing to prove their point. I think the opposite is true. Some of the heavily used queries are dynamicaly created where as most of other queries are encapsulated in stored procedures. 
+ 
+ 
+ In the scheme of things, a few million rows is not a particulary large Database. 
+ Assuming we are talking about an OLTP database, denormalising without first identifying the root cause of your bottlenecks is a  **very, very bad idea**
+.  
+ The first thing you need to do is profile your query workload over a representative time period to identify where most of the work is being done (for instance, using SQL Profiler, if you are using SQL Server). Look at the number of logical reads a query performs multiplied by the number of times executed.  Once you have identified the top ten worst performing queries, you need to examine the query execution plans in detail. 
+ I'm going to go out on a limb here (because it is usually the case), but I would be surprised if your problem is not either 
+ 
+ Absence of the 'right' covering indexes for the costly queries 
+ Poorly configured or under specified disk subsystem 
+ 
+ This  SO answer  describes how to profile to find the worst performing queries in a workload. 
+ 
+ 
+ As the old saying goes "normalize till it hurts, denormalise till it works".  
+ 
+ I love this one! This is typically the kind of thing that must not be accepted anymore. I can imagine that, back at   times, where you could not open more than 4 tables at a time (unless changing some of your AUTOEXEC.BAT parameters AND rebooting your computer, ahah! ...), there was some interest in denormalisation. 
+ But nowadays I see this solution similar to a gardener waiting for a tsunami to water his lawn. Please use the available watering can (SQL profiler).  
+ And don't forget that each time you denormalize part of your database, your capacity to further adapt it decreases, as risks of bugs in code increases, making the whole system less and less sustainable. 
+ 
+ 2 million rows is normally not a Very Large Database, depending on what kind of information you store. Usualy when performance degrades you should verify your indexing strategy. The SQL Server Database Engine Tuning Advisor may be of help there. 
+ 
+ There can be a million reasons for that; use SQL Profiler and Query analyzer to determine  why  your queries are getting slow before going down the "schema change" road. It is not unlikely that all you need to do is create a couple of indexes and schedule "update statistics"...   ...but as I said, Profiler and Query Analyzer are the best tools for finding out what is going on... 
+ 
+ That may not be the right decision. Identify all your DB interactions and profile them independently, then find the offending ones and strategize to maximize performance there. Also turning on the audit logs on your DB and mining them might provide better optimization points. 
+ 
+ 
+ At first we were using fully normailized database, but now we made it partially normailzed due to performance issues (to reduce joins). 
+ 
+ As the old saying goes "normalize till it hurts, denormalise till it works".  
+ It's fairly common in large, heavy-use dbs to see a degree of denormalisation to aid performance, so I wouldn't worry too much about it now, so long as your performance is still where you want it to be and your code to manage the "denormalised" fields doesn't become too onerous.  
+ 
+ what are the possible solutions when data size becomes very large, as the no. of clients increase in future?  
+ 
+ Not knowing too much about your application's domain, it's hard to say how you can future-proof it, but splitting out recently used and old data to separate tables is a fairly common approach in heavily-trafficked databases - if 95% of your users are querying their data from the last 30/45 days, having a "live_data" table containing, say, the last 60 day's worth of data and an "old_data" for the older stuff can help your performance. 
+ A good idea would be to make sure you have extensive performance monitoring set up so that you can measure your db's performance as the data and load increases. If you find a noticeable drop in performance, it might be time to revisit your indexes! 
+ 
+ 
+ First make sure your database is reasonably healthy, run DBCC DBREINDEX on it if possible, DBCC INDEXDEFRAG and update statistics if you can't afford the performance hit. 
+ Run Profiler for a reasonable sample time, enough to capture most of the typical functions, but filter on duration greater than something like 10 seconds, you don't care about the things that only take a few milliseconds, don't even look at those. 
+ Now that you have your longest running queries, tune the snot out of them; get the ones that show up the most, look at the execution plans in Query Analyzer, take some time to understand them, add indexes where necessary to speed retrieval 
+ look at creating covered indexes; change the app if needed if it's doing SELECT * FROM... when it only needs SELECT LASTNAME, FIRSTNAME.... 
+ Repeat the profiler sampling, with duration of 5 seconds, 3 seconds, etc. until performance meets your expectations. 
+ 
+ 
+ I think its best to keep your OLTP type data denormalized to prevent your core data from getting 'polluted'. That will bite you down the road. 
+ If the bottle neck is because of reporting or read-only needs, I personally see no problem have denormalized reporting tables in addition to the normalized 'production' tables; create a process to roll up to whatever level you need to make queries snappy. A simple SP or nightly process that periodically rolls up and denormalizes tables used only in a read-only fashion can often make a huge difference in the users experience.  
+ After all, what good is it to have a theoretically clean, perfectly  normalized set of data if no one wants to use your system because it is to slow? 
+ 
+ We've always tried to develop using a database that is as close to the "real world" as possible. That way you avoid a lot of gotcha's like this one, since any ol' developer would go mental if his connection kept timing out during debugging. The best way to debug Sql performance problems IMO is what Mitch Wheat suggest; profile to find the offending scripts and start with them. Optimizing scripts can take you far and then you need to look at indexes. Also make sure that you Sql Server has enought horsepower, especially IO (disk) is important. And don't forget; cache is king. Memory is cheap; buy more. :) 
+ 
+ You are right to do whatever works. 
+... as long as you realise that there may be a price to pay later.  It sounds like you are thinking about this anyway.   
+ Things to check:  
+ **Deadlocks**
+
+ 
+ Are all processes accessing tables in the same order?   
+ 
+ **Slowness**
+
+ 
+ Are any queries doing tablescans?  
+
+ 
+ Check for large joins (more than 4 tables)  
+ Check your indeces 
+ 
+ 
+ See my other posts on general performance tips:  
+ 
+ How do you optimize tables for specific queries? 
+ Favourite performance tuning tricks 
+ 
+ 
+ After having analyzed indexes and queries you might want to just by more hardware. A few more gigs of ram might do the trick. 
+ 
+ Interesting... a lot of answers on here.. 
+ Is the rdbms / os version 64 bit? 
+ Appears to me that the performance degrade is several fold.  part of the reason is certainly due to indexing.  Have you considered partitioning some of the tables in a manner that's consistent with how the data is stored?  Meaning, create partitions based on how the data goes in (based on order).  This will give you a lot of performance increase as the majority of the indexes are static. 
+ Another issue is the xml data.  Are you utilizing xml indexes?  From books on line (2008) "Using the primary XML index, the following types of secondary indexes are supported: PATH, VALUE, and PROPERTY." 
+ Lastly, is the system currently designed to run / execute a lot of dynamic sql?  If so, you will have degregation from a memory perspecive as plans need to be generated, re generated and seldom resued.  I call this memory churn or memory thrashing.   
+ HTH 
+ 
+ A few million records is a tiny database to SQL Server. It can handle terrabytes of data with lots of joins, no sweat. You likely have a design problem or very poorly written queries. 
+ Kudos for performance testing before you go live. It is a lot harder to fix this stuff after you have been in production for months or years. 
+ What you did is probably a bad choice. If you denormalize, you need to set up triggers to make sure the data stays in synch. Did you do that? How much did it increase your insert and update time? 
+ My first guess would be that you didn't put indexes on the foreign keys. 
+ Other guesses as to what could be wrong include, overuse of things such as:
+correlated subqueries
+scalar functions
+views calling views
+cursors
+EAV tables
+lack of sargability
+use of select * 
+ Poor table design can also make it hard to have good performance. For instance, if your tables are too wide, accessing them will be slower. If you are often converting data to another data type in order to use it, then you have it stored incorrectly and this will always be a drag on the system. 
+ Dynamic SQl may be faster than a stored proc, it may not. There is no one right answer here for performance. For internal security (you do not have to set rights at the table level) and ease of making changes to the database, stored procs are better.  
+ You need to to run profiler and determine what your slowest queries are. Also look at all the queries that are run very frequently. A small change can pay off big whenteh query is run thosands of times a day. 
+ You also shoudl go get some books on performance tuning. These will help you through the process as performance problems can be due to many things:
+Database design
+Query design
+Hardware
+Indexing
+etc. 
+ There is no one quick fix and denormalizing randomly can get you in more trouble than not if you don't maintain the data integrity. 
+ 
+ First off as many others have said a few million rows is not large.
+The current application I'm working on has several tables all with over a hundred million rows in which are all normalised.    
+ We did suffer from some poor performance but this was caused by using the default table statistics settings. Inserting small numbers of records relative to the total size of the table, i.e. inserting a million records into a table containing 100+ million records wasn't causing an automatic update of the table stats and so we'd get poor query plans which manifested itself as serial queries being produced instead of parallel. 
+ As to whether it's the right decision to denormalise, depends on your schema. Do you have to perform deep queries regularly i.e. loads of joins to get at data that you regularly need access to, if so then partial denormaisation might be a way forward.   
+ **BUT NOT BEFORE**
+  you've checked your indexing and table statistic strategies. 
+Check that you're using sensible, well structured queries and that your joins are well formed. Check your query plans that your queries are actually parsing the way you expect.  
+ As others have said SQL Profiler/Database Engine Tuning Advisor do actually make a good job of it.  
+ For me denormalisation is usually near the bottom of my list of things to do.   
+ If you're still having problems then check your Server Software and Hardware setup.   
+ 
+ Are your database and log files on
+separate physical disks using
+separate controllers?    
+ Does it have
+enough memory?  
+ Is the log file set
+to autogrow? If so is the autogrow
+limit to low, i.e. is it growing to
+often. 
+ 
+ 

@@ -1,0 +1,184 @@
+*** xml-or-sqlite-when-to-drop-xml-for-a-database ***
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+                            As it currently stands, this question is not a good fit for our Q&A format. We expect answers to be supported by facts, references,   or expertise, but this question will likely solicit debate, arguments, polling, or extended discussion. If you feel that this question   can be improved and possibly reopened,  visit the help center  for guidance.
+                            
+                         
+ 
+ 
+ Closed  7 years ago . 
+ 
+ 
+ I really like Xml for saving data, but when does sqlite/database become the better option? eg, when the xml has more than  x  items or is greater than  y  MB? 
+ I am coding an rss reader and I believe I made the wrong choice in using xml over a sqlite database to store a cache of  all  the feeds items. There are some feeds which have an xml file of ~1mb after a month, another has over 700 items, while most only have ~30 items and are ~50kb in size after a  several  months.  
+ I currently have no plans to implement a cap because I like to be able to search through everything. 
+ So, my questions are: 
+ 
+ When is the overhead of sqlite/databases justified over using xml? 
+ Are the  **few large xml files**
+ justification enough for the database when there are  **a lot of small**
+ ones, though even the small ones will grow over time? (a long  long  time) 
+ 
+ **updated**
+ (more info) 
+ Every time a feed is selected in the GUI I reload all the items from that feeds xml file. 
+ I also need to modify the read/unread status which seems really hacky when I loop through all nodes in the xml to find the item and then set it to read/unread. 
+ 
+ I basically agree with  Mitchel , that this can be highly specific depending on what are you gonna do with XML/sqlite. For your case (cache), it seems to me that using sqlite (or other embedded dbs) makes more sense. 
+ First I don't really think that sqlite will need more overhead than XML. And I mean both development time overhead and runtime overhead. Only problem is that you have a dependance on sqlite library. But since you would need some library for XML anyway it doesn't matter (I assume project is in C/C++). 
+ **Advantages of sqlite over xml:**
+
+ 
+ everything in one file, 
+ performance loss is lower than XML as cache gets bigger, 
+ you can keep feed metadata separate from cache itself (other table), but accessible in the same way, 
+ SQL is probably easier to work with than XPath for most people. 
+ 
+ **Disadvantages of sqlite:**
+
+ 
+ can be problematic with multiple processes accessing same database (probably not your case), 
+ you should know at least basic SQL. Unless there will be hundreds of thousands of items in cache, I don't think you will need to optimize it much, 
+ maybe in some way it can be more dangerous from security standpoint (SQL injection). On the other hand, you are not coding web app, so this should not happen. 
+ 
+ Other things are on par for both solutions probably.  
+ To sum it up, answers to your questions respectively: 
+ 
+ You will not know, unless you test your specific application with both backends. Otherwise it's always just a guess. Basic support for both caches should not be a problem to code. Then benchmark and compare. 
+ Because of the way XML files are organized, sqlite searches should always be faster (barring some corner cases where it doesn't matter anyway because it's blazingly fast). Speeding up searches in XML would require index database anyway, in your case that would mean having cache for cache, not a particularly good idea. But with sqlite you can have indexing as part of database. 
+ 
+ 
+ Man do I have experience with this.  I work on a project where we originally stored all of our data using XML, then moved to sqlite.  There are many pros and cons to each technology, but it was performance that caused the switchover.  Here is what we observed. 
+ For small databases (a few meg or smaller), XML was much faster, and easier to deal with.  Our data was naturally in a tree format, which made XML much more attractive, and XPATH allowed us to do many queries in one simple line rather than having to walk down an ancestry tree. 
+ We were programming in a Win32 environment, and used the standard Microsoft DOM library.  We would load all the data into memory, parse it into a dom tree and search, add, modify on the in memory copy.  We would periodically save the data, and needed to rotate copies in case the machine crashed in the middle of a write. 
+ We also needed to build up some "indexes" by hand using C++ tree maps.  This, of course would be trivial to do with sql. 
+ Note that the size of the data on the filesystem was a factor of 2-4 smaller than the "in memory" dom tree. 
+ By the time the data got to 10M-100M size, we started to have real problems.  Interestingly enough, at all data sizes, XML processing was much faster than sqlite turned out to be (because it was in memory, not on the hard drive)!  The problem was actually twofold- first, loadup time really started to get long.  We would need to wait a minute or so before the data was in memory and the maps were built.  Of course once loaded the program was very fast.  The second problem was that all of this memory was tied up all the time.  Systems with only a few hundred meg would be unresponsive in other apps even though we ran very fast. 
+ We actually looking into using a filesystem based xml database.  There are a couple open sourced versions xml databases, we tried them.  I have never tried to use a commercial xml database, so I can't comment on them.  Unfortunately, we could never get the xml databases to work well at all.  Even the act of populating the database with hundreds of meg of xml took hours....  Perhaps we were using it incorrectly.  Another problem was that these databases were pretty heavyweight.  They required java and had full client server architecture.  We gave up on this idea. 
+ We found sqlite then.  It solved our problems, but at a price.  When we initially plugged sqlite in, the memory and load time problems were gone.  Unfortunately, since all processing was now done on the harddrive, the background processing load went way up.  While earlier we never even noticed the CPU load, now the processor usage was way up.  We needed to optimize the code, and still needed to keep some data in memory.  We also needed to rewrite many simple XPATH queries as complicated multiquery algorithms. 
+ So here is a summary of what we learned. 
+ 
+ For tree data, XML is much easier to query and modify using XPATH. 
+ For small datasets (less than 10M), XML blew away sqlite in performance. 
+ For large datasets (greater than 10M-100M), XML load time and memory usage became a big problem, to the point that some computers become unusable. 
+ We couldn't get any opensource xml database to fix the problems associated with large datasets. 
+ SQLITE doesn't have the memory problems of XML dom, but it is generally slower in processing the data (it is on the hard drive, not in memory).    (note- sqlite tables can be stored in memory, perhaps this would make it as fast....  We didn't try this because we wanted to get the data out of memory.) 
+ Storing and querying tree data in a table is not enjoyable.  However, managing transactions and indexing partially makes up for it. 
+ 
+ 
+ Don't forget that you have a great database at your fingertips: the filesystem! 
+ Lots of programmers forget that a decent directory-file structure is/has: 
+ 
+ It's fast as hell 
+ It's portable 
+ It has a tiny runtime footprint 
+ 
+ People are talking about splitting up XML files into multiple XML files... I would consider splitting your XML into multiple directories and multiple plaintext files.  
+ Give it a go. It's refreshingly fast. 
+ 
+ 
+ Use XML for data that the
+application should know -
+configuration, logging and what not. 
+ Use databases(oracle, SQL server etc) for data that the user
+interacts with directly or
+indirectly - real data 
+ Use SQLite if the user data is more
+of a serialized collection - like
+huge list of files and their content
+or collection of email items etc.
+SQLite is good at that. 
+ 
+ Depends on the kind and the size of the data. 
+ 
+ I wouldn't use XML for storing RSS items.  A feed reader makes constant updates as it receives data. 
+ With XML, you need to load the data from file first, parse it, then store it for easy search/retrieval/update.  Sounds like a database... 
+ Also, what happens if your application crashes?  if you use XML, what state is the data in the XML file versus the data in memory.  At least with SQLite you get atomicity, so you are assured that your application will start with the same state as when the last database write was made. 
+ 
+ XML is best used as an interchange format when you need to move data from your application to somewhere else or share information between applications.  A database should be the preferred method of storage for almost any size application.   
+ 
+ When should XML be used for data persistence instead of a database? Almost never. XML is a data transport language. It is slow to parse and awkward to query. Parse the XML (don't shred it!) and convert the resulting data into domain objects. Then persist the domain objects. A major advantage of a database for persistence is SQL which means unstructured queries and access to common tools and optimization techniques. 
+ 
+ To me it really depends on what you are doing with them, how many users/processes need access to them at the same time etc. 
+ I work with large XML files all the time, but they are single process, import style items, that multi-user, or performance are not really needs. 
+ SO really it is a balance. 
+ 
+ If any time you will need to scale, use databases. 
+ 
+ XML is good for storing data which is not completely structured and you typically want to exchange it with another application. I prefer to use a SQL database for data.  XML is error prone as you can cause subtle errors due to typos or ommissions in the data itself. Some open source application frameworks use too many xml files for configuration, data, etc. I prefer to have it in SQL. 
+ Since you ask for a rule of thumb, I would say that use XML based application data, configuration, etc if you are going to set it up once and not access/search it much. For active searches and updations, its best to go with SQL. 
+ For example, a web server stores application data in a XML file and you dont really need to perform complex search, update the file. The web server starts, reads the xml file and thats that. So XML is perfect here.  Suppose you use a framework like Struts. You need to use XML and the action configurations dont change much once the application is developed and deployed. So again, the XML file is a good way.  Now if your Struts developed application allows extensive searches and updations, deletions, then SQL is the optimal way. 
+ Offcourse, you will surely meet one or two developers in your organisation who will chant XML or SQL only and proclaim XML or SQL as the only way to go. Beware of such folks and do what 'feels' right for your application. Dont just follow a 'technology religion'. 
+ Think of things like how often you need to update the data, how often you need to search the data. Then you will have your answer on what to use - XML or SQL.  
+ 
+ I have made the switch to SQLite and I feel  much  better knowing it's in a database.  
+ There are a lot of other benefits from this:   
+ 
+ Adding new items is really simple 
+ Sorting by multiple columns 
+ Removing duplicates with a unique index 
+ 
+ I've created 2 views, one for unread items and one for all items, not sure if this is the best use of views, but I really wanted to try using them. 
+ I also benchmarked the xml vs sqlite using the  **StopWatch**
+ class, and the sqlite is faster,  **although it could just be that my way of parsing xml files wasn't the fastest method**
+. 
+ 
+ **Small # items and size (25 items, 30kb)**
+
+ 
+ ~1.5 ms sqlite 
+ ~8.0 ms xml 
+ 
+ **Large # of items (700 items, 350kb)**
+
+ 
+ ~20 ms sqlite 
+ ~25 ms xml 
+ 
+ **Large file size (850 items, 1024kb)**
+
+ 
+ ~45 ms sqlite 
+ ~60 ms xml 
+ 
+ 
+ 
+ I agree with @Bradley. 
+ XML is very slow and not particularly useful as a storage format.  Why bother?  Will you be editing the data by hand using a text editor?  If so, XML  still  isn't a very convenient format compared to something like YAML.  With something like SQlite, queries are easier to write, and there's a well defined API for getting your data in and out. 
+ XML is fine if you need to send data around between programs.  But in the name of efficiency, you should probably produce the XML at sending time, and parse it into "real data" at receive time. 
+ All the above means that your question about "when the overhead of a database is justified" is kind of moot.  XML has a way higher overhead, all the time, than SQlite does.  (Full-on databases like MSSQL are heavier, especially in administrative overhead, but that's a totally different question.) 
+ 
+ XML can be stored as text and as a binary file format.  
+ If your primary goal is to let a computer read / write a file format effeciently you should work with a binary file format.  
+ Databases are an easy to use way of storing and maintaining data. 
+They are not the fastest way to store data that is a binary file format.  
+ What can speed things up is using an in memory database / database type. Sqlite has this option.  
+ And this sounds like the best way to do it for you.  
+ 
+ My opinion is that you should use SQLite (or another appropriate embedded database) anytime you don't need a pure-text file format.  Note, this is a pretty big exception.  There are a lot of scenarios that require, or are benefited by, pure-text file formats. 
+ As far as overhead goes, SQLite compiles to something like 250 k with normal flags.  Many XML parsing libraries are larger than SQLite.  You get no concurrency gains using XML.  The SQLite binary file format is going to support much more efficient writes (largely because you can't append to the end of a well-formatted XML file).  And even reading data, most of which I assume is fairly random access, is going to be faster using SQLite. 
+ And to top it all off, you get access to the benefits of SQL like transactions and indexes. 
+ Edit:  Forgot to mention.  One benefit of SQLite (as opposed to many databases) is that it allows any type in any row in any column.  Basically, with SQLite you get the same freedom you have with XML in terms of datatypes.  This also means that you don't have to worry about putting limits on text columns. 
+ 
+ You should note that many large Relational DBs (Oracle and SQLServer) have XML datatypes to store data within a database and use XPath within the SQL statement to gain access to that data. 
+ Also, there are native XML databases which work very much like SQLite in the sense they are one binary file holding a collection of documents (which could roughly be a table) then you can either XPath/XQuery on a single document or the whole collection. So with an XML database you can do things like store the days data as a separate XML document in the collection... so you just need to use that one document when your dealing with the data for today. But write an XQuery to figure out historical data on the collection of documents for that person. Slick. 
+ I've used Berkeley XMLDB (now backed by Oracle). There are others if you search google for "Native XML Database". I've not seen a performance problem with storing/retrieving data in this manner.  
+ XQuery is a different beast (but well worth learning), however you may be able to just use the XPaths you currently use with slight modifications. 
+ 
+ A database is great as part of your program. If quering the data is part of your business logic.
+XML is best as a file format, especially if you data format is: 
+ 1, Hierarchal  
+2, Likely to change in the future in ways you can't guess  
+3, The data is going to live longer than the program 
+ 
+ I say it's not a matter of data size, but of data type. If your data is  structured , use a relational database. If your data is  semi-structured , use XML or - if the data amounts really grow too large - an XML database. 
+ 
+ If your searching go with a db.  You could split the xml files up into directories to ease seeking, but the managerial overhead easily gets quite heavy.  You also get a lot more than just performance with a sql db...  
+ 

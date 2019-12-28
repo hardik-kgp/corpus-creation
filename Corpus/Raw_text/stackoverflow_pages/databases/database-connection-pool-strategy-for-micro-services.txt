@@ -1,0 +1,31 @@
+*** database-connection-pool-strategy-for-micro-services ***
+
+ We are trying to convert our monolithic application to a micro services based architecture. We use Postgresql as one of our database in the monolithic application with BoneCP for connection pooling.  
+ When this monolith is split to a number of independent micro-services with each of them running in a different JVM, I can think about two options for connection pooling 
+ 
+ BoneCP or any decent connection pool for each microservice - My initial research shows that this is the primary choice. It is possible to have a fine grained control of connection requirements for each service.But, down side is that as the number of services increase, number of connection pool also increases and eventually there will be too many idle connections assuming that minimum connections in each pool is greater than 0. 
+ Rely on database specific extensions like PGBouncer - This approach has the advantage that connection pool is managed by a central source rather than a pool for each micro service and hence number of idle connections can be brought down. It is also language/technology agnostic. Down side is that these extensions are database specific and some of the functionalities in JDBC may not work. For eg: Prepared statments may not work with PGBouncer in Transaction_Pooling mode.  
+ 
+ In our case most of the micro-services(at least 50) will be connecting to the same Postgres server even though the database can be different. So, if we go with option 1, there is a higher chance of creating too many idle connections.The traffic to most of our services are very moderate and the rationale behind moving to micro-service is for easier deployment, scaling etc. 
+ Has anyone faced a similar problem while adopting micro-services architecture? Is there a better way of solving this problem in micro-service world? 
+ 
+ I don't see how pgbouncer will solve any of the problems you would have with the first approach.   There are many reasons to use pgbouncer but I don't think they are really applicable here. 
+ Also, in my experience, while idle connections can be an issue, they probably will not be on the scale you are talking about.  I mean we are not talking hundreds of idle connections right? 
+ More critically, one key thing that a microservices approach would give you is an ability to move dbs off to other servers.  If you do this, then having your connection pool centrally managed makes this harder to do. 
+ Per-service pool is generally more flexible and it makes your infrastructure quite a bit more flexible too. 
+ 
+ I have responded a similar question here:  Microservices - Connection Pooling when connecting to a single legacy database 
+ "I am facing a similar dilemma at my work and I can share the conclusions we have reached so far. 
+ There is no silver bullet at the moment, so: 
+ 1 - Calculate the number of connections dividing the total desired number of connections for the instances of microservices will work well if you have a situation where your microservices don't need to drastically elastic scale. 
+ 2 - Not having a pool at all and let the connections be opened on demand. This is what is being used in functional programming (like Amazon lambdas). It will reduce the total number of open connections but the downside is that you lose performance as per opening connections on the fly is expensive. 
+ You could implement some sort of topic that let your service know that the number of instances changed in a listener and update the total connection number, but it is a complex solution and goes against the microservice principle that you should not change the configurations of the service after it started running. 
+ Conclusion: I would calculate the number if the microservice tend to not grow in scale and without a pool if it does need to grow elastically and exponentially, in this last case make sure that a retry is in place in case it does not get a connection in the first attempt. 
+ There is an interesting grey area here awaiting for a better way of controlling pools of connections in microservices. 
+ In time, and to make the problem even more interesting, I recommend reading the
+article About Pool Sizing from HikariCP:  https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing  The ideal concurrent connections in a database are actually smaller than most people think." 
+ 
+ Let's say you have the limiting requirement - only 10 connections to the database.
+You can run 10 instances of the microservice with the connection pool limited to 1 connection max. Or you can run 3 instances with pool max=3.
+The centralized connection pool, which would serve multiple services in the cloud, sounds bad (the typical single point of failure). 
+ 

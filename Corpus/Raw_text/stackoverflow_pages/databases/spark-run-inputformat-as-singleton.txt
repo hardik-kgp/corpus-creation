@@ -1,0 +1,50 @@
+*** spark-run-inputformat-as-singleton ***
+
+ I'm trying to integrate a key-value database to Spark and have some questions.
+I'm a Spark beginner, have read a lot and run some samples but nothing too
+complex. 
+ **Scenario**
+: 
+ I'm using a small hdfs cluster to store incoming messages in a database.
+The cluster has 5 nodes, and the data is split into 5 partitions. Each
+partition is stored in a separate database file. Each node can therefore process
+its own partition of the data. 
+ **The Problem**
+: 
+ The interface to the database software is based on JNI, the database itself is
+implemented in C. For technical reasons, the database software can maintain
+only one active connection at a time. There can be only one JVM process which
+is connected to the Database. 
+ Because of this limitation, reading from and writing to the database must go
+through the same JVM process. 
+ (Background info: the database is embedded into the process. It's file based,
+and only one process can open it at a time. I  could  let it run in a separate
+process, but that would be slower because of the IPC overhead. My application
+will perform many full table scans. Additional writes will be batched and are
+not time-critical.) 
+ **The Solution**
+: 
+ I have a few ideas in my mind how to solve this, but i don't know if they work
+well with Spark. 
+ 
+ Maybe it's possible to magically configure Spark to only have one instance of my
+proprietary InputFormat per node.  
+ If my InputFormat is used for the first time, it starts a separate thread
+which will create the database connection. This thread will then continue
+as a daemon and will live as long as the JVM lives. This will only work
+if there's just one JVM per node. If Spark starts multiple JVMs on the
+same node then each would start its own database thread, which would not
+work. 
+ Move my database connection to a separate JVM process per node, and my
+InputFormat then uses IPC to connect to this process. As i said, i'd like to avoid this. 
+ Or maybe you have another, better idea? 
+ 
+ My favourite solution would be #1, followed closely by #2.  
+ Thanks for any comment and answer! 
+ 
+ Have you thought of queueing (buffer) then using spark streaming to dequeue and use your output format to write. 
+ 
+ If data from your DB fits into RAM memory of your spark-driver you can load it there as a collection and then parallelize it to an RDD  https://spark.apache.org/docs/2.2.0/rdd-programming-guide.html#parallelized-collections 
+ 
+ I believe the best option here is to connect to your DB from driver, not from executors. This part of the system anyway would be a bottleneck. 
+ 

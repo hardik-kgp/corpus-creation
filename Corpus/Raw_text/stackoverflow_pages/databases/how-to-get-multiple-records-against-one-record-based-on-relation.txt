@@ -1,0 +1,81 @@
+*** how-to-get-multiple-records-against-one-record-based-on-relation ***
+
+ I have two tables Organisation and Employee having one to many relation i.e one organisation can have multiple employees. Now I want to select all information of a particular organisation plus first name of all employees for this organisation. What’s the best way to do it? Can I get all of this in single record set or I will have to get multiple rows based on no. of employees? Here is a bit graphical demonstration of what I want: 
+ 
+ 
+ The original question was database specific, but perhaps this is a good place to include a more generic answer. It's a common question. The concept that you are describing is often referred to as 'Group Concatenation'. There's no standard solution in SQL-92 or SQL-99. So you'll need a vendor-specific solution. 
+ 
+ **MySQL**
+ - Probably the simplest solution. Use the built-in GROUP_CONCAT function. In your example you would want something like this: 
+ 
+ select 
+  o.ID, o.Address, o.OtherDetails,
+  GROUP_CONCAT( concat(e.firstname, ' ', e.lastname) ) as Employees
+from 
+  employees e 
+  inner join organization o on o.org_id=e.org_id
+group by o.org_id
+ 
+ 
+ **PostgreSQL**
+ -  **EDIT:**
+ PostgreSQL 9.0 is equally simple now that string_agg(expression, delimiter) is built-in. Here it is with 'comma-space' between elements: 
+ 
+ select 
+  o.ID, o.Address, o.OtherDetails,
+  STRING_AGG( (e.firstname || ' ' || e.lastname), ', ' ) as Employees
+from 
+  employees e 
+  inner join organization o on o.org_id=e.org_id
+group by o.org_id
+ 
+ PostgreSQL before 9.0 allows you to define your own aggregate functions with CREATE AGGREGATE. Slightly more work than MySQL, but much more flexible. See this  other post  for more details. (Of course PostgreSQL 9.0 and later have this option as well.) 
+ 
+ **Oracle & MS SQL Server**
+ - Create a stored procedure that takes the org_id as its input and outputs the concatenated employee names. Then use this stored procedure in your query. Some of the other responses here include some details about how to write stored procedures like these. 
+ 
+ select 
+  o.ID, o.Address, o.OtherDetails,
+  MY_CUSTOM_GROUP_CONCAT_PROCEDURE( o.ID ) as Employees
+from 
+  organization o
+ 
+ 
+ **Other DBMS technologies**
+ - The stored procedure route is the most likely. Perhaps others can update this answer with more technology specific answers. 
+ 
+ 
+ Since the question is tagged as MySQL, you should be able to use a MySQL-specific solution, namely, GROUP_CONCAT. For example, 
+ 
+ 
+ in MS SQL you can do: 
+ 
+ then do: 
+ 
+ I think you can do it with COALESCE() as well, but can't remember the syntax off the top of my head 
+ 
+ If you use Oracle you can create a PL/SQL function you can use in your query that accepts an organization_id as input, and returns the first name of all employees belonging to that org as a string. For example:- 
+ 
+ 
+ It all depends. 
+If you do a join, you get all the organization data on every row. (1 row per employee). That has a cost.
+If you do two queries. (Org and Emp) that has a different cost.  
+ Pick your poison. 
+ 
+ The short answer is "no".   
+ As noted in other answers, there are vendor-specific ways to achieve this result, but there is no pure SQL solution which works in one query.   
+ sorry about that  :( 
+ Presumably one of the vendor specific solutions will work for you?  
+ 
+ Here's what you can do, you have 2 options: 
+ 
+ This way you will get extra data on each row - full organization info you don't really need. 
+ Or you can do: 
+ 
+ http://dev.mysql.com/doc/refman/5.0/en/group-by-functions.html#function_group-concat 
+ The second approach is applicable if you want to see ie. list of usernames "user1, user2, user3", but don't want to operate on the fields themselves... 
+ 
+ For SQL Server SQLCLR aggregates in this project are inspired by the MSDN code sample however they perform much better and allow for sorting (as strings) and alternate delimiters if needed. They offer  almost  equivalent functionality to MySQL's GROUP_CONCAT for SQL Server.  
+ A full comparison of the advantages/disadvantages of the CLR aggregates and the FOR XML solution can be found in the documentation: 
+ http://groupconcat.codeplex.com 
+ 

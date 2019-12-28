@@ -1,0 +1,201 @@
+*** large-scale-design-in-haskell ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ Closed  3 years ago . 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Locked . This question and its answers are  locked  because the question is off-topic but has historical significance. It is not currently accepting new answers or interactions.
+                            
+                         
+ 
+ 
+ 
+ 
+ What is a good way to design/structure large functional programs, especially in Haskell? 
+ I've been through a bunch of the tutorials (Write Yourself a Scheme being my favorite, with Real World Haskell a close second) - but most of the programs are relatively small, and single-purpose.  Additionally, I don't consider some of them to be particularly elegant (for example, the vast lookup tables in WYAS). 
+ I'm now wanting to write larger programs, with more moving parts - acquiring data from a variety of different sources, cleaning it, processing it in various ways, displaying it in user interfaces, persisting it, communicating over networks, etc.  How could one best structure such code to be legible, maintainable, and adaptable to changing requirements? 
+ There is quite a large literature addressing these questions for large object-oriented imperative programs. Ideas like MVC, design patterns, etc. are decent prescriptions for realizing broad goals like separation of concerns and reusability in an OO style.  Additionally, newer imperative languages lend themselves to a 'design as you grow' style of refactoring to which, in my novice opinion, Haskell appears less well-suited. 
+ Is there an equivalent literature for Haskell?  How is the zoo of exotic control structures available in functional programming (monads, arrows, applicative, etc.) best employed for this purpose? What best practices could you recommend? 
+ Thanks! 
+ EDIT (this is a follow-up to Don Stewart's answer): 
+ @dons mentioned: "Monads capture key architectural designs in types." 
+ I guess my question is: how should one think about key architectural designs in a pure functional language? 
+ Consider the example of several data streams, and several processing steps.  I can write modular parsers for the data streams to a set of data structures, and I can implement each processing step as a pure function.  The processing steps required for one piece of data will depend on its value and others'.  Some of the steps should be followed by side-effects like GUI updates or database queries. 
+ What's the 'Right' way to tie the data and the parsing steps in a nice way?  One could write a big function which does the right thing for the various data types.  Or one could use a monad to keep track of what's been processed so far and have each processing step get whatever it needs next from the monad state.  Or one could write largely separate programs and send messages around (I don't much like this option). 
+ The slides he linked have a Things we Need bullet: "Idioms for mapping design onto 
+types/functions/classes/monads".  What are the idioms? :) 
+ 
+ I talk a bit about this in  Engineering Large Projects in Haskell  and in the  Design and Implementation of XMonad.  Engineering in the large is about managing complexity. The primary code structuring mechanisms in Haskell for managing complexity are: 
+ **The type system**
+
+ 
+ Use the type system to enforce abstractions, simplifying interactions. 
+ Enforce key invariants via types
+
+ 
+ (e.g. that certain values cannot escape some scope) 
+ That certain code does no IO, does not touch the disk 
+ 
+ Enforce safety: checked exceptions (Maybe/Either), avoid mixing concepts (Word, Int, Address) 
+ Good data structures (like zippers) can make some classes of testing needless, as they rule out e.g. out of bounds errors statically. 
+ 
+ **The profiler**
+
+ 
+ Provide objective evidence of your program's heap and time profiles. 
+ Heap profiling, in particular, is the best way to ensure no unnecessary memory use. 
+ 
+ **Purity**
+
+ 
+ Reduce complexity dramatically by removing state. Purely functional code scales, because it is compositional. All you need is the type to determine how to use some code -- it won't mysteriously break when you change some other part of the program. 
+ Use lots of "model/view/controller" style programming: parse external data as soon as possible into purely functional data structures, operate on those structures, then once all work is done, render/flush/serialize out. Keeps most of your code pure 
+ 
+ **Testing**
+
+ 
+ QuickCheck + Haskell Code Coverage, to ensure you are testing the things you can't check with types. 
+ GHC + RTS is great for seeing if you're spending too much time doing GC. 
+ QuickCheck can also help you identify clean, orthogonal APIs for your modules. If the properties of your code are difficult to state, they're probably too complex. Keep refactoring until you have a clean set of properties that can test your code, that compose well. Then the code is probably well designed too. 
+ 
+ **Monads for Structuring**
+
+ 
+ Monads capture key architectural designs in types (this code accesses hardware, this code is a single-user session, etc.) 
+ E.g. the X monad in xmonad, captures precisely the design for what state is visible to what components of the system. 
+ 
+ **Type classes and existential types**
+
+ 
+ Use type classes to provide abstraction: hide implementations behind polymorphic interfaces. 
+ 
+ **Concurrency and parallelism**
+
+ 
+ Sneak   into your program to beat the competition with easy, composable parallelism. 
+ 
+ **Refactor**
+
+ 
+ You can refactor in Haskell  **a lot**
+. The types ensure your large scale changes will be safe, if you're using types wisely. This will help your codebase scale. Make sure that your refactorings will cause type errors until complete. 
+ 
+ **Use the FFI wisely**
+  
+ 
+ The FFI makes it easier to play with foreign code, but that foreign code can be dangerous. 
+ Be very careful in assumptions about the shape of data returned. 
+ 
+ **Meta programming**
+
+ 
+ A bit of Template Haskell or generics can remove boilerplate. 
+ 
+ **Packaging and distribution**
+
+ 
+ Use Cabal. Don't roll your own build system.  **(EDIT: Actually you probably want to use **
+**Stack**
+** now for getting started.).**
+
+ Use Haddock for good API docs 
+ Tools like  graphmod  can show your module structures. 
+ Rely on the Haskell Platform versions of libraries and tools, if at all possible. It is a stable base.  **(EDIT: Again, these days you likely want to use **
+**Stack**
+** for getting a stable base up and running.)**
+
+ 
+ **Warnings**
+
+ 
+ Use   to keep your code clean of smells. You might also look at Agda, Isabelle or Catch for more assurance. For lint-like checking, see the great  hlint , which will suggest improvements. 
+ 
+ With all these tools you can keep a handle on complexity, removing as many interactions between components as possible. Ideally, you have a very large base of pure code, which is really easy to maintain, since it is compositional. That's not always possible, but it is worth aiming for. 
+ In general:  **decompose**
+ the logical units of your system into the smallest referentially transparent components possible, then implement them in modules. Global or local environments for sets of components (or inside components) might be mapped to monads. Use algebraic data types to describe core data structures. Share those definitions widely. 
+ 
+ Don gave you most of the details above, but here's my two cents from doing really nitty-gritty stateful programs like system daemons in Haskell. 
+ 
+ In the end, you live in a monad transformer stack.  At the bottom is IO.  Above that, every major module (in the abstract sense, not the module-in-a-file sense) maps its necessary state into a layer in that stack.  So if you have your database connection code hidden in a module, you write it all to be over a type MonadReader Connection m => ... -> m ... and then your database functions can always get their connection without functions from other modules having to be aware of its existence.  You might end up with one layer carrying your database connection, another your configuration, a third your various semaphores and mvars for the resolution of parallelism and synchronization, another your log file handles, etc. 
+ Figure out your error handling  first .  The greatest weakness at the moment for Haskell in larger systems is the plethora of error handling methods, including lousy ones like Maybe (which is wrong because you can't return any information on what went wrong; always use Either instead of Maybe unless you really just mean missing values).  Figure out how you're going to do it first, and set up adapters from the various error handling mechanisms your libraries and other code uses into your final one.  This will save you a world of grief later. 
+ 
+ **Addendum**
+ (extracted from comments; thanks to  Lii  &  liminalisht ) — 
+more discussion about different ways to slice a large program into monads in a stack: 
+ Ben Kolera  gives a great practical intro to this topic, and  Brian Hurt  discusses solutions to the problem of  ing monadic actions into your custom monad.  George Wilson  shows how to use   to write code that works with any monad that implements the required typeclasses, rather than your custom monad kind.  Carlo Hamalainen  has written some short, useful notes summarizing George's talk.  
+ 
+ Designing large programs in Haskell is not that different from doing it in other languages.
+Programming in the large is about breaking your problem into manageable pieces, and how to fit those together; the implementation language is less important. 
+ That said, in a large design it's nice to try and leverage the type system to make sure you can only fit your pieces together in a way that is correct.  This might involve newtype or phantom types to make things that appear to have the same type be different. 
+ When it comes to refactoring the code as you go along, purity is a great boon, so try to keep as much of the code as possible pure.  Pure code is easy to refactor, because it has no hidden interaction with other parts of your program. 
+ 
+ I did learn  structured  functional programming the first time with  this book .
+It may not be exactly what you are looking for, but for beginners in functional programming, this may be one of the best first steps to learn to structure functional programs - independant of the scale. On all abstraction levels, the design should always have clearly arranged structures. 
+ The Craft of Functional Programming 
+ 
+ http://www.cs.kent.ac.uk/people/staff/sjt/craft2e/ 
+ 
+ I'm currently writing a book with the title "Functional Design and Architecture". It provides you with a complete set of techniques how to build a big application using pure functional approach. It describes many functional patterns and ideas while building an SCADA-like application 'Andromeda' for controlling spaceships from scratch. My primary language is Haskell. The book covers: 
+ 
+ Approaches to architecture modelling using diagrams; 
+ Requirements analysis; 
+ Embedded DSL domain modelling; 
+ External DSL design and implementation; 
+ Monads as subsystems with effects; 
+ Free monads as functional interfaces; 
+ Arrowised eDSLs; 
+ Inversion of Control using Free monadic eDSLs; 
+ Software Transactional Memory; 
+ Lenses; 
+ State, Reader, Writer, RWS, ST monads; 
+ Impure state: IORef, MVar, STM; 
+ Multithreading and concurrent domain modelling; 
+ GUI; 
+ Applicability of mainstream techniques and approaches such as UML, SOLID, GRASP; 
+ Interaction with impure subsystems. 
+ 
+ You may get familiar with the code for the book  here , and the  'Andromeda'  project code. 
+ I expect to finish this book at the end of 2017. Until that happens, you may read my article "Design and Architecture in Functional Programming" (Rus)  here . 
+ **UPDATE**
+
+ I shared my book online (first 5 chapters). See  post on Reddit 
+ 
+ Gabriel's blog post  Scalable program architectures  might be worth a mention. 
+ 
+ Haskell design patterns differ from mainstream design patterns in one
+  important way: 
+ 
+ **Conventional architecture**
+: Combine a several components together of
+  type A to generate a "network" or "topology" of type B 
+ **Haskell architecture**
+: Combine several components together of type A to
+  generate a new component of the same type A, indistinguishable in
+  character from its substituent parts 
+ 
+ 
+ It often strikes me that an apparently elegant architecture often tends to fall out of libraries that exhibit this nice sense of homogeneity, in a bottom-up sort of way. In Haskell this is especially apparent - patterns that would traditionally be considered "top-down architecture" tend to be captured in libraries like  mvc ,  Netwire  and  Cloud Haskell . That is to say, I hope this answer will not be interpreted as an attempt replace any of the others in this thread, just that structural choices can and should ideally be abstracted away in libraries by domain experts. The real difficulty in building large systems, in my opinion, is evaluating these libraries on their architectural "goodness" versus all of your pragmatic concerns. 
+ As  liminalisht  mentions in the comments,  The category design pattern  is another post by Gabriel on the topic, in a similar vein. 
+ 
+ I have found the paper  " Teaching Software Architecture Using Haskell " (pdf)  by Alejandro Serrano useful for thinking about large-scale structure in Haskell. 
+ 
+ Perhaps you have to go an step back and think of how to translate the description of the problem to a design in the first place. Since Haskell is so high level, it can capture the description of the problem in the form of data structures , the actions as procedures and the pure transformation as functions. Then you have a design. The development start when you compile this code and find concrete errors about missing fields, missing instances and missing monadic transformers in your code, because for example you perform a database Access from a library that need a certain state monad within an IO procedure. And voila, there is the program. The compiler feed your mental sketches and gives coherence to the design and the development. 
+ In such a way you benefit from the help of Haskell since the beginning, and the coding is natural. I would not care to do something "functional" or "pure" or enough general if what you have in mind is a concrete ordinary problem. I think that over-engineering is the most dangerous thing in IT. Things are different when the problem is to create a library that abstract a set of related problems. 
+ 

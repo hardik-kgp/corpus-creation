@@ -1,0 +1,89 @@
+*** how-to-count-different-values-into-different-rows-in-sql-efficiently ***
+
+ **Problem:**
+
+ Say there is a simple (yet big) table  
+ 
+ I'd like to count how many entries have specific hardcoded patterns, say contain words 'ginger' ( ) or 'wine' ( ), or whatever else in them, and write these numbers into rows along comments. The result I'm looking for is the following 
+ 
+ **Solution 1 (good format but inefficient):**
+
+ It is possible to use   and construct the following 
+ 
+ Apparently it works similarly to simply executing multiple queries and sewing them together afterwards. It is very inefficient. 
+ **Solution 2 (efficient but bad format):**
+
+ The following is multiple times faster compared to previous solution 
+ 
+ And the result is 
+ 
+ So it is definitely possible to get the same information much faster, but in a wrong format... 
+ **Discussion:**
+
+ What is the best overall approach? What should I do to get the result I want in an efficient manner and preferable format? Or is it really impossible? 
+ By the way, I am writing this for Redshift (based on PostgreSQL). 
+ Thanks. 
+ 
+ option 1: manually reshape 
+ 
+ option 2: create a categories table & use a join 
+ 
+ Since your solution 2 you consider to be fast enough, option 1  should  work for you. 
+ Option 2 should also be fairly efficient, and it is much easier to write & extend, and as an added bonus, this query will let you know if no foods exist in a given category. 
+ Option 3: Reshape & redistribute your data to better match the grouping keys. 
+ You could also pre-process your dataset if the query execution time is very important. A lot  the benefits of this  depend on your data volume and data distribution. Do you only have a few hard categories, or will they be searched dynamically from some sort of interface.  
+ For example: 
+ If the dataset were reshaped like this: 
+ 
+ Then you could shard & distribute on  , and each instance could execute that part of the aggregation in parallel. 
+ Here an equivalent query might look like this: 
+ 
+ 
+ In both the queries LIKE operator is used. Alternatively We can use Position to find the location of the hardcoded words in the name. If hardcoded words are available in the name then a number greater than 0 will be returned.  
+ 
+ 
+ I don't know about Redshift, but in Postgres I'd start with something like this: 
+ 
+ and if it's OK then I'd go on to create appropriate indexes on foods.name. That might include indexes on   and  ; or perhaps  , but I don't expect Redshift to provide pg_trgm. 
+ 
+ Try this for size: 
+ 
+ I'm not sure what the temp table syntax is for postgresql - this example is for MS SQL Server, but I'm sure you get the idea 
+ **UPDATE:**
+ According to the online converter at  SQLines  the syntax is effectively the same 
+ 
+ Redshift is rather limited in comparison to modern Postgres. 
+No  , no  , no ARRAY constructor, no   expression, no   joins, no tablefunc module. All the tools that would make this nice an simple. At least we have  CTEs  ... 
+ This should work and be fast and  relatively  simple to expand: 
+ 
+ I use the  Posix operator   to replace  , just because it's shorter and no need for added placeholder  . Performance is about the same for this simple form in Postgres, not sure about Redshift. 
+  should be a bit faster than  . 
+ Indexes won't be able to improve performance of this single sequential scan over the whole table. 
+ 
+ A little bit of searching suggests that you could use your second approach for efficiency, and place the result into a CTE, which you then  , as per:  unpivot and PostgreSQL 
+ 
+ Try this -  
+ 
+ 
+ Have you considered using cursors? 
+ Here is an example I wrote for SQL Server. 
+ You just need to have some table with all the values you want to make search (I called it   in the example below and the column name  ) in the   table. 
+ 
+ 
+ I think the best option is to split the ingredients list into parts and then to count them. 
+ "Pass0".."Pass4" and "Numbers" is just a Tally table to get a list of numbers 1..256 to emulate the unnest. 
+ "comments" is a a simple table you should have somewhere with ingredients and their comments 
+ use your table "foods" instead of mine ;) 
+ let's take a look 
+ 
+ 
+ Here you go. 👍  
+ The   filter reduces the rows going into the   aggregation. It's not necessary for smaller data but will help if the table is in the billions of rows. Add additional patterns to the   filter and the   statement.  
+ 
+ 
+ From your sample it seems like your product names contain up to 2 words. It's more efficient to break by space and check if individual chunks match than  , and then manually reshape as said in the other response 
+ 
+ 
+ Try with SQL like this: 
+ 
+ 

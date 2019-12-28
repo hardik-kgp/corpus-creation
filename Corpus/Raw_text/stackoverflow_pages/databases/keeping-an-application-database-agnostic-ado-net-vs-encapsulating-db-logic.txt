@@ -1,0 +1,71 @@
+*** keeping-an-application-database-agnostic-ado-net-vs-encapsulating-db-logic ***
+
+ We are making a fairly serious application that needs to remain agnostic to the DB a client wants to use. Initially we plan on supporting MySQL, Oracle & SQL Server. The tables & views are simple as are the queries (no real fancy SQL), therefore the question: 
+ 
+ Use native DB drivers (MySQLDbConnection etc.) and encapsulate the logic of executing queries and processing results or 
+ Use a generic OleDbConnection 
+ 
+ Obviously option 2 involves no overhead, but I presuming the performance is not as great as with native access? 
+ 
+ 
+ **Note:**
+ This answer is relevant if you decide to use basic ADO.NET 2 functionality instead of an ORM (such as Entity Framework or NHibernate) or LINQ to SQL. 
+ 
+ Let's assume you've got a connection string defined in your  : 
+ 
+ Notice the presence of the   attribute and its value. You could also put in a value for another DB provider, e.g.  . 
+ (Note that non-standard providers, i.e. those that are not in the .NET Framework by default,  need to be registered  first, either in   or in the client machine's  .) 
+ Now, you can work with the specified database in a completely provider-agnostic fashion as follows: 
+ 
+ Note how this code only works with interface types. The only place where you indicate a particular DB provider is through the   attribute value in the   file. (I've marked all the places where a setting from   is taken with  s.) 
+ 
+ **Further reading:**
+
+ 
+ Generic Coding with the ADO.NET 2.0 Base Classes and Factories :  
+similar to my answer, but goes into more detail. 
+ ADO.NET Managed Providers and DataSet Developer Center :  
+includes, among other things, an index of available ADO.NET database providers. 
+ 
+ 
+ IMHO using an  ORM  is a good design decision in order to have a database agnostic application. Switching database might be as easy as changing a config setting and connection string. 
+ 
+ You don't need   to access nonspecific ADO.NET providers. Just use   et. al. See   on MSDN  for more info. 
+ 
+ By including Oracle in that list, you've guaranteed that nothing will be simple.  
+ 
+ Oracle uses a different prefix character (colon) for parameters, as compared to SQL Server that uses an "at" symbol. 
+ Oracle uses a single data type (number) for long, int, short, boolean, float, and decimal; your code will have to be sure that you map these properly. 
+ You must parameterize Oracle date and time values; if you try to use strings for dates in your SQL statements, you will go insane because of Oracle's date format. (Oracle uses a three-character month abbreviation; the format is 01-JAN-2010.)  
+ Basic SQL functions for handling nulls can be different, particularly for null coalescing. ("NVL" versus "COALESCE") Oracle is much pickier about reserved words. 
+ Oracle does not have native identity column support. Workarounds involve sequences, triggers, and requiring transactions just to retrieve an identity value from a new row. 
+ 
+ In other words, your app can't be DB-agnostic.  If you don't use an ORM, you will definitely want to build a data access layer that hides all these things from the rest of the application. 
+ Voice of experience here. Just sayin'. For a common schema across SQL Server and Oracle, we've had to build most of the infrastructure of an ORM, while avoiding the aspects that can degrade performance. Interesting, but non-trivial, definitely! 
+ 
+ LINQ is a highly regarded .NET ORM, partly because you can use it and stored procedures.  Problem is, it's SQL Server only but people are working to provide similar functionality for  Oracle  &  MySQL . 
+ For database & query optimizations, I cringe at the idea of using an ORM.  Data types, functions & overall syntax are not very portable in SQL.  The most performant means of interacting with each database will be to tailor the model & queries to each one, but it means expertise, time and money.  If need be, focus on one database vendor with the code setup to support vendor swap out & add support for other databases as necessary. 
+ 
+ There's no good reason to avoid the most generic interfaces with the broadest support - OleDb and even ODBC if you're comfortable with them. Anything beyond that reduces the pool of products/languages/platforms/tools/developers you can work with. Being closest to the SQL metal, the vendor isn't going to introduce much inefficiency - certainly less than the more esoteric options. They've been around a long, long time to wring out any problems. 
+ If you're going to add an abstraction layer (your own or someone else's), then that should be decided based on the merits of the abstractions introduced in your particular context, not just to have an abstraction layer (which is just more support unless there's an intentional benefit.) 
+ As you can see, everyone's mileage varies. :) But in general, I think simpler is better. 
+ 
+ Why not use the Microsoft  **Patterns & Practices**
+  Enterprise Library  Data Access Application Block.  There's minimal overhead and switching providers is a snap. 
+ Quote: 
+ 
+ The Data Access Application Block
+  takes advantage of these classes and
+  provides a model that further supports
+  encapsulation of database
+  type—specific features, such as
+  parameter discovery and type
+  conversions. Because of this,
+  applications can be ported from one
+  database type to another without
+  modifying the client code. 
+ 
+ 
+ You can always make part of the application database agnostic by having the bulk of the application use the DAL as a bunch of interfaces.  The DAL itself would then provide a concrete implementation for the target database.   
+ This way, you get decoupling in the use of the DAL, but the benefit of performance improvements or vendor specific constructs within the DAL. 
+ 

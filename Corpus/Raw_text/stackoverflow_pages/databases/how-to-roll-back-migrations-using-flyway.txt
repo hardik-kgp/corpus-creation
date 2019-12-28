@@ -1,0 +1,38 @@
+*** how-to-roll-back-migrations-using-flyway ***
+
+ MyBatis migrations splits each SQL file into two sections: 
+ 
+ One for migrating forward one version 
+ One for migrating back one version 
+ 
+ How does one roll back versions using  Flyway ? 
+ 
+ While Flyway supports rollbacks (as a commercial-only feature) its use is discouraged: 
+ https://flywaydb.org/documentation/command/undo 
+ 
+ While the idea of undo migrations is nice, unfortunately it sometimes breaks down in practice. As soon as you have destructive changes (drop, delete, truncate, …), you start getting into trouble. And even if you don’t, you end up creating home-made alternatives for restoring backups, which need to be properly tested as well. 
+ Undo migrations assume the whole migration succeeded and should now be undone. This does not help with failed versioned migrations on databases without DDL transactions. Why? A migration can fail at any point. If you have 10 statements, it is possible for the 1st, the 5th, the 7th or the 10th to fail. There is simply no way to know in advance. In contrast, undo migrations are written to undo an entire versioned migration and will not help under such conditions. 
+ An alternative approach which we find preferable is to maintain backwards compatibility between the DB and all versions of the code currently deployed in production. This way a failed migration is not a disaster. The old version of the application is still compatible with the DB, so you can simply roll back the application code, investigate, and take corrective measures. 
+ This should be complemented with a proper, well tested, backup and restore strategy. It is independent of the database structure, and once it is tested and proven to work, no migration script can break it. For optimal performance, and if your infrastructure supports this, we recommend using the snapshot technology of your underlying storage solution. Especially for larger data volumes, this can be several orders of magnitude faster than traditional backups and restores. 
+ 
+ 
+ This is supported since Flyway 5.0. Sadly it's a commercial only feature though. 
+ https://flywaydb.org/documentation/command/undo 
+ 
+ I assume you need a rollback strategy, when e.g. a partner fails at production stage and his deployment is essential for your release. 
+ You could name your flyway SQL scripts like these: 
+ V< YourReleaseNumber >.000_< description >.sql 
+ Now you can leave  
+ V< YourReleaseNumber >.998_rollback.sql  for rollback  
+and make  V< YourReleaseNumber >.999_reenroll.sql  to reenroll. 
+ In your CI/CD Environment you need 2 more Jobs (manually triggered) after your deployment job. One for rollback, which runs the rollback process including flyway migrate. Other for reenroll.  
+You just have to care for the target configuration in flyway. 
+For your deployment job your target should be < YourReleaseNumber >.997  
+For your rollback job < YourReleaseNumber >.998 
+ When you start a new release, make sure you won't run the rollback/reenroll script of the old release. 
+ As said before a well tested, backup and restore strategy is the recommended solution. 
+ (sry for bad english) 
+ 
+ I've found the best way to do this is to just wipe the database clean, and migrate  forward  to the specific version that you wanted to revert back to. 
+ As the FAQ suggests rollback scripts are nice in theory, but some migrations just can't be rolled back. (e.g. if a table is dropped, restoring the table DDL is easy, but restoring the data it contained can be difficult.) 
+ 

@@ -1,0 +1,167 @@
+*** composite-vs-surrogate-keys-for-referential-integrity-in-6nf ***
+
+ Take three layers of information: 
+ Layer 1: Information 
+ This layer contains data with   natural indexes and a surrogate key that is easily transferrable. 
+ 
+ **Natural Keys**
+
+ Alternatively, the two tables above can be without   and utilize Surname and FirstName as Natural Primary Keys, as explained by Mike Sherrill. In this instance, assume the layer below references   rather than  .  
+ Layer 2: People 
+ In this layer a composite index is used. This value can be   or  , depending on whether a surrogate key is utilized as the Primary Key. 
+ 
+ Layer 3: Parents 
+ In this layer, relationships between people are explored through a   table. 
+ 
+ The Question 
+ Assuming that referential integrity is VERY important to me at its very core, and I will have   on these indexes so that I keep the database responsible for monitoring its own integrity on this front, and that, if I were to use an ORM, it would be one like  Doctrine  which has native support for Compound Primary Keys... 
+ Please help me to understand: 
+ 
+ The list of trade-offs that take place with utilizing surrogate keys vs. natural keys on the 1st Layer. 
+ The list of trade-offs that take place with utilizing compound keys vs. surrogate keys on the 2nd Layer which can be transferred over to the 3rd Layer. 
+ 
+ I am not interested in hearing which is better, because I understand that there are significant disagreements among professionals on this topic and it would be sparking a religious war. Instead, I am asking, very simply and as objectively as is humanly possible, what trade-offs will you be taking by passing surrogate keys to each Layer vs maintaining Primary keys (natural/composite, or surrogate/composite). Anyone will be able to find someone saying  **NEVER**
+ or  **ALWAYS**
+ use surrogate keys on SO and other websites. Instead, a reasoned analyses of trade-offs is what I will most appreciate in your answers. 
+ **EDIT:**
+ It has been pointed out that a surname example is a poor example for a use of 6NF. For the sake of keeping the question intact, I am going to leave it be. If you are having trouble imagining the use case for this, a better one might be a list of "Grocery Items". AKA: 
+ 
+ Natural Composite Key Example: 
+ 
+ Recommended Pairings 
+ 
+ To reiterate, this is also just an example. This is not how I would recommend proceeding, but it should help to illustrate my question. 
+ There ARE shortfalls to this method. I'll reiterate that this question was to request walking through the benefits and drawbacks of each method below, not to highlight one as better than another. I believe most people were able to look past the questionable nature of this specific example to answer the core question. This edit is for those that cannot.  
+ There are some very good answers below and if you are curious about which direction to go, please read them. 
+ **END EDIT**
+
+ Thank you! 
+ 
+ Here's some trade-offs: 
+ **Single Surrogate (artificially created):**
+
+ 
+ All child tables foreign keys only need a single column to reference the primary key. 
+ Very easy to update the natural keys in table without needing to update every child table with foreign keys 
+ Smaller primary/foreign key indexes (ie. not a wide)  This can make the database run faster, for example when a record is deleted in a parent table, the child tables need to be searched to make sure this will not create orphans.  Narrow indexes are faster to scan (just sightly).  
+ you will have more indexes because you most likely will also want to index whatever natural keys exists in the data. 
+ 
+ **Natural composite keyed tables:**
+
+ 
+ fewer indexes in the database 
+ less columns in the database 
+ easier/faster to insert a ton of records as you will not need to grab the sequence generator 
+ updating one of the keys in the compound requires that every child table also be updated. 
+ 
+ **Then there is another category:  artificial composite primary keys**
+
+ I've only found one instance where this makes sense.  When you need to tag every record in every table for row level security. 
+ For example, suppose you had an database which stored data for 50,000 clients and each client was not supposed to see other client's data--very common in web application development.    
+ If each record was tagged with a   field, you are creating a row level security environment.  Most databases have the tools to enforce row level security when setup correctly.        
+ First thing to do is setup primary and foreign keys.  Normally a table with have an   field as the primary key.  By adding   the key is now composite key.  And it is necessary to carry   to all child table.  
+ The composite key is based on 2 surrogate keys and is a bulletproof way to ensure data integrity among clients and within the database a whole.  
+ After this you would create views (or if using Oracle EE setup Virtual Private Database) and other various structures to allow the database to enforce row level security (which is a topic all it own). 
+ Granted that this data structure is no longer normalized to the nth degree. The   field in each pk/fk denormalizes an otherwise normal model. The benefit of the model is the ease of enforcing row level security at the database level (which is what databases should do).  Every select, insert, update, delete is restricted to whatever   your session is currently set.  The database has  **session awareness**
+. 
+ **Summary**
+
+ Surrogate keys are always the safe bet.  They require a little more work to setup and require more storage.   
+ The biggest benefit in my opinion is: 
+ 
+ Being able to update the PK in one table and all other child tables are instantaneously changed without ever being touched. 
+ When data gets messed up--and it will at some point due to a programming mistake, surrogate keys make the clean up much much easier and in some cases only possible to do because there are surrogate keys. 
+ Query performance is improved as the db is able to search attributes to locate the s.key and then join all child table by a single numeric key. 
+ 
+ Natural Keys especially composite NKeys make writing code a pain.  When you need to join 4 tables the "where clause" will be much longer (and easier to mess up) than when single SKeys were used.   
+ Surrogate keys are the "safe" route.  Natural keys are beneficial in a few places, I'd say around 1% of the tables in a db. 
+ 
+ First of all, your second layer can be expressed at least four different ways, and they're all relevant to your question. Below I'm using pseudo-SQL, mainly with PostgreSQL syntax. Certain kinds of queries will require recursion and more than one additional index regardless of the structure, so I won't say any more about that. Using a dbms that supports clustered indexes can affect some decisions here, but don't assume that six joins on clustered indexes will be faster than simply reading values from a single, covering index; test, test, test. 
+ Second, there really aren't many tradeoffs at the first layer. Foreign keys can reference a column declared   in exactly the same way they can reference a column declared  . The surrogate key increases the width of the table by 4 bytes; that's trivial for most, but not all, database applications.  
+ Third, correct foreign keys and unique constraints will maintain referential integrity in all four of these designs. (But see below, "About Cascades".) 
+ **A. Foreign keys to surrogate keys**
+
+ 
+ **B. Foreign keys to natural keys**
+
+ 
+ **C. Foreign keys to surrogate keys, additional surrogate key**
+
+ 
+ **D. Foreign keys to natural keys, additional surrogate key**
+
+ 
+ Now let's look at the ParentsOf table.   
+ **A. Foreign keys to surrogate keys in A, above**
+
+ 
+ To retrieve the names for a given row, you'll need four joins. You can join directly to the "FirstNames" and "Surnames" tables; you don't need to join  through  the "People" table to get the names. 
+ **B. Foreign keys to natural keys in B, above**
+
+ 
+ This design needs zero joins to retrieve the names for a given row. Many SQL platforms won't need to read the table at all, because they can get all the data from the index on the primary key. 
+ **C. Foreign keys to surrogate keys, additional surrogate key in C, above**
+
+ 
+ To retrieve names, you must join  through  the "people" table. You'll need a total of six joins. 
+ **D. Foreign keys to natural keys, additional surrogate key in D, above**
+
+ This design has the same structure as in C immediately above. Because the "people" table in D, farther above, has natural keys referencing the tables "FirstNames" and "Surnames", you'll only need two joins to the table "people" to get the names. 
+ **About ORMs**
+
+ ORMs don't build SQL the way a SQL developer writes SQL. If a SQL developer writes a SELECT statement that needs six joins to get the names, an ORM is liable to execute seven simpler queries to get the same data. This might be a problem; it might not. 
+ **About Cascades**
+
+ Surrogate ID numbers make every foreign key reference an implicit, undeclared "ON UPDATE CASCADE".  For example, if you run this update statement against your table of surnames . . . 
+ 
+ then all the Smiths will become Smythes. The only way to prevent that is to revoke update permissions on "surnames". Implicit, undeclared "ON UPDATE CASCADE" is not always a Good Thing. Revoking permissions solely to prevent unwanted implicit "cascades" is not always a Good Thing. 
+ 
+ Using natural keys can enable simpler, faster queries since one needn't join all the way up the foreign key chain to find the "natural" value e.g. for display on-screen. 
+ 
+ I will avoid a pure academic discussion here and look at a few pragmatic considerations given a modern database design typically needs to consider scalability, mobility (disconnected operation), and conflict resolution where choice of key can have a large impact. 
+ Things that can influence your choice are: 
+ 
+ how to deal with distinct records which may have the same natural keys. Eg identical firstname and surname. 
+ how does a web or mobile client persist a complex model graph if server assigned surrogate keys are used (requires some kind of mapping layer). Alternative is to avoid the mapping problem and use client assigned v4 UUIDs. 
+ following on from the above, how do you deal with conflict resolution in temporarily disconnected environments such as mobile apps or where clients can peer/share with one another without having to first sync with a server .  Object identity is an important concept to support and solve these problems. 
+ scalability through sharding your database can be easy or difficult based on choice of key.  Auto incrementing surrogate keys are hard to shard and require choosing a fixed number of shards a-priori so keys don't clash, whilst v4 UUID based surrogate keys are easy and can be client assigned. Composite and natural keys are hard because the key whilst relatively stable may still change and this requires the ability to migrate records from one shard to another. 
+ how do your clients manage object identity? Often user interfaces require building a local graph of models for later persistence to a "server in the cloud".  During this time before persistence those objects need identity and after persistence there needs to be an agreement or mapping between the server object identity and client object identity. 
+ Do you force everything above the database (including the application server) to deal with an identity mapping problem or build it into the database key design and also help solve scalabilty/sharding for the db whilst your at it? 
+ 
+ My advice is look at the characteristics of the system as a whole and look beyond the theoretical db design to what will work well for the non trivial full stack that sits above the database. The choice you make for key design can make or break usability of the system and help or harm the development complexity, thus increasing or decreasing your resulting time to market and overall tradeoff for quality and reliability. 
+ 
+ I once saw this list of criteria for a primary key. I find it a rather good starting point for this kind of discussion  
+ 
+ unique 
+ stable (not necessarily immutable) 
+ irreducible 
+ simple 
+ familiar 
+ 
+ Sometimes there's a conflict between two or more criteria and we have to compromise between them. Unfortunate, many people never even reflect on how to design the key, they go with some kind of auto generated key, may it be an identity column, a guid or whatever. 
+ One drawback with surrogate keys is that it becomes more difficult to enforce rules declarative (most DBMS don't support sub queries in check constraints). I'm thinking rules like: 
+ 
+ However, I find the biggest problem with surrogate keys to be that you can get away with really weird constructions, and not even notice.  
+ 
+ A frequent use case you can find in databases is versioning an history 
+ Exemple with an user table: 
+ 
+ John has filled an info, then decided to delete it and fill a new one. 
+ If you do not use a unique pk, you wont be able to manage this situation. 
+ It makes it extremely easy in development and production to mark some data as deleted, and unmark them to do some tests or data corrections, instead of backing up or restoring or getting a lot of confusion. 
+ It also faster to rebuild indexes on integers and it takes less disk space. 
+ 
+ If our composite key consists of columns STUDENT and COURSE, the
+database will ensure that we never enter duplicate values.  
+ Example.  
+ With composite key, this is not allowed, database will prevent it. 
+ 
+ But if we choose a surrogate key as the key, we will need to find another way to prevent such duplications. 
+ Thinking about
+which combinations of fields are possible keys can help you discover and understand the problem better.  
+ 
+ I think you have misunderstood something fundamental as regards data: 
+ 1) You are taking a single identifier (person name - assuming that does uniquely identify a person), splitting it into subatomic parts then, because of 6NF, putting them into separate relation variables. Often such a split is made for practical reasons and first name/last name is a common example; the decision is usually made on grounds of  complexity, frequency, etc of splitting when compared to those of putting the attribute back together again. Here the split is not practical. 
+ 2) 6NF is always achievable but not always desirable. In this case, it makes it harder to define a constraint that would be able to verify the parts as being valid in combination (imagine you had split a date by time granules day, month and year and stored each part in separate relvars!). 
+ 3) For person identifiers, a compound of first and last names is rarely adequate. Identifiers are usually chosen based on the level of trust required. An employer checks references, qualifications, etc then issues a payroll reference. A police offer might require sight of your driver licence by the roadside but fingerprints will be taken if you are convicted of a crime. A DBMS cannot verify a person and therefore an auto increment integer is rarely adequate either. 
+ 

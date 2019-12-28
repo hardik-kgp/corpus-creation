@@ -1,0 +1,38 @@
+*** auto-increment-feature-in-database ***
+
+ I use SQL Server and when I create a new table I make a specific field an auto increment
+primary key. The problem is some people told me making the field an auto increment for the primary key means when deleting any record (they don't care about the auto increment field number) the field increases so at some point - if the type of my field is integer for example - the range of integer will be consumed totally and i will be in trouble. So they tell me not to use this feature any more. 
+ The best solution is making this through the code by getting the max of my primary key then if the value does not exist the max will be   other wise  . 
+ Any suggestions about this problem? Can I use the auto increment feature? 
+ I want also to know the cases which are not preferable to use auto increment ..and the alternatives... 
+ note :: this question is general not specific to any DBMS , i wanna to know is this true also for DBMSs like ORACLE ,Mysql,INFORMIX,.... 
+ Thanks so much. 
+ 
+ You should use identity (auto increment) columns. The  bigint  data type can store values  **up to 2^63-1**
+ (9,223,372,036,854,775,807). I don't think your system is going to reach this value soon, even if you are inserting and deleting lots of records. 
+ If you implement the method you propose properly, you will end up with a lot of  **locking problems**
+. Otherwise, you will have to deal with exceptions thrown because of  **constraint violation**
+ (or even worse -  **non-unique values**
+, if there is no primary key constraint). 
+ 
+ An   datatype in SQL Server can hold values from -2,147,483,648 through 2,147,483,647. 
+ If you seed your identity column with -2,147,483,648, e.g.   then you have over 4 billion values to play with. 
+ If you really think this is still not enough, you could use a  , which can hold values from -9,223,372,036,854,775,808 through 9,223,372,036,854,775,807, but this almost guaranteed to be overkill. Even with large data volumes and/or a large number of transactions, you will probably either run out of disk space or exhaust the lifetime of your application before you exhaust the identity values when using an  , and almost certainly when using a  . 
+ To summarise, you should use an identity column and you should not care about gaps in the values since a) you have enough candidate values and b) it's an abstract number with no logical meaning. 
+ If you were to implement the solution you suggest, with the code deriving the next identity column, you would have to consider concurrency, since you will have to synchronise access to the current maximum identity value between two competing transactions. Indeed, you may end up introducing a significant performance degradation, since you will have to first read the max value, calculate and then insert (not to mention the extra work involved in synchronising concurrent transactions). If, however, you use an identity column, concurrency will be handled for you by the database engine. 
+ 
+ Continue to use the identity feature with PK in SQL Server.  In mysql, there is also auto increment feature.  Don't worry that you run out of integer range, you will run out of hard disk space before that happens. 
+ 
+ The solution they suggest can, and most likely will, create a concurrency problem and/or scalability problem.  If two sessions use the Max technique you describe at the same time, they can come up with the same number and then both try to add it at the same time.  This will create a constraint violation.   
+ You can work around that problem by locking the table or catching exceptions, and keep re-inserting.. but that's a really bad way to do things.  Locking will reduce performance and cause scalability issues (and if you're planning as many records as to be worried about overflowing an int then you will need scalability).   
+ Identity fields are atomic operations.  Two sessions cannot create the same identity field, so this problem is non-existent when using it. 
+ If you're concerned that an identity field may overflow, then use a larger datatype, such as bigint.  You would be hard pressed to generate enough records to overflow that. 
+ Now, there are valid reasons NOT to use an identity field, but this is not one of them. 
+ 
+ I would advice AGAINST using the Identity/Auto-increment, because: 
+ 
+ It's implementation is broken in SQL server 2005/2008.  Read more 
+ It doesn't work well if you are going to use an ORM to map your database to objects.  Read more 
+ 
+ I would advice you to use the Hi/Lo generator if you usually access your database through a program and don't depend on sending insert statements manually to the DB. You can read more about it in the second link. 
+ 

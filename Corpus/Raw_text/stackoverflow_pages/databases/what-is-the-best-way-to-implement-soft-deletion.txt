@@ -1,0 +1,84 @@
+*** what-is-the-best-way-to-implement-soft-deletion ***
+
+ Working on a project at the moment and we have to implement soft deletion for the majority of users (user roles). We decided to add an   field on each table in the database and set it to   if particular user roles hit a delete button on a specific record. 
+ For future maintenance now, each   query will need to ensure they do not include records  . 
+ Is there a better solution for implementing soft deletion? 
+ Update: I should also note that we have an Audit database that tracks changes (field, old value, new value, time, user, ip) to all tables/fields within the Application database. 
+ 
+ You could perform all of your queries against a view that contains the   clause. 
+ 
+ I would lean towards a   column that contains the  **datetime of when the deletion took place**
+. Then you get a little bit of free metadata about the deletion. For your   just get rows  
+ 
+ Having   column is a reasonably good approach.
+If it is in Oracle, to further increase performance I'd recommend partitioning the table by creating a list partition on   column.
+Then deleted and non-deleted rows will physically be in different partitions, though for you it'll be transparent. 
+ As a result, if you type a query like 
+ 
+ then Oracle will perform the 'partition pruning' and only look into the appropriate partition. Internally a partition is a different table, but it is transparent for you as a user: you'll be able to select across the entire table no matter if it is partitioned or not. But Oracle will be able to query  **ONLY the partition it needs**
+. For example, let's assume you have 1000 rows with   and 100000 rows with  , and you partition the table on  . Now if you include condition 
+ 
+ then Oracle will ONLY scan the partition with 1000 rows. If the table weren't partitioned, it would have to scan 101000 rows (both partitions). 
+ 
+ The best response, sadly, depends on what you're trying to accomplish with your soft deletions and the database you are implementing this within. 
+ In SQL Server, the best solution would be to use a deleted_on/deleted_at column with a type of SMALLDATETIME or DATETIME (depending on the necessary granularity) and to make that column nullable.  In SQL Server, the row header data contains a NULL bitmask for each of the columns in the table so it's marginally faster to perform an IS NULL or IS NOT NULL than it is to check the value stored in a column. 
+ If you have a large volume of data, you will want to look into partitioning your data, either through the database itself or through two separate tables (e.g. Products and ProductHistory) or through an indexed view. 
+ I typically avoid flag fields like is_deleted, is_archive, etc because they only carry one piece of meaning.  A nullable deleted_at, archived_at field  provides an additional level of meaning to yourself and to whoever inherits your application.  And I avoid bitmask fields like the plague since they require an understanding of how the bitmask was built in order to grasp any meaning. 
+ 
+ if the table is large and performance is an issue, you can always move 'deleted' records to another table, which has additional info like time of deletion, who deleted the record, etc 
+ that way you don't have to add another column to your primary table 
+ 
+ That depends on what information you need and what workflows you want to support. 
+ Do you want to be able to: 
+ 
+ know what information was there (before it was deleted)? 
+ know when it was deleted? 
+ know who deleted it? 
+ know in what capacity they were acting when they deleted it? 
+ be able to un-delete the record? 
+ be able to tell when it was un-deleted? 
+ etc. 
+ 
+ If the record was deleted and un-deleted four times, is it sufficient for you to know that it is currently in an un-deleted state, or do you want to be able to tell what happened in the interim (including any edits between successive deletions!)?  
+ 
+ Careful of soft-deleted records causing uniqueness constraint violations.
+If your DB has columns with unique constraints then be careful that the prior soft-deleted records don’t prevent you from recreating the record.  
+ Think of the cycle:   
+ 
+ create user (login=JOE) 
+ soft-delete  (set deleted column to non-null.) 
+ (re) create user (login=JOE).  ERROR.  LOGIN=JOE is already taken 
+ 
+ Second create results in a constraint violation because login=JOE is already in the soft-deleted row.   
+ Some techniques:
+ 1. Move the deleted record to a new table.
+ 2. Make your uniqueness constraint across the login and deleted_at  timestamp column 
+ My own opinion is +1 for moving to new table.   Its take lots of
+    discipline to maintain the *AND delete_at = NULL* across all your
+    queries (for all of your developers) 
+ 
+ You will definitely have better performance if you move your deleted data to another table like Jim said, as well as having record of when it was deleted, why, and by whom. 
+ Adding  =0  to all your queries will slow them down significantly, and hinder the usage of any of indexes you may have on the table. Avoid having "flags" in your tables whenever possible. 
+ 
+ you don't mention what product, but SQL Server 2008 and postgresql (and others i'm sure) allow you to create filtered indexes, so you could create a covering index where is_deleted=0, mitigating some of the negatives of this particular approach. 
+ 
+ Something that I use on projects is a statusInd tinyint not null default 0 column
+using statusInd as a bitmask allows me to perform data management (delete, archive, replicate, restore, etc.). Using this in views I can then do the data distribution, publishing, etc for the consuming applications. If performance is a concern regarding views, use small fact tables to support this information, dropping the fact, drops the relation and allows for scalled deletes. 
+ Scales well and is data centric keeping the data footprint pretty small - key for 350gb+ dbs with realtime concerns.  Using alternatives, tables, triggers has some overhead that depending on the need may or may not work for you.   
+ SOX related Audits may require more than a field to help in your case, but this may help.
+Enjoy 
+ 
+ I prefer to keep a status column, so I can use it for several different configs, i.e. published, private, deleted, needsAproval... 
+ 
+ Create an other schema and grant it all on your data schema.
+Implment VPD on your new schema so that each and every query will have the predicate allowing selection of the non-deleted row only appended to it.
+ http://download.oracle.com/docs/cd/E11882_01/server.112/e16508/cmntopc.htm#CNCPT62345 
+ 
+ 
+ put this on top of your  
+ http://wiki.eclipse.org/EclipseLink/Examples/JPA/SoftDelete 
+ 
+ Use a view, function, or procedure that checks  ; i.e. don't select directly on the table in case the table needs to change later for other reasons. 
+ And index the   column for larger tables. 
+ Since you already have an audit trail, tracking the deletion date is redundant. 
+ 

@@ -1,0 +1,51 @@
+*** what-techniques-are-most-effective-for-dealing-with-millions-of-records ***
+
+ I once had a MySQL database table containing 25 million records, which made even a simple   query takes minute to execute. I ended up making partitions, separating them into a couple tables. What i'm asking is, is there any pattern or design techniques to handle this kind of problem (huge number of records)? Is MSSQL or Oracle better in handling lots of records? 
+ P.S 
+the   problem stated above is just an example case, in reality the app does crud functionality and some aggregate query (for reporting), but nothing really complicated. It's just that it takes quite a while (minutes) to execute some these queries because of the table volume 
+ 
+ See  Why MySQL could be slow with large tables  and  COUNT(*) vs COUNT(col) 
+ Make sure you have an index on the column you're counting. If your server has plenty of RAM, consider increasing MySQL's buffer size. Make sure your disks are configured correctly -- DMA enabled, not sharing a drive or cable with the swap partition, etc. 
+ 
+ What you're asking with "SELECT COUNT(*)" is not easy. 
+ In MySQL, the MyISAM non-transactional engine optimises this by keeping a record count, so SELECT COUNT(*) will be very quick. 
+ However, if you're using a transactional engine, SELECT COUNT(*) is basically saying:  
+ Exactly how many records exist in this table in  my transaction  ? 
+ To do this, the engine needs to scan the entire table; it probably knows roughly how many records exist in the table already, but to get an exact answer for a particular transaction, it needs a scan. This isn't going to be fast using MySQL innodb, it's not going to be fast in Oracle, or anything else. The whole table MUST be read (excluding things stored separately by the engine, such as BLOBs) 
+ Having the whole table in ram will make it a bit faster, but it's still not going to be fast. 
+ If your application relies on frequent, accurate counts, you may want to make a summary table which is updated by a trigger or some other means. 
+ If your application relies on frequent, less accurate counts, you could maintain summary data with a scheduled task (which may impact performance of other operations less). 
+ 
+ Many performance issues around large tables relate to indexing problems, or lack of indexing all together. I'd definitely make sure you are familiar with indexing techniques and the specifics of the database you plan to use. 
+ With regards to your slow count(*) on the huge table, i would assume you were using the InnoDB table type in MySQL. I have some tables with over 100 million records using MyISAM under MySQL and the count(*) is very quick. 
+ With regards to MySQL in particular, there are even slight indexing differences between InnoDB and MyISAM tables which are the two most commonly used table types. It's worth understanding the pros and cons of each and how to use them. 
+ 
+ What kind of access to the data do you need? I've used  HBase  (based on Google's BigTable) loaded with a vast amount of data (~30 million rows) as the backend for an application which could return results within a matter of seconds. However, it's not really appropriate if you need "real time" access - i.e. to power a website. Its column-oriented nature is also a fairly radical change if you're used to row-oriented DBMS. 
+ 
+ Is count(*) on the whole table actually something you do a lot? 
+ InnoDB will have to do a full table scan to count the rows, which is obviously a major performance issue if counting all of them is something you actually want to do. But that doesn't mean that other operations on the table will be slow. 
+ With the right indexes, MySQL will be very fast at retrieving data from tables much bigger than that. The problem with indexes is that they can hurt insert speeds, particularly for large tables as insert performance drops dramatically once the space required for the index reaches a certain threshold - presumably the size it will keep in memory. But if you only need modest insert speeds, MySQL should do everything you need. 
+ Any other database will have similar tradeoffs between retrieve speed and insert speed; they may or may not be better for your application. But I would look first at getting the indexes right, and maybe rewriting your queries, before you try other databases. For what it's worth, we picked MySQL originally because we found it performed best. 
+ Note that MyISAM tables in MySQL store the total size of the table. They maintain this because it's useful to the optimiser in some cases, but a side effect is that count(*) on the whole table is really fast. That doesn't necessarily mean they're faster than InnoDB at anything else.  
+ 
+ I answered a similar question in  This Stackoverflow Posting  in some detail, describing the merits of the architectures of both systems.  To some extent it was done from a data warehousing point of view but many of the differences also matter on transactional systems. 
+ However, 25 million rows is not a VLDB and if you are having performance problems you should look to indexing and tuning.  You don't need to go to Oracle to support a 25 million row database - you've got about 3 orders of magnitude to go before you're truly in VLDB territory. 
+ 
+ **You are asking for a books worth of answer**
+ and I therefore propose you get a good book on databases. There are  many . 
+ To get you started, here are some database basics: 
+ First, you need a great data model based not just on what data you need to store but on usage patterns.  **Good database performance starts with good schema design.**
+
+ Second, place indicies on columns based upon expected lookup AND update needs as update performance is often overlooked. 
+ Third, don't put functions in where clauses if at all possible. 
+ Fourth, use an -ahem- RDBMS engine that is of quality design. I would respectfully submit that while it has improved greatly in the recent past, mysql does not qualify. (Apologies to those who wish to argue it has finally made the grade in recent times.) There is no longer any need to choose between high-price and quality; Postgres (aka PostgreSql) is available open-source and is truly fantastic - and has all the plug-ins available to meet your needs. 
+ Finally, learn what you are asking a database engine to do - gain  some  insight into internals - so you can better judge what kinds of things are expensive and why. 
+ 
+ I'm going to second  @Mark Baker , and say that you need to build indices on your tables. 
+ For other queries than the one you selected, you should also be aware that using constructs such as IN() is faster than a series of OR statements in the query. There are lots of little steps you can take to speed-up individual queries. 
+ 
+ Indexing is key to performance with this number of records, but how you write the queries can make a big difference as well. Specific performance tuning methods vary by database, but in general, avoid returning more records or fields than you actually need, make sure all join fields are indexed (as well as common where clause fields), avoid cursors (although I think this is less true in Oracle than SQL Server I don't know about mySQL).  
+ Hardware can also be a bottleneck especially if you are running things besides the database server on the same machine. 
+ Performance tuning is a very technical subject and can't really be answered well in a format like this. I suggest you get a performance tuning book and read it. Here is a link to one for mySQL
+ http://www.amazon.com/High-Performance-MySQL-Optimization-Replication/dp/0596101716 
+ 

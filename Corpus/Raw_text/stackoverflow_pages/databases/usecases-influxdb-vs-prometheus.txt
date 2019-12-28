@@ -1,0 +1,79 @@
+*** usecases-influxdb-vs-prometheus ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed.  This question is  off-topic . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?   Update the question  so it's  on-topic  for Stack Overflow.
+                         
+ Closed  3 years ago . 
+ 
+ 
+ 
+ Following the  Prometheus webpage  one main difference between Prometheus and InfluxDB is the usecase: while Prometheus stores time series only InfluxDB is better geared towards storing individual events. Since there was some major work done on the storage engine of InfluxDB I wonder if this is still true.  
+ I want to setup a time series database and apart from the push/push model (and probably a difference in performance) I can see no big thing which separates both projects. Can someone explain the difference in usecases?  
+ 
+ InfluxDB CEO and developer here. The next version of InfluxDB (0.9.5) will have our new storage engine. With that engine we'll be able to efficiently store either single event data or regularly sampled series. i.e. Irregular and regular time series. 
+ InfluxDB supports int64, float64, bool, and string data types using different compression schemes for each one. Prometheus only supports float64. 
+ For compression, the 0.9.5 version will have compression competitive with Prometheus. For some cases we'll see better results since we vary the compression on timestamps based on what we see. Best case scenario is a regular series sampled at exact intervals. In those by default we can compress 1k points timestamps as an 8 byte starting time, a delta (zig-zag encoded) and a count (also zig-zag encoded). 
+ Depending on the shape of the data we've seen < 2.5 bytes per point on average after compactions. 
+ YMMV based on your timestamps, the data type, and the shape of the data. Random floats with nanosecond scale timestamps with large variable deltas would be the worst, for instance. 
+ The variable precision in timestamps is another feature that InfluxDB has. It can represent second, millisecond, microsecond, or nanosecond scale times. Prometheus is fixed at milliseconds. 
+ Another difference is that writes to InfluxDB are durable after a success response is sent to the client. Prometheus buffers writes in memory and by default flushes them every 5 minutes, which opens a window of potential data loss. 
+ Our hope is that once 0.9.5 of InfluxDB is released, it will be a good choice for Prometheus users to use as long term metrics storage (in conjunction with Prometheus). I'm pretty sure that support is already in Prometheus, but until the 0.9.5 release drops it might be a bit rocky. Obviously we'll have to work together and do a bunch of testing, but that's what I'm hoping for. 
+ For single server metrics ingest, I would expect Prometheus to have better performance (although we've done no testing here and have no numbers) because of their more constrained data model and because they don't append writes to disk before writing out the index. 
+ The query language between the two are very different. I'm not sure what they support that we don't yet or visa versa so you'd need to dig into the docs on both to see if there's something one can do that you need. Longer term our goal is to have InfluxDB's query functionality be a superset of Graphite, RRD, Prometheus and other time series solutions. I say superset because we want to cover those in addition to more analytic functions later on. It'll obviously take us time to get there. 
+ Finally, a longer term goal for InfluxDB is to support high availability and horizontal scalability through clustering. The current clustering implementation isn't feature complete yet and is only in alpha. However, we're working on it and it's a core design goal for the project. Our clustering design is that data is eventually consistent. 
+ To my knowledge, Prometheus' approach is to use double writes for HA (so there's no eventual consistency guarantee) and to use federation for horizontal scalability. I'm not sure how querying across federated servers would work. 
+ Within an InfluxDB cluster, you can query across the server boundaries without copying all the data over the network. That's because each query is decomposed into a sort of MapReduce job that gets run on the fly. 
+ There's probably more, but that's what I can think of at the moment. 
+ 
+ We've got the marketing message from the two companies in the other answers. Now let's ignore it and get back to the sad real world of time-data series. 
+ Some History 
+ InfluxDB and prometheus were made to replace old tools from the past era (RRDtool, graphite).  
+ InfluxDB is a time series database. Prometheus is a sort-of metrics collection and alerting tool, with a storage engine written just for that. (I'm actually not sure you could [or should] reuse the storage engine for something else) 
+ Limitations 
+ Sadly, writing a database is a very complex undertaking. The only way both these tools manage to ship something is by dropping all the hard features relating to high-availability and clustering. 
+ To put it bluntly,  **it's a single application running only a single node.**
+
+ **Prometheus has no goal to support clustering and replication whatsoever**
+. The official way to support failover is to " run 2 nodes and send data to both of them ". Ouch. (Note that it's seriously the ONLY existing way possible, it's written countless times in the official documentation). 
+ **InfluxDB**
+ has been talking about clustering for years... until it was officially abandoned in March.  **Clustering ain't on the table anymore for InfluxDB**
+. Just forget it. When it will be done (supposing it ever is) it will only be available in the Enterprise Edition. 
+ 
+ https://influxdata.com/blog/update-on-influxdb-clustering-high-availability-and-monetization/ 
+ 
+ Within the next few years, we will hopefully have a well-engineered time-series database that is handling all the hard problems relating to databases: replication, failover, data safety, scalability, backup... 
+ At the moment, there is no silver bullet. 
+ What to do 
+ **Evaluate the volume of data to be expected.**
+  
+ 100 metrics * 100 sources * 1 second => 10000 datapoints per second => 864 Mega-datapoints per day. 
+ The nice thing about times series databases is that they use a compact format, they compress well, they aggregate datapoints, and they clean old data. (Plus they come with features relevant to time data series.) 
+ Supposing that a datapoint is treated as 4 bytes, that's only a few Gigabytes per day. Lucky for us, there are systems with 10 cores and 10 TB drives readily available. That could probably run on a single node. 
+ The alternative is to use a classic NoSQL database (Cassandra, ElasticSearch or Riak) then engineer the missing bits in the application. These databases may not be optimized for that kind of storage (or are they? modern databases are so complex and optimized, can't know for sure unless benchmarked). 
+ **You should evaluate the capacity required by your application**
+. Write a proof of concept with these various databases and measures things. 
+ See if it falls within the limitations of InfluxDB. If so, it's probably the best bet. If not, you'll have to make your own solution on top of something else. 
+ 
+ InfluxDB simply cannot hold production load (metrics) from 1000 servers. It has some real problems with data ingestion and ends up stalled/hanged and unusable. We tried to use it for a while but once data amount reached some critical level it could not be used anymore. No memory or cpu upgrades helped.
+Therefore our experience is definitely avoid it, it's not mature product and has serious architectural design problems. And I am not even talking about sudden shift to commercial by Influx.  
+ Next we researched Prometheus and while it required to rewrite queries it now ingests 4 times more metrics without any problems whatsoever compared to what we tried to feed to Influx. And all that load is handled by single Prometheus server, it's fast, reliable, and dependable. This is our experience running huge international internet shop under pretty heavy load. 
+ 
+ IIRC current Prometheus implementation is designed around all the data fitting on a single server.  If you have gigantic quantities of data, it may not all fit in Prometheus. 
+ 

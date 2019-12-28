@@ -1,0 +1,52 @@
+*** how-do-i-deep-copy-a-set-of-data-and-change-fk-references-to-point-to-all-the-c ***
+
+ Suppose I have Table A and Table B. Table B references Table A. I want to deep copy a set of rows in Table A and Table B. I want all of the new Table B rows to reference the new Table A rows. 
+ Note that I'm not copying the rows into any other tables. The rows in table A will be copied into table A, and the rows in table B will be copied into table B. 
+ How can I ensure that the foreign key references get readjusted as part of the copy? 
+ To clarify, I'm trying to find a generic way to do this. The example I'm giving involves two tables, but in practice the dependency graph may be much more complicated. Even a generic way to dynamically generate SQL to do the work would be fine. 
+ UPDATE: 
+ People are asking why this is necessary, so I'll give some background. It may be way too much, but here goes: 
+ I'm working with an old desktop application that's been moved to a client-server model. But, the application still uses a rudimentary in-house binary file format for storing data for its tables. A data file is just a header followed by a series of rows, each of which is just the binary serialized field values, the order of which is determined by a schema text file. The only thing good about it is that it's very fast. It's terrible in every other respect. I'm moving the application to SQL Server and trying not to degrade the performance too badly. 
+ This is a kind of scheduling application; the data's not critical to anybody, and there's no audit tracking, etc. necessary. It's not a supermassive amount of data, and we don't necessarily need to keep very old data around if the database grows too large. 
+ One feature that they are accustomed to is the ability to duplicate entire schedules in order to create "what-if" scenarios that they can muck with. Any user can do this as many times as they want, as often as they want. In the old database, the data files for each schedule are stored in their own data folder, identified by name. So, copying a schedule was as simple as copying the data folder and renaming it. 
+ I  must  be able to do effectively the same thing with SQL Server or the migration will not work. Maybe you're thinking that I can just only copy the data that actually gets changed in order to avoid redundancy; but that honestly sounds too complicated to be feasible. 
+ To throw another wrench into the mix, there can be a hierarchy of schedule data folders. So, a data folder may contain a data folder, which may contain a data folder. And the copying can occur at any level. 
+ In SQL Server, I'm implementing a nested set hierarchy to mimic this. I have a DATA_SET table like this: 
+ 
+ So, there's a tree structure of data sets. Each data set represents a schedule, and may contain child data sets. Every row in every table has a DATA_SET_ID FK reference, indicating which data set it belongs to. Whenever I copy a data set, I copy all the rows in the table for that data set, and every other data set, into the same table, but referencing new data sets. 
+ So, here's a simple concrete example: 
+ 
+ So, let's say I copy data set 1 into a new data set of ID 2. After I copy, the tables will look like this: 
+ 
+ As you can see, the new BAR rows are referencing the new FOO rows. It's not the rewiring of the DATA_SET_ID's that I'm asking about. I'm asking about rewiring the foreign keys in general. 
+ So, that was surely too much information, but there you go. 
+ I'm sure there are a lot of concerns about performance with the idea of bulk copying the data like this. The tables are not going to be huge. I'm not expecting more than 1000 records in any table, and most of the tables will be much much smaller than that. Old data sets can be deleted outright with no repercussions. 
+ Thanks,
+Tedderz 
+ 
+ Here is an example with three tables that can probably get you started.  
+ DB schema 
+ 
+ An SP to clone a user with his agenda and events records 
+ 
+ To clone a user 
+ 
+ Here is  **SQLFiddle**
+ demo. 
+ 
+ I recently found myself needing to solve a similar problem; that is, I needed to copy a set of rows in a table (Table A) as well as all of the rows in related tables which have foreign keys pointing to Table A's primary key. I was using Postgres so the exact queries may differ but the overall approach is the same.  **The biggest benefit of this approach is that it can be used recursively to go infinitely deep**
+
+ TLDR: the approach looks like this 
+ 
+ 1) The first step is to query the information schema to find all of the tables and columns which are referencing Table A. In Postgres this might look like the following: 
+ 
+ 2) Next we need to copy the data from Table A, and any other tables which reference Table A - lets say there is one called Table B. To start this process, lets create a temporary table for each of these tables and we will populate it with the data that we need to copy. This might look like the following: 
+ 
+ 3) We can now define a function that will cascade primary key column updates out to related foreign key columns, and trigger which will execute whenever the primary key column changes. For example: 
+ 
+ 4) Now we just update the primary key column in  to the next value of the sequence of the source table (). This will activate the trigger, and the updates will be cascaded out to the foreign key columns in . In Postgres you can do the following: 
+ 
+ 5) Insert the data back from the temporary tables back into the source tables. And then drop the temporary tables, triggers, and functions after that. 
+ 
+ It is possible to take this general approach and turn it into a script which can be called recursively in order to go infinitely deep. I ended up doing just that using python (our application was using django so I was able to use the django ORM to make some of this easier) 
+ 

@@ -1,0 +1,39 @@
+*** correct-setting-of-database-connection-pool-database-yml-for-single-threaded-rai ***
+
+ I was wondering about the following setting in the Rails database.yml: 
+ By default the number of database connections for the connection pool of ActiveRecord is set to 5: 
+ 
+ But by default, Rails 3 is single threaded. 
+Why would you need 5 connections by default? 
+ As far as I understand, a single threaded Rails app can't trigger multiple database operations at once, why would do you need to keep more connection open? 
+ I would assume that 2 connections would make sense, so you always have one active connection even if the other one times out, but holding five connections seems a little odd to me. 
+ Am I missing something? 
+ UPDATE
+If anyone else is curious, I just found a commit that explains it:
+ https://github.com/rails/rails/commit/b700153507b7d539a57a6e3bcf03c84776795051 
+ In fact these default settings don't make any sense, it was fixed but then temporarily reverted (one year ago) because of the test suite. 
+ 
+ Quite late to the party here, but I ran out of database connections today in production.  
+ Like a lot of people, I use Sidekiq to perform asynchronous jobs like sending emails for example. It is important to note that Sidekiq runs as a multithread process. 
+ So, I don't  **just**
+ have a single-threaded Rails application, therefore this answer does not directly apply to the question asked but I thought it was worth saying something here as I think multithreaded Rails apps are relatively normal nowadays.  
+ This means you need to adjust your pool size in such a way as to create enough connections to handle all the jobs that can be enqueued and take longer than 5 seconds (the default timeout period to wait for a database connection before throwing an error).  
+ 
+ **Manage Connections**
+
+ The major benefit of connection pooling for a single-thread server like Mongrel/Passenger/etc is that the connection is established/maintained in a Rack handler outside the main Rails request processing. This allows for a connection to be established once vs. many times as it's used in different ways. The goal is to re-use the established connection and minimize the number of connections. This should prevent having to reconnect within a given request processing cycle and possibly even between requests (if I recall correctly). 
+ **Multiple Concurrent Connections**
+
+ Although most use cases (Mongrel/Passenger) are single threaded and can only use a single connection at a time - there is JRuby and environments/app servers that have full multi-threaded support. Rails has been thread safe since 2.2 
+ 
+ Connection pooling is handled inside of ActiveRecord, so all application servers should behave basically the same. 
+ The database connection pool starts out empty and creates connections over time according to demand. The maximum size of this pool defaults to 5 and is configured in database.yml. 
+ Requests and users share connections from this pool. A request checks out a connection the first time it needs to access the database and then checks the connection back in at the end of the request.  
+ If you use Rails.threadsafe! mode, then multiple threads might be
+accessing multiple connections at the same time, so depending on the
+request load you might have multiple threads contending for a few
+connections. 
+ 
+ **You can change accordingly, If you are using single threaded app. Default is 5 as per most user's need, as now a day its normal to have a multithreaded app.**
+
+ 

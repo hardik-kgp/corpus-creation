@@ -1,0 +1,91 @@
+*** memory-efficient-constant-and-speed-optimized-iteration-over-a-large-table-in ***
+
+ I have a very large table.
+It's currently in a MySQL database.
+I use django. 
+ I need to iterate over  **each**
+ element of the table to pre-compute some particular data (maybe if I was better I could do otherwise but that's not the point). 
+ I'd like to keep the iteration as fast as possible with a constant usage of memory. 
+ As it is already clearly in  Limiting Memory Use in a *Large* Django QuerySet  and  Why is iterating through a large Django QuerySet consuming massive amounts of memory? , a simple iteration over all objects in django will kill the machine as it will retrieve ALL objects from the database. 
+ **Towards a solution**
+
+ First of all, to reduce your memory consumption you should be sure DEBUG is False (or monkey patch the cursor:  turn off SQL logging while keeping settings.DEBUG? ) to be sure django isn't storing stuff in   for debug. 
+ But even with that, 
+ 
+ is a no go.  
+ Not even with the slightly improved form: 
+ 
+ Using   will save you some memory by not storing the result of the cache internally (though not necessarily on PostgreSQL!); but will still retrieve the whole objects from the database, apparently. 
+ **A naive solution**
+
+ The  solution in the first question  is to slice the results based on a counter by a  . There are several ways to write it, but basically they all come down to an   query in SQL. 
+ something like: 
+ 
+ While this is memory efficient (constant memory usage proportional to  ), it's really poor in term of speed: as OFFSET grows, both MySQL and PostgreSQL (and likely most DBs) will start choking and slowing down. 
+ **A better solution**
+
+ A better solution is available in  this post  by Thierry Schellenbach.
+It filters on the PK, which is way faster than offsetting (how fast probably depends on the DB) 
+ 
+ This is starting to get satisfactory. Now Memory = O(C), and Speed ~= O(N) 
+ **Issues with the "better" solution**
+
+ The better solution only works when the PK is available in the QuerySet. 
+Unluckily, that's not always the case, in particular when the QuerySet contains combinations of distinct (group_by) and/or values (ValueQuerySet). 
+ For that situation the "better solution" cannot be used. 
+ **Can we do better?**
+
+ Now I'm wondering if we can go faster and avoid the issue regarding QuerySets without PK.
+Maybe using something that I found in other answers, but only in pure SQL: using  **cursors**
+. 
+ Since I'm quite bad with raw SQL, in particular in Django, here comes the real question:  
+ **how can we build a better Django QuerySet Iterator for large tables**
+
+ My take from what I've read is that we should use server-side cursors (apparently (see references) using a standard Django Cursor would not achieve the same result, because by default both python-MySQL and psycopg connectors cache the results). 
+ Would this really be a faster (and/or more efficient) solution? 
+ Can this be done using raw SQL in django? Or should we write specific python code depending on the database connector? 
+ Server Side cursors in  PostgreSQL  and in  MySQL 
+ That's as far as I could get for the moment... 
+ **a Django **
+
+ Now, of course the best would have this method work as  , rather than  , and be part of django core or at least a pluggable app. 
+ **Update**
+ Thanks to "T" in the comments for finding a  django ticket  that carry some additional information. Differences in connector behaviors make it so that probably the best solution would be to create a specific   method rather than transparently extending   (sounds like a good approach to me).
+An implementation stub  exists , but there hasn't been any work in a year, and it does not look like the author is ready to jump on that yet. 
+ **Additional Refs:**
+
+ 
+ Why does MYSQL higher LIMIT offset slow the query down? 
+ How can I speed up a MySQL query with a large offset in the LIMIT clause? 
+ http://explainextended.com/2009/10/23/mysql-order-by-limit-performance-late-row-lookups/ 
+ postgresql: offset + limit gets to be very slow 
+ Improving OFFSET performance in PostgreSQL 
+ http://www.depesz.com/2011/05/20/pagination-with-fixed-order/ 
+ How to get a row-by-row MySQL ResultSet in python  Server Side Cursor in MySQL 
+ 
+ **Edits:**
+
+ **Django 1.6 is adding persistent database connections**
+
+ Django Database Persistent Connections 
+ This should facilitate, under some conditions, using cursors. Still it's outside my current skills (and time to learn) how to implement such a solution.. 
+ Also, the "better solution" definitely does not work in all situations and cannot be used as a generic approach, only a stub to be adapted case by case... 
+ 
+ The essential answer:  **use raw SQL with server-side cursors**
+. 
+ Sadly, until Django 1.5.2 there is no formal way to create a server-side MySQL cursor (not sure about other database engines). So I wrote some magic code to solve this problem. 
+ For Django 1.5.2 and MySQLdb 1.2.4, the following code will work. Also, it's well commented. 
+ **Caution:**
+ This is not based on public APIs, so it will probably break in future Django versions. 
+ 
+ 
+ If all you want to do is iterate over everything in the table once, the following is very efficient in resources and far faster than the basic iterator.  Note that paging by primary key is necessary for efficient implementation due to the linear time of the offset operation.   
+ 
+ Use looks like: 
+ 
+ 
+ There is another option available.  It wouldn't make the iteration  faster , (in fact it would probably slow it down), but it would make it use far less memory.  Depending on your needs this may be appropriate. 
+ 
+ Only the ids are loaded into memory, and the objects are retrieved and discarded as needed.  Note the increased database load and slower runtime, both tradeoffs for the reduction in memory usage. 
+ I've used this when running async scheduled tasks on worker instances, for which it doesn't really matter if they are slow, but if they try to use way too much memory they may crash the instance and therefore abort the process. 
+ 

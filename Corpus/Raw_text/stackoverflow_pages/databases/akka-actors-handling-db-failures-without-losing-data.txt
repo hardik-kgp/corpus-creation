@@ -1,0 +1,33 @@
+*** akka-actors-handling-db-failures-without-losing-data ***
+
+ **Scenario**
+
+The DB for an application has gone down. This results in any actor responsible for committing important data to the DB failing to get a connection 
+ **Preferred Behaviour**
+
+The important data is written to the db when it comes back up  sometime in the future . 
+ **Current Implementation**
+
+The actor catches the DBException, wraps the data in a DBWriteFailed case class, and sends the message to its supervisor. The supervisor then schedules another write for sometime in the future (e.g. 1 minute) using system.scheduler.scheduleOnce(...) so that we don't spin in circles too much while waiting for the DB to come back up. 
+ This implementation certainly works but I feel there might be a better way. 
+ 
+ The protocol gets a bit messier when the committing actor has to respond to the original sender after a successful commit. 
+ The regular flow of messages to the committing actor is not throttled in any way and the actor will happily process the new messages, likely failing to connect to the DB for each and every one of them. 
+ If messages get caught in this retry loop for too long, the mailboxes of the committing actors will start to balloon. It is important that this data be committed, but none of it matters if the application crawls to a halt or crashes due to excessive memory usage. 
+ 
+ I am an akka novice and I am largely inexperienced when it comes to supervisor strategies, but I feel as though I may be able to leverage one of those to handle some of this retry logic. 
+ Is there a common approach in akka for solving a problem like this? Am I on the right track or should I be heading in a different direction? 
+ Any help is appreciated. 
+ 
+ You can use  Akka Circuit Breaker  to reduce connection attempts. Instead of using the scheduler as retry queue I would use a buffer (with max size limit) inside the actor and retry those when circuit breaker becomes closed again (onClose callback should send message to self actor). An alternative could be to combine the circuit breaker with a  stashing mailbox . 
+ 
+ **If you're planning to implement full failover in your app**
+
+ Don't. 
+ Do not bubble database failover responsibility up into the app layer. As far as your app is concerned, the database should just be up and ready to accept reads and writes. 
+ If your database goes down often, spend time making your database more robust (there's a multitude of resources on the web already for this: search the web for terms like 'replication', 'high availability', 'load-balancing' and 'clustering', and learn from the war stories of others at  highscalability.com ). It all really depends on what the cause of your DB outages are (e.g. I once maxed out the NIC on the DB master, and "fixed" the problem intermittently by enabling GZIP on the wire). 
+ You'll be glad you adhered to a separation of concerns if you go down this route. 
+ **If you're planning to implement the odd sprinkling of retry logic and handling DB brown-outs**
+
+ If you're not expecting your app to become a replacement database, then  Patrik's answer  is the best way to go.  
+ 

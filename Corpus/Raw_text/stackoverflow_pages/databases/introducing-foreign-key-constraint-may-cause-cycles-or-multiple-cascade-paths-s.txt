@@ -1,0 +1,55 @@
+*** introducing-foreign-key-constraint-may-cause-cycles-or-multiple-cascade-paths-s ***
+
+ User, Employer, Candidates and Job, an employer can create multiple jobs and each job can only have one employer, a candidate can apply for many jobs and each job can have multiple applied members. 
+ So the relationship is like this: 
+ 
+ I am using entity framework code first approach, at the moment if I delete an employer, it is going to delete all related jobs and the user from database, and if I delete candidate, it is going to delete the user: 
+ 
+ Everything works fine except when I specify many to many relationship between candidates and job and update the database using "update-database", it gives me this error: 
+ **Introducing FOREIGN KEY constraint 'FK_dbo.MemberJobMap_dbo.Jobs_JobId' on table 'MemberJobMap' may cause cycles or multiple cascade paths. Specify ON DELETE NO ACTION or ON UPDATE NO ACTION, or modify other FOREIGN KEY constraints.
+Could not create constraint. See previous errors.**
+
+ Here is how I specified many to many relationship: 
+ 
+ and when I add migration: 
+ 
+ I tried changing cascadeDelete to false but that gives me error when I delete a candidate that have applied jobs or when I try to delete a job with applied candidates. 
+ How to fix this error? So that: 
+ 
+ When a job is removed, it is going to remove associated
+candidatejobmap table rows without effecting any other table  
+ When a candidate is removed, it is going to remove associated
+candidatejobmap table rows and user table row without effecting any
+other table  
+ While keeping all other specified cascade delete action
+the same 
+ 
+ 
+ I have fixed this problem 
+ The problem occurs because I have two cascading delete path to the CandidateJobMap table: 
+ If I delete employer, its going to delete related employer jobs which will in turn delete CandidateJobMap table: 
+ Employer->Jobs->CandidateJobMap 
+ If I delete candidate, its going to delete CandidateJobMap table: 
+ Member->CandidateJobMap 
+ So to get around this problem, I have to disable one of the delete path, you cannot specify WillCascadeDelete(false) when you are creating many to many relations, so instead you have to change migration as follows: 
+ 
+ Now because you set cascade delete to false, when a candidate has been deleted, it won't delete related CandidateJobMap rows, this will cause another error when you try to delete a candidate where it is also a related key in CandidateJobMap, so you have to manually delete related rows in CandidateJobMap before removing the candidate: 
+ 
+ Not sure if this is the best way, but it worked for me. 
+ 
+ I realize this is rather old but I ran into this same issue and there are some comments that didn't get addressed.  
+ Specifically "you've hidden the problem..."  
+ Cascade from multiple paths  should  work because it's valid that deleting either ancestor should have the effect of deleting the descendant. But that's only in theory, in reality SQL Server just doesn't allow it, hence the error. One solution is in this post here  solving-the-sql-server-multiple-cascade-path-issue-with-a-trigger .  
+ He suggests removal of all the offending cascade actions and replacing them all with triggers to delete the records. I prefer to work at the top level of the cascade chain. In his example I'd just cut it off at the 'parent' record with  **INSTEAD OF DELETE**
+ for the children and let cascade take care of the rest.  
+ I do this for two reasons  
+ 
+ It should be done in the database because it's the last line of defense for bad data... kind of like emptying the pockets just before the clothes go in the washer. Taking care of things there means you don't have to replicate the code into all the different models you might build off this one DB in the future, nor do you have to count on all the newbie devs to take care of it.  
+ doing it at the topmost ancestor will allow all the other relationships to remain including ones you might add in the future.  
+ 
+ Hope this helps,
+Mike 
+ 
+ I would design it something like this.. 
+ 
+ 

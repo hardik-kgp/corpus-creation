@@ -1,0 +1,112 @@
+*** why-is-selecting-from-stored-procedure-not-supported-in-relational-databases ***
+
+ It is well known that you cannot perform a   from a stored procedure in either Oracle or SQL Server (and presumably most other mainstream RDBMS products). 
+ Generally speaking, there are several obvious "issues" with selecting from a stored procedure, just two that come to mind: 
+ a) The columns resulting from a stored procedure are indeterminate (not known until runtime)   
+ b) Because of the indeterminate nature of stored procedures, there would be issues with building database statistics and formulating efficient query plans 
+ As this functionality is frequently desired by users, a number of workaround hacks have been developed over time: 
+ http://www.club-oracle.com/threads/select-from-stored-procedure-results.3147/ 
+ http://www.sommarskog.se/share_data.html 
+ SQL Server in particular has the function   that allows you to join to or select from almost anything:   https://msdn.microsoft.com/en-us/library/ms190312.aspx 
+ ....however, DBA's tend to be very reluctant to enable this for security reasons. 
+ So to my question: while there are some obvious issues or performance considerations involved in allowing joins to or selects from stored procedures, is there some  fundamental underlying technical reason  why this capability is not supported in RDBMS platforms? 
+ **EDIT:**
+
+A bit more clarification from the initial feedback....yes, you  can  return a resultset from a stored procedure, and yes, you  can  use a (table valued) function rather than a stored procedure if you want to join to (or select from) the resultset - however, this is  not the same thing  as JoiningTo / SelectingFrom a stored procedure.  If you are working in a database that you have complete control over, then you have the option of using a TVF.  However, it is  extremely  common that you find yourself working in a 3rd party database and you are forced to call pre-existing stored procedures; or, often times you would like to join to system stored procedures such as:   sp_execute_external_script ( https://msdn.microsoft.com/en-us/library/mt604368.aspx ). 
+ **EDIT 2:**
+
+On the question of whether PostgreSQL can do this, the answer is also no:   Can PostgreSQL perform a join between two SQL Server stored procedures? 
+ 
+ **TL;DR**
+: you  can  select from (table-valued) functions, or from any sort of function in PostgreSQL. But not from stored procedures. 
+ Here's an "intuitive", somewhat database-agnostic explanation, for I believe that SQL and its many dialects is too much of an organically grown language / concept for there to be a fundamental, "scientific" explanation for this. 
+ **Procedures vs. Functions, historically**
+
+ I don't really see the point of selecting from stored procedures, but I'm biased by years of experience and accepting the status quo, and I certainly see how the distinction between  procedures  and  functions  can be confusing and how one would wish them to be more versatile and powerful. Specifically in SQL Server, Sybase or MySQL, procedures can return an arbitrary number of result sets / update counts, although this is not the same as a function that returns a well-defined type. 
+ Think of procedures as  imperative routines  (with side effects) and of functions as  pure routines  without side-effects. A   statement itself is also  "pure"  without side-effects (apart from potential locking effects), so it makes sense to think of functions as the only types of routines that can be used in a   statement. 
+ In fact, think of functions as being routines with strong constraints on behaviour, whereas procedures are allowed to execute arbitrary programs. 
+ **4GL vs. 3GL languages**
+
+ Another way to look at this is from the perspective of SQL being a  4th generation programming language (4GL) . A 4GL can only work reasonably if it is restricted heavily in what it can do.  Common Table Expressions made SQL turing-complete , yes, but the declarative nature of SQL still prevents its being a general-purpose language from a practical, every day perspective. 
+ Stored procedures are a way to circumvent this limitation. Sometimes, you  want  to be turing complete  and  practical. So, stored procedures resort to being imperative, having side-effects, being transactional, etc. 
+ Stored functions are a clever way to introduce  some  3GL / procedural language features into the purer 4GL world at the price of forbidding side-effects inside of them (unless you want to open pandora's box and have completely unpredictable   statements). 
+ The fact that some databases allow for their stored procedures to return arbitrary numbers of result sets / cursors is a trait of their allowing arbitrary behaviour, including side-effects. In principle, nothing I said would prevent this particular behaviour also in stored functions, but it would be very unpractical and hard to manage if they were allowed to do so within the context of SQL, the 4GL language. 
+ Thus: 
+ 
+ Procedures can call procedures, any function and SQL 
+ "Pure" functions can call "pure" functions and SQL 
+ SQL can call "pure" functions and SQL 
+ 
+ But: 
+ 
+ "Pure" functions calling procedures become "impure" functions (like procedures) 
+ 
+ And: 
+ 
+ SQL cannot call procedures 
+ SQL cannot call "impure" functions 
+ 
+ **Examples of "pure" table-valued functions:**
+
+ Here are some examples of using table-valued, "pure" functions: 
+ **Oracle**
+
+ 
+ And then: 
+ 
+ **SQL Server**
+
+ 
+ And then 
+ 
+ **PostgreSQL**
+
+ Let me have a word on PostgreSQL. 
+ PostgreSQL is awesome and thus an exception. It is also weird and probably 50% of its features shouldn't be used in production. It only supports "functions", not "procedures", but those functions can act as anything. Check out the following: 
+ 
+ Side-effects: 
+ 
+ A table is created 
+ A record is inserted 
+ 
+ Yet: 
+ 
+ Yields 
+ 
+ 
+ Speaking only for Microsoft SQL Server: Stored Procedures and Functions (at least scalar UDFs and Multi-statement TVFs) are different constructs. 
+ 
+ Stored Procedures are pre-parsed query batches. You execute ad hoc queries batches or query batches saved in Stored Procedures. For example, from .NET there are two different Command Types:   and  . You cannot just execute a Function. 
+ Functions, even TVFs (which, if they are Inline-TVFs, are essentially Views that can take parameters) are not independently runnable pieces of code. They are not queries in themselves and hence need to be called within a query. 
+ Also, unlike Stored Procedures, Functions can be optimized, meaning that they can be moved around the execution plan. The timing and frequency of their execution is not guaranteed to be how you specified in the query (such as, per row vs once and the result cached). In fact, this sometimes causes problems when non-deterministic results are desired but only a single value is returned for all rows. This is probably the main reason (of maybe a few) that Functions do not allow for changing state of the database and some other handy things: because you have no control over whether or not those things would actually happen or in what order, or how many times. Stored Procedures, on the other hand,  are  the execution plan. 
+ 
+ That being said, for what it's worth, it  is  possible to select from a Stored Procedure without using   /  , but it requires SQLCLR. In fact, most of the restrictions placed on T-SQL Functions can be overcome in SQLCLR code (such as " no Dynamic SQL "). However, this does not make SQLCLR functions immune from the Query Optimizer changing the timing and frequency of the execution from what you want / expect. 
+ 
+ I don't think your question is really about stored procedures.  I think it is about the limitations of table valued functions, presumably from a SQL Server perspective: 
+ 
+ You cannot use dynamic SQL. 
+ You cannot modify tables or the database. 
+ You have to specify the output columns and types. 
+ Gosh, you can't even use   and   (directly) 
+ 
+ (Oracle's restrictions are slightly different.) 
+ The simplest answer is that databases are both a powerful querying language and an environment that supports ACID properties of transactional databases.  The ACID properties require a consistent view, so if you could modify existing tables, what would happen when you do this: 
+ 
+ Which   is used in the  ?  Actually, SQL Server sort of has answer to this question, but you get the same issue with multiple references in the same clause.  In a sense, user defined functions are limited in the same way that this is not accepted: 
+ 
+ Defining the semantics is very, very tricky and not worth the effort because there are other powerful features that are more important. 
+ In my opinion, though, the final straw in SQL Server is the ability for stored procedures to "return" multiple result sets.  That simply has no meaning in the world of tables. 
+ EDIT: 
+ Postgres's use of   is very powerful.  It does allow the function to modify the underlying database, which brings up interesting transactional issues.  However, you still do have to define the columns and their types. 
+ 
+ My experience is only with SQL Server, and pretty much only anecdotal based on my own usage...but what would you want to accomplish by SELECTing from a stored procedure in the first place?  What is your use case? 
+ In my experience, stored procs are the results of what you select, not a source of selection in the first place.  You create a stored procedure to return a result set and then in (usually in code) do something with that result set.  Or call the stored procedure to do something other than selecting - INSERT or DELETE for example.   
+ If you want to capture results of a query in TSQL and do further somethings with that you could put your SELECT statements in a CTE, or make a view to select from.   
+ 
+ A store procedure while it can and typically does return a result set should be thought of as a device to execute business logic.
+Views or Table functions should be used to provide the functionality you desire. 
+ 
+ In Oracle you can select from stored FUNCTIONS.  They are strongly typed so you can treat them as regular subqueries.  You typically have to use  
+ Also, you can "join" with a stored function by using values from another table as arguments to the function, e.g. 
+ 
+ 

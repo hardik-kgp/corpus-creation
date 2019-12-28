@@ -1,0 +1,34 @@
+*** what-is-the-correct-way-of-qsqldatabase-qsqlquery ***
+
+ I got confused with the manual , should i work like this: 
+ 
+ As the document points out,   or   will be deconstructed automatically.
+But is that efficient ? 
+ Well , if i cache   inside a class , like the following: 
+ 
+ Sometimes i could see warnings like:  
+ 
+ Even if i didn't call  . 
+ 
+ When you create a   object with   or when you call  , you are merely associating or disassociating a tuple  (driver, hostname:port, database name, username/password)  to a name (or to the default connection name if you don't specify a connection name).  The SQL driver is instantiated, but the database will only be opened when you call  . 
+ That connection name is defined application-wide. So if you call   in each of the objects that use it, you are changing all   objects that uses the same connection name and invalidating all queries that were active on them.  
+ The first code example you cited shows how to correctly disassociate the connection name, by ensuring that: 
+ 
+ all   are detached from the   before closing the database by calling  , which is automatic when the   object goes out of scope, 
+ all   with the same connection name are  d when you call   (  is also called automatically when the   object goes out of scope). 
+ 
+ When you create the QSqlDatabase, depending on whether you want the connection to stay open for the application lifetime (1) or just when needed (2), you can: 
+ 
+ keep a single   instance in one single class (for example, in your mainwindow), and use it in other objects that needs it either by passing the   directly or just the connection name that you pass to   to get the   instance back.   uses   to retrieve a   from its name, so it is probably negligibly slower than passing the   object directly between objects and functions, and if you you use the default connection, you don't even have to pass anything anywhere, just call   without any parameter. 
+ 
+ configure the   once, open it to test that the parameters are correct, and ditch the instance. The connection name, will still be accessible anywhere, but the database will have to be reopened: 
+ 
+ In that case, note that you shouldn't close the database explicitly, because you can have multiple objects using the same database connection in a reentrant manner (for example, if a function A use the connection and calls B which also use the connection. If B closes the connection before returning control to A, the connection will also be closed for A, which is probably a bad thing). 
+ 
+ 
+ QSqlDatabase and QSqlQuery are lightweight wrappers around concrete implementations, so your first example is fine. If you provide a name when adding the connection, or use the default database, then simply writing 'QSqlDatabase db(name)' gives you the database object with very little overhead. 
+ removeDatabase is equivalent to closing the file (for sqlite) or the connection (for ODBC/MySql/Postgres), so that's typically something you would do at program termination. As the warning says, you must ensure all database and query objects which refer to that database, have already been destroyed, or bad things can happen. 
+ 
+ I find that the instructions have to be run exactly in the order it is below or else you have issues, either with the database connection or query. This works in Qt5. 
+ 
+ 

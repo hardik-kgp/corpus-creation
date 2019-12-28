@@ -1,0 +1,57 @@
+*** sorting-on-the-server-or-on-the-client ***
+
+ I had a discussion with a colleague at work, it was about SQL queries and sorting. He has the opinion that you should let the server do any sorting before returning the rows to the client. I on the other hand thinks that the server is probably busy enough as it is, and it must be better for performance to let the client handle the sorting after it has fetched the rows.  
+ Anyone which strategy is best for the overall performance of a multi-user system? 
+ 
+ In general, you should let the database do the sorting; if it doesn't have the resources to handle this effectively, you need to upgrade your database server. 
+ First off, the database may already have indexes on the fields you want so it may be trivial for it to retrieve data in sorted order.  Secondly, the client can't sort the results until it has all of them; if the server sorts the results, you can process them one row at a time, already sorted.  Lastly, the database is probably more powerful than the client machine and can probably perform the sorting more efficiently. 
+ 
+ It depends... Is there paging involved? What's the max size of the data set? Is the entire dataset need to be sorted the same one way all the time? or according to user selection? Or, (if paging is involved), is it only the records in the single page on client screen need to be sorted? (not normally acceptable)  or does the entire dataset need to be sorted and page one of the newly sorted set redisplayed?   
+ What's the distribution of client hardware compared to the processing requirements of this sort operation? 
+ bottom line is;  It's the overall user experience (measured against cost of course), that should control your decision...  In general client machines are slower than servers, and may cause additional latency. ... 
+... But how often will clients request additional custom sort operations after initial page load?  (client sort of data already on client is way faster than round trip...) 
+But sorting on client always requires that entire dataset be sent to client on initial load... That delays initials page display.. which may require lazy loading, or AJAX, or other technical complexities to mitigate...  
+ Sorting on server otoh, introduces additional scalability issues and may require that you add more boxes to the server farm to deal with additional load... if you're doing sorting in DB, and reach that threshold, that can get complicated. (To scale out on DB, you have to implement some read-only replication scheme, or some other solution that allows multiple servers (each doing processing) to share read only data)..  
+ 
+ I am in favor of Roberts answer, but I wanted to add a bit to it. 
+ I also favor the sorting of data in SQL Server, I have worked on many systems that have tried to do it on the client side and in almost every case we have had to re-write the process to have it done inside SQL Server.  Why is this you might ask?  Well we have two primary reasons. 
+ 
+ The amount of data being sorted 
+ The need to implement proper paging due to #1 
+ 
+ We deal with interfaces that show users very large sets of data, and leveraging the power of SQL Server to handle sorting and paging is by far better performing than doing it client side.  
+ To put some numbers to this, a SQL Server Side sort to a client side sort in our environment, no paging for either.  Client side 28 seconds using XML for sorting, and Server side sort total load time 3 seconds. 
+ 
+ Generally I agree with the views expressed above that server-side sorting is usually the way to go. However, there are sometimes reasons to do client-side sorting: 
+ 
+ The sort criteria are user-selectable or numerous. In this case, it may not be a good idea to go adding a shedload of indices to the table - especially if insert performance is a concern. If some sort criteria are rarely used, an index isn't necessarily worth it since inserts will outnumber selects. 
+ The sort criteria can't be expressed in pure SQL [uncommon], or can't be indexed. It's not necessarily any quicker client-side, but it takes load of the server. 
+ 
+ The important thing to remember is that while balancing the load between powerful clients and the server may be a good idea in theory, only the server can maintain an index which is updated on every insert. Whatever the client does, it's starting with a non-indexed unsorted set of data. 
+ 
+ As usual, " **It Depends**
+" :) 
+ If you have a stored procedure, for instance, that sends results to your presentation layer (whether a report, grid, etc.), it probably doesn't matter which method you go with. 
+ What I typically run across, though, are views which have sorting (because they were used directly by a report, for instance) but are also used by other views or other procedures with their own sorting. 
+ So as a general rule, I encourage others to do all sorting on the client-side and only on the server when there's reasonable justification for it. 
+ 
+ If the sorting is just cosmetic and the client is getting the entire set of data I would tend to let the client handle it as it is about the presentation. 
+ Also, say in a grid, you may have to implement the sorting in the client anyway as the user may change the ordering by clicking a column header (don't want to have to ask the server to retrieve all the information again) 
+ 
+ Like any other performance related question, the universal answer is... "It Depends." However, I have developed a preference for sorting on the client. We write browser-based apps, and my definition of client is split between the web servers an the actual end-user client, the browser. I have two reasons for preferring sorting on the client to sorting in the DB.  
+ First, there's the issue of the "right" place to do it from a design point of view. Most of the time the order of data isn't a business rule thing but rather a end-user convenience thing, so I view it as a function of the presentation, and I don't like to push presentation issues into the database. There are exceptions, for example, where the current price for an item is the most recent one on file. If you're getting price with something like: 
+ 
+ Then the order of the rows is very much a part of the business rule and obviously belongs in the database. However, if you're sorting on LastName when the user views customer by last name, and then again on FirstName when they click the FirstName column header, and again on State when they click that header then your sorting is a function of the presentation and belongs in the presentation layer. 
+ The second reason I prefer sorting in the client layer is one of performance. Web servers scale horizontally, that is, if I overload my web server with users I can add another, and another, and another. I can have as many frontend servers as I need to handle the load and everything works just fine. But, if I overload the database I'm screwed. Databases scale vertically, you can throw more hardware at the problem, sure, but at some point that becomes cost prohibitive, so I like to let the DB do the selection, which it has to do, and let the client do the sorting, which it can to quite simply. 
+ 
+ I prefer custom sorting on the client, however I also suggest that most SQL statements should have some reasonable ORDER BY clause by default.  It causes very little impact on the database, but without it you could wind up with problems later.  Often times without ever realizing it, a developer or user will begin to rely on some initial default sort order.  If an ORDER BY clause wasn't specified, the data is only in that order by chance.  At some later date an index could change or the data might be re-organized and the users will complain because the initial order of the data might have changed out from under them. 
+ 
+ Situations vary, and measuring performance is important. 
+ Sometimes it's obvious - if you have a big dataset and you're interested in a small range of the sorted list (e.g. paging in a UI app) - sorting on the server saves the data transfer. 
+ But often you have one DB and several clients, and the DB may be overloaded while the clients are idle. Sorting on the client isn't heavy, and in this situation it could help you scale. 
+ 
+ Do it on the server. 
+ If the dataset is big your server will deal with it much better then the client. Modern database servers have a powerful structure of indexes, caches and materialization that your humble browser or client app dont have 
+ If the dataset is small it will not have any performance or resource usage impact doing it on client or server. 
+ all of this considering your client application is well designed and you cannot be in the scenarios when if you do the sort on client and the sorting parameters change (like when the client says 'oooh, Now i want this major jasper report which you references in 356 different places with 23 different parameters now ordered by last name instead of date of birth' 
+ 

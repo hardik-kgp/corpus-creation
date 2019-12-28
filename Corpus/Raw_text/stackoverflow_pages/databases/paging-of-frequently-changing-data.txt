@@ -1,0 +1,67 @@
+*** paging-of-frequently-changing-data ***
+
+ I'm developing a web application which display a list of let's say "threads". The list can be sorted  by the amount of likes a thread has. There can be thousands of threads in one list. 
+ The application needs to work in a scenario where the likes of a thread can change more than 10x in a second. The application furthermore is distributed over multiple servers. 
+ I can't figure out an efficient way to enable paging for this sort of list. And I can't transmit the whole sorted list by likes to a user at once. 
+ 
+ As soon as an user would go to page 2 of this list, it likely changed and may contain threads already listed from page one 
+ 
+ Solutions which don't work: 
+ 
+ Storing the seen threads on the client side (could be too many on mobile) 
+ Storing the seen threads on the Server side (too many users and threads) 
+ Snapshot the list in temp database table (it's too frequent changing data and it need to be actual) 
+ 
+ (If it matters I'm using MongoDB+c#) 
+ How would you solve this kind of problem? 
+ 
+ Interesting question. Unless I'm misunderstanding you, and by all means let me know if I am, it sounds like the best solution would be to implement a system that, instead of page  numbers , uses timestamps. It would be similar to what many of the main APIs already do. I know Tumblr even does this on the dashboard, where this is, of course, not an unreasonable case: there can be tons of posts added in a small amount of time at peak hours, depending on how many people the user follows. 
+ So basically, your "next page" button could just link to  , which could translate to "all the threads that were created before 2014-08-02 17:30. That makes your query super easy to implement. Then, when you pull down all the next elements, you just look for anything that occurred before the last element on the page. 
+ The downfall of this, of course, is that it's hard to know how many  new  elements have been added since the user started browsing, but you could always log the start time and know anything since then would be new. And it's also difficult for users to type in their own pages, but that's not a problem in most applications. You also need to store the timestamps for every record in your thread, but that's probably already being done, and if it's not then it's certainly not hard to implement. You'll be paying the cost of something like eight bytes extra per record, but that's better than having to store  anything  about "seen" posts. 
+ It's also nice because, and again this might not apply to you, but a user could bookmark a page in the list, and it would last unchanged forever since it's not relative to anything else. 
+ 
+ This is typically handled using an  OLAP cube . The idea here is that you add a natural time dimension. They may be too heavy for this application, but here's a summary in case someone else needs it. 
+ OLAP cubes start with the fundamental concept of time. You have to know what time you care about to be able to make sense of the data. 
+ You start off with a "Time" table: 
+ 
+ This basically tracks snapshots of your data. I've included a   field. This should be updated with the current time any time a user asks for data based on this specific timestamp. 
+ Now we can start talking about "Threads": 
+ 
+ The   field is an auto-incrementing key; this is never exposed.   is the "unique" id for your thread. I say "unique" because there's no unique-ness constraint, and as far as the database is concerned it is  **not**
+ unique. Everything else in there is pretty standard...  **except...**
+ when you do writes you do not update this entry. In OLAP cubes you almost  **never**
+ modify data. Updates and inserts are explained at the end. 
+ Now, how do we query this? You can't just directly query  . You need to include a star table: 
+ 
+ This table gives you a mapping from what time it is to what the state of all of the threads are. Given a specific timestamp you can get the state of a Thread by doing: 
+ 
+ That's not too bad. How do we get a stream of threads? First we need to know what time it is. Basically you want to get the largest   from   and update   to the current time. You can throw a cache up in front of that that only updates every few seconds, or whatever you want. Once you have that you can get all threads: 
+ 
+ Nice. We've got a list of threads and the ordering is stable as the actual scores change. You can page through this at your leisure... kind of. Eventually data will be cleaned up and you'll lose your snapshot. 
+ So this is great and all, but now you need to create or update a Thread. Creation and modification are almost identical. Both are handled with an  , the only difference is whether you use an existing   or create a new one. 
+ So now you've inserted a new Thread. You need to update ThreadStar. This is the crazy expensive part. Basically you make a copy of all of the ThreadStar entries with the most recent  , except you update the   for the Thread you just modified.  That's a crazy amount of duplication. Fortunately it's pretty much only foreign keys, but still. 
+ You also don't do  s either; mark a row as deleted or just exclude it when you update ThreadStar. 
+ Now you're humming along, but you've got crazy amounts of data growing. You'll probably want to clean it out, unless you've got a lot of storage budge, but even then things will start slowing down (aside: this will actually perform shockingly well, even with crazy amounts of data). 
+ Cleanup is pretty straightforward. It's just a matter of some cascading deletes and scrubbing for orphaned data. Delete entries from Time whenever you want (e.g. it's not the latest entry and last_queried is null or older than whatever cutoff). Cascade those deletes to ThreadStar. Then find any Threads with an   that isn't in ThreadStar and scrub those.  
+ This general mechanism also works if you have more nested data, but your queries get harder. 
+ Final note: you'll find that your inserts get really slow because of the sheer amounts of data. Most places build this with appropriate constraints in development and testing environments, but then  **disable constraints in production!**
+
+ Yeah.  Make sure your tests are solid. 
+ But at least you aren't sensitive to re-ordered data mid-paging. 
+ 
+ For constantly changing data such as likes I would use a two stage appraoch. For the frequently changing data I would use an in memory DB to keep up with the change rates and flush this peridically to the "real" db. 
+Once you have that the query for constantly chaning data is easy.  
+ 
+ Query the db. 
+ Query the in memory db. 
+ Merge the frequently changed data from the in memory db with the "slow" db data . 
+ Remember which results you already have displayed so pressing the next button will
+not display an already dispalyed value twice because on different pages because its rank has changed.  
+ 
+ If many people look at the same data it might help to cache the results of 3 in itself to reduce the load on the real db even further. 
+ Your current architecture has no caching layers (the bigger the site the more things are cached). You will not get away with a simple DB and efficient queries against the db if things become too massive.  
+ 
+ I would cache all 'thread' results on the server when the user first time hits the database. Then return the first page of data to the user and for each subsequent next page calls I'd return cached results.  
+ To minimize memory usage you can cache only records ids and fetch whole data when user requests it. 
+ Cache can be evicted each time user exits current page. If it isn't a ton of data I would stick to this solution because user won't get annoyed of data constantly changing. 
+ 

@@ -1,0 +1,53 @@
+*** what-algorithms-there-are-for-failover-in-a-distributed-system ***
+
+ I'm planning on making a distributed database system using a  shared-nothing architecture  and  multiversion concurrency control . Redundancy will be achieved through  asynchronous replication  (it's allowed to lose some recent changes in case of a failure, as long as the data in the system remains consistent). For each database entry, one node has the master copy (only that node has write access to it), in addition to which one or more nodes have secondary copies of the entry for scalability and redundancy purposes (the secondary copies are read-only). When the master copy of an entry is updated, it is timestamped and sent asynchronously to nodes with secondary copies so that finally they will get the latest version of the entry. The node that has the master copy can change at any time - if another node needs to write that entry, it will request the current owner of the master copy to give that node the ownership of that entry's master copy, and after receiving ownership that node can write the entry (all transactions and writes are local). 
+ Lately I've been thinking about what to do when a node in the cluster goes down, that what strategy to use for failover. Here are some questions. I hope that you would know available alternatives to at least some of them. 
+ 
+ What algorithms there are for doing failover in a distributed system? 
+ What algorithms there are for consensus in a distributed system? 
+ How should the nodes in the cluster determine that a node is down? 
+ How should the nodes determine that what database entries had their master copy on the failed node at the time of failure, so that other nodes may recover those entries? 
+ How to decide that which node(s) has the latest secondary copy of some entry? 
+ How to decide that which node's secondary copy should be promoted to be the new master copy? 
+ How to handle it, if the node which was though to be down, suddenly comes back as if nothing happened? 
+ How to avoid split-brain scenarios, where the network is temporarily split into two, and both sides think that the other side has died? 
+ 
+ 
+ 
+ Possibly not algorithms, so much as systems. You need to design your architecture around the questions you've asked.  
+ 
+ You probably want to implement Paxos. Simple Paxos is not too hard to get right. If you're are trying to make it bullet proof, read Google's 'Paxos Made Live' paper. If you're hoping to make it high-performance, look at Multi-Paxos.  
+ 
+ Depends. Heartbeats are actually a pretty good way to do this. The problem is that you have false positives, but that's kind of unavoidable, and in a cluster on the same LAN with manageable load they're accurate. The good thing about Paxos is that false positives are dealt with automatically. However, if you actually need failure information for some other purpose then you need to make sure it's ok that you detect a node as failed, but it actually is just under load and taking time to respond to a heartbeat.  
+ 
+ I think you might really benefit from reading the Google FileSystem paper. In GFS there's a dedicated master node which keeps track of which nodes have which blocks. This scheme might work for you, but the key is to keep accesses to this master minimal.  
+ If you don't store this information on a dedicated node, you're going to have to store it everywhere. Try tagging the data with the master holder's id. 
+ 
+ See above, but the basic point is that you have to be careful because a node that is no longer the master might think that it is. One thing that I don't think you've solved: how does an update get to the master - i.e. how does a client know which node to send the update to?  
+ 
+ Paxos works here by preventing progress in the case of a perfect split. Otherwise, as before, you have to be very careful.  
+ In general, solve the question of knowing which node gets which data item as the master, and you'll be a long way towards fixing your architecture. Note that you can't just have the node receiving the update be the master - what if two updates happen concurrently? Don't rely on a synchronised global clock either - that way madness lies. You probably want to avoid running consensus on every write if you can help it, so instead perhaps have a slow master-failover protocol and a fast write path. 
+ Feel free to shoot me a mail off line if you want to know more details. My blog  http://the-paper-trail.org  deals with a lot of this stuff. 
+ cheers, 
+ Henry 
+ 
+ You are asking an absolutely massive question, and a lot of what you want to know is still in active research. 
+ Some thoughts: 
+ 
+ Distributed systems are difficult, because there are no foolproof  systems to deal with failures;  in an asynchronous system, there is no way to be sure that a node is down or whether there is network delay.  This may sound trivial, but it really isn't. 
+ Achieving consensus can be done by the  Paxos family of algorithms , versions of which are used in Google's bigtable, and in other places. 
+ 
+ You'll want to delve into a distributed systems textbook (or several).  I like  Tannenbaum's Distributed Systems: Principles and Paradigms 
+ 
+ A great blog that talks a lot about distributed systems and distributed algorithms -- including implementing Paxos -- is  http://the-paper-trail.org/ 
+ 
+ This problem was solved by DEC for VMS with the  Distributed Lock Manager . Modern solutions are based on this design. Read the Wikipedia article for some current solutions. You should look at  OCFS2 , which is now part of the Linux kernel. 
+ 
+ Tackling just a small part of your question: there's no way in the scenario you describe to decide (in the abstract) which node(s) have the latest secondary copy.  At best, some node can poll and determine (after a bit of communication) who among the nodes that they know of / can see, and that know of / can see them, and that  can't see  the old master has the most current copy.  But: 
+ 
+ They can't find out the status of nodes they can't reach 
+ They can't find out the status of nodes that can't reach them 
+ They can't be sure that what they think they know about the status of a node that can see the old master when they can't is current--the master could have updated the shared neighbor after the neighbor reported status. 
+ 
+ On the broader issues, you may want to look at how something like memcached and the like handle the issues, and especially read through the lists to see what problems they've encountered when theory met practice. 
+ 

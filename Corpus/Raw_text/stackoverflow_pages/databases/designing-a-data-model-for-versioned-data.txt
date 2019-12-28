@@ -1,0 +1,59 @@
+*** designing-a-data-model-for-versioned-data ***
+
+ I'm looking for some input on the best way to design a data model that revolves around versioned data.  There will one-to-many and many-to-many relationships which can all change from version to version. 
+ I'm looking for some different strategies with the ultimate goal being efficient comparisons and if possible only storing the delta. 
+ 
+ **Intro**
+
+ This is actually a fairly difficult problem. 
+ Versioning objects is easy. Versioning connections between them not so much - you'll have to make some design decisions. For example: 
+ 
+ Do you need to get the "snapshot" of the whole graph at any moment in history? 
+ Do you want permanent deletions versus ability to restore deleted objects and connections? 
+ Do you prefer speed (and don't mind copying the whole graph between versions) or space? 
+ 
+ On top of that, most of the "supporting" tables will probably need to be "version aware" as well. 
+ **Design**
+
+ If I were you, I'd probably work my way from the following starting point: 
+ 
+ The symbol between OBJECT and CONNECTION is  "category"  (aka. inheritance, subclass, generalization hierarchy etc.). 
+ The basic idea behind this design is to support "snapshot", "restore" and "delta" functionality: 
+ 
+ Whole graph has a global version (aka. "generation") and we only store deltas between them. 
+ Every object is versioned with that global generation (as opposed to local, object-specific versions). 
+ Connections are objects, which makes them versioned as well. 
+ Every time a set of objects enters the repository, a new GENERATION is inserted and:
+
+ 
+ An inserted object is inserted into OBJECT and OBJECT_VERSION. 
+ A modified object is inserted into OBJECT_VERSION. 
+ A deleted object is inserted into OBJECT_VERSION, with DELETED = true. 
+ A restored object is inserted into OBJECT_VERSION, with DELETED = false. BTW, this enables delete/restore cycle to be repeated multiple times. 
+ The rest of objects are untouched, so we don't waste space copying the unchanged data around. 
+ 
+ A connection can't really be modified. To "move" a child objects to a new parent, delete the old connection (by setting DELETED as described above) and insert a new one. In fact deletion is the only kind of modification supported by a connection. 
+ 
+ The querying would go something like this: 
+ 
+ To get a single object, out of all its versions, pick the highest one that is still not higher than the desired generation. If this version's DELETED is true, object is not present in this generation. 
+ To get the snapshot of the whole graph at the desired generation, do the above for all objects and create in-memory graph. Eliminate connections whose one or both endpoints are DELETED. 
+ To get objects connected to a given object, recursively traverse CONNECTION, but cut the recursion as soon as you encounter an object that doesn't fulfill the criteria above. 
+ 
+ **Example**
+
+ Let's say you have to put objects A, B and C, where A is parent for B and C: 
+ 
+ Add new object D: 
+ 
+ Modify A and C and delete B: 
+ 
+ Move C from A to D: 
+ 
+ Etc... 
+ **Some Musings**
+
+ This design is open to anomalies with inconsistent deletions: the database won't defend itself from connecting a deleted and non-deleted object, or evolving one of the objects into a deleted state without also deleting the connection. You won't know whether a connection is valid until you examine both endpoints. If your data is hierarchical, you might employ a "reachability model" instead: object is not deleted if it can be reached from some root object. You never directly delete the object - you just delete all connections to it. This can work well for hierarchies such as folders/files or similar, where you start from the "top" and search towards the bottom until you reach the desired object(s). 
+ Alternative to "immutable" connections is inheriting CONNECTION_VERSION from OBJECT_VERSION and placing PARENT_ID/CHILD_ID there, using identifying relationships to ensure the  diamond-shaped dependency is correctly modeled . This could be useful if you need to track the history of moves. 
+ These are just broad strokes of course, I hope you'll find your way... 
+ 

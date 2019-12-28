@@ -1,0 +1,74 @@
+*** is-it-safe-to-keep-database-connections-open-for-long-time ***
+
+ I have a .net client application which is connected to a remote database.
+Is it safe to keep a single connection open for the lifetime of the client (hours)? 
+ Does the answer hold if I have multiple (10 or 100) clients running? 
+ Thanks 
+ 
+ Absolutely it is safe to do this.  This is how client-server applications work.  If you are using a three-tier application, the application server will keep a pool of connections open anyway. 
+ Scalability is an issue, or at least used to be in the days that machines had less memory than modern kit.  With a two-tier (client-server) application, each client opened a connection and held it open.  This had several effects: 
+ 
+ Memory was used per-connection, so
+large numbers of (relatively) idle
+connections would use up machine
+memory.  However, a modern 64-bit
+server can have tens or hundreds of
+GB of memory, so it could support a
+very large number of such
+connections. 
+ If a transaction was left
+uncommitted on the client machine,
+the locks would be held open for as
+long as the transaction was open. 
+This led to a class of problems when
+someone could start a transaction,
+go off to lunch and forget they had
+left something open.  This would
+lock any records referenced by the
+transaction for hours at a time. 
+ Transactions could, however easily
+cover multiple acceses to the
+database, which is harder to do with 
+a conneciton pool. 
+ 
+ A pooled architecture, which is common on 3-tier architectures has a finite number of connections between the application server and the database.  Queries simply use the next available connection and updates are committed immediately.  This uses less resources as you only have a finite number of connections open, and (in conjunction with an  optimistic concurrency  strategy) will eliminate a large of potential application concurrency issues. 
+ In order to use  long transactions  (i.e. transactions that cover more than one call to the database) one has to de-couple the transaction from the connection.  This is the basic architecture of a TP monitor and there are some standard protocols such as  XA  or  OLE Transactions  to support this.  If this type of externally managed transaction is unavailable the application has to construct a  compensating transaction  that undoes the changes made by the application's transaction.  This type of architecture is often used by  workflow management systems. 
+ 
+ **Open and close your connection per business operation**
+
+ If you are talking about a client/server application, I would recommend closing each connection as soon as you are done using it.  While each individual application instance might take a  small  performance hit opening the connection, your application as a whole will scale better.  This is somewhat dependent on the database server you are using.  SQL Server will handle different numbers of concurrent connections based on the hardware it is installed on.  If you want to scale up a client/server app to thousands of desktop, a small DB server might not handle all those desktops with open connections but could very well handle thousands of desktops with only some of the connections open.   
+ I saw this first hand a few years ago.  An application that was deployed to a few departments with no trouble was then deployed across the entire organization.  The application was soon very, very slow.  The organization was considering buying a very expensive chunk of hardware for their DB server to gain some performance.  I recommended they open and close the db connection after each business operation.  Luckily they had architected the application so that this was not a difficult change.  They made the change and rolled it out during one of their weekly network updates.  Overnight the application performance had improved significantly.  They saved thousands of dollars. 
+ 
+ The difficulty with long-lived connections is that you might not be entirely sure that they're still there. A network failure, server restart or stateful firewall forgetting some of its state could all result in a "stale" connection which looks open, but then gives an error when you try to use it. 
+ Connection pooling schemes normally resolve this by having some system to occasionally check that connections in the pool are healthy, or having a timeout after which unused connections are dropped. 
+ Generally speaking, in a distributed system you need to code around failures of all kinds, keeping long-lived connections open makes this more difficult - but if you're happy to do it, great. 
+ 
+ While the specific details matter in general there is nothing wrong with keeping connections open for long durations. 
+ If your application is connection pooling - the connection slots in the pool typically remain connected until they are needed. 
+ Outside of connection based licenseing models that are extremely rare nowadays maintaining connections themselves consume negligible resources. 
+ SQLServer clients operating over TCP send keepalives at 30 second intervals.  (Keepalives are essentially 0 len TCP packets)  ususally  concidered neglegable traffic. 
+ If your operating in environments with very little bandwidth or with unreliable WLAN links increasing the TCP keepalive intervals may help to boost the chances of long duration connections staying active and reducing the amount of 'idle chatter' on the wire. 
+ There are reasons where you would or would not want to use connection pools. 
+ Against the use of pools: 
+ Removes possibility of environment pollution - where other queries set special environment options that can interfere with query execution (xact_abort, transaction isolation levels..etc) 
+ If a configured/licensed connection limit is in effect idle connections in your application are connections that are not avaliable for use by other applications. 
+ Against connecting each time: 
+ Connection setup (especially secure connection setup) requires a number of additional round trips between client and server - round trips tend to be a performance killer for WAN applications. 
+ 
+ Sure.  You really only have problems when you hold transactions open for a long time (at certain isolation levels).  
+ There is a licensed connection limit, and connections do take memory on the server, so the fewer, the better, though. 
+ 
+ It is safe. That's pretty much what pooling does... keeps connections open for the length of the program run and use it for different queries.  
+ But you might want to watch out for database connection timeouts. The connection will go stale, and you'll start getting strange errors. Either set timeout value in the database to a very large value, or keep-alive the connection with occasional dummy queries.  
+ 
+ It really does depend on the number of clients that you have with open connections and whether or not you are using connection pooling of any kind.  
+ If you are a three tier system and your middle tier has connection pooling enabled then the client settings are not applicable.  If you aren't using a middle tier, now would be the time to consider it if you are worried about the number of connections to the server as this middle tier will help you manage it much better. 
+ Every open connection eats a certain amount of memory on the server and adds a bit of overhead.  Given a two tier system where the client is talking straight to the server then you need to look at the specs of the server and number of clients to see if leaving the connection open is worthwhile.  If you are a two-tier system and you have thousands of active clients then you probably don't want to keep them all open...if you are a two-tier system and only have a few dozen clients, then keep them open. 
+ 
+ You should not keep connections open like this, generally speaking. .NET has an ADO.NET  connection pooling system which does exactly what you're trying to do, and does it a lot better. ;-) 
+ update: i'm a 'tard. posted reactively. doesn't apply here. 
+ -Oisin 
+ 
+ Depends on the database and what you're doing with it. There is an expense to opening and closing any connection for the most part. For example, if you're using SQLCE on a mobile device (SQL Server Compact Edition) then it's actually a recommended approach to leave the connection open on the device since the expense of opening and closing it isn't worth the hassle. 
+ Now in contrast, if you're working with a multi-user database you're going to want to manage those connections more carefully. As already mentioned, ADO.Net connection pooling does a pretty good job of helping you manage efficiency. 
+ 

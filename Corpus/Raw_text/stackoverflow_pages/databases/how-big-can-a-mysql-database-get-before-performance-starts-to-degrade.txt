@@ -1,0 +1,59 @@
+*** how-big-can-a-mysql-database-get-before-performance-starts-to-degrade ***
+
+ At what point does a MySQL database start to lose performance? 
+ 
+ Does physical database size matter? 
+ Do number of records matter? 
+ Is any performance degradation linear or exponential? 
+ 
+ I have what I believe to be a large database, with roughly 15M records which take up almost 2GB. Based on these numbers, is there any incentive for me to clean the data out, or am I safe to allow it to continue scaling for a few more years? 
+ 
+ The physical database size doesn't matter.  The number of records don't matter. 
+ In my experience the biggest problem that you are going to run in to is not size, but the number of queries you can handle at a time.  Most likely you are going to have to move to a master/slave configuration so that the read queries can run against the slaves and the write queries run against the master.  However if you are not ready for this yet, you can always tweak your indexes for the queries you are running to speed up the response times.  Also there is a lot of tweaking you can do to the network stack and kernel in Linux that will help. 
+ I have had mine get up to 10GB, with only a moderate number of connections and it handled the requests just fine. 
+ I would focus first on your indexes, then have a server admin look at your OS, and if all that doesn't help it might be time to implement a master/slave configuration. 
+ 
+ In general this is a very subtle issue and not trivial whatsoever. I encourage you to read  mysqlperformanceblog.com  and  High Performance MySQL . I really think there is no general answer for this. 
+ I'm working on a project which has a MySQL database with almost 1TB of data. The most important scalability factor is RAM. If the indexes of your tables fit into memory and your queries are highly optimized, you can serve a reasonable amount of requests with a average machine.  
+ The number of records do matter, depending of how your tables look like. It's a difference to have a lot of varchar fields or only a couple of ints or longs. 
+ The physical size of the database matters as well: think of backups, for instance. Depending on your engine, your physical db files on grow, but don't shrink, for instance with innodb. So deleting a lot of rows, doesn't help to shrink your physical files. 
+ There's a lot to this issues and as in a lot of cases the devil is in the details. 
+ 
+ The database size  **does matter**
+. If you have more than one table with more than a million records, then performance starts indeed to degrade. The number of records does of course affect the performance:  MySQL can be slow with large tables . If you hit one million records you will get performance problems if the indices are not set right (for example no indices for fields in "WHERE statements" or "ON conditions" in joins). If you hit 10 million records, you will start to get performance problems even if you have all your indices right. Hardware upgrades - adding more memory and more processor power, especially memory - often help to reduce the most severe problems by increasing the performance again, at least to a certain degree.  For example  37 signals went from 32 GB RAM to 128GB of RAM  for the Basecamp database server. 
+ 
+ 
+ I would focus first on your indexes, than have a server admin look at your OS, and if all that doesn't help it might be time for a master/slave configuration. 
+ 
+ That's true. Another thing that usually works is to just reduce the quantity of data that's repeatedly worked with. If you have "old data" and "new data" and 99% of your queries work with new data, just move all the old data to another table - and don't look at it ;) 
+ -> Have a look at  partitioning . 
+ 
+ 2GB and about 15M records is a very small database - I've run much bigger ones on a pentium III(!) and everything has still run pretty fast.. If yours is slow it is a database/application design problem, not a mysql one.  
+ 
+ It's kind of pointless to talk about "database performance", "query performance" is a better term here. And the answer is: it depends on the query, data that it operates on, indexes, hardware, etc. You can get an idea of how many rows are going to be scanned and what indexes are going to be used with EXPLAIN syntax.  
+ 2GB does not really count as a "large" database - it's more of a medium size. 
+ 
+ Also watch out for complex joins.  Transaction complexity can be a big factor in addition to transaction volume. 
+ Refactoring heavy queries sometimes offers a big performance boost. 
+ 
+ I once was called upon to look at a mysql that had "stopped working".  I discovered that the DB files were residing on a Network Appliance filer mounted with NFS2 and with a maximum file size of 2GB.  And sure enough, the table that had stopped accepting transactions was exactly 2GB on disk.  But with regards to the performance curve I'm told that it was working like a champ right up until it didn't work at all!  This experience always serves for me as a nice reminder that there're always dimensions above and below the one you naturally suspect. 
+ 
+ A point to consider is also the purpose of the system and the data in the day to day. 
+ For example, for a system with GPS monitoring of cars is not relevant query data from the positions of the car in previous months. 
+ Therefore the data can be passed to other historical tables for possible consultation and reduce the execution times of the day to day queries. 
+ 
+ I'm currently managing a MySQL database on Amazon's cloud infrastructure that has grown to 160 GB.  Query performance is fine.  What has become a nightmare is backups, restores, adding slaves, or anything else that deals with the whole dataset, or even DDL on large tables.  Getting a clean import of a dump file has become problematic.  In order to make the process stable enough to automate, various choices needed to be made to prioritize stability over performance.  If we ever had to recover from a disaster using a SQL backup, we'd be down for days. 
+ Horizontally scaling SQL is also pretty painful, and in most cases leads to using it in ways you probably did not intend when you chose to put your data in SQL in the first place.  Shards, read slaves, multi-master, et al, they are all really shitty solutions that add complexity to everything you ever do with the DB, and not one of them solves the problem; only mitigates it in some ways.  I would strongly suggest looking at moving some of your data out of MySQL (or really any SQL) when you start approaching a dataset of a size where these types of things become an issue. 
+ 
+ Performance can degrade in a matter of few thousand rows if database is not designed properly.  
+ If you have proper indexes, use proper engines (don't use MyISAM where multiple DMLs are expected), use partitioning, allocate correct memory depending on the use and of course have good server configuration, MySQL can handle data even in terabytes! 
+ There are always ways to improve the database performance. 
+ 
+ **It depends on your query and validation.**
+  
+ For example, i worked with a table of 100 000 drugs which has a column generic name where it has more than 15 characters for each drug in that table .I put a query to compare the generic name of drugs between two tables.The query takes more minutes to run.The Same,if you compare the drugs using the drug index,using an id column (as said above), it takes only few seconds.  
+ 
+ Database size DOES matter in terms of bytes and table's rows number. You will notice a huge performance difference between a light database and a blob filled one. Once my application got stuck because I put binary images inside fields instead of keeping images in files on the disk and putting only file names in database. Iterating a large number of rows on the other hand is not for free. 
+ 
+ No it doesnt really matter. The MySQL speed is about 7 Million rows per second. So you can scale it quite a bit 
+ 

@@ -1,0 +1,173 @@
+*** how-to-simulate-a-db-for-testing-java ***
+
+ I'm programming in Java and my applications are making a lot of use of DB. Hence, it is important for me to be able to test my DB usage easily. 
+What DB tests are all about? For me, they should supply two simple requirements:   
+ 
+ Verify SQL syntax. 
+ More importantly, check that the data is selected/updated/inserted correctly, according to a given situation.   
+ 
+ Well then, it seems that all I need is a DB. 
+But actually, I prefer not, as there are few difficulties using a DB for a test:   
+ 
+ "Just get yourself a testing DB, how hard could it be?" - Well, in my working place, to have a personal testing DB is pretty impossible. You have to use a "public" DB, which is accessible for everyone. 
+ "These tests sure ain't fast..." - DB tests tend to be slower than usual tests. It's really not ideal to have slow tests. 
+ "This program should handle any case!" - It becomes somewhat annoying and even impossible to try and simulate each and every case in a DB. For each case a certain amount of insert/update queries should be made, which is annoying and takes time. 
+ "Wait a second, how do you know there are 542 rows in that table?" - One of the main principles in testing, is to be able to test the functionality in a way different from that of your tested-code. When using a DB, there's usually one way to do something, therefore the test is exactly the same as the core-code. 
+ 
+ So, you can figure out I don't like DBs when it comes to tests (of course I will have to get to this in some point, but I'd rather get there later on my testing, after I found most bugs using the rest of the test methods). But what am I looking for?   
+ I'm looking for a way to simulate a DB, a mock DB, using the file system or just virtual memory. I thought that maybe there's a Java tool/package which allows to simply construct (using code interface) a DB mock per test, with simulated tables and rows, with SQL verification, and with a code interface for monitoring its status (rather then using SQL).   
+ Are you familiar with this kind of tool? 
+ 
+ **Edit:**
+ Thanks for the answers! Although I was asking for a tool, you also provided me with some tips concerning the problem :) It will take me some time to check out your offers, so I can't say right now whether your answers were satisfying not. 
+ Anyway, here's a better view of what I'm looking for - Imagine a class named DBMonitor, that one of its features is finding the number of rows in a table. Here is an imaginary code of how I would like to test that feature using JUnit: 
+ 
+ I hope this code is clear enough to understand my idea (excuse me for syntax errors, I was typing manually without my dear Eclipse :P).   
+ By the way, I use ORM partially, and my raw SQL queries are quite simple and shouldn't differ from one platform to another.   
+ 
+ new answer to old question (but things have moved forward a bit): 
+ 
+ How to simulate a DB for testing (Java)? 
+ 
+ you don't simulate it. you mock your repositiories and you don't test them or you use the same db in your tests and you test your sqls. All the in-memory dbs are not fully compatible so they won't give you full coverage and reliability. and never ever try to mock/simulate the deep db objects like connection, result set etc. it gives you no value at all and is a nightmare to develop and maintain 
+ 
+ to have a personal testing DB is pretty impossible. You have to use a "public" DB, which is accessible for everyone 
+ 
+ unfortunately a lot of companies still use that model but now we have  docker  and there are images for almost every db. commercial products have some limitations (like up to a few gb of data) that are non-important for tests. also you need your schema and structure to be created on this local db 
+ 
+ "These tests sure ain't fast..." - DB tests tend to be slower than usual tests. It's really not ideal to have slow tests. 
+ 
+ yes, db tests are slower but they are not that slow. I did some simple  measurements  and a typical test took 5-50ms. what takes time is the application startup. there are plenty of ways to speed this up: 
+ 
+ first DI frameworks (like spring) offers a way run only some part of your application. if you write your application with a good separation of db and non-db related logic, then in your test you can  start only the db part 
+ each db have plenty of tuning options that makes it less durable and much faster. that's perfect for testing.  postgres example 
+ you can also put the entire db into tmpfs 
+ another helpful strategy is to have groups of tests and keep db tests turned off by default (if they really slows your build). this way if someone is actually working on db, he needs to pass additional flag in the cmd line or use IDE (testng groups and custom test selectors are perfect for this) 
+ 
+ 
+ For each case a certain amount of insert/update queries should be made, which is annoying and takes time 
+ 
+ 'takes time' part was discussed above. is it annoying? I've seen two ways: 
+ 
+ prepare one dataset for your all test cases. then you have to maintain it and reason about it. usually it's separated from code. it has kilobytes or megabytes. it's to big to see on one screen, to comprehend and to reason about. it introduces coupling between tests. because when you need more rows for test A, your   in test B fails. it only grows because even when you delete some tests, you don't know which rows were used only by this one test 
+ each tests prepares its data. this way each test is completely independent, readable and easy to reason about. is it annoying? imo, not at all! it let you write new tests very quickly and saves you a lot of work in future 
+ 
+ 
+ how do you know there are 542 rows in that table?" - One of the main principles in testing, is to be able to test the functionality in a way different from that of your tested-code 
+ 
+ uhm... not really. the main principle is to check if your software generates desired output in response to specific input. so if you call   542 times and then your   returns 542, it means your software works as specified. if you want, you can call commit/drop cache in between. Of course, sometimes you want to test your implementation instead of the contract and then you check if your dao changed the state of the db. but you always test sql A using sql B (insert vs select, sequence next_val vs returned value etc). yes, you'll always have the problem 'who will test my tests', and the answer is: no one, so keep them simple! 
+ other tools that may help you: 
+ 
+ testcontainers  will help you provide 
+real db. 
+ dbunit  - will help you clean the data between tests  
+ cons:  
+ 
+ a lot of work is required to create and maintain schema and data. especially when your project is in a intensive development stage. 
+ it's another abstraction layer so if suddenly you want to use some db feature that is unsupported by this tool, it may be difficult to test it 
+ 
+ testegration  - intents to provide you full, ready to use and extensible lifecycle (disclosure: i'm a creator).  
+ cons:  
+ 
+ free only for small projects 
+ very young project 
+ 
+ flyway  or  liquibase  - db migration tools. they help you easily create schema and all the structures on your local db for tests. 
+ 
+ 
+ Java comes with  Java DB . 
+ That said, I would advise against using a different type of DB than what you use in production unless you go through an ORM layer. Otherwise, your SQL might not be as cross-platform as you think. 
+ Also check out  DbUnit 
+ 
+ I've used  Hypersonic  for this purpose.  Basically, it's a JAR file (a pure Java in-memory database) that you can run in its own JVM or in your own JVM and while it's running, you have a database.  Then you stop it and your database goes away.  I've used it -- so far -- as a purely in-memory database.  It's very simple to start and stop via Ant when running unit tests. 
+ 
+ There are lots of points of view on how to test integration points such as the Database connection via SQL. My personal set of rules that has worked well for me is as follows: 
+ 1) Separate out the Database accessing logic and functions from general business logic and hide it behind an interface.
+Reason: In order to test the grand majority of logic in the system it is best to use a dummy/stub in place of the actual database as its simpler.
+Reason 2: It is dramatically faster 
+ 2) Treat tests for the database as integration tests that are separated from the main body of unit tests and need to run on a setup database
+Reason: Speed and quality of tests 
+ 3) Every developer will need their own distinct database. They will need an automated way to update its structure based on changes from their team mates and introduce data. See points 4 and 5. 
+ 4) Use a tool like  http://www.liquibase.org  to manage upgrades in your databases structure.
+Reason: Gives you agility in the ability to change the existing structure and move forward in versions 
+ 5) Use a tool like  http://dbunit.sourceforge.net/  to manage the data. Set up scenario files (xml or XLS) for particular test cases and base data and only clear down what is needed for any one test case.
+Reason: Much better than manually inserting and deleting data
+Reason 2: Easier for testers to understand how to adjust scenarios
+Reason 3: Its quicker to execute this 
+ 6) You need functional tests which also have DBUnit like scenario data, but this are far larger sets of data and execute the entire system. This completes the step of combining the knowledge that
+a) The unit tests run and hence the logic is sound
+b) That the integration tests to the database run and SQL is correct
+resulting in "and the system as a whole works together as a top to bottom stack" 
+ This combination has served me well so far for achieving a high quality of testing and product as well as maintaining speed of unit test development and agility to change. 
+ 
+ 
+ "Just get yourself a testing DB, how hard could it be?" - Well, in my working place, to have a personal testing DB is pretty impossible. You have to use a "public" DB, which is accessible for everyone. 
+ 
+ Sounds like you've got cultural problems at work that are providing a barrier to you being able to do your job to the fullest of your abilities and the benefit of your product. You might want to do something about that. 
+ On the other hand, if your database schema is under version control then you could always have a test build that creates a database from the schema, populates it with test data, runs your tests, gathers the results and then drops the database. It'd only be in existence for the duration of the tests. It can be a new database on an existing installation if hardware is a problem. This is similar to what we do where I work. 
+ 
+ If you are using Oracle at work you can use the Restore Point in Flashback Database feature to make the database return to a time before your tests.  This will clear away any changes you personally made to the DB. 
+ See: 
+ https://docs.oracle.com/cd/E11882_01/backup.112/e10642/flashdb.htm#BRADV71000 
+ If you need a test database for use with Oracle production/work then lookup the XE, express edition database from Oracle.  This is free for personal use, with a limit of database less than 2gb in size. 
+ 
+ We recently switched to JavaDB or  Derby  to implement this.  Derby 10.5.1.1 now implements an in-memory representation so it runs very fast, it doesn't need to go to disk:
+ Derby In Memory Primer 
+ We design our application to run on Oracle, PostgreSQL and Derby so we don't get too far down the road on any one platform before finding out that one database supports a feature that other ones don't. 
+ 
+ I agree with banjollity. Setting up isolated development and test environments should be a high priority. Every database system I've used is either open source or has a free developer edition you can install on your local workstation. This lets you develop against the same database dialect as production, gives you full admin access to development databases and is faster than using a remote server.    
+ 
+ Try to use  derby . It is easy and portable. With Hibernate your app becomes flexible. Test on derby, production on anything you like and trust. 
+ 
+ We're creating a database test environment at work right now.  We feel we must use a  real  database management system with  simulated data .  One problem with a simulated DBMS is that SQL never really totally gelled as a standard, so an artificial testing environment would have to faithfully support our production database's dialect.  Another problem is that we make extensive use of column value constraints, foreign key constraints, and unique constraints, and since an artificial tool probably wouldn't implement these, our unit tests could pass but our system tests would fail when they first hit the real constraints.  If tests take too long, this indicates an implementation error and we would tune our queries (typically test data sets are miniscule compared to production). 
+ We've installed a real DBMS on each developer machine and on our continuous integration and test server (we use Hudson).  I don't know what your work policy restrictions are, but it's pretty easy to install and use PostgreSQL, MySQL, and Oracle XE.  These are all free for development use (even Oracle XE), so there's no rational reason to prohibit their use.  
+ The key issue is how do you guarantee that your tests always start out with the database in a consistent state?  If the tests were all read-only, no problem.  If you could engineer mutating tests to always run in transactions that never commit, no problem.  But typically you need to worry about reversing updates.  To do this you can export the initial state to a file, then importing it back post-test (Oracle's exp and imp shell commands do this).  Or you can use a checkpoint/rollback.  But a more elegant way is to use a tool like  dbunit , which works well for us. 
+ The key advantage to this is that we catch many more bugs up front where they're far easier to fix and our real system testing doesn't get blocked while developers feverishly try to debug problems.  This means we produce better code faster and with less effort. 
+ 
+ You could HSQLDB for in memory db testing. Starting the in memory data base and running tests on it is pretty straightforward. 
+ http://hsqldb.org/ 
+ 
+ jOOQ  is a tool that apart from offering SQL abstraction also has small tools built in such as an SPI that allows for mocking the entirety of JDBC.  This can work in two ways as documented in this blog post : 
+ **By implementing the **
+** SPI:**
+
+ 
+ In the above implementation, you can programmatically intercept every SQL statement and return a result for it, even dynamically by "parsing" the SQL string to extract some predicates / table information, etc. 
+ **By using the simpler (but less powerful) **
+
+ ... which has a format like the following (a set of statement / result pairs): 
+ 
+ The above file can then be read and consumed as follows: 
+ 
+ Notice how we're using the JDBC API directly, without actually connecting to any database. 
+ Do note, I work for the vendor of jOOQ so this answer is biased. 
+ **Beware, at some point, you're implementing an entire database**
+
+ The above works for simple cases. But beware that, eventually, you will be implementing an entire database. You want: 
+ 
+ 
+ Verify SQL syntax. 
+ 
+ 
+ OK, by mocking the database as shown above, you can "verify" syntax, because each syntax that you haven't foreseen in the  exact  version as listed above will be rejected by any such mocking approach. 
+ You could implement a parser that parses SQL ( or, again, use jOOQ's ), and then transform the SQL statement into something you can more easily recognise and produce a result for. But ultimately, this just means implementing an entire database. 
+ 
+ 
+ More importantly, check that the data is selected/updated/inserted correctly, according to a given situation. 
+ 
+ 
+ This makes things even harder. If you run an insert and then update, the result is obviously different from update first, then insert, as the update may or may not affect the inserted row. 
+ How do you make sure this happens when "mocking" a database? You need a state machine that remembers the state of each "mocked" table. In other words, you'll implement a database. 
+ **Mocking will only take you this far**
+
+ As  piotrek  mentioned, too, mocking will only take you this far. It is useful in simple cases when you need to intercept only a few very well known queries. It is impossible, if you want to mock the database for an entire system. In that case, use an actual database, ideally the same product that you're using in production. 
+ 
+ I think my Acolyte framework can be used for such DB mock up:  https://github.com/cchantep/acolyte  . 
+ It allows to run existing Java (for testing) with connections you man query/update handling: returning appropriate resultsets, update count or warning according execution cases. 
+ 
+ Well to begin with ,are you using any ORM Layer for DB access?
+ 
+If not : then what you are thinking would be of no use.What's the use of testing when you are not sure that SQL you are firing will work with your DB in production as in test cases you are using something else.
+ 
+If yes:Then you can have look at various options pointed out. 
+ 

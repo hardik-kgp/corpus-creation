@@ -1,0 +1,51 @@
+*** why-can-you-not-have-a-foreign-key-in-a-polymorphic-association ***
+
+ Why can you not have a foreign key in a polymorphic association, such as the one represented below as a Rails model? 
+ 
+ 
+ A foreign key must reference only one parent table.  This is fundamental to both SQL syntax, and relational theory. 
+ A Polymorphic Association is when a given column may reference either of two or more parent tables.  There's no way you can declare that constraint in SQL. 
+ The Polymorphic Associations design breaks rules of relational database design.  I don't recommend using it. 
+ There are several alternatives: 
+ 
+ **Exclusive Arcs:**
+  Create multiple foreign key columns, each referencing one parent.  Enforce that exactly one of these foreign keys can be non-NULL. 
+ **Reverse the Relationship:**
+  Use three many-to-many tables, each references Comments and a respective parent. 
+ **Concrete Supertable:**
+  Instead of the implicit "commentable" superclass, create a real table that each of your parent tables references.  Then link your Comments to that supertable.  Pseudo-rails code would be something like the following (I'm not a Rails user, so treat this as a guideline, not literal code): 
+ 
+ 
+ I also cover polymorphic associations in my presentation  Practical Object-Oriented Models in SQL , and my book  SQL Antipatterns: Avoiding the Pitfalls of Database Programming . 
+ 
+ Re your comment:  Yes, I do know that there's another column that notes the name of the table that the foreign key supposedly points to.  This design is not supported by foreign keys in SQL. 
+ What happens, for instance, if you insert a Comment and name "Video" as the name of the parent table for that  ?  No table named "Video" exists.  Should the insert be aborted with an error?  What constraint is being violated?  How does the RDBMS know that this column is supposed to name an existing table?  How does it handle case-insensitive table names? 
+ Likewise, if you drop the   table, but you have rows in   that indicate Events as their parent, what should be the result?  Should the drop table be aborted?  Should rows in   be orphaned?  Should they change to refer to another existing table such as  ?  Do the id values that used to point to   make any sense when pointing to  ? 
+ These dilemmas are all due to the fact that Polymorphic Associations depends on using data (i.e. a string value) to refer to metadata (a table name).  This is not supported by SQL.  Data and metadata are separate. 
+ 
+ 
+ I'm having a hard time wrapping my head around your "Concrete Supertable" proposal. 
+ 
+ 
+ Define   as a real SQL table, not just an adjective in your Rails model definition.  No other columns are necessary. 
+ 
+ Define the tables  ,  , and   as "subclasses" of  , by making their primary key be also a foreign key referencing  . 
+ 
+ Define the   table with a foreign key to  . 
+ 
+ When you want to create an   (for instance), you must create a new row in   too.  So too for   and  . 
+ 
+ When you want to create a  , use a value that exists in  . 
+ 
+ When you want to query comments of a given  , do some joins: 
+ 
+ When you have only the id of a comment and you want to find what commentable resource it's a comment for.  For this, you may find that it's helpful for the Commentable table to designate which resource it references. 
+ 
+ Then you'd need to run a second query to get data from the respective resource table (Photos, Articles, etc.), after discovering from   which table to join to. You can't do it in the same query, because SQL requires that tables be named explicitly; you can't join to a table determined by data results in the same query. 
+ 
+ Admittedly, some of these steps break the conventions used by Rails.  But the Rails conventions are wrong with respect to proper relational database design. 
+ 
+ Bill Karwin is correct that foreign keys cannot be used with polymorphic relationships due to SQL not really having a native concept polymorphic relationships. But if your goal of having a foreign key is to enforce referential integrity you can simulate it via triggers. This gets DB specific but below is some recent triggers I created to simulate the cascading delete behavior of a foreign key on a polymorphic relationship: 
+ 
+ In my code a record in the   table or a record in the   table can relate to a record in the   table. 
+ 

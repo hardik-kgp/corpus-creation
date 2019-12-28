@@ -1,0 +1,61 @@
+*** postgresql-is-it-better-to-use-multiple-databases-with-one-schema-each-or-one ***
+
+ After  this comment  to one of my question, I'm thinking if it is better using one database with X schemas or vice versa. 
+ My situation: I'm developing a web application where, when people register, I create (actually) a database (no, it's not a social network: everyone must have access to his own data and never see the data of the other user). 
+ That's the way I used for the previous version of my application (that is still running on MySQL): through the Plesk API, for every registration, I do: 
+ 
+ Create a database user with limited privileges; 
+ Create a database that can be accessed just by the previous created user and the superuser (for maintenance) 
+ Populate the database 
+ 
+ Now, I'll need to do the same with PostgreSQL (the project is getting mature and MySQL... don't fulfill all the needs). 
+ I need to have all the databases/schemas backups independent: pg_dump works perfectly in both ways, and the same for the users that can be configured to access just one schema or one database. 
+ So, assuming you are more experienced PostgreSQL users than me, what do you think is the best solution for my situation, and why? 
+ Will there be performance differences using $x database instead of $x schemas? And what solution will be better to maintain in the future (reliability)? 
+ All of my databases/schemas will  **always**
+ have the same structure! 
+ For the backups issue (using pg_dump), is maybe better using one database and many schemas, dumping all the schemas at once: recovering will be quite simple loading the main dump in a development machine and then dump and restore just the schema needed: there is one additional step, but dumping all the schema seem faster than dumping them one by one. 
+ **UPDATE 2012**
+
+ Well, the application structure and design changed so much during those last two years. I'm still using the   approach, but still, I have one database  for each version  of my application: 
+ 
+ For backups, I'm dumping each database regularly, and then moving the backups on the development server. 
+ I'm also using the PITR/WAL backup but, as I said before, it's not likely I'll have to restore  all database  at once... so it will probably be dismissed this year (in my situation is not the best approach). 
+ The one-db-many-schema approach worked very well for me since now, even if the application structure is totally changed: 
+ 
+ I almost forgot: all of my databases/schemas will  **always**
+ have the same structure! 
+ 
+ ...now, every schema has its own structure that change dynamically reacting to users data flow. 
+ 
+ A PostgreSQL "schema" is roughly the same as a MySQL "database". Having many databases on a PostgreSQL installation can get problematic; having many schemas will work with no trouble. So you definitely want to go with one database and multiple schemas within that database. 
+ 
+ Definitely, I'll go for the one-db-many-schemas approach. This allows me to dump all the database, but restore just one very easily, in many ways: 
+ 
+ Dump the db (all the schema), load the dump in a new db, dump just the schema I need, and restore back in the main db. 
+ Dump the schema separately, one by one (but I think the machine will suffer more this way - and I'm expecting like 500 schemas!) 
+ 
+ Otherwise, googling around I've seen that there is no auto-procedure to duplicate a schema (using one as a template), but many suggest this way: 
+ 
+ Create a template-schema 
+ When need to duplicate, rename it with new name 
+ Dump it 
+ Rename it back 
+ Restore the dump 
+ The magic is done. 
+ 
+ I've written two rows in Python to do that; I hope they can help someone (in-2-seconds-written-code, don’t use it in production): 
+ 
+ 
+ I would say, go with multiple databases AND multiple schemas :) 
+ Schemas in PostgreSQL are a lot like packages in Oracle, in case you are familiar with those. Databases are meant to differentiate between entire sets of data, while schemas are more like data entities. 
+ For instance, you could have one database for an entire application with the schemas "UserManagement", "LongTermStorage" and so on. "UserManagement" would then contain the "User" table, as well as all stored procedures, triggers, sequences, etc. that are needed for the user management. 
+ Databases are entire programs, schemas are components. 
+ 
+ A number of schemas should be more lightweight than a number of databases, although I cannot find a reference which confirms this. 
+ But if you really want to keep things very separate (instead of refactoring the web application so that a "customer" column is added to your tables), you may still want to use separate databases: I assert that you can more easily make restores of a particular customer's database this way -- without disturbing the other customers. 
+ 
+ In a PostgreSQL context I recommend to use one db with multiple schemas, as you can (e.g.) UNION ALL across schemas, but not across databases. For that reason, a database is really completely insulated from another database while schemas are not insulated from other schemas within the same database. 
+ If you -for some reason- have to consolidate data across schemas in the future, it will be easy to do this over multiple schemas. With multiple databases you would need multiple db-connections and collect and merge the data from each database "manually" by application logic.  
+ The latter have advantages in some cases, but for the major part I think the one-database-multiple-schemas approach is more useful. 
+ 

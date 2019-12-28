@@ -1,0 +1,71 @@
+*** aws-rds-mysql-performance-drop-after-random-timespan ***
+
+ **QUESTION OUTLINE**
+
+Our AWS RDS instance starts slowing down after about 7-14 days, by a quite large factor (~400% load times for a specific set of queries). RDS monitoring shows no signs of resource shortage. (see below the question update for detailed problem description) 
+ 
+ **Question Update**
+
+ So after more than one month of investigating and some developer support by AWS, I am not exactly closer to a solution.  
+ Here are a couple of steps which I checked off the list, more or less without any further hint of the problem: 
+ 
+ Index / Fragmentation (all tables have correct indexes/keys and have no fragmentation) 
+ MySQL Stats Update (manually updating stats  source ) 
+ Thread Concurrency (changing innodb_thread_concurrency to various different parameters) 
+ Query Cache Hit Ratio doesn't show problems 
+ EXPLAIN to see if any SELECTs are actually slow or not using indexes/keys 
+ SLOW QUERY LOG (returns no results, because see paragraph below, it's a number of prepared SELECTs) 
+ RDS and EC2 are within one VPC 
+ 
+ For explanation, the used PlayFramework (2.3.8) has BoneCP and we are using eBeans to select our data. So basically I am running through a nested object and all those child objects, this produces a couple of hundred prepared SELECTs for the API call in question. This should basically also be fine for the used hardware, neither CPU nor RAM are extensively used by these operations. 
+ I also included NewRelic for more insights on this issue and did some JVM profiling. Obviously, most of the time is consumed by NETTY/eBeans?
+ 
+ 
+ 
+ Is anyone able to make sense of this?   
+ 
+ **ORIGINAL QUESTION: Problem Outline**
+
+ Our AWS RDS instance starts slowing down after about 7-14 days, by a quite large factor (~400% load times for a specific set of queries). RDS monitoring shows no signs of resource shortage.  
+ **Infrastructure**
+
+ We run a PlayFramework backend for a mobile app on AWS EC2 instances, connected to AWS RDS MySQL instances, one PROD environment, one DEV environment. Usually the PROD EC2 instance is pointing to the PROD RDS instance, and the DEV EC2 points to the DEV RDS (hi from captain obvious!); however sometimes we also let the DEV EC2 point to the PROD DB for some testing purposes. The PlayFramework in use is working with BoneCP.  
+ **Detailed Problem Description**
+
+ In a quite essential sync process, our app is making a certain API call many times a day per user. I discussed the backgrounds of the functionality in  this SO question , where, thanks to comments, I could nail the problem down to be a MySQL issue of some kind.  
+ In short, the API call is loading a set of data, the maximum is about 1MB of json data, which currently takes about 18s to load. When things are running perfectly fine, this takes about 4s to load. 
+ Curious enough, what "solved" the problem last time was upgrading the RDS instance to another instance type (from db.m3.large to db.m4.large, which is just a very marginal step). Now, after about 2-3 weeks, the RDS instance is once again performing slow as before. Rebooting the RDS instance showed no effect. Also re-launching the EC2 instance shows no effect.   
+ I also checked if the indices of the affected mySQL tables are set properly, which is the case. The API call itself is not eager-loading any BLOB fields or similar, I double-checked this. The CPU-usage of the RDS instances is below 1% most of the time, when I stress tested it with 100 simultaneous API calls, it went to ~5%, so this is not the bottleneck. Memory is fine too, so I guess the RDS instance doesn't start swapping which could slow down the whole process.  
+ Giving hard evidence, a (smaller) public API call on the DEV environment currently takes 2.30s load, on the PROD environment it takes 4.86s. Which is interesting, because the DEV environment has both in EC2 and RDS a much smaller instance type. So basically the turtle wins the race here. (If you are interested in this API call I am happy to share it with you via PN, but I don't really want to post links to API calls, even if they are basically public.) 
+ **Conclusion**
+
+ Concluding, it feels (I wittingly say 'feels') like the DB is clogged after x days of usage / after a certain amount of API calls. Not sure if this a RDS-specific issue, once I 'largely' reset the DB instance by changing the instance type, things run fast and smooth. But re-creating my DB instance from a snapshot every 2 weeks is not an option, especially if I don't understand why this is happening.  
+ Do you have any ideas what further steps I could take to investigate this matter?  
+ 
+ (Too long for just a comment)  I know you have checked a lot of things, but I would like to look at them with a different set of eyes... 
+ Please provide 
+ 
+ (Some of the above may help with "clogging over time" question.) 
+ Meanwhile, here are some guesses/questions/etc... 
+ 
+ Some other customer sharing the hardware is busy. 
+ It could be a network problem? 
+ Shrink   to 1 so you can catch slow queries. 
+ When are backups done on your instance? 
+ 4s-18s to load a megabyte -- what percentage of that is SQL statements? 
+ Do you "batch" the inserts?  Is it a single transaction?  Are lengthy queries going on at the same time? 
+ What, if any, MySQL tunables did you change from the AWS defaults? 
+ 6GB buffer_pool on a 7.5GB partition?  That sounds dangerously tight.  Can you see if there was any swapping? 
+ Any   involved?  (Of course the   will answer that.) 
+ 
+ 
+ There is one very important bit of information missing from your description:  The total allocated space for the database.  I/O for RDS is around 3x the allocated space, so for a 100GB allocation, you should get around 300 IOPS.  That allocated space also includes logs. 
+ Since you don't really know what's going on, the first step should be to turn on detailed monitoring, which will give you more idea of what is happening on the instance.   
+ Until you have additional stats gathered during a slowdown, you can try increasing the allocated space, which will increase the IOPS available.   
+ Also, check the events for the db - are logs getting purged on a regular basis?  That might indicate that there's not enough space. 
+ Finally, you can try going with PIOPS (provisioned IOPS) if you have an idea of what the application needs, though at this point it sounds like that would be a guess. 
+ 
+ maybe your burst credit balance is (slowly) being depleted? finally, you end up with baseline performance, which may appear "too slow". 
+ this would also explain why the upgrade to another instance type did help, as you then start with a full burst balance again. 
+ i would suggest to increase the size of the volume, even if you don't need the extra space,  as the baseline performance grows linearly with volume size . 
+ 

@@ -1,0 +1,92 @@
+*** how-do-i-move-a-redis-database-from-one-server-to-another ***
+
+ I currently have a live redis server running on a cloud instance and I want to migrate this redis server to a new cloud instance and use that instance as my new redis server. If it were MySQL, I would export the DB from the old server and import it into the new server. How should I do this with redis?  
+ P.S.: I'm not looking to set-up replication. I want to completely migrate the redis server to a new instance. 
+ 
+ Save a snapshot of the database into a dump.rdb by either running   or   from the command line. This will create a file named dump.rdb in the same folder as your redis server. See a list of all server  commands . 
+ Copy this dump.rdb to the other redis server you want to migrate to. When redis starts up, it looks for this file to initialize the database from. 
+ 
+ First, create a dump on server A. 
+ 
+ This ensures   is completely up-to-date, and shows us where it is stored (  in this case).   is also periodically written to disk automatically. 
+ Next, copy it to server B: 
+ 
+ Stop the Redis server on B, copy dump.rdb (ensuring permissions are the same as before), then start. 
+ 
+ The version of Redis on B must be greater or equal than that of A, or you may hit  compatibility issues . 
+ 
+ If you have the connectivity between servers it is better to set up replication (which is trivial, unlike with SQL) with the new instance as a slave node - then you can switch the new node to master with a single command and do the move with zero downtime. 
+ 
+ believe or not, I just made article for it: 
+ http://redis4you.com/articles.php?id=005&name=Seamless+migration+from+one+Redis+server+to+another 
+ 
+ 
+ 
+ But how do I know when the data transfer is complete between the master and the slave?
+      You can use INFO command. 
+ 
+ 
+ 
+ 
+ It is also possible to migrate data using the SLAVEOF command: 
+ 
+ Check that you have receive the keys with  . You could test the new instance by any other way too, and when you are done just turn replication of: 
+ 
+ 
+ Nowadays you can also use MIGRATE, available since 2.6. 
+ I had to use this since I only wanted to move the data in one database and not all of them. The two Redis instances live on two different machines. 
+ If you can't connect directly to Redis-2 from Redis-1, use ssh port binding: 
+ 
+ A small script to loop all the keys using KEYS and MIGRATE each key. This is Perl, but hopefully you get the idea:  
+ 
+ See  http://redis.io/commands/migrate  for more info. 
+ 
+ To check where the dump.rdb has to be placed when importing redis data, 
+ start client 
+ 
+ and  
+ then  
+ 
+ Here /Users/Admin is the location of dump.rdb that is read from server and therefore this is the file that has to be replaced.  
+ 
+ you can also use  rdd 
+ it can dump & restore a running redis server and allow filter/match/rename dumps keys 
+ 
+ I also want to do the same thing: migrate a db from a standalone redis instance to a another redis instances(redis sentinel). 
+ Because the data is not critical(session data), i will give  https://github.com/yaauie/redis-copy  a try. 
+ 
+ The simple way I found to export / Backup Redis data (create dump file )  is to start up a server via command line  with slaveof flag and  create live replica as follow (assuming the source Redis is 1.2.3.4 on port 6379):  
+ 
+ 
+ I just published a command line interface utility to npm and github that allows you to copy keys that match a given pattern (even *) from one Redis database to another. 
+ You can find the utility here: 
+ https://www.npmjs.com/package/redis-utils-cli 
+ 
+ Key elements of a zero-downtime migration is: 
+ 
+ replication ( http://redis.io/commands/SLAVEOF ) 
+ possibility to write into a slave during application switching ( ) 
+ 
+ In short: 
+ 
+ setup a target redis (empty) as slave of a source redis (with your data) 
+ wait for replication finish 
+ permit writes to a target redis (which is currently slave) 
+ switch your apps to a target redis 
+ wait for finish datastream from master to slave 
+ turn a target redis from master to slave 
+ 
+ Additionally redis have options which allows to disable a source redis to accept writes right after detaching a target: 
+ 
+ 
+ 
+ 
+ This topic covered by  
+ 
+ http://redis.io/topics/admin#upgrading-or-restarting-a-redis-instance-without-downtime 
+ 
+ Very good explanation from RedisLabs team  https://redislabs.com/blog/real-time-synchronization-tool-for-redis-migration 
+ And even their interactive tool for migrate:  https://github.com/RedisLabs/redis-migrate 
+ 
+ redis-dump  finally worked for me. Its documentation provides an example how to dump a Redis database and insert the data into another one. 
+ 

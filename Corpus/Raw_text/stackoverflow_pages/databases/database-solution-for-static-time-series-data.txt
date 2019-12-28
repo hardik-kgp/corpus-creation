@@ -1,0 +1,65 @@
+*** database-solution-for-static-time-series-data ***
+
+ We have a large and growing dataset of experimental data taken from around 30,000 subjects. For each subject, there are several recordings of data. Within each recording, there is a collection several time series of physiological data, each about 90 seconds long and sampled at 250Hz. I should note that any given instance of a time series is never extended, only additional recordings are added to the dataset. These recordings are  **not**
+ all of the same length, as well. Currently, the data for each recording is contained in its own flat file. These files are organized in a directory structure that is broken down hierarchically by version of the overall experiment, experiment location, date, and experiment terminal (in that hierarchical order). 
+ Most of our analysis is done in MATLAB and we plan to continue to use MATLAB extensively for further analysis. The situation as it stands was workable (if undesirable) when all researchers were co-located. We are now spread around the globe and I am investigating the best solution to make all of this data available from remote locations. I am well-versed in MySQL and SQL Server, and could easily come up with a way to structure this data within such a paradigm. I am, however, skeptical as to the efficiency of this approach. I would value any suggestions that might point me in the right direction. Should I be considering something different? Time series databases (though those seem to me to be tuned for extending existing time series)? Something else? 
+ Analysis does not need to be done online, though the possibility of doing so would be a plus. For now, our typical use case would be to query for a specific subset of recordings and pull down the associated time series for local analysis. I appreciate any advice you might have! 
+ **Update:**
+
+ In my research, I've found  this paper , where they are storing and analyzing very similar signals. They've chosen MongoDB for the following reasons: 
+ 
+ Speed of development 
+ The ease of adding fields to existing documents (features extracted from signals, etc.) 
+ Ease of MapReduce use through the MongoDB API itself 
+ 
+ These are all attractive advantages to me, as well. The development looks dead simple, and the ability to easily augment existing documents with the results of analysis is clearly helpful (though I know this isn't exactly difficult to do in the systems with which I am already familiar. 
+ To be clear, I know that I can leave the data stored in flat files, and I know I could simply arrange for secure access to these flat files via MATLAB over the network. There are  numerous  reasons I want to store this data in a database. For instance: 
+ 
+ There is little structure to the flat files now, other than the hierarchical structure stated above. It is impossible to pull all data from a particular day without pulling down all individual files for each terminal for a particular day, for instance. 
+ There is no way to query against metadata associated with a particular recording. I shudder to think of the hoops I'd need to jump through to pull all data for female subjects, for example. 
+ 
+ The long and short of it is that I want to store these data in a data base for myriad reasons (space, efficiency, and ease of access considerations, among many others). 
+ **Update 2**
+
+ I seem to not be sufficiently describing the nature of these data, so I will attempt to clarify. These recordings are certainly time series data, but not in the way many people think of time series. I am not continually capturing data to be appended to an existing time series. I am really making multiple recordings, all with varying metadata, but of the same three signals. These signals can be thought of as a vector of numbers, and the length of these vectors vary from recording to recording. In a traditional RDBMS, I might create one table for recording type A, one for B, etc. and treat each row as a data point in the time series. However, this does not work as recordings vary in length. Rather, I would prefer to have an entity that represents a person, and have that entity associated with the several recordings taken from that person. This is why I have considered MongoDB, as I can nest several arrays (of varying lengths) within one object in a collection. 
+ **Potential MongoDB Structure**
+
+ As an example, here's what I sketched as a potential MongoDB BSON structure for a subject: 
+ 
+ Those  s are the time seria. 
+ 
+ Quite often when people come to NoSQL databases, they come to it hearing that there's no schema and life's all good. However, IMHO this is a really wrong notion. 
+ When dealing with NoSQL, You have to think in terms of "aggregates" . Typically an aggregate would be an entity that can be operated on as a single unit. In your case one possible (but not that efficient) way will be to model an user and his/her data as a single aggregate. This will ensure that your user aggregate can be data centre / shard agnostic. But if the data is going to grow - loading a user will also load all the related data and be a memory hog. (Mongo as such is bit greedy on memory) 
+ Another option will be to have the recordings stored as an aggregate and "linked" back to the user with an id - this can be a synthetic key that you can create like a GUID. Even though this superficially seems like a join, its just a "look up by property" - Since there's no real referential integrity here. This maybe the approach that I'll take if files are going to get added constantly. 
+ The place where MongoDb shines is the part where you can do adhoc queries by a property in the document(you will create an index for this property if you don't want to lose hair later down the road.). You will not go wrong with your choice for time series data storage in Mongo. You can extract data that matches an id, within a date range for e.g., without doing any major stunts. 
+ Please do ensure that you have replica sets no matter which ever approach you take, and diligently chose your sharding approach early on - sharding later is no fun. 
+ 
+ I feel like this may not answer the right question, but here is what I would probably go for (using SQL server): 
+ User (table) 
+ 
+ UserId 
+ Gender 
+ Expertise 
+ etc... 
+ 
+ Sample (table) 
+ 
+ SampleId 
+ UserId 
+ Startime 
+ Duration 
+ Order 
+ etc... 
+ 
+ Series (table) 
+ 
+ SampleId 
+ SecondNumber (about 1-90) 
+ Values (string with values) 
+ 
+ 
+ I think this should give you fairly flexible access, as well as reasonable memory efficency. As the values are stored in string format you cannot do analysis on the timeseries in sql (they will need to be parsed first) but I don't think that should be a problem. Of course you can also use   and  , then you have complete freedom. 
+ Of course this is not as complete as your MongoDB setup but the gaps should be fairly easy to fill. 
+ 
+ You should really investigate LDAP and its data model. There is clearly a strong hierarchical character to your data, and LDAP is already commonly used to store attributes about people. It's a mature, standardized network protocol so you can choose from a variety of implementations, as opposed to being locked into a particular NoSQL flavor-of-the-month choice. LDAP is designed for distributed access, provides a security model for authentication (and authorization/access control as well) and is extremely efficient. More so than any of these HTTP-based protocols. 
+ 

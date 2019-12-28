@@ -1,0 +1,294 @@
+*** how-do-i-quickly-rename-a-mysql-database-change-schema-name ***
+
+ The MySQL manual at  MySQL  covers this. 
+ Usually I just dump the database and reimport it with a new name. This is not an option for very big databases. Apparently    does bad things, exist only in a handful of versions, and is a bad idea overall . 
+ This needs to work with  InnoDB , which stores things very differently than  MyISAM . 
+ 
+ For InnoDB, the following seems to work: create the new empty database, then rename each table in turn into the new database: 
+ 
+ You will need to adjust the permissions after that. 
+ For scripting in a shell, you can use either of the following: 
+ 
+ Or 
+ 
+ Notes: 
+ 
+ There is no space between the option   and the password. If your database has no password, remove the   part. 
+ If some table has a trigger, it cannot be moved to another database using above method (will result   error). If that is the case, use a traditional way to clone a database and then drop the old one: 
+ 
+ If you have stored procedures, you can copy them afterwards: 
+ 
+ 
+ 
+ Use these few simple commands: 
+ 
+ Or to reduce I/O use the following as suggested by @Pablo Marin-Garcia: 
+ 
+ 
+ I think the solution is simpler and was suggested by some developers. phpMyAdmin has an operation for this. 
+ From phpMyAdmin, select the database you want to select. In the tabs there's one called Operations, go to the rename section. That's all. 
+ It does, as many suggested, create a new database with the new name, dump all tables of the old database into the new database and drop the old database. 
+ 
+ 
+ You can use SQL to generate an SQL script to transfer each table in your source database to the destination database.  
+ You must create the destination database before running the script generated from the command.   
+ You can use either of these two scripts (I originally suggested the former and someone "improved" my answer to use  . Take your pick, but I prefer the original): 
+ 
+ or 
+ 
+ ($1 and $2 are source and target respectively) 
+ This will generate a SQL command that you'll have to then run. 
+ Note that   has a default length limit that may be exceeded for databases with a large number of tables. You can alter that limit by running   (or some other large number). 
+ 
+ Emulating the missing   command in MySQL: 
+ 
+ Create a new database 
+ Create the rename queries with: 
+ 
+ Run that output 
+ Delete old database 
+ 
+ It was taken from  Emulating The Missing RENAME DATABASE Command in MySQL . 
+ 
+ Three options: 
+ 
+ Create the new database, bring down the server, move the files from one database folder to the other, and restart the server. Note that this will only work if ALL of your tables are MyISAM. 
+ Create the new database, use CREATE TABLE ... LIKE statements, and then use INSERT ... SELECT * FROM statements. 
+ Use mysqldump and reload with that file. 
+ 
+ 
+ **The simple way**
+
+ Change to the database directory: 
+ 
+ Shut down MySQL... This is important! 
+ 
+ Okay, this way doesn't work for InnoDB or BDB-Databases. 
+ Rename database: 
+ 
+ ...or the table... 
+ 
+ Restart MySQL 
+ 
+ Done... 
+ OK, this way doesn't work with InnoDB or BDB databases. In this case you have to dump the database and re-import it. 
+ 
+ You may use this shell script: 
+ Reference:  How to rename a MySQL database?   
+ 
+ It's working: 
+ 
+ 
+ I've only recently came across a very nice way to do it, works with MyISAM and InnoDB and is very fast: 
+ 
+ I don't remember where I read it but credit goes to someone else not me. 
+ 
+ Simplest bullet-and-fool-proof way of doing a  **complete**
+ rename  (including dropping the old database at the end so it's a rename rather than a copy) : 
+ 
+ **Steps:**
+
+ 
+ Copy the lines into Notepad. 
+ Replace all references to "olddbname", "newdbname", "mypassword" (+ optionally "root") with your equivalents. 
+ Execute one by one on the command line (entering "y" when prompted). 
+ 
+ 
+ This is what I use: 
+ 
+ 
+ MySQL does not support the renaming of a database through its command interface at the moment, but you can rename the database if you have access to the directory in which MySQL stores its databases. For default MySQL installations this is usually in the Data directory under the directory where MySQL was installed. Locate the name of the database you want to rename under the Data directory and rename it. Renaming the directory could cause some permissions issues though. Be aware. 
+ **Note:**
+ You must stop MySQL before you can rename the database 
+ I would recommend creating a new database (using the name you want) and export/import the data you need from the old to the new. Pretty simple. 
+ 
+ When you rename a database in PHPMyAdmin it creates a dump, then drops and recreates the database with the new name. 
+ 
+ Well there are 2 methods: 
+ **Method 1:**
+ A well-known method for renaming database schema is by dumping the schema using Mysqldump and restoring it in another schema, and then dropping the old schema (if needed). 
+ From Shell 
+ 
+ Although the above method is easy, it is time and space consuming. What if the schema is more than a  **100GB?**
+ There are methods where you can pipe the above commands together to save on space, however it will not save time. 
+ To remedy such situations, there is another quick method to rename schemas, however, some care must be taken while doing it. 
+ **Method 2:**
+ MySQL has a very good feature for renaming tables that even works across different schemas. This rename operation is atomic and no one else can access the table while its being renamed. This takes a short time to complete since changing a table’s name or its schema is only a metadata change. Here is procedural approach at doing the rename: 
+ Create the new database schema with the desired name.
+Rename the tables from old schema to new schema, using MySQL’s “RENAME TABLE” command.
+Drop the old database schema.
+ . MySQL’s “RENAME TABLE” fails if there are triggers exists on the tables. To remedy this we can do the following things : 
+ **1)**
+   This done using -E, -R flags (in addition to -t -d which dumps the triggers) to the mysqldump command. Once triggers are dumped, we will need to drop them from the schema, for RENAME TABLE command to work. 
+ 
+ **2)**
+ Generate a list of only “BASE” tables. These can be found using a query on   table. 
+ 
+ **3)**
+ Dump the views in an out file. Views can be found using a query on the same   table. 
+ 
+ **4)**
+ Drop the triggers on the current tables in the old_schema. 
+ 
+ **5)**
+ Restore the above dump files once all the “Base” tables found in step #2 are renamed. 
+ 
+ Intricacies with above methods : We may need to update the GRANTS for users such that they match the correct schema_name. These could fixed with a simple UPDATE on mysql.columns_priv, mysql.procs_priv, mysql.tables_priv, mysql.db tables updating the old_schema name to new_schema and calling “Flush privileges;”. Although “method 2″ seems a bit more complicated than the “method 1″, this is totally scriptable. A simple bash script to carry out the above steps in proper sequence, can help you save space and time while renaming database schemas next time. 
+ The Percona Remote DBA team have written a script called “rename_db” that works in the following way : 
+ 
+ To demonstrate the use of this script, used a sample schema “emp”, created test triggers, stored routines on that schema. Will try to rename the database schema using the script, which takes some seconds to complete as opposed to time consuming dump/restore method. 
+ 
+ As you can see in the above output the database schema “emp” was renamed to “emp_test” in less than a second. Lastly, This is the script from Percona that is used above for “method 2″. 
+ 
+ 
+ For those who are Mac users, Sequel Pro has a Rename Database option in the Database menu.
+ http://www.sequelpro.com/ 
+ 
+ Steps : 
+ 
+ Hit  http://localhost/phpmyadmin/ 
+ Select your DB 
+ Click on Operations Tab 
+ There will be a tab as "Rename database to". Add new name and check Adjust privileges.  
+ Click on Go. 
+ 
+ 
+ 
+ It is possible to rename all tables within a database to be under another database without having to do a full dump and restore. 
+ 
+DROP PROCEDURE IF EXISTS mysql.rename_db;
+DELIMITER ||
+CREATE PROCEDURE mysql.rename_db(IN old_db VARCHAR(100), IN new_db VARCHAR(100))
+BEGIN
+SELECT CONCAT('CREATE DATABASE ', new_db, ';') `# create new database`;
+SELECT CONCAT('RENAME TABLE `', old_db, '`.`', table_name, '` TO `', new_db, '`.`', table_name, '`;') `# alter table` FROM information_schema.tables WHERE table_schema = old_db;
+SELECT CONCAT('DROP DATABASE `', old_db, '`;') `# drop old database`;
+END||
+DELIMITER ;
+
+$ time mysql -uroot -e "call mysql.rename_db('db1', 'db2');" | mysql -uroot
+ 
+ However any triggers in the target db will not be happy. You'll need to drop them first then recreate them after the rename. 
+ 
+mysql -uroot -e "call mysql.rename_db('test', 'blah2');" | mysql -uroot
+ERROR 1435 (HY000) at line 4: Trigger in wrong schema
+ 
+ 
+ Most of the answers here are wrong for one of two reasons: 
+ 
+ You cannot just use RENAME TABLE, because there might be views and triggers. If there are triggers, RENAME TABLE fails 
+ You cannot use mysqldump if you want to "quickly" (as requested in the question) rename a big database 
+ 
+ Percona has a blog post about how to do this well:
+ https://www.percona.com/blog/2013/12/24/renaming-database-schema-mysql/ 
+ and script posted (made?) by Simon R Jones that does what is suggested in that post. I fixed a bug I found in the script. You can see it here: 
+ https://gist.github.com/ryantm/76944318b0473ff25993ef2a7186213d 
+ Here is a copy of it: 
+ 
+ Save it to a file called   and make the script executable with   then use it like  
+ 
+ Here is a batch file I wrote to automate it from the command line, but it for Windows/MS-DOS. 
+ Syntax is rename_mysqldb database newdatabase -u [user] -p[password] 
+ 
+ 
+ TodoInTX's stored procedure didn't quite work for me. Here's my stab at it: 
+ 
+-- stored procedure rename_db: Rename a database my means of table copying.
+-- Caveats: 
+-- Will clobber any existing database with the same name as the 'new' database name.
+-- ONLY copies tables; stored procedures and other database objects are not copied.
+-- Tomer Altman (taltman@ai.sri.com)
+
+delimiter //
+DROP PROCEDURE IF EXISTS rename_db;
+CREATE PROCEDURE rename_db(IN old_db VARCHAR(100), IN new_db VARCHAR(100))
+BEGIN
+    DECLARE current_table VARCHAR(100);
+    DECLARE done INT DEFAULT 0;
+    DECLARE old_tables CURSOR FOR select table_name from information_schema.tables where table_schema = old_db;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    SET @output = CONCAT('DROP SCHEMA IF EXISTS ', new_db, ';'); 
+    PREPARE stmt FROM @output;
+    EXECUTE stmt;
+
+    SET @output = CONCAT('CREATE SCHEMA IF NOT EXISTS ', new_db, ';');
+    PREPARE stmt FROM @output;
+    EXECUTE stmt;
+
+    OPEN old_tables;
+    REPEAT
+        FETCH old_tables INTO current_table;
+        IF NOT done THEN
+        SET @output = CONCAT('alter table ', old_db, '.', current_table, ' rename ', new_db, '.', current_table, ';');
+        PREPARE stmt FROM @output;
+        EXECUTE stmt;
+
+        END IF;
+    UNTIL done END REPEAT;
+
+    CLOSE old_tables;
+
+END//
+delimiter ;
+ 
+ 
+ I  posed a question on Server Fault  trying to get around downtime when restoring very large databases by using MySQL Proxy. I didn't have any success, but I realized in the end what I wanted was RENAME DATABASE functionality because dump/import wasn't an option due to the size of our database. 
+ There is a RENAME TABLE functionality built in to MySQL so I ended up writing a simple Python script to do the job for me. I've  posted it on GitHub  in case it could be of use to others. 
+ 
+ For your convenience, below is a small shellscript that has to be executed with two parameters: db-name and new db-name. 
+ You might need to add login-parameters to the mysql-lines if you don't use the .my.cnf-file in your home-directory. Please make a backup before executing this script. 
+ 
+ 
+ 
+ The simplest method is to use HeidiSQL software. It's free and open source. It runs on Windows and on any Linux with  Wine  (run Windows applications on Linux, BSD, Solaris and Mac OS X). 
+ To download HeidiSQL, goto  http://www.heidisql.com/download.php . 
+ To download Wine, goto  http://www.winehq.org/ . 
+ To rename a database in HeidiSQL, just right click on the database name and select 'Edit'. Then enter a new name and press 'OK'. 
+ It is so simple. 
+ 
+ For mac users, you can use   (free), which just provide the option to rename Databases. Though it doesn't delete the old DB. 
+ once open the relevant DB just click:   -->  
+ 
+ Seems noone mentioned this but here is another way: 
+ 
+ then for each table do: 
+ 
+ then, if you want to, 
+ 
+ This approach would have the advantage of doing the entire transfer on server with near zero network traffic, so it will go a lot faster than a dump/restore. 
+ If you do have stored procedures/views/etc you might want to transfer them as well. 
+ 
+ Here is a quick way to generate renaming sql script, if you have many tables to move. 
+ 
+ 
+ In MySQL Administrator do the following: 
+ 
+ Under Catalogs, create a new database schema. 
+ Go to Backup and create a backup of
+the old schema. 
+ Execute backup. 
+ Go to Restore and open the file
+created in step 3. 
+ Select 'Another Schema' under Target
+Schema and select the new database
+schema. 
+ Start Restore. 
+ Verify new schema and, if it looks
+good, delete the old one. 
+ 
+ 
+ in  **phpmyadmin**
+ you can easily rename the database 
+ 
+ ask to drop old table and reload table data click OK in both 
+ Your database is renamed 
+ 
+ If you are using  phpMyAdmin  you can go to the "operations" tab once you have selected the database you want to rename. Then go to the last section "copy database to" (or something like that), give a name, and select the options below. In this case, I guess you must select "structure and data" and "create database before copying" checkboxes and, finally, press the "go" button in that section.  
+ By the way, I'm using phpMyAdmin in Spanish so I'm not sure what the names of the sections are in English. 
+ 
+ Here is a one-line Bash snippet to move all tables from one schema to another: 
+ 
+ The history command at the start simply ensures that the MySQL commands containing passwords aren't saved to the shell history. 
+ Make sure that   has read/write/drop permissions on the old schema, and read/write/create permissions on the new schema. 
+ 

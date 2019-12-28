@@ -1,0 +1,72 @@
+*** can-a-database-table-be-without-a-primary-key ***
+
+ Can anyone tell me if a table in a relational database (such as MySQL / SQL SERVER) can be without a primary key? 
+ For example, I could have table  , where I register   and  . I don't see the reason to have a primary key for such a table. 
+ 
+ Technically, you can declare such a table. 
+ But in your case, the   should be made the  , since it's probably wrong to have different temperatures for the same time and probably useless to have same more than once. 
+ Logically, each table should have a   so that you could distinguish two records. 
+ If you don't have a candidate key in you data, just create a surrogate one ( ,   or whatever your database offers). 
+ The only excuse for not having a   is a log or similar table which is a subject to heavy   and having an index on it will impact performance beyond the level of tolerance. 
+ 
+ Like always  **it depends**
+. 
+ Table  **does not have**
+ to have primary key.  **Much more important**
+ is to have  **correct indexes**
+. On database engine depends how  **primary key affects indexes**
+ (i.e. creates unique index for primary key column/columns). 
+ However, in your case (and 99% other cases too), I would  **add a new auto increment unique column**
+ like   and make it surrogate primary key.  
+ It  **makes much easier**
+ maintaining this table -- for example finding and removing records (i.e. duplicated records) -- and believe me -- for every table comes time to fix things :(. 
+ 
+ Wouldn't the primary key naturally be the time? would you ever have more than one temperature for a given time? 
+ A better question to ask would be, "Why would you ever make a table  **without**
+ a primary key" 
+ 
+ If the possibility of having duplicate entries (for example for the same time) is not a problem, and you don't expect to have to query for specific records or range of records, you can do without any kind of key. 
+ 
+ You don't need a PK, but it's recommended that you have one. It's the best way to identify unique rows. Sometimes you don't want an auto incremental int PK, but rather create the PK on something else. For example in your case, if there's only one unique row per time, you should create the PK on the time. It makes looks up based on time faster, plus it ensures that they're unique (you can be sure that the data integrity isn't violated): 
+ 
+ I would include a surrogate/auto-increment key, especially if there is any possibility of duplicate time/temperature readings. You would have no other way to uniquely identify a duplicate row. 
+ 
+ The time would then become your primary key.  It will help index that column so that you can query data based on say a date range.  The PK is what ultimately makes your row unique, so in your example, the datetime is the PK. 
+ 
+ I run into the same question on one of the tables i did. 
+ The problem was that the PK was supposed to be composed out of all the rows of the table all is well but this means that the table size will grow very fast with each row inserted. 
+ I choose to not have a PK, but only have an index on the row i do the lookup on. 
+ 
+ When you replicate a database on mysql, A table without a primary key may cause delay in the replication. 
+ http://lists.mysql.com/mysql/227217 
+ 
+ The most common mistake when using ROW or MIXED is the failure to
+  verify  that every table you want to replicate has a PRIMARY KEY on
+  it. This is  a mistake because when a ROW event (such as the one
+  documented above) is  sent to the slave and neither the master's copy
+  nor the slave's copy of  the table has a PRIMARY KEY on the table,
+  there is no way to easily  identify which unique row you want
+  replication to change. 
+ 
+ 
+ According to your answer I would consider three options: 
+ 
+ put a PK on both cols, this way for each time there could be only one temp and vise versa. This solution allows for multiple rows with the same temp or the same time just that there wouldn't be any two rows with same temp AND time. 
+ don't put a PK at all but do put a unique index on both cols. one unique index containing both cols. this would allow for nulls in temp and time but incurs more space to maintain index. 
+ 
+ these two options would be best for retrieval speed if you have heavy reads but would result in lower inserts rate as indices would have to be updated as well. 
+ 
+ don't put any index at all, nor PK. this would be best for inserts but very bad for searching. useful for logging where retrieval is done by another 
+mechanism or when inserting device is not required to check for dups. 
+ 
+ Also, it is very important to consider cardinality here and think about future consequences of using an auto incremented number. if you're planning to do A LOT OF inserts then even an auto incremented unsigned bigint would be a risk because it would eventually run out. In your example I guess you'll be saving data daily - for how long? this would be problematic if you saved temp every minute... so I'll take this as an extreme example. 
+ I guess it is best to think about what you need from the table. are you doing "save-and-forget" for the entire year for the temp at every minute? are you going to use this table frequently in real-time decision making in your business logic? I think it is best to segregate data necessary for real-time (oltp) from long-term saving data that would be required seldom and its retrieval latency is allowed to be high (olap). it's even worth duplicating the data into two different tables, one heavily indexed and get erased once in a while to control cardinality and the second is actually saved on a magentic disk with almost no indices at all (it is possible to transfer a schema from your main fs into another fs). 
+ 
+ Even if you do not add a primary key to an InnoDB table in MySQL, MySQL adds a hidden clustered index to that table. If you do not define a primary key, MySQL locates the first UNIQUE index where all the key columns are NOT NULL and InnoDB uses it as the clustered index. 
+ If the table has no primary key or suitable UNIQUE index, InnoDB internally generates a clustered index GEN_CLUST_INDEX on a synthetic column containing row ID values. 
+ https://dev.mysql.com/doc/refman/8.0/en/innodb-index-types.html 
+ 
+ I've got a better example of a table that doesn't need a primary key - a joiner table.  Say I have a table with something called "capabilities", and another table with something called "groups", and I want a joiner table that tells me all the capabilities that all the groups might have, so it's basicallly 
+ 
+ There is no reason to have a primary key on that, because you never address a single row - you either want all the capabilities for a given group, or all the groups for a given capabilty.  It would be better to have a unique constraint on (capabilty_id,group_id), and separate indexes on both fields. 
+ 

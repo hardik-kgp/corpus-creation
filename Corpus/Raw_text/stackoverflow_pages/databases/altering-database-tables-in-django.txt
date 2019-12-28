@@ -1,0 +1,55 @@
+*** altering-database-tables-in-django ***
+
+ I'm considering using Django for a project I'm starting (fyi, a browser-based game) and one of the features I'm liking the most is using   to automatically create the database tables based on the Django models I define (a feature that I can't seem to find in any other framework).
+I was already thinking this was too good to be true when I saw this in the  documentation : 
+ 
+ Syncdb will not alter existing tables 
+ syncdb will only create tables for models which have not yet been installed. It will never issue ALTER TABLE statements to match changes made to a model class after installation. Changes to model classes and database schemas often involve some form of ambiguity and, in those cases, Django would have to guess at the correct changes to make. There is a risk that critical data would be lost in the process. 
+ If you have made changes to a model and wish to alter the database tables to match, use the sql command to display the new SQL structure and compare that to your existing table schema to work out the changes. 
+ 
+ It seems that altering existing tables will have to be done "by hand". 
+ What I would like to know is the best way to do this. Two solutions come to mind: 
+ 
+ As the documentation suggests, make the changes manually in the DB; 
+ Do a backup of the database, wipe it, create the tables again (with syncdb, since now it's creating the tables from scratch) and import the backed-up data (this might take too long if the database is big) 
+ 
+ Any ideas? 
+ 
+ As noted in other answers to the same topic, be sure to watch the  DjangoCon 2008 Schema Evolution Panel  on YouTube. 
+ Also, two new projects on the map:  Simplemigrations  and  Migratory . 
+ 
+ Manually doing the SQL changes and dump/reload are both options, but you may also want to check out some of the schema-evolution packages for Django.  The most mature options are  django-evolution  and  South . 
+ **EDIT**
+: And hey, here comes  dmigrations . 
+ **UPDATE**
+: Since this answer was originally written,  django-evolution  and  dmigrations  have both ceased active development and  South  has become the de-facto standard for schema migration in Django. Parts of South may even be integrated into Django within the next release or two. 
+ **UPDATE**
+: A schema-migrations framework based on South (and authored by Andrew Godwin, author of South) is included in Django 1.7+. 
+ 
+ One good way to do this is via fixtures, particularly the   fixtures. 
+ A fixture is a collection of files that contain the serialized contents of the database.  So it's like having a backup of the database but as it's something Django is aware of it's easier to use and will have additional benefits when you come to do things like unit testing. 
+ You can create a fixture from the data currently in your DB using  .  By default the data is in JSON format, but other options such as XML are available.  A good place to store fixtures is a   sub-directory of your application directories. 
+ You can load a fixure using   but more significantly, if your fixture has a name like   it will be automatically loaded when you do a  , saving the trouble of importing it yourself. 
+ Another benefit is that when you run   to run your Unit Tests the temporary test database will also have the Initial Data Fixture loaded. 
+ Of course, this will work when when you're adding attributes to models and columns to the DB.  If you drop a column from the Database you'll need to update your fixture to remove the data for that column which might not be straightforward. 
+ This works best when doing lots of little database changes during development.  For updating production DBs a manually generated SQL script can often work best. 
+ 
+ I've been using django-evolution. Caveats include:  
+ 
+ Its automatic suggestions have been uniformly rotten; and 
+ Its fingerprint function returns different values for the same database on different platforms.  
+ 
+ That said, I find the custom   approach handy. To work around the fingerprint problem, I suggest code like: 
+ 
+ If I had more fingerprints and changes, I'd re-factor it. Until then, making it cleaner would be stealing development time from something else.  
+ **EDIT:**
+ Given that I'm manually constructing my changes anyway, I'll try  dmigrations  next time.  
+ 
+ django-command-extensions  is a django library that gives some extra commands to manage.py. One of them is sqldiff, which should give you the sql needed to update to your new model. It is, however, listed as 'very experimental'. 
+ 
+ So far in my company we have used the manual approach. What works best for you depends very much on your development style. 
+ We generally have not so many schema changes in production systems and somewhat formalized rollouts from development to production servers. Whenever we roll out (10-20 times a year) we do a fill diff of the current and the upcoming production branch reviewing all the code and noting what has to be changed on the production server. The required changes might be additional dependencies, changes to the settings file and changes to the database. 
+ This works very well for us. Having it all automated is a niche vision but to difficult for us - maybe we could manage migrations but we still would need to handle additional library, server, whatever dependencies. 
+ 
+ Django 1.7 (currently in development) is  adding native support  for schema migration with   and   (  deprecates  ).  
+ 

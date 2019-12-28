@@ -1,0 +1,60 @@
+*** display-dynamic-image-from-database-or-remote-source-with-pgraphicimage-and-str ***
+
+ I'm trying to display image bytes which is saved in database as a   in the   as follows: 
+ 
+ 
+ This returns a blank image. How is this caused and how can I solve it? 
+ The stdout prints the following: 
+ 
+ 
+ The   requires a special getter method. It will namely be invoked twice per generated image, each in a completely different HTTP request. 
+ The first HTTP request, which has requested the HTML result of a JSF page, will invoke the getter for the first time in order to generate the HTML   element with the right unique and auto-generated URL in the   attribute which contains information about which bean and getter exactly should be invoked whenever the webbrowser is about to request the image. Note that the getter does at this moment  **not**
+ need to return the image's contents. It would not be used in any way as that's not how HTML works (images are not "inlined" in HTML output, but they are instead requested separately). 
+ Once the webbrowser retrieves the HTML result as HTTP response, it will parse the HTML source in order to present the result visually to the enduser. Once the webbrowser encounters an   element during parsing the HTML source, then it will send a brand new HTTP request on the URL as specified in its   attribute in order to download the content of that image and embed it in the visual presentation. This will invoke the getter method for the second time which in turn should return the  actual  image content.  
+ In  your particular case  PrimeFaces was apparently either unable to identify and invoke the getter in order to retrieve the actual image content, or the getter didn't return the expected image content. The usage of   variable name and the lot of calls in the log suggests that you were using it in an   or a  . Most likely the backing bean is request scoped and the datamodel isn't properly preserved during the request for the image and JSF won't be able to invoke the getter during the right iteration round. A view scoped bean would also not work as the JSF view state is nowhere available when the browser actually requests the image. 
+ 
+ To solve this problem, your best bet is to rewrite the getter method as such so that it can be invoked on a per-request basis wherein you pass the unique image identifier as a   instead of relying on some backing bean properties which may go "out of sync" during subsequent HTTP requests. It would make completely sense to use a separate application scoped managed bean for this which doesn't have any state. Moreover, an   can be read only once, not multiple times. 
+ In other words:  **never declare **
+** nor any **
+** or even **
+** as a bean property; only create it brand-new in the getter of a stateless **
+** bean when the webbrowser actually requests the image content**
+. 
+ E.g. 
+ 
+ Where the   backing bean can look like this: 
+ 
+ Please note that this is a very special case wherein performing business logic in a getter method is completely legit, considering how the   works under the covers. Invoking business logic in getters is namely usually frowned upon, see also  Why JSF calls getters multiple times . Don't use this special case as excuse for other standard (non-special) cases. Please also note that you can't make use of EL 2.2 feature of passing method arguments like so   because this argument won't end up in the image URL. Thus you really need to pass them as  . 
+ 
+ If you happen to use  OmniFaces 2.0 or newer , then consider using its   instead which can be used more intuitively, with an application scoped getter method directly delegating to the service method and supporting EL 2.2 method arguments. 
+ Thus so: 
+ 
+ With 
+ 
+ See also  the blog  on the subject. 
+ 
+ Try including a mime type. In your posted example, you have it as "". The blank image may be because it doesn't recognize the stream as a image file since you made that field an empty string. So add a mime type of image/png or image/jpg and see if that works: 
+ 
+ 
+ There's a couple possibilities here (and please post the entire class if this isn't it). 
+ 1) You're not initializing the image properly
+2) Your stream is empty so you're getting nothing 
+ I'm assuming student.getImage() has a signature of byte[] so first make sure that that data is actually intact and represents an image. Secondly--you're not specifying a content-type which should be "image/jpg" or whatever you're using.  
+ Here's some boilerplate code to check it with, I'm using Primefaces 2 for this. 
+ 
+ and some markup... 
+ 
+ If that code works then you're set up properly. Despite the fact it is garbage code for the streams  (don't use it in production)  it should give you a point to troubleshoot from. My guess is that you might have something happening in your JPA or other Database framework where you're byte[] is empty or it is formatted wrong. Alternatively you could just have a content-type problem.  
+ Lastly, I would clone the data from the bean so that student.getImage() would only be copied into a new array and then used. This way if you have something unknown going on (something else moving the object or changing the byte[] you're not messing with your streams.  
+ Do something like: 
+ 
+ so that your bean has a copy (or Arrays.copy()--whatever floats your boat). I can't stress enough how something simple like this/content type is usually what's wrong. Good luck with it. 
+ 
+ The answer from  BalusC  is (as usual) the correct one. 
+ But keep one thing (as already stated by him) in mind. The final request is done from the browser to get the URL from the constructed   tag. This is not done in a 'jsf context'. 
+ So if you try to e.g. access the phaseId (logging or whatever reason) 
+ 
+ This will result in a   and the somehow misleading error message you will get is: 
+ 
+ It took me quite some time to figure out what was the problem. 
+ 

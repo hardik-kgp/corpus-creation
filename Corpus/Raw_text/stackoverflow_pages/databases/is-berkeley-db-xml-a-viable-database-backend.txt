@@ -1,0 +1,70 @@
+*** is-berkeley-db-xml-a-viable-database-backend ***
+
+ Apparently, BDB-XML has been around since at least 2003 but I only recently stumbled upon it on Oracle's website:  Berkeley DB XML . Here's the blurb: 
+ 
+ Oracle Berkeley DB XML is an open source, embeddable XML database with XQuery-based access to documents stored in containers and indexed based on their content. Oracle Berkeley DB XML is built on top of Oracle Berkeley DB and inherits its rich features and attributes. Like Oracle Berkeley DB, it runs in process with the application with no need for human administration. Oracle Berkeley DB XML adds a document parser, XML indexer and XQuery engine on top of Oracle Berkeley DB to enable the fastest, most efficient retrieval of data. 
+ 
+ To me it seems that the underlying ideas are technically sound and probably more mature than the newer document-based DBs like CouchDB or MongoDB. It has support for C, C++, Ruby and Perl, as far as I can determine. It even has HA-capabilities like automatic replication using a master/slave model with automatic election. 
+ However, I can't seem to find any projects that use it. Is there something fundamentally wrong with it? Is the license too onerous? Is it too complicated? 
+ Why is it not being used? 
+ 
+ I used to be the product manager for Berkeley DB products at Oracle.  I've been around working on these BDB databases for over eight years now, I wrote the "blurb" you copied into your question. 
+ Commercially we're used in (non-exhaustive list, just off the top of my head):
+ - Autodesk uses BDB XML in Mapquest
+ - Farelogix uses BDB XML for a reservation system
+ - Starwood Hotels uses BDB XML to manage information about properties they manage
+ - Juniper Networks uses BDB XML in the NetScreen security manager
+ - many I can't name due to contract restrictions...
+ - and so on... 
+ Berkeley DB XML has been relatively ignored in the open source world, why I have no idea.  There are a few projects here and there have used it, nothing all that public that I know of.  I did recently see  a nifty blog post  about how to use BDB XML from within Emacs.  Once setup you can run XQuery statements over XML interactively within the text editor.  That said, it's very viable for commercial and open source use. 
+ XQilla is a project created by the BDB XML engineers from a few other XML projects we knitted together over the years.  We open sourced (Apache 2.0 license) XQilla because it's a great XQuery and XML parsing library.  We're a database company, so the piece that takes XML after it's been parsed and organizes it into our btree databases as well as the work on query optimization, indexing, statistics, and a whole ton of other code is what sits under XQilla but above BDB's btree gluing the two together into BDB XML.  Feel free to use it if it solves your problem, these no database there at all. 
+ Product built from the ground up for XML generally have a few transactional data structures at their core which manage information on disk.  There's not much optimization that can be done that we've not already done in Berkeley DB and used in Berkeley DB XML.  To say that a database built from the ground up to manage XML is going to be significantly better than BDB XML is saying that there's something missing from Berkeley DB, I don't think there a defensible argument here but I'm willing to learn if someone has information on a concurrent, transactional data structure critical for efficient XML storage that BDB doesn't already implement. 
+ eXist is a Java XML database, we have a Java JNI API if you'd like and we generally beat the pants off eXist in performance, stability and scalability tests. 
+ Sedna is a good XML database, it's Apache 2.0 so it's not a dual-license it's just FLOSS software.  I'd suggest you benchmark it against BDB XML, you might be surprised. 
+ MarkLogic is a great XML/XQuery database server, they've built a very solid product.  It's not a software library, it's a server.  There are significant differences between BDB XML and MarkLogic, but they are both commercially available - only BDB XML is open source. 
+ Someone mentioned Elliot Rusty Harold's blog on the state of XML databases, be careful it's circa 2007 - hey, isn't that before any NoSQL database existed?  ;-) 
+ Take a look at Kimbro Staken's  old but still relevant review  ( turned into a whitepaper by Oracle ), it's good but also dated.  "Use a Native XML Database for Your XML Data: Deciding when an XQuery-based native XML database is better than an SQL database" 
+ The real authority over the years has been  Ron Bourrett .  He has a lot to say on the subject. 
+ MongoDB and CouchDB are in a different market segment.  They do distributed, partitioned, eventually consistent BASE-style (non ACID) data management and some think they do that very well.  I think they are young, the jury is still out.  They are off to a good start and I hope that they continue to grow, data storage is a hard thing to get right and one size doesn't fit everyone's problem/needs.  BDB XML's distributed story is built on single-master, multi-replica always consistent (if you'd like) log-based replication and PAXOS-based election algorithms when the master fails.  We don't partition data, every node contains the same data (the entire database).  We don't allow writes everywhere, only at the master.  We support more than TCP/IP for replication (heck, you could use a hardware bus custom to your server if you want).  We built our HA product to solve read-scalability, system availability and fault-tolerance.  NoSQL's distributed systems are designed for write anywhere partitioned data management.  Choice is good, right?  :) 
+ XML as a data schema and XQuery as a language to access and manage XML content has been and continues to be a very successful solution.  Maybe not so much in the more public websites using NoSQL solutions these days (which is fine, and interesting to me) but more so in document management, finance, genomics, bioinformatic, data exchange, messaging, and much more.  XML may be a niche database when compared to SQL/relational products but it is certainly much more successful than object databases or any new kid on the block NoSQL database solution.  Every storage solution has its place, XML will continue to do useful things far into the future. 
+ At the end of the day, I hope you pick a database suits your needs. 
+ 
+ One thing to keep in mind is Berkeley DB's license. Unless you are going to open source your project, you'll need to buy a license from Oracle, which is why I suspect you don't see more of it. All of the Berkeley DB databases are quite excellent otherwise. I tend to use them for anything I'm not going to distribute (in house projects). 
+ 
+ From my experiences Berkeley DB XML has a lot of promise and a lot of relevant use cases. But you should be careful not to expect it to work in all cases. Note that the last release was Berkeley DB XML 2.5.16 in December 22, 2009. 
+ The technology it is based on, Berkeley DB, is very robust and blindingly fast, if you configure it correctly for your use-case. There are many details to get right (e.g. enable transactions, logging, understanding all flags needed to get MVCC working). I believe the majority of people have issues because of this complexity. 
+ I have run into a few other shortcomings though. The biggest one is that the query planner will not use indexes when sorting. This means that you cannot do a pretty common data access pattern which is the equivalent of: 
+ 
+ If you do this Berkeley DB will check all values of time on disk before ordering, which makes it slow when you go beyond a few tens of thousands of nodes. Someone else reported this as well here: 
+ https://forums.oracle.com/forums/message.jspa?messageID=9754987#9754987 
+ You can enumerate any indexes directly as well, but then you lose the ability to do ad-hoc queries. 
+ Also reported on the forums is some strange behavior related to index types and performance: 
+ https://forums.oracle.com/forums/message.jspa?messageID=9753022#9753022 
+ So, while key based access is fast and reliable, be careful of its immature query planner. 
+ 
+ Depends on what your needs are. I won't recommend one native xml DB over another, but I can tell you that the publishing industry is an example of an entire sector that has pretty much abandoned relational databases and moved big time to native xml databases for handling the content of their publications. The most prominent(and most expensive) is the one from MarkLogic. eXistDB is an opensource one that seems to be getting some traction. 
+ Here is an excellent article on this subject by one of the preeminent xml gurus, Elliot Rusty Harold.
+ http://cafe.elharo.com/xml/the-state-of-native-xml-databases/ 
+ 
+ The best[*] XML repositories are the ones built from the ground up to support XML, like  MarkLogic  or  eXist . 
+ However, the storage engine for BDB-XML is the venerable Berkeley DB engine, one of the most wide-spread embedded database engines. It is small, quick and stable. 
+ BDB-XML  itself is certainly a capable product. It was formerly sold under the name Sleepycat, if that helps you find any references. It's a combination of the BDB storage engine with the  XQilla  XQuery engine. 
+ Also you might find more information searching for  XQilla . It's a fairly powerful engine, and still open source. 
+ [*] "best" of course, being a subjective term. 
+ 
+ So in conclusion, these are all reasons why BDB-XML doesn't seem widely used: 
+ 
+ Only allows built-in, local databases (although there are provisions for doing master-slave replication) 
+ Not free for commercial use 
+ Many competing products that were built from the ground up to support XML 
+ 
+ There doesn't seem to be any reason not to use it, but likewise there's not much to make it stand out from the competition. On top of that, the recent competition has more of a "Ooh, shiny!" appeal and XML databases themselves are still a niche market. 
+ 
+ I've been for the same lately and came across the  Sedna XML  dbms. 
+ 
+ "Is there something fundamentally wrong with it?" 
+ Yes. It's XML. 
+ And unfortunately that means that those who invented it did not bother to take a look at the power of already existing concepts and technologies like, say, relational algebra and relational calculus. 
+ Doing better than those is not a trivial task (and that's putting it politely), and everyone who has tried so far has failed. 
+ That ought to tell you something. 
+ 

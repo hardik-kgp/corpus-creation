@@ -1,0 +1,81 @@
+*** database-data-versioning ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ I've read a few questions on SO (such as  this one ) in regards to versioning your data within a database. 
+ I liked some of the suggestions that were mentioned.  I have for the longest time wanted (needed) to revision many of my tables but never got around to it.  Being a programmer with only simple database work under my belt I was wondering how one would actually go about doing this. 
+ I'm not asking for the actual solution in SQL syntax.  I can eventually figure that out for myself (or post SO when the time comes).  I'm just asking for people to comment as how they would go about doing it and any potential performance problems there might be if I was to 'revision' hundreds of million of records.  Or any other suggestions as long as it is based on the example below. 
+ Given a simple example: 
+ 
+ I'm not sure how one would link the Audit table to any other tables (such as Person) if the TableName is a string? 
+ Also, assuming that I have three GUI's to populate: 
+ 
+ A full record for a specific person id 
+ A table view listing all persons (by id) 
+ A view showing each person with their revision info below each entry (# of revisions per person, dates of revisions, revision comments, etc), ordered by the most recent revisions. 
+ 
+ To accomplish 1 and 2, would it be better to query the Person table or the Audit table? 
+ To accomplish 3, would a so called database expert simply get all records and pass it on to the software for processing, or group by PersonID and Affected date?  Is this usually handled in one query or many? 
+ 
+ I have done various audit schemes over the years and I am currently going to implement something like this: 
+ 
+ The current records are always in the Person table. If there is a change an audit record is created and the old record is copied into the Person_History table (note the ID does not change and there can be multiple versions) 
+ The Audit ID is in the *_History tables so you can link multiple record changes to one audit record if you like. 
+ EDIT: 
+If you don't have a separate history table for each base table and want to use the same table to hold old and "deleted" records then you have to mark the records with a status flag. The problem with that it's a real pain when querying for current records - trust me I've done that. 
+ 
+ How about you create the table as normal, have a ModifiedDate Colm on each record (and ModifiedBy if you like), and do all your data access through a materialized view which groups the data by Id and then does a HAVING ModifiedDate = MAX(ModifiedDate)? 
+ This way, adding a new record with the same Id as another will remove the old record from the view. If you want to query history, don't go through the view 
+ I've always found maintaining different tables with the same Colm to be complex and error prone. 
+ 
+ Following DJ's post in using a history table per base table and a comment by Karl about possible performance issues, I've done a bit of SQL research in order to figure out the fastest possible way to transfer a record from one table to another. 
+ I just wanted to document what I found: 
+ I thought that I would have to do an SQL fetch to load the record from the base table, followed with an SQL push to put the record into the history table, followed by an update to the base table to insert the changed data.  Total of 3 transactions. 
+ But to my surprise I realized that you can do the first two transactions using one SQL statement using the SELECT INTO syntax.  I'm betting performance would be a hundred fold faster doing this. 
+ Then that would leave us to simply UPDATE the record with the new data within the base table. 
+ I still haven't found one SQL statement to do all 3 transactions at once (I doubt I will). 
+ 
+ I like your audit table, its a good start.  You've got a cardinality issue with your audit table, so I would bust it out as two tables: 
+ 
+ The initial layout proposed has a single Audit record that points back to (I assume) two Person records.  The challenges of this design are: 
+ 
+ Which records in your person table
+are the current 'real' records?  
+ How do you represent the entire history
+of changes to the Person record?  If
+you are pointing to two records in
+the Person table, then see point #1: 
+which one is the current record?  
+ The Create*, Change* fields are rolled up
+from a collection of Audit_Item
+records.  They are only there for
+ease of access.  
+ The AuditID key in the Person table allows you to point
+back to the Audit table and get to
+the history of the individual Person
+without needing to query the Audit
+table with the clause  
+ 
+ 

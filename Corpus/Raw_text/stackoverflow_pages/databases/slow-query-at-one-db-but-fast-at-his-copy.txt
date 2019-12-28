@@ -1,0 +1,76 @@
+*** slow-query-at-one-db-but-fast-at-his-copy ***
+
+ We have a Laravel application (version 5.4.18) which is connected to MySQL (5.6.38) database (300k rows totally), MyISAM type.
+And we have api-response like  , and at some point the execution time of this query has reached 18 seconds, which is very big value. I created a sandbox with a copy of the live laravel environment that uses a copy of the exaclty same database (at the same server), and now this api-response is executed in 2,5 seconds. If we trying to connect sandbox laravel to the live DB, then api execution is 18s again. Please check the image. 
+ 
+ So if we assume that the problem is in the DB table of live website, but if we try to measure this query with  , then it will show that time required to generate this query and grab the data from database is just 0.7 sec. 
+ So if we assume that problem is in API routes or in the Laravel code, but exaclty same code is executed without any problem if I just copy it into the subdirectory (as a sandbox). 
+ Any ideas? 
+ Also some server info: PHP 7.0.29 at Linux server with 32gb RAM. 
+ 
+ I have 3 solutions for you: 
+ 1)  check & optimize & repair the table using this command: 
+ 
+ 2) if problem not solved check your query execution plan using monitoring apps like  Newrelic 
+ 3) Sometimes it's not about specific table it's about database corruption, try to drop and create a new one with old data. 
+ How to recover/recreate mysql's default 'mysql' database 
+ 
+ Have you tried to rebuild indexes on live DB? 
+ In MySQL this could be done with   command (quick repair - means only repair indexes - rebuild them). 
+ (Please backup DB before applying... There is almost no chance to broke DB by this command, but...) 
+ 
+ Some additional explanation: 
+ Mysql mostly using self-balancing B+ trees for indexes, they are trying to be as most flat as possible to provide good search times. 
+ But in some cases (often it is related to incremental data insertions into DATETIME column e.g.   with index) MySQL B+ tree implementation unable to handle such type of load. Generated tree delivers performance which constantly decrease over a time(days, weeks). Such indexes must be rebuild... 
+ If this approach will help you - rebuild indexes once per   days (Once per week worked for me last time) 
+ 
+ There can be a couple of issue, One is rebuilding indexes, which is addressed and do take backup before that, 
+ The other is the server you are running, I mean Apache or NGINX. 
+ See whats running for apache  
+ 
+ Monitor apache by turning on server-status  
+ 
+ A good read here on Apache performance  
+ 
+ You need to repair your database.  
+ **Why you compact and repair a database**
+
+ This overview explains how using the Compact and Repair Database command can help prevent and correct the following problems that sometimes affect a database: files growing larger with use and files becoming corrupted. 
+ Database files grow with use
+As you add and update data and change its design, a database file becomes larger. Some of this growth comes from new data, but some comes from other sources: 
+ 
+ Access creates temporary, hidden objects to accomplish various tasks.
+Sometimes, these temporary objects remain in your database after
+Access no longer needs them. 
+ When you delete a database object, the disk space that the object
+occupied is not automatically reclaimed — the database file still
+uses that disk space, even though the object is deleted. 
+ 
+ As your database file fills up with the remains of temporary and deleted objects, its performance can degrade. Objects may open more slowly, queries may take longer than normal to run, and typical operations generally seem to take longer. 
+ Reference : 
+ 
+ https://support.office.com/en-us/article/Compact-and-repair-a-database-6ee60f16-aed0-40ac-bf22-85fa9f4005b2 
+ 
+ 
+ Not enough information to give a detailed diagnosis. 
+Personally I would start to check the memory and cpu occupation on the server when the query is executing slow, htop is a good tool in case you don't have access to any other licensed software for server monitoring just to be sure that not only the machine are equal but also the workload.
+Many times such kind of issues are depending from lock or contention of resources, rather than from the specific query.
+Eventually isolate a sql sequence and get the explain on both the server. 
+At this point you should be able to reproduce the issue by woking with the same client, i.e. SQLYOG and be able to evaluates the changes on the explain and performance after rebuilding indexes or tables. Just to do it and hope that it will be fine is not really useful if the purpose is to resolve the issue and produce documentation on how to fix it again in the future. 
+Yes, usually degradation with performance due to an index which need to be rebuilt are happening again and again when a careful db maintenance program is not in place. 
+ 
+ Here is my personal experience working with very large database,with data over more then 8 million records. I am not sure how much of this is helpful, but here it is. 
+ For very large records, the query that you are try to execute greatly influence the time take for the response. For example Lets say, if you are trying to search for a product with name   and want to pageiniate it. 
+For this two query will be executed .  
+ 
+ First query will count all the records starting with name   though out your database. - Lets say that took 10sec since the volume is high and it will go from top to bottom. 
+ Second query execute to get first 10 or 20 records that u want. This greatly influence the time.  
+ a. Let say if you have a lot of records that has name  , so the query will return first 10 records very less, lets say with in 2 sec.  
+ b. But if you have very less record whose name is "abc"  then the query will travel all the way to ur database and it will take another 10 sec, So the total execution time is now 20 sec where as for first case it was only 12 sec. 
+ 
+ If you want to see where actually the time is taking you can use   .That actually shows what queries are being executed and which one took how much time. 
+ There is few other factors, like server setup and latency. Those also you can check. 
+ **For queries my suggestio**
+n would be to use   , untill and unless you want to display total records. 
+ Hope this helped you a bit. 
+ 

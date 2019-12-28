@@ -1,0 +1,179 @@
+*** whats-wrong-with-foreign-keys ***
+
+ I remember hearing  Joel Spolsky  mention in  podcast 014  that he'd barely ever used a foreign key (if I remember correctly). However, to me they seem pretty vital to avoid duplication and subsequent data integrity problems throughout your database. 
+ Do people have some solid reasons as to why (to avoid a discussion in lines with Stack Overflow principles)? 
+ **Edit:**
+  "I've yet to have a reason to create a foreign key, so this might be my first reason to actually set up one." 
+ 
+ Reasons to use Foreign Keys: 
+ 
+ you won't get Orphaned Rows 
+ you can get nice "on delete cascade" behavior, automatically cleaning up tables 
+ knowing about the relationships between tables in the database helps the Optimizer plan your queries for most efficient execution, since it is able to get better estimates on join cardinality.  
+ FKs give a pretty big hint on what statistics are most important to collect on the database, which in turn leads to better performance 
+ they enable all kinds of auto-generated support -- ORMs can generate themselves, visualization tools will be able to create nice schema layouts for you, etc. 
+ someone new to the project will get into the flow of things faster since otherwise implicit relationships are explicitly documented 
+ 
+ Reasons not to use Foreign Keys: 
+ 
+ you are making the DB work extra on every  CRUD  operation because it has to check FK consistency. This can be a big cost if you have a lot of churn  
+ by enforcing relationships, FKs specify an order in which you have to add/delete things, which can lead to refusal by the DB to do what you want.  (Granted, in such cases, what you are trying to do is create an Orphaned Row, and that's not usually a good thing).  This is especially painful when you are doing large batch updates, and you load up one table before another, with the second table creating consistent state (but should you be doing that sort of thing if there is a possibility that the second load fails and your database is now inconsistent?). 
+ sometimes you know beforehand your data is going to be dirty, you accept that, and you want the DB to accept it 
+ you are just being lazy :-) 
+ 
+ I think (I am not certain!) that most established databases provide a way to specify a foreign key that is not enforced, and is simply a bit of metadata.  Since non-enforcement wipes out every reason not to use FKs, you should probably go that route if any of the reasons in the second section apply. 
+ 
+ This is an issue of upbringing.  If somewhere in your educational or professional career you spent time feeding and caring for databases (or worked closely with talented folks who did), then the fundamental tenets of entities and relationships are well-ingrained in your thought process.  Among those rudiments is how/when/why to specify keys in your database (primary, foreign and perhaps alternate).  It's second nature. 
+ If, however, you've not had such a thorough or positive experience in your past with RDBMS-related endeavors, then you've likely not been exposed to such information.  Or perhaps your past includes immersion in an environment that was vociferously anti-database (e.g., "those DBAs are idiots - we few, we chosen few java/c# code slingers will save the day"), in which case you might be vehemently opposed to the arcane babblings of some dweeb telling you that FKs (and the constraints they can imply) really are important if you'd just listen. 
+ Most everyone was taught when they were kids that brushing your teeth was important.  Can you get by without it?  Sure, but somewhere down the line you'll have less teeth available than you could have if you had brushed after every meal.  If moms and dads were responsible enough to cover database design as well as oral hygiene, we wouldn't be having this conversation. :-) 
+ 
+ I'm sure there are plenty of applications where you can get away with it, but it's not the best idea.  You can't always count on your application to properly manage your database, and frankly managing the database should not be of very much concern to your application.   
+ If you are using a  **relational**
+ database then it seems you ought to have some  **relationships**
+ defined in it.  Unfortunately this attitude (you don't need foreign keys) seems to be embraced by a lot of application developers who would rather not be bothered with silly things like data integrity (but need to because their companies don't have dedicated database developers).  Usually in databases put together by these types you are lucky just to have primary keys ;) 
+ 
+ Foreign keys are  **essential**
+ to any relational database model. 
+ 
+ I always use them, but then I make databases for financial systems.  The database is the critical part of the application.  If the data in a financial database isn't totally accurate then it really doesn't matter how much effort you put into your code/front-end design.  You're just wasting your time. 
+ There's also the fact that multiple systems generally need to interface directly with the database - from other systems that just read data out (Crystal Reports) to systems that insert data (not necessarily using an API I've designed; it may be written by a dull-witted manager who has just discovered VBScript and has the SA password for the SQL box).  If the database isn't as idiot-proof as it can possibly be, well - bye bye database. 
+ If your data is important, then yes, use foreign keys, create a suite of stored procedures to interact with the data, and make the toughest DB you can.  If your data isn't important, why are you making a database to begin with? 
+ 
+ **Update**
+: I always use foreign keys now. My answer to the objection "they complicated testing" is "write your unit tests so they don't need the database at all. Any tests that use the database should use it properly, and that includes foreign keys. If the setup is painful, find a less painful way to do the setup." 
+ 
+ Foreign keys complicate automated testing 
+ Suppose you're using foreign keys. You're writing an automated test that says "when I update a financial account, it should save a record of the transaction." In this test, you're only concerned with two tables:   and  . 
+ However,   has a foreign key to  , and   has a fk to  , and   has a fk to  , and   has a fk to  . 
+ **Now the database will not allow you to run your test without setting up data in four tables that aren't related to your test**
+. 
+ There are at least two possible perspectives on this: 
+ 
+ "That's a good thing: your test should be realistic, and those data constraints will exist in production." 
+ "That's a bad thing: you should be able to unit test pieces of the system without involving other pieces. You can add integration tests for the system as a whole." 
+ 
+ It may also be possible to temporarily turn off foreign key checks while running tests. MySQL, at least,  supports this . 
+ 
+ "They can make deleting records more cumbersome - you can't delete the "master" record where there are records in other tables where foreign keys would violate that constraint." 
+ It's important to remember that the SQL standard defines actions that are taken when a foreign key is deleted or updated.
+The ones I know of are: 
+ 
+  - Prevents any rows in the other table that have keys in this column from being deleted.  This is what Ken Ray described above. 
+  - If a row in the other table is deleted, delete any rows in this table that reference it. 
+  - If a row in the other table is deleted, set any foreign keys referencing it to the column's default. 
+  - If a row in the other table is deleted, set any foreign keys referencing it in this table to null. 
+  - This foreign key only marks that it is a foreign key; namely for use in OR mappers. 
+ 
+ These same actions also apply to  . 
+ The default seems to depend on which  sql  server you're using. 
+ 
+ @imphasing - this is exactly the kind of mindset that causes maintenance nightmares. 
+ Why oh why would you ignore declarative referential integrity, where the data can be  **guaranteed**
+ to be at least consistent, in favour of so called "software enforcement" which is a weak preventative measure at best. 
+ 
+ There's one good reason not to use them:     **If you don't understand their role or how to use them.**
+
+ In the wrong situations, foreign key constraints can lead to waterfall replication of accidents. If somebody removes the wrong record, undoing it can become a mammoth task.   
+ Also, conversely, when you need to remove something, if poorly designed, constraints can cause all sorts of locks that prevent you.  
+ 
+ There are no  **good**
+ reasons  not  to use them... unless orphaned rows aren't a big deal to you I guess. 
+ 
+ Bigger question is: would you drive with a blindfold on? That’s how it is if you develop a system without referential constraints. Keep in mind, that business requirements change, application design changes, respective logical assumptions in the code changes, logic itself can be refactored, and so on. In general, constraints in databases are put in place under contemporary logical assumptions, seemingly correct for particular set of logical assertions and assumptions.  
+ Through the lifecycle of an application, referential and data checks constraints police data collection via the application, especially when new requirements drive logical application changes. 
+ **To the subject of this listing**
+ - a foreign key does not by itself "improve performance", nor does it "degrade performance" significantly from a standpoint of real-time transaction processing system. However, there is an aggregated cost for constraint checking in HIGH volume "batch" system. So, here is the difference, real-time vs. batch transaction process; batch processing - where aggreated cost, incured by constraint checks, of a sequentially processed batch poses a performance hit. 
+ In a well designed system, data consistency checks would be done "before" processing a batch through (nevertheless, there is a cost associated here also); therefore, foreign key constraint checks are not required during load time. In fact all constraints, including foreign key, should be temporarily disabled till the batch is processed. 
+ **QUERY PERFORMANCE**
+ - if tables are joined on foreign keys, be cognizant of the fact that foreign key columns are NOT INDEXED (though the respective primary key is indexed by definition). By indexing a foreign key, for that matter, by indexing any key, and joining tables on indexed helps with better performances, not by joining on non-indexed key with foreign key constraint on it. 
+ **Changing subjects**
+, if a database is just supporting website display/rendering content/etc and recording clicks, then a database with full constraints on all tables is over kill for such purposes. Think about it. Most websites don’t even use a database for such. For similar requirements, where data is just being recorded and not referenced per say, use an in-memory database, which does not have constraints. This doesn’t mean that there is no data model, yes logical model, but no physical data model. 
+ 
+ Additional Reason to use Foreign Keys:
+- Allows greater reuse of a database 
+ Additional Reason to NOT use Foreign Keys:
+- You are trying to lock-in a customer into your tool by reducing reuse. 
+ 
+ From my experience its always better to avoid using FKs in Database Critical Applications. I would not disagree with guys here who say FKs is a good practice but its not practical where the database is huge and has huge CRUD operations/sec. I can share without naming ... one of the biggest investment bank of doesn't have a single FK in databases. These constrains are handled by programmers while creating applications involving DB. The basic reason is when ever a new CRUD is done it has to effect multiple tables and verify for each inserts/updates, though this won't be a big issue for queries affecting single rows but it does create a huge latency when you deal with batch processing which any big bank has to do as daily tasks.  
+ Its better to avoid FKs but its risk has to be handled by programmers. 
+ 
+ "Before adding a record, check that a corresponding record exists in another table"  is business logic.  
+ Here are some reasons you don't want this in the database:  
+ 
+ If the business rules change, you have to change the database. The database will need to recreate the index in a lot of cases and this is slow on large tables. (Changing rules include: allow guests to post messages or allow users to delete their account despite having posted comments, etc).  
+ Changing the database is not as easy as deploying a software fix by pushing the changes to the production repository. We want to avoid changing the database structure as much as possible. The more business logic there is in the database the more you increase the chances of needing to change the databae (and triggering re-indexing). 
+ TDD. In unit tests you can substitute the database for mocks and test the functionality. If you have any business logic in your database, you are not doing complete tests and would need to either test with the database or replicate the business logic in code for testing purposes, duplicating the logic and increasing the likelyhood of the logic not working in the same way. 
+ Reusing your logic with different data sources. If there is no logic in the database, my application can create objects from records from the database, create them from a web service, a json file or any other source. I just need to swap out the data mapper implementation and can use all my business logic with any source. If there is logic in the database, this isn't possible and you have to implement the logic at the data mapper layer or in the business logic. Either way, you need those checks in your code. If there's no logic in the database I can deploy the application in different locations using different database or flat-file implementations.  
+ 
+ 
+ I agree with the previous answers in that they are useful to mantain data consistency. However, there was an  interesting post by Jeff Atwood  some weeks ago that discussed the pros and cons of normalized and consistent data.  
+ In a few words, a denormalized database can be faster when handling huge amounts of data; and you may not care about precise consistency depending on the application, but it forces you to be much more careful when dealing with data, as the DB won't be. 
+ 
+ The Clarify database is an example of a commercial database that has no primary or foreign keys. 
+ http://www.geekinterview.com/question_details/18869 
+ The funny thing is, the technical documentation goes to great lengths to explain how tables are related, what columns to use to join them etc.   
+ In other words, they  **could**
+ have joined the tables with explicit declarations (DRI) but they  **chose not to**
+. 
+ Consequently, the Clarify database is full of inconsistencies and it underperforms. 
+ But I suppose it made the developers job easier, not having to write code to deal with referential integrity such as checking for related rows before deleting, adding. 
+ And that, I think, is the main benefit of not having foreign key constraints in a relational database.  It makes it easier to develop, at least that is from a devil-may-care point of view.   
+ 
+ I know only Oracle databases, no other ones, and I can tell that Foreign Keys are essential for maintaining data integrity. Prior to inserting data, a data structure needs to be made, and be made correctlty. When that is done - and thus all primary AND foreign keys are created - the work is done ! 
+ Meaning : orphaned rows ? No. Never seen that in my life. Unless a bad programmer forgot the foreign key, or if he implemented that on another level. Both are - in context of Oracle - huge mistakes, which will lead to data duplication, orphan data, and thus : data corruption. I can't imagine a database without FK enforced. It looks like chaos to me. It's a bit like the Unix permission system : imagine that everybody is root. Think of the chaos. 
+ Foreign Keys are essential, just like Primary Keys. It's like saying : what if we removing Primary Keys ? Well, total chaos is going to happen. That's what. You may not move the primary or foreign key responsibility to the programming level, it must be at the data level. 
+ Drawbacks ? Yes, absolutely ! Because on insert, a lot more checks are going to be happening. But, if data integrity is more important than performance, it's a no-brainer. The problem with performance on Oracle is more related to indexes, which come with PK and FK's. 
+ 
+ They can make deleting records more cumbersome - you can't delete the "master" record where there are records in other tables where foreign keys would violate that constraint.  You can use triggers to have cascading deletes. 
+ If you chose your primary key unwisely, then changing that value becomes even more complex.  For example, if I have the PK of my "customers" table as the person's name, and make that key a FK in the "orders" table", if the customer wants to change his name, then it is a royal pain...  but that is just shoddy database design. 
+ I believe the advantages in using fireign keys outweighs any supposed disadvantages. 
+ 
+ Verifying foreign key constraints takes some CPU time, so some folks omit foreign keys to get some extra performance. 
+ 
+ I have heard this argument too - from people who forgot to put an index on their foreign keys and then complained that certain operations were slow (because constraint checking could take advantage of any index). So to sum up: There is no good reason not to use foreign keys. All modern databases support cascaded deletes, so... 
+ 
+ The argument I have heard is that the front-end should have these business rules. Foreign keys "add unnecessary overhead" when you shouldn't be allowing any insertions that break your constraints in the first place. Do I agree with this? No, but that is what I have always heard. 
+ **EDIT:**
+ My guess is he was referring to  foreign key constraints , not foreign keys as a concept. 
+ 
+ To me, if you want to go by the  ACID  standards, it is critical to have foreign keys to ensure referential integrity. 
+ 
+ I have to second most of the comments here, Foreign Keys are necessary items to ensure that you have data with integrity.  The different options for ON DELETE and ON UPDATE will allow you to get around some of the "down falls" that people mention here regarding their use. 
+ I find that in 99% of all my projects I will have FK's to enforce the integrity of the data, however, there are those rare occasions where I have clients that MUST keep their old data, regardless of how bad it is....but then I spend a lot of time writing code that goes in to only get the valid data anyway, so it becomes pointless. 
+ 
+ How about maintainability and constancy across application life cycles?  Most data has a longer lifespan than the applications that make use of it.  Relationships and data integrity are much too important to leave to the hope that the next dev team gets it right in the app code.  If you haven't worked on a db with dirty data that doesn't respect the natural relationships, you will.  The importance of data integrity will then become very clear. 
+ 
+ I also think that foreign keys are a necessity in most databases.  The only drawback (besides the performance hit that comes with having enforced consistence) is that having a foreign key allows people to write code that assumes there is a functional foreign key.  That should never be allowed. 
+ For example, I've seen people write code that inserts into the referenced table and then attempts inserts into the referencing table without verifying the first insert was successful.  If the foreign key is removed at a later time, that results in an inconsistent database. 
+ You also don't have the option of assuming a specific behavior on update or delete.  You still need to write your code to do what you want regardless of whether there is a foreign key present.  If you assume deletes are cascaded when they are not, your deletes will fail.  If you assume updates to the referenced columns are propogated to the referencing rows when they are not, your updates will fail.  For the purposes of writing code, you might as well not have those features. 
+ If those features are turned on, then your code will emulate them anyway and you'll lose a little performance. 
+ So, the summary....  Foreign keys are essential if you need a consistent database.  Foreign keys should never be assumed to be present or functional in code that you write. 
+ 
+ I echo the answer by Dmitriy - very well put. 
+ For those who are worried about the performance overhead FK's often bring, there's a way (in Oracle) you can get the query optimiser advantage of the FK constraint without the cost overhead of constraint validation during insert, delete or update. That is to create the FK constraint with the attributes RELY DISABLE NOVALIDATE. This means the query optimiser ASSUMES that the constraint has been enforced when building queries, without the database actually enforcing the constraint. You have to be very careful here to take the responsibility when you populate a table with an FK constraint like this to make absolutely sure you don't have data in your FK column(s) that violate the constraint, as if you do so you could get unreliable results from queries that involve the table this FK constraint is on. 
+ I usually use this strategy on some tables in my data mart schema, but not in my integrated staging schema. I make sure the tables I am copying data from already have the same constraint enforced, or the ETL routine enforces the constraint.  
+ 
+ Many of the people answering here get too hung up on the importance of referential integrity implemented via referential constraints. Working on large databases with referential integrity just does not perform well. Oracle seems particularly bad at cascading deletes. My rule of thumb is that applications should never update the database directly and should be via a stored procedure. This keeps the code base inside the database, and means that the database maintains its integrity. 
+ Where many applications may be accessing the database, problems do arise because of referential integrity constraints but this is down to a control. 
+ There is a wider issue too in that, application developers may have very different requirements that database developers may not necessarily be that familiar with. 
+ 
+ If you are absolutey sure, that the one underlying database system will not change in the future, I would use foreign keys to ensure data integrity. 
+ **But here is another very good real-life reason not to use foreign keys at all:**
+
+ You are developing a product, which should support different database systems.  
+ If you are working with the Entity Framework, which is able to connect to many different database systems, you may also want to support "open-source-free-of-charge" serverless databases. Not all of these databases may support your foreign key rules (updating, deleting rows...).   
+ **This can lead to different problems:**
+
+ 1.) You may run into errors, when the database structure is created or updated. Maybe there will only be silent errors, because your foreign keys are just ignored by the database system. 
+ 2.) If you rely on foreign keys, you will propably make less or even no data integrity checks in your business logic. Now, if the new database system does not support these foreign key rules or just behaves in a different way, you have to rewrite your business logic. 
+ You may ask: Who needs different database systems? Well, not everybody can afford or wants a full blown SQL-Server on his machine. This is software, which needs to be maintained. Others already have invested time and money in some other DB system. Serverless database are great for small customers on only one machine.  
+ Nobody knows, how all of these DB systems behave, but your business logic, with integrity checks, always stays the same. 
+ 
+ I always thought it was lazy not to use them. I was taught it should always be done. But then, I didnt listen to Joel's discussion. He may have had a good reason, I don't know. 
+ 
+ One time when an FK might cause you a problem is when you have historical data that references the key (in a lookup table) even though you no longer want the key available. 
+Obviously the solution is to design things better up front, but I am thinking of real world situations here where you don't always have control of the full solution. 
+For example: perhaps you have a look up table   that lists different types of customers - lets say you need to remove a certain customer type, but (due to business restraints) aren't able to update the client software, and nobody invisaged this situation when developing the software, the fact that it is a foreign key in some other table may prevent you from removing the row even though you know the historical data that references it is irrelevant. 
+After being burnt with this a few times you probably lean away from db enforcement of relationships. 
+(I'm not saying this is good - just giving a reason why you may decide to avoid FKs and db contraints in general) 
+ 

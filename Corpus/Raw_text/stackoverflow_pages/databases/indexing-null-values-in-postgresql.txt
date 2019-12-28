@@ -1,0 +1,37 @@
+*** indexing-null-values-in-postgresql ***
+
+ I have a query of the form: 
+ 
+ The query returns a few hundred records, although the tables have millions of rows, and it takes forever to run (around an hour). 
+ When I check my index statistics using: 
+ 
+ I see that only the index for othertable.m_id is being used, and that the indexes for col1..3 are not being used at all. Why is this? 
+ I've read in a  few   places  that PG has traditionally not been able to index NULL values. However, I've read this has supposedly changed since PG 8.3? I'm currently using PostgreSQL 8.4 on Ubuntu 10.04. Do I need to make a "partial" or "functional" index specifically to speed up IS NOT NULL queries, or is it already indexing NULLs and I'm just misunderstanding the problem? 
+ 
+ You could try a partial index: 
+ 
+ From the docs:  http://www.postgresql.org/docs/current/interactive/indexes-partial.html 
+ 
+ Partial indexes aren't going to help you here as they'll only find the records you don't want. You want to create an index that contains the records you do want.  
+ 
+ BTW searching for null left joins generally isn't as fast as using EXISTS or NOT EXISTS in Postgres. 
+ 
+ A single index on m_id, col1, col2 and o.col3 would be my first thought for this query. 
+ And use  EXPLAIN  on this query to see how it is executed and what takes so much time. You could show us the results to help you out. 
+ 
+ A  partial index  seems the right way here: 
+ 
+ If you have a table that contains both
+  billed and unbilled orders, where the
+  unbilled orders take up a small
+  fraction of the total table and yet
+  those are the most-accessed rows, you
+  can improve performance by creating an
+  index on just the unbilled rows. 
+ 
+ Perhaps those nullable columns (col1,col2,col3) act in your scenario as some kind of flag to distinguish some subclass of records in your table? (for example, some sort of "logical deletion") ? In that case, besides the partial index solution, you might prefer to rethink your design, and put them in different physical tables (perhaps using inheritance), one for the "live records" other for the "historical records" and access the full set (only when needed) thrugh a view.  
+ 
+ Did you try to create a combined index on othertable(m_id, col1, col2, col3)? 
+ You should also check the execution plan (using EXPLAIN) rather than checking the system tables for the index usage. 
+ PostgreSQL 9.0 (currently in beta) will be able to use and index for a IS NULL condition. That feature got postponed 
+ 

@@ -1,0 +1,26 @@
+*** using-subquery-in-a-check-statement-in-oracle ***
+
+ So I was trying to work this out but it seems that the last line (the check) doesn't allow sub queries in it. Any way to make this work Oracle? 
+ 
+ Here is the error info: 
+ 
+ 
+ There are three basic ways to solve this sort of problem since CHECK constraints cannot be based on a query. 
+ **Option 1: Triggers**
+
+ The most simplistic approach would be to put a trigger on TANK that queries TANKS and throws an exception if the LEVEL exceeds CAPACITY.  The problem with this sort of simplistic approach, though, is that it is nearly impossible to handle concurrency issues correctly.  If session 1 decreases the CAPACITY, then session 2 increases the LEVEL, and then both transactions commit, triggers will not be able to detect the violation.  This may not be an issue if one or both of the tables are seldom modified, but in general it's going to be an issue. 
+ **Option 2: Materialized views**
+  
+ You can solve the concurrency issue by creating an ON COMMIT materialized view that joins the TANK and TANKS table and then creating a CHECK constraint on the materialized view that verifies that the LEVEL <= CAPACITY.  You can also avoid storing the data twice by having the materialized view contain just data that would violate the constraint.  This will require materialized view logs on both the base tables which will add a bit of overhead to inserts (though less than using triggers).  Pushing the check to commit-time will solve the concurrency issue but it introduces a bit of an exception management issue since the COMMIT operation can now fail because the materialized view refresh failed.  Your application would need to be able to handle that problem and to alert the user to that fact. 
+ **Option 3: Change the data model**
+
+ If you have a value in table A that depends on a limit in table B, that may indicate that the limit in B ought to be an attribute of table A (instead of or in addition to being an attribute of table B).  It depends on the specifics of your data model, of course, but it's often worth considering. 
+ 
+ No unfortunately CHECK constraints cannot contain subqueries - see  documentation . 
+ 
+ The feature you're looking for is called SQL assertions,  and it's not yet implemented in Oracle 12c 
+ 
+ Justin's answer has some good ideas. Another one is to wrap all inserts/updates to the table with a package (a TAPI, if you will), and implement the checks there. You'll need to ensure that all applications use your TAPI. You'll also need to implement some custom locking to protect the constraint from the effects of concurrent activity. 
+ 
+ You will probably need to create triggers and use   if it's outside the allowed range. 
+ 

@@ -1,0 +1,64 @@
+*** join-elimination-not-working-in-oracle-with-sub-queries ***
+
+ I am able to get join elimination to work for simple cases such as one-to-one relations, but not for slightly more complicated scenarios.
+Ultimately I want to try anchor modelling, but first I need to find a way around this problem. I'm using Oracle 12c Enterprise Edition Release 12.1.0.2.0. 
+ DDL for my test case: 
+ 
+ Some example data: 
+ 
+ **The 5NF view**
+
+ This first view does not compile - it fails with ORA-01799:  a column may not be outer-joined to a subquery . Unfortunately, this is how most of the historized views are defined when I'm looking at the online examples of anchor modelling... 
+ 
+ Below is my attempt at fixing it. When using this view with a simple select of  , Oracle manages to eliminate product_color but  **not**
+ product_price. 
+ 
+ The only solution I have found is to use scalar sub queries instead, like this: 
+ 
+ Now Oracle sucessfully eliminates the product_price table. However, scalar sub queries are implemented differently than joins and they way they are executed simply doesn't allow me to get any acceptable performance in a real world scenario. 
+ **TL;DR**
+
+How can I rewrite the view   so that Oracle sucessfully eliminates both of the dependent tables? 
+ 
+ I think you have two problems going on here. 
+ First, join elimination only works for certain, specific situations (PK-PK, PK-FK, etc).  It is not a general thing where you can   to any row set that will return a single row for each join key value and have Oracle eliminate the join. 
+ Second, even if Oracle were advanced enough to do join elimination on ANY   where it knew it would get only one row per join key value, Oracle does not yet support join eliminations on   that are based on a composite key (Oracle support document 887553.1 says this is coming in R12.2). 
+ One workaround you could consider is materializing a view with the last row for each  .  Then   to the materialized view.  Like this: 
+ 
+ 
+ I can't make the price join be eliminated, but if you do the following, it can at least reduce the access to a single index for the price check: 
+ 
+ 
+ 
+ 
+ Now Oracle sucessfully eliminates the product_price table. However, scalar sub queries are implemented differently than joins and they way they are executed simply doesn't allow me to get any acceptable performance in a real world scenario. 
+ 
+ 
+ The cost-based optimizer in Oracle 12.1 can perform a query transformation to unnest scalar subqueries.  So, the performance could be just as good as the   you are after in your question. 
+ The trick is you have to jigger it a bit. 
+ First, make sure the scalar subquery returns   with no  , so CBO knows there is no chance of getting more than one row.  (It won't unnest otherwise). 
+ Second, you need to combine all the fields from   into a single scalar subquery, or else the CBO will unnest and join in   multiple times. 
+ Here is a test case for Oracle 12.1 that illustrates this working. 
+ 
+ 
+ Ok, I'm answering my own question. The information in this answer is valid for  Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production , but  **likely not**
+ for later versions.  **Don't vote**
+ for this answer, as it does not answer the question.  
+ Due to a specific limitation in the current version (as noted by Mathew McPeak) it is simply not possible to get Oracle to completely eliminate the unnecessary joins in the underlaying 5NF view. The limitation is that  join elimination is not possible on left joins that are based on a composite key . 
+ Any attempt at working around this limitation seems to introduce either duplication or update anomalies. The accepted answer demonstrates how to overcome this limitation in the optimiser by using materialized views and thereby duplicating the data. This answer shows how to solve the problem with less duplication but with update anomalies. 
+ This workaround is based on the fact that you can use nullable columns in unique indexes. We will put   for all historical versions and the actual   for the most recent version referencing the product table with a foreign key.  
+ 
+ Of course, now   has to be manually maintained... whenever a new record is inserted, the old record must first be updated with null.  
+ There are two benefits with this approach. First, Oracle is able to completely remove unnecessary joins. And second, the joins are not executed as scalar subqueries.  
+ 
+ Oracle recognizes that the count can be resolved without even touching the base table. And no unnecessary joins to be seen... 
+ 
+ Oracle recognizes that we have to join to   in order to get the price column. And   is nowhere to be seen...  
+ 
+ Here Oracle has to materialize all the joins, since all columns are referenced. 
+ 
+ [I don't know if an ANTI-JOIN counts as a subquery in Oracle], but the   trick is often a way to avoid an aggregating subquery: 
+ 
+ Comment from OP: The view is created, but Oracle is still unable to remove the join. Here is the execution plan. 
+ 
+ 

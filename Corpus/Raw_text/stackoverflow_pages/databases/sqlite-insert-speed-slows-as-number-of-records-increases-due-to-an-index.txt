@@ -1,0 +1,105 @@
+*** sqlite-insert-speed-slows-as-number-of-records-increases-due-to-an-index ***
+
+ **Original question**
+
+ **Background**
+
+ It is well-known that SQLite  needs to be fine tuned  to achieve insert speeds on the order of 50k inserts/s. There are many questions here regarding slow insert speeds and a wealth of advice and benchmarks. 
+ There are also  claims that SQLite can handle large amounts of data , with reports of 50+ GB not causing any problems with the right settings. 
+ I have followed the advice here and elsewhere to achieve these speeds and I'm happy with 35k-45k inserts/s. The problem I have is that all of the benchmarks only demonstrate fast insert speeds with < 1m records. What I am seeing is that  insert speed seems to be inversely proportional to table size . 
+ **Issue**
+
+ My use case requires storing 500m to 1b tuples ( ) over a few years (1m rows / day) in a link table. The values are all integer IDs between 1 and 2,000,000. There is a single index on  . 
+ Performance is great for the first 10m rows, ~35k inserts/s, but by the time the table has ~20m rows, performance starts to suffer. I'm now seeing about 100 inserts/s. 
+ The size of the table is not particularly large. With 20m rows, the size on disk is around 500MB. 
+ The project is written in Perl. 
+ **Question**
+
+ Is this the reality of large tables in SQLite or are there any secrets to  maintaining  high insert rates for tables with > 10m rows? 
+ **Known workarounds which I'd like to avoid if possible**
+
+ 
+ Drop the index, add the records, and re-index : This is fine as a workaround, but doesn't work when the DB still needs to be usable during updates. It won't work to make the database completely inaccessible for  x  minutes / day 
+ Break the table into smaller subtables / files : This will work in the short term and I have already experimented with it. The problem is that I need to be able to retrieve data from the entire history when querying which means that eventually I'll hit the 62 table attachment limit. Attaching, collecting results in a temp table, and detaching hundreds of times per request seems to be a lot of work and overhead, but I'll try it if there are no other alternatives. 
+ Set   : I don't know C (?!), so I'd prefer to not learn it just to get this done. I can't see any way to set this parameter using Perl though. 
+ 
+ **UPDATE**
+
+ Following  Tim's suggestion  that an index was causing increasingly
+slow insert times despite SQLite's claims that it is capable
+of handling large data sets, I performed a benchmark comparison with the following 
+settings: 
+ 
+ inserted rows:  14 million 
+ commit batch size:  50,000 records 
+  pragma:  10,000 
+  pragma:  4,096 
+  pragma:  memory 
+  pragma:  delete 
+  pragma:  off 
+ 
+ In my project, as in the benchmark results below, a file-based temporary table is created and SQLite's built-in support
+for importing CSV data is used. The temporary table is then attached
+to the receiving database and sets of 50,000 rows are inserted with an
+  statement. Therefore, the insert times do not reflect
+ file to database  insert times, but rather  table to table  insert
+speed. Taking the CSV import time into account would reduce the speeds
+by 25-50% (a very rough estimate, it doesn't take long to import the
+CSV data). 
+ Clearly having an index causes the slowdown in insert speed as table size increases. 
+ 
+ It's quite clear from the data above that the correct answer can be assigned to  Tim's answer  rather than the assertions that SQLite just can't handle it. Clearly it  can  handle large datasets  if  indexing that dataset is not part of your use case. I have been using SQLite for just that, as a backend for a logging system, for a while now which does  not  need to be indexed, so I was quite surprised at the slowdown I experienced. 
+ **Conclusion**
+
+ If anyone finds themselves wanting to store a large amount of data using SQLite  and  have it indexed,  using shards  may be the answer. I eventually settled on using the first three characters of an MD5 hash a unique column in   to determine assignment to one of 4,096 databases. Since my use case is primarily archival in nature, the schema will not change and queries will never require shard walking. There is a limit to database size since extremely old data will be reduced and eventually discarded, so this combination of sharding, pragma settings, and even some  de normalisation gives me a nice balance that will, based on the benchmarking above, maintain an insert speed of at least 10k inserts / second. 
+ 
+ If your requirement is to find a particular   and the   and   linked to it (as distinct from quickly selecting a range of  ) you could look into a non-indexed hash-table nested-relational db that would allow you to instantly find your way to a particular   in order to get its   and   -- without the indexing overhead and the concomitant degraded performance during inserts as the index grows. In order to avoid clumping (aka bucket collisions), choose a key hashing algorithm that puts greatest weight on the digits of   with greatest variation (right-weighted). 
+ P.S. A database that uses a b-tree may at first appear faster than a db that uses linear hashing, say, but the insert performance will remain level with the linear hash as performance on the b-tree begins to degrade.  
+ P.P.S. To answer @kawing-chiu's question:  the core feature relevant here is that such a database relies on so-called "sparse" tables in which the physical location of a record is determined by a hashing algorithm which takes the record key as input. This approach permits a seek  directly  to the record's location in the table  without the intermediary of an index . As there is no need to traverse indexes or to re-balance indexes, insert-times remain constant as the table becomes more densely populated.  With a b-tree, by contrast, insert times degrade as the index tree grows. OLTP applications with large numbers of concurrent inserts can benefit from such a sparse-table approach. The records are scattered throughout the table. The downside of records being scattered across the "tundra" of the sparse table is that gathering large sets of records which have a value in common, such as a postal code, can be slower. The hashed sparse-table approach is optimized to insert and retrieve individual records, and to retrieve  networks  of related records, not large sets of records that have some field value in common. 
+ A nested relational database is one that permits tuples  within  a column of a row. 
+ 
+ Great question and very interesting follow-up! 
+ I would just like to make a quick remark: You mentioned that breaking the table into smaller subtables / files and attaching them later is not an option because you'll quickly reach the hard limit of 62 attached databases. While this is completely true, I don't think you have considered a mid-way option: sharding the data into several tables  but  keep using the same, single database (file). 
+ 
+ I did a very crude benchmark just to make sure my suggestion really has an impact on performance. 
+ **Schema:**
+
+ 
+ **Data - 2 Million Rows:**
+
+ 
+  = 1..2,000,000 
+  = md5 hex digest of    
+ 
+ Each transaction = 50,000  s. 
+ 
+ **Databases: 1; Tables: 1; Indexes: 0**
+
+ 
+ Database file size: 89.2 MiB. 
+ 
+ **Databases: 1; Tables: 1; Indexes: 1 (**
+**)**
+
+ 
+ Database file size: 181.1 MiB. 
+ 
+ **Databases: 1; Tables: 20 (one per 100,000 records); Indexes: 1 (**
+**)**
+
+ 
+ Database file size: 180.1 MiB. 
+ 
+ As you can see, the insert speed remains pretty much constant if you shard the data into several tables. 
+ 
+ Unfortunately I'd say this is a limitation of large tables in SQLite. It's  not designed  to operate on large-scale or large-volume datasets. While I understand it may drastically increase project complexity, you're probably better off researching more sophisticated database solutions appropriate to your needs. 
+ From everything you linked, it looks like table size to access speed is a direct tradeoff. Can't have both. 
+ 
+ In my project, I couldn't shard the database, as it's indexed on different columns. To speed up the inserts, I've put the database during creation on /dev/shm (=linux ramdisk) and then copy it over to local disk. That obviously only works well for a write-once, read-many database. 
+ 
+ I suspect the Index's hash value collision causes the insert speed slow. 
+ When we have many many rows in one table, and then the indexed column hash value collision will happen more frequently. It means Sqlite engine needs to calculate the hash value two times or three times, or maybe even four times, in order to get a different hash value.  
+ So I guess this is the root cause of the SQLite insert slowness when the table has many rows.  
+ This point could explain why using shards could avoid this problem.
+Who's a real expert in SQLite domain to confirm or deny my point here? 
+ 

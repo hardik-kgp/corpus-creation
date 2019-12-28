@@ -1,0 +1,63 @@
+*** how-does-etl-database-to-database-fit-into-soa ***
+
+ Lets imagine, that our application needs ETL (extract, transform, load) data from relation database to another relation database.
+Most simple (and most performance, IMHO) way is to make link between databases and write simple stored procedure. In this case we use minimal technologies and components, all features are "out of the box". 
+ But is it good practice for SOA (service-oriented architecture)? What about tight coupling? Do we strongly couple the databases to each other for ever? 
+ There is another way to do this: we build 2 java applications in each side and communicate by SOAP web services. This is more SOA friendly! But are the performance degradation and additional points of failure worth it? 
+ What will be the best practice in this case? How can ETL fit within SOA? 
+ 
+ In SOA, you can adapt  Biztalk  or  SAP BusinessObjects Data Integrator  way of processing. Basically, it is a scheduler job / windows service, or something similar. You provide two service point, 1 for the scheduler to retrieve the data, and another for the scheduler to send the data. The scheduler's responsibility here is just to run periodically and transforming data. 
+ So, the basic steps will be: 
+ Step 1: The scheduler run and get the data from service A 
+ 
+ Step 2: The scheduler doing data transformation 
+ 
+ Step 3: The scheduler send the data to another service 
+ 
+ In both Biztalk and SAP BusinessObject Data Integrator, the steps are configurable (they can retrieve from whatever service and can do scripting data transformation), so it's more flexible. 
+ However, there are still usual problems that can happen with ETL processing. For example: the data is too big, network performance impact, RTO's, duplicated data, etc. So the ETL best practices still a requirement here (use of staging table, logging, etc).  
+ 
+ But are the performance degradation and additional points of failure
+  worth it? 
+ 
+ The performance impact will happen since now you have extra connection/authentication step (to webservice), and transportation step (webservice to scheduler via protocol). But for error-prone, I think it's the same error that you need to handle with other service call. 
+ Is it worth it? It depends. If you are working in same environment (same database) then it's debatable. If you are working in different environment (two different system for example, from Asp.Net to SAP, or different database instance at least), then this architecture is the best bet to handle ETL. 
+ 
+ ETL in general fits into SOA - e.g. SOA services may perform ETL operations between each-other.  
+ Database-to-database linkage is very useful when you want to replicate databases or in other similar situations. In general, this approach has nothing to do with SOA, unless the below cases exist. 
+ Database-to-database linkage does not fit into SOA when  both  these databases are consumed by SOA services. In this case, you should communicate through services. 
+ Database-to-database linkage still fits into SOA when only one database is the persistence for the SOA service. The other one can be considered as a failover or a simple replication, not directly related to SOA. In this case, database-to-database linkage simply becomes a data-related concern, which you are allowed to have and to solve. 
+ 
+ For me there are several points missing in the db - to  - db   and   the Rest -based setup:
+Exceptions in the etl process:  
+  When is the transformation of data considered to be valid?   How is the result of an unsuccessful transformation handled?   Just throwing the data away is not an option in most cases.  
+System Failure / Recovering   
+What if one / both systems is down for a while? How is synchronization handled? 
+When did the etl fail and where does it has to be restarted ?
+    
+So instead of having to databases or rest - services communicate with each other imho this is more related to using migration technologies such as Apache Camel or using ESB's which can handle the transformations, split data, process it asyncronously , put it back together, have a proper monitoring, recovering, load balance for performance optimization. This will not necessaryily speed up the 'E' in etl, nor the 'L' (though it might in both), but certainly speed up the 'T' and has positiv outcomes for data integrity. 
+And of course: ESB's are SOA - related technologies. Apache Camel for me is not really though it is considered to be a reference implementation of Enterprise Integration Patterns. 
+ 
+Basically the idea behind it is that etl are content - based and not structure - based problems.
+ 
+So what you could do with these techniques is something like:  
+DB <- DataExtractor - Validator  
+   - ContentLengthBasedRouter - Splitter  
+         (Ansynch)
+         - Transformer1 ,  
+         - Transformer 2 ..  
+               - Aggregator - 
+   - ContentBasedRouter - Transformer3 -  
+- DataInserter 
+- Monitor  
+and more but that does not suit into a textual description. 
+ 
+ All of these answers are good and helpful. 
+ As I now understand SOA is not about implementing application, but about Architecture ("A"), mainly Enterprise Architecture. Enterprise main management method is delegation of responsibility for Services ("S"). 
+ So if there are two different business functions in the enterprise structure with two different responsible accounts, we should divide it in two different services with well defined contracts (interfaces), politics and audit methods - that is the main SOA purpose. 
+ But if it is an atomic function with one responsible person, there is no need in SOA so much and we should use simple technologies and implement simple and rapid solid service application. 
+ As about my original question it is lack of task context information.
+Now I understand that database links should not be implemented across services, and it is bad design because has no enterprise management compatibility.
+But within a service it may be good simple solution.   
+ Thanks to everybody answered. 
+ 

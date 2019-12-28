@@ -1,0 +1,38 @@
+*** are-circular-references-acceptable-in-database ***
+
+ When are circular references acceptable in database? 
+ Theoretical and practical, any help is appreciated. 
+ 
+ Records which point to other records are useful in a database.  Sometimes these records form a cycle.  This might still be useful.  The only real annoyance in practice is avoiding violating the constraints. 
+ For example, if you have a user and transaction table, the user might have a pointer to his last transaction.  You need to insert the transaction first, then update the   to the correct value.  While both these records exist you can't erase them, because the   points to   and   points to  .  This implies that a user with no transactions has a null  .  It also means that you have to null that field before you can delete the transaction. 
+ Managing these foreign key constraints is a pain but it certainly is possible.  There may be problems that arise if you add constraints to the database later which introduce new circular dependencies.  You have to be careful in this situation.  However, as long as one of the records in the cycle has a nullable foreign-key field, the cycle can be broken and the records can be deleted.  Updates are not usually a problem as long as you insert the records in the right order. 
+ 
+ Consider cities and states.  Each city exists within a state.  Each state has a capital city. 
+ 
+ First problem - You cannot create these tables as shown, because a foreign key can't reference a column in a table that doesn't (yet) exist. The solution is to create them without the foreign keys, and then add the foreign keys afterwards. 
+ Second problem - you cannot insert rows into either table, as each insert will require a pre-existing row in the other table.  The solution is to set one of 
+the foreign key columns to be NULL, and insert that data in two phases.  e.g. 
+ 
+ 
+ One of the latest additions to the Oracle hierarchical query syntax - the   keyword - was made for expressly this purpose - to deal with circular references in the data. I don't see anything wrong with it, and have had to deal with this kind of model before. It's not too difficult, especially in Oracle which supports deferrable constraints. 
+ 
+ It is technically possible to do, but it can cause all sorts of problems when deleting records as it generates chicken-and-egg problems.  These problems often take drastic action like manually dropping the FK's and deleting the offending items to resolve. 
+ If you have a relationship like: 
+ 
+ Then deleting a record can cause such a chicken-and-agg problem due to the circular dependencies. 
+ A better schema for this looks like: 
+ 
+ This means that the relationship is non-cyclic and the 'current' foo_detail record can still be identified. 
+ 
+ Circular references should be avoided like the plague. It is possible to set up two way relationships, or even relationships to yourself (if you were a table that is), but a circular dependency is just asking for trouble. 
+ 
+ I have seen circular references done for performance reasons.  It looks ugly though, and the performance might be negligible. 
+ Example: some bulletin boards (I think phpBB does this) have a lastpostid in the category table that is a shortcut to the last post in the thread. 
+ This creates a circle, where the last post has a FK to the category table and the category table has a FK back to the last post. 
+ Like I said, I don't really like it, but I've seen it done. 
+ 
+ rarely i run across a 1:1 relationship that is necessary and imposes a circular relationship 
+ note that the foreign-key fields in such a relationship must be nullable, otherwise you can never delete rows from the tables 
+ 
+ I guess it isn't a problem if you are using a write only database. If you plan on using the RUD part of CRUD, you'll likely run into (usually avoidable) complex issues in dealing with them. 
+ 

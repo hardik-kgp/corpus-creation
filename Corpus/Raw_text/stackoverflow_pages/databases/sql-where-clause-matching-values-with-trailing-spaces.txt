@@ -1,0 +1,50 @@
+*** sql-where-clause-matching-values-with-trailing-spaces ***
+
+ In SQL Server 2008 I have a table called   with a column   as the primary key. 
+ If I run the following query: 
+ 
+ I get the following result: 
+ 
+ Note the trailing space. 
+ How is this possible?  If the trailing space really is there on that row, then I'd expect to return  **zero**
+ results, so I'm assuming it's something else that SQL Server Management Studio is displaying weirdly. 
+ In C# code calling   removes it, suggesting it is some sort of whitespace character. 
+ Can anyone help? 
+ 
+ That's the expected result: in SQL Server the   operator ignores trailing spaces when making the comparison. 
+ 
+ SQL Server follows the ANSI/ISO SQL-92 specification (Section 8.2, , General rules #3) on how to compare strings with spaces. The ANSI standard requires padding for the character strings used in comparisons so that their lengths match before comparing them. The padding directly affects the semantics of WHERE and HAVING clause predicates and other Transact-SQL string comparisons. For example, Transact-SQL considers the strings 'abc' and 'abc ' to be equivalent for most comparison operations. 
+ The only exception to this rule is the LIKE predicate. When the right side of a LIKE predicate expression features a value with a trailing space, SQL Server does not pad the two values to the same length before the comparison occurs. Because the purpose of the LIKE predicate, by definition, is to facilitate pattern searches rather than simple string equality tests, this does not violate the section of the ANSI SQL-92 specification mentioned earlier.  
+ 
+ Source 
+ 
+ **Trailing spaces are not always ignored.**
+
+I experienced this issue today. My table had NCHAR columns and was being joined to VARCHAR data.
+Because the data in the table was not as wide as its field, trailing spaces were automatically added by SQL Server. 
+ I had an ITVF (inline table-valued function) that took varchar parameters.
+The parameters were used in a JOIN to the table with the NCHAR fields. 
+ The joins failed because the data passed to the function did not have trailing spaces but the data in the table did. Why was that? 
+ I was getting tripped up on DATA TYPE PRECEDENCE. (See  http://technet.microsoft.com/en-us/library/ms190309.aspx )  
+ When comparing strings of different types, the lower precedence type is converted to the higher precedence type before the comparison. So my VARCHAR parameters were converted to NCHARs. The NCHARs were compared, and apparently the spaces were significant. 
+ How did I fix this? I changed the function definition to use NVARCHAR parameters, which are of a higher precedence than NCHAR. Now the NCHARs were changed automatically by SQL Server into NVARCHARs and the trailing spaces were ignored. 
+ Why didn't I just perform an RTRIM? Testing revealed that RTRIM killed the performance, preventing the JOIN optimizations that SQL Server would have otherwise used. 
+ Why not change the data type of the table? The tables are already installed on customer sites, and they do not want to run maintenance scripts (time + money to pay DBAs) or give us access to their machinines (understandable).  
+ 
+ Yeah, Mark is correct. Run the following SQL: 
+ 
+ But, the assertion about the 'like' statement appears not to work in the above example. Output: 
+ 
+ **EDIT:**
+
+To get it to work, you could put at the end: 
+ 
+ Ugly though. 
+ **EDIT2:**
+
+Given the comments abovem, the following would work: 
+ 
+ 
+ try 
+ 
+ 

@@ -1,0 +1,51 @@
+*** does-django-atomic-transaction-lock-the-database ***
+
+ When you do: 
+ 
+ while the function is running, does it lock the database? 
+ I'm asking regarding django's atomic transaction:
+ https://docs.djangoproject.com/en/1.10/topics/db/transactions/#autocommit-details 
+ 
+ (I'm assuming modern SQL databases in this answer.) 
+ **tl;dr**
+
+ Transactions are not locks, but hold locks that are acquired automatically during operations. And django does not add any locking by default, so the answer is No, it does not lock the database. 
+ E.g. if you were do: 
+ 
+ You will have locked the   row with id 1 for the duration of "other stuff". But it is not locked until that query. So if you want to ensure consistency you should probably use locks explicitly. 
+ **Transactions**
+
+ As said, transactions are not locks because that would be awful for perfomance. In general they are lighter-weight mechanisms in the first instance for ensuring that if you make a load of changes that wouldn't make sense one at a time to other users of the database, those changes appear to happen all at once. I.e. are atomic. Transactions do not block other users from mutating the database, and indeed in general do not block other users from mutation the same rows you may be reading. 
+ See  this guide  and your databases docs (e.g.  postgres ) for more details on how transactions are protected. 
+ **Django implementation of atomic.**
+
+ Django itself does the following when you use the   decorator  (referring to  the code ). 
+ **Not already in an atomic block**
+
+ 
+ Disables autocommit. Autocommit is an application level feature which will always commit transactions immediately, so it looks to the application like there is never a transaction outstanding.  
+ This tells the database to start a new transaction.  
+ 
+ At this point   for postgres sets the isolation level of the transaction to  , which means that any reads in the transaction will only return committed data, which means if another transaction writes, you won't see that change until it commits it. It does mean though that if that transaction commits during your transaction, you may read again and see that the value has changed during your transaction. 
+ Obviously this means that the database is not locked. 
+ 
+ Runs your code. Any queries / mutations you make are not committed. 
+ Commits the transaction.  
+ Re-enables autocommit. 
+ 
+ **In an earlier atomic block**
+
+ Basically in this case we try to use savepoints so we can revert back to the if we "rollback" the "transaction", but as far as the database connection is concerned we are in the same transaction. 
+ **Automatic locking**
+
+ As said, the database may give your transaction some automatic locks, as outlined in  this doc . To demonstrate this, consider the following code that operates on a postgres database with one table and one row in it: 
+ 
+ And then you run this code: 
+ 
+ You get: 
+ 
+ and the point is that the second process is started before the first command completes, but after it has called the   command, so the second process has to wait for the lock which is why we don't see   until after the   for age 99. 
+ If you put the sleep before the exec, you get: 
+ 
+ Indicating the lock was not acquired by the time the second process gets to its update, which happens first but during the first process's transaction. 
+ 

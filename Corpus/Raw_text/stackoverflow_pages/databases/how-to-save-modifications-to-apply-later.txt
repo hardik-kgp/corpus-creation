@@ -1,0 +1,143 @@
+*** how-to-save-modifications-to-apply-later ***
+
+ The moderators of my webapp have the possibility to  **modify some data**
+ in the database. Those modifications are visible by all the users. But for some reason, I don't want them to apply immediately, but rather  **only after a specific action**
+, for instance, when I explicitly accept. The timeline is: 
+ 
+ A field in a table has the value  . 
+ A moderator requests this value to be  . All users continue to see the value  . 
+ I accept the change. All users now see the value  . 
+ 
+ The problem is that the moderators can modify fields in a  **high number of tables**
+. What is the best way to handle this temporary values? I can imagine these solutions, but none of them sounds good: 
+ 
+ Duplicate all the tables (having together   and  ). 
+ Add a special table ( ) with four fields : the table to modify, the field to modify, the ID of the entry to modify and the new value to apply. 
+ 
+ Do you have better ideas? 
+ 
+ As soon as question quite broad (and can have many good answers) - this is not an answer, but another possible solution: 
+ you can have table like: 
+ 
+ NOTE: instead of storing old value, you can store SQL to fetch current value, this will help you when there are several changes from different moderators to the same row/column 
+ so, in your interface you will be able to see all proposed changes to all tables, see only actual value and proposed new value and update db if needed 
+ possible addition: to populate this table you can use triggers, instead of changing current code 
+ 
+ When an update happens, create a new row and have a flag that a moderator needs to look at it.  When moderators accepts, flag the accepted record as active, and the previous record as inactive. Do this at the highest level so that if you have other tables joining off of this they inherit the active / inactive state and the is_moderated flag. 
+ 
+ New record is added changing hello to goodbye 
+ 
+ Accepted Result: 
+ 
+ Denied State: 
+ 
+ Your selected query becomes: 
+ To get active row: 
+ 
+ To get rows requiring moderation 
+ 
+ 
+ Actually, the answer is not so difficult. Here's is my idea:- 
+ Step 1 : 
+Just add a column to your table  (or the table containing the entire posts by the users) named  . Any moderation or edits by any moderator goes into this column. 
+ Step 2 : 
+Add another column to the table   named  . This contains a value   or   just like the boolean   or  . 
+ 
+ Step 3 : Now, you are almost done. You have got a table like this :- 
+ 
+ Now in your php code, after retrieving all the values from the table, you display your post like this ( JUST A ROUGH SKETCH) :- 
+ 
+ For changes in numerous tables 
+ As you said that the moderation changes values in a number of tables, for that you have to add the column  ( ) x n  where n denotes number of columns whose values can be changed. Example :- 
+ 
+ Now, your code becomes :- 
+ 
+ Using this method, there is also an advantage that you can easily rollback the moderation by changing isModerated value in the table from 1 to 0 
+ 
+ This is how wordpress deal with this stuff. You can have in the same table, a published post, and then, as new rows, a collection of unpublished revisions, by different authors, created in diferent moments, and of course associated to the main post. 
+ **Update**
+
+ For instance if you use doctrine,  you just need the same repository, and a field to consider, something like:   all the rest of the code remains the same, so your controllers are not aware of business-level logic like which are moderated or not, and don't have to the deal with it. then in your administrator controller you write the logic to set a revision as the main post and unpublish the old when the revision is accepted. easy, clean, scalable, maintainable, and a valid model.  
+ 
+ I dont like how wordpress is made, but i have to say that this is a great approach. And, four sure: 
+ 
+ dont even think about having extra columns, since you will be able to save too few meta data, and also will have to modify the database if you decide that some other columns are elegible to be edited. 
+ dont have more than one revision in the same field. This is against all the relational databases principles. You could have serialized info for some metadata and that could be ok in some case, but for this that is main information, it will be imposible to handle and parse in many situations. 
+ You could have a helper table, the model will be valid, but it will be harder do to searches, sorts, and actually you will have two tables exactly the same, so it isnt the best idea.  
+ 
+ 
+ An Idea: add a revision number to all tables. When someone makes a change, the unique revision number of this change is stored in all affected rows. Instead of updates, a row with a higher revision number and same id is inserted. Id column must not set to be unique of course. Currently active revision number is stored in a table that just holds this number. Then you generate DB views that look like the former tables but if 2 rows have the same id, it only gets the entry with the highest revision number that is equal or lower to the active revision. In your app you use the views instead of the original tables.
+You can then review the changes in the original tables, delete the ones you don't accept, and raise the currently active revision to accept all changes you have not deleted. 
+ 
+ You could add revision to your tables and have a composite primary key 
+ lets suppose you have this table 
+ 
+ if you add this fields 
+ 
+ You can add some more audit fields, like some dates to check when the new revision is created or who creted the revision 
+ and the login to get wich version is easy, you can select any revision by its revision number, or you can get the active one... 
+ of course, this will give you some troubles with concurency (2 people modifying the very same row at the same time... but you can use semaphores, or something like that), you cannot keep using generators / autoincremets for your inserts, (ok, you could use generators ONLY for new records). 
+ another way is, if you dont want to store all the change history, and only need the last edition, is to add a text field, and save a serialized array with the edited values, and whe you approve, just run the update on fields. 
+ there are plenty of ways, you can use this aproch of serialization and use an aux table to hold the history, and mix both aproche, put in the aux table the origin id, the revision, and the serialized array, and you have both... the serialized version with all the revisions.... 
+ pick the one wich best describe your situation.... 
+ 
+ Another idea is to store all changed data in an array (array[$table][$field][$id]=$value), then store it in a simple table with a TEXT type field, in json encoding. This way you'll have also enough flexibility to change (add) othrer controls without changing the edit table structure. :-) 
+ 
+ I think you can easily work backwards and figure out the  **WORST**
+ choices to see what the least bad choice is, if you don't think there's any  **GOOD**
+ choice. Each choice requires sacrifices. But what are the sacrifices in question? 
+ **Option #1**
+: Duplicate all the tables (having together MyTable and MyTable_ToApply). 
+ IMO this would be a giant headache. Talk about too many fields! You would also need to create extra coding just to move data from one table to another. I think there's just too much that could go wrong here. 
+ **Option #2**
+: Add a special table ( ) with four fields : the table to modify, the field to modify, the ID of the entry to modify and the new value to apply. 
+ I think this is also a dirty option as you mentioned, because of the same thing - moving values from one table to another. 
+ **Option #3**
+: Add   and   values to a table. 
+ This has been mentioned by a lot of people. Your argument is that it is too many (mostly useless) columns. I think it is better than anything else that has been mentioned. I will humbly propose one final method which is a bit of a combination of option #1 and option #3. 
+ **Option #4**
+: Create a custom   table under each table that can have moderated fields. 
+ I do something like this in my database and use the naming standard  . In this table you don't really need more than one column, if you only want one. You can simply have the foreign key in this table of items that need moderating, and then delete the key when it has finally been moderated. Alternatively, you could add the moderator's user ID here and the time added as additional fields if you wanted to. 
+ I personally think I would go with the datetime field as well so you have the ability to follow changes and know which one is the most recent. 
+ In any case, this gives you the ability to   both tables. If you only want to see values to be moderated. 
+ 
+ Many answers have been given, and I feel that most are very reasonable. I believe there are a few good ways of doing this. 
+ I'm making the assumptions that processing power/speed is more important/costly than storage space in both HDD and RAM.
+I also agree with Mr. Robbes (somewhere above me) that there should be one revision per row/cell, and adding extra columns isn't a correct solution (see below for an elaboration) 
+ **Let me first start with options that I **
+**don't**
+** think are correct:**
+
+ 
+ JSON/noSQL. your data is clearly relational. (my)SQL is the way to
+go.  
+ Store as an array or other form of application memory. The
+overhead this creates, including the burden on every player is not
+worth it. Plus you want to be able to store this, and go over these
+revisions in time, and keeping it as part of the application stacks
+up over time. It is simply not worth it.  
+ Add one or more columns added to every table.
+The changes created can be stored there. As you mentioned, this creates a
+sizable overhead in the table(s) and is a bad practise. However, this is a proper solution when for example only posts or any other single entity needs to be edited and no history needs to be saved. However, this is all not the case in this question. 
+ 
+ Looking at the facts given in the question:  
+ 
+ there are one or more tables with items that can be moderated,  
+ there are multiple moderators that can create multiple revisions 
+ these revisions are not always chronologically applied 
+ you might want to keep record of all suggested and applied records 
+ 
+ I think the  second solution you provided  is the best fit with your data. 
+ 
+ Create a separate table for revisions. This is the best normalized way of doing this. Depending on the scale of moderation, you can either keep a copy of the full row that's being edited, or make a reference to the specific cells that are being edited.  
+ For extra expert level-points you can use something like views or temporary tables to create a table that has all the definite rows, and not show any pending or declined revisions. This could improve speed, but does rely on serious database engineering. Not something you want to mess up 
+ 
+ Pushing revisions to your users can be done by a variety of ways. Using the above temporary table/view, you use a stored procedure to change what's in the table (or set a cell to "active"and update the temp-table/view)
+You can simply replace a row in the database with the new one (updates are expensive though), or use a join construction. 
+ If CPU is cheaper than storage, then looking at a git-like system with hashes or so might work.   
+ 
+ However the moderators will change the data using forms.. 
+ When they change the data, why shall you not save the data in the csv files... 
+ While you revise the changes, you can insert into the actual table.. 
+ Its an idea only.. 
+ 

@@ -1,0 +1,33 @@
+*** threaded-django-task-doesnt-automatically-handle-transactions-or-db-connections ***
+
+ I've got Django set up to run some recurring tasks in their own threads, and I noticed that they were always leaving behind unfinished database connection processes (pgsql "Idle In Transaction"). 
+ I looked through the Postgres logs and found that the transactions weren't being completed (no ROLLBACK). I tried using the various transaction decorators on my functions, no luck. 
+ I switched to manual transaction management and did the rollback manually, that worked, but still left the processes as "Idle". 
+ So then I called connection.close(), and all is well. 
+ But I'm left wondering, why doesn't Django's typical transaction and connection management work for these threaded tasks that are being spawned from the main Django thread? 
+ 
+ After weeks of testing and reading the Django source code, I've found the answer to my own question: 
+ **Transactions**
+
+ Django's default autocommit behavior still holds true for my threaded function. However, it states in the Django docs: 
+ 
+ As soon as you perform an action that needs to write to the database, Django produces the INSERT/UPDATE/DELETE statements and then does the COMMIT. There’s no implicit ROLLBACK. 
+ 
+ That last sentence is very literal. It DOES NOT issue a ROLLBACK command unless something in Django has set the dirty flag. Since my function was only doing SELECT statements it never set the dirty flag and didn't trigger a COMMIT. 
+ This goes against the fact that PostgreSQL thinks the transaction requires a ROLLBACK because Django issued a SET command for the timezone. In reviewing the logs, I threw myself off because I kept seeing these ROLLBACK statements and assumed Django's transaction management was the source. Turns out it's not, and that's OK. 
+ **Connections**
+
+ The connection management is where things do get tricky. It turns out Django uses   to close the database connection it normally uses. Since nothing normally happens in Django that doesn't involve a request, you take this behavior for granted. 
+ In my case, though, there was no request because the job was scheduled. No request means no signal. No signal means the database connection was never closed. 
+ Going back to transactions, it turns out that simply issuing a call to   in the absence of any changes to the transaction management issues the ROLLBACK statement in the PostgreSQL log that I'd been looking for. 
+ **Solution**
+
+ The solution is to allow the normal Django transaction management to proceed as normal and to simply close the connection one of three ways: 
+ 
+ Write a decorator that closes the connection and wrap the necessary functions in it. 
+ Hook into the existing request signals to have Django close the connection. 
+ Close the connection manually at the end of the function. 
+ 
+ Any of those three will (and do) work. 
+ This has driven me crazy for weeks. I hope this helps someone else in the future! 
+ 

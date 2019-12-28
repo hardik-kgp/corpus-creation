@@ -1,0 +1,33 @@
+*** how-to-group-latitude-longitude-points-that-are-close-to-each-other ***
+
+ I have a database of user submitted latitude/longitude points and am trying to group 'close' points together. 'Close' is relative, but for now it seems to ~500 feet. 
+ At first it seemed I could just group by rows that have the same latitude/longitude for the first 3 decimal places (roughly a 300x300 box, understanding that it changes as you move away from the equator).  
+ However, that method seems to be quite lacking. 'Closeness' can't be significantly different than the distance each decimal place represents. It doesn't take into account that two locations may have different digits in the 3rd (or any) decimal place, but still be within the distance that place represents (  and  ). 
+ I've also mulled over the situation where Point A, and Point C are both 'close' to Point B (but not each other) - should they be grouped together? If so, what happens when Point D is 'close' to point C (and no other points) - should it be grouped as well. Certainly I have to determine the desired behavior, but how would either be implemented? 
+ **Can anyone point me in the right direction as to how this can be done and what different methods/approaches can be used?**
+
+ I feel a bit like I'm missing something obvious. 
+ Currently the data is an a MySQL database, use by a PHP application; however, I'm open to other storage methods if they're a key part in accomplishing this. here.  
+ 
+ There are a number of ways of determining the distance between two points, but for plotting points on a 2-D graph you probably want the  Euclidean distance . If   represents your first point and   represents your second, the distance is 
+ 
+ Regarding grouping, you may want to use some sort of 2-D mean to determine how "close" things are to each other. For example, if you have three points,  ,  ,  , you can find the center of these three points by simple averaging: 
+ 
+ You can then see how close each is to the center to determine whether it should be part of the "cluster". 
+ 
+ There are a number of ways one can define clusters, all of which use some variant of a  clustering algorithm . I'm in a rush now and don't have time to summarize, but check out the link and the algorithms, and hopefully other people will be able to provide more detail. Good luck! 
+ 
+ Use something similar to the method you outlined in your question to get an approximate set of results, then whittle that approximate set down by doing proper calculations. If you pick your grid size (i.e. how much you round off your co-ordinates) correctly, you can at least hope to reduce the amount of work to be done to an acceptable level, although you have to manage what that grid size is. 
+ For example, the  earthdistance  extension to PostgreSQL works by converting lat/long pairs to (x,y,z) cartesian co-ordinates, modelling the Earth as a uniform sphere. PostgreSQL has a sophisticated indexing system that allows these co-ordinates, or boxes around them, to be indexed into R-trees, but you can whack something together that is still useful without that. 
+ If you take your (x,y,z) triple and round off- i.e. multiply by some factor and truncate to integer- you then have three integers that you can concatenate to produce a "box name", which identifies a box in your "grid" that the point is in. 
+ If you want to search for all points within X km of some target point, you generate all the "box names" around that point (once you've converted your target point to an (x,y,z) triple as well, that's easy) and eliminate all the boxes that don't intersect the Earth's surface (tricker, but use of the   formula at each corner will tell you) you end up with a list of boxes target points can be in- so just search for all points matching one of those boxes, which will also return you some extra points. So as a final stage you need to calculate the actual distance to your target point and eliminate some (again, this can be sped up by working in Cartesian co-ordinates and converting your target great-circle distance radius to secant distance). 
+ The fiddling around comes down to making sure you don't have to search too many boxes, but at the same time don't bring in too many extra points. I've found it useful to index each point on several different grids (e.g. resolutions of 1Km, 5Km, 25Km, 125Km etc). Ideally you want to be searching just one box, remember it expands to at least 27 as soon as your target radius exceeds your grid size. 
+ I've used this technique to construct a spatial index using Lucene rather than doing calculations in a SQL databases. It does work, although there is some fiddling to set it up, and the indices take a while to generate and are quite big. Using an R-tree to hold all the co-ordinates is a much nicer approach, but would take more custom coding- this technique basically just requires a fast hash-table lookup (so would probably work well with all the NoSQL databases that are the rage these days, and should be usable in a SQL database too). 
+ 
+ Maybe overkill, but it seems to me a  clustering problem : distance  measure  will determine how the similarity of two elements is calculated. If you need a less naive solution try  Data Mining: Practical Machine Learning Tools and Techniques , and use  Weka  or  Orange 
+ 
+ If you are considering latitude and longitude there are several factors to be considered in real time data: obstructions, such as rivers and lakes, and facilities, such as bridges and tunnels. You cannot group them simply; if you use the simple algorithm as k means you will not be able to group them. I think you should go for the spatial clustering methods as partitioning CLARANS method.  
+ 
+ If I were tackling it, I'd start with a grid. Put each point into a square on the grid. Look for grids that are densely populated. If the adjacent grids aren't populated, then you have a decent group. 
+ If you have adjacent densely populated grids, you can always drop a circle at the center of each grid and optimize for circle area vs (number of points in the circle * some tunable weight). Not perfect, but easy. Better groupings are much more complicated optimization problems. 
+ 

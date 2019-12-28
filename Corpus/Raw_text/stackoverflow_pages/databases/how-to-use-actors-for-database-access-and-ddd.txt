@@ -1,0 +1,14 @@
+*** how-to-use-actors-for-database-access-and-ddd ***
+
+ I'm not quite sure how actors can be used to access the database. In the documentation and books for Akka this topic seems to be omitted. 
+ One solution can be a wrapped DAO in an stateless actor. For example for each table (or domain object type or aggregate type) in the database one can create an actor which is responsible for all CRUD operations. A variation of this can be a separation of commands and queries. For example for each data type 1 command actor (for concurrency) and 10 query actors (for parallelism). 
+ An other approach could be to create stateful actors representing exactly one row (or domain object instance or aggregate instance) in the database. Of course the database can be in this case also an event store (like the akka persistence module) with an eventually consistent projection to a database, document store or a cache. That's not relevant here. This approach is actually an implementation of an in memory cache with all benefits and problems. There must be a strategy for destroying actors to not run out of memory after a while. 
+ 
+ I will extend my question for DDD: 
+ Let's say, I want to develop a DDD application with Akka actors. Let's concentrate here on the command part. In my opinion this should be implemented in this way: For each bounded context there will be a port actor, e.g. Spray REST API, that routes messages to the appropriate domain service actor. This service actor coordinates a business task to one or more domain model aggregates. Each single aggregate is a stateful actor that is restored (or created on new data) by the service actor from database. The service actor sends/routes messages to all involved aggregate actors. The receiving domain model actors will perform business validation on their state + message and then they write their changes to the database, e.g. Slick DAOs. After sending a   back to the service actor they get stopped. When all aggregate actors are finished a   message is send back to the sender of the message. A variation could be to not stop the stateful domain model actors immediately but after a time span, say 3 minutes. 
+ Is this a valid usage pattern for DDD with Akka? 
+ 
+ Usually DB reading operations (cRud) can be performed directly by any actor. There is no need to make any special handling in most cases. Just a simple round-robin to balance the load. 
+ As for update operations (CrUD), they can be split into non intersecting domains/shards. For instance, all operations with a single account should be preferably processed by a single actor. One may have N almost independent processing actors and a router that routes commands to one of them based on account.hashCode % N, for instance. Thus operations will be distributed between actors more or less evenly and every account will be processed sequentially. 
+ P.S. Slick seems to be a descent db library for Akka applications. 
+ 

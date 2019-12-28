@@ -1,0 +1,34 @@
+*** is-it-okay-to-always-leave-a-database-connection-open ***
+
+ I'm working on a single-user desktop database application sort of thing in my spare time, and I'm always unsure about the design choices I'm making. Right now, as it stands, whenever the user wants to interact with the database (which is a local SQLite database, so generally only one user ever sees it at once), the application creates a new connection, does whatever it needs to do, and then closes the connection. Thereforee, over the course of one execution of the application, lots of connections are created and disposed of. 
+ Is this generally the "best" way to go about it, or should the application open the connection at startup and only close it when the application exits? What are the advantages/disadvantages of each method? 
+ 
+ I would say it's fine in this case, since there will only ever be one user and the database is hosted on the same machine (more likely in the same memory space, as I think SQLite just loads as a DLL with the main application) as the application. Constantly opening and closing the connection is unnecessary. 
+ One possible exception might be if you need to have multiple threads of your application accessing the database at the same time. Then you could either force them to wait and share a single connection object,  OR  you could try to create new connections for the different threads. I have never actually tried this in SQLite. This is one situation where closing the main connection and opening/closing multiple connections might be better for a desktop app. 
+ For web applications, or client/server desktop apps, I'd suggest against leaving connections open. 
+ 
+ Typically the connection is closed after use; freeing it back into the pool of available connections. If there are a high number of transactions taking place on a single client it makes sense to leverage a single connection instead of creating multiple connections only to immediately close them.  
+ It is somewhat circumstantial however the typical best practice is to close it after use so that it becomes available within the pool again. 
+ 
+ Imagine you have 1000 users accessing your application at the same time. That would means 1000 open connections. Eventually you could run out of connections. So let each user open a connection, use it, and then close it so that connection is free for others to use. 
+ **Further Clarification**
+
+ Imagine him having multiple modules that would simultaneous need the same connection? Image simultaneously running controls needing the connection. What is he going to do? Have a global connection object? Use a Singleton Pattern? Tell me if I am wrong 
+ 
+ Connection pooling  should  make this a moot point.  The pool should keep a connection around and open for you to reuse.  This should allow you to follow the generally best practice of using resources for the shortest reasonable amount but without sacrificing performance. 
+ 
+ I just started asking myself this same question. Like you, it's just a single app and I'm not worried about running out of connections. 
+ I did however run into a potential issue with leaving the database open though: transactions. If you do a   and there's an error or something else happens where your code doesn't hit a   or  , then you leave that transaction open. 
+ So it might be better to close it solely for the purpose of ensuring everything is restored after work is done to the database. 
+ I really don't know how much overhead there is in opening and closing the database though. I'd love to hear some other people's thoughts on this. 
+ 
+ When dealing with database connection my policy is that in depends on what you need to do. For example, if your are loading a lot of realted critical data  my advice would be to encapsulate all your operations in one transaction and with one conection that should be close after the transaction is commited. 
+ Now, if you need to do lots of queries retrieving data, opening and closing a connection for each query could be quite expensive so, leaving a connection open is worthwhile. 
+ 
+ Opening new connection is expensive. 
+Therefore, the best way to use a connection is to mark it as idle after finishing a transaction. The connection will then be returned to a pool of idle connections.  
+ When application requests a connection, the code must check the pool of idle {free} connection and return one. If there is no idle connection in the pool then a new connection should be used. When a connection is provided to a service or to an entity, the connection must be marked 'active'; so that the connection is not provided to any subsequent request. 
+ When the connection is not closed, you must handle the connection properly regarding commit, rollback etc. 
+ Check your language or framework. Most of the frameworks already maintain a container of idle connections; and therefore, you do not need to worry about it. 
+Some of the languages also provide this functionality out of the box. For example Golang core package type sql.DB maintains a pool of idle connections, capable of being used concurrently, so you do not need to worry about closing the connection.  
+ 

@@ -1,0 +1,27 @@
+*** schema-to-support-dynamic-properties ***
+
+ I'm working on an editor that enables its users to create "object" definitions in real-time. A definition can contain zero or more properties. A property has a name a type. Once a definition is created, a user can create an object of that definition and set the property values of that object. 
+ So by the click of a mouse-button, the user should ie. be able to create a new definition called "Bicycle", and add the property "Size" of type "Numeric". Then another property called "Name" of type "Text", and then another property called "Price" of type "Numeric". Once that is done, the user should be able to create a couple of "Bicycle" objects and fill in the "Name" and "Price" property values of each bike. 
+ Now, I've seen this feature in several software products, so it must be a well-known concept. My problem started when I sat down and tried to come up with a DB schema to support this data structure, because I want the property values to be stored using the appropriate column types. Ie. a numeric property value is stored as, say, an INT in the database, and a textual property value is stored as VARCHAR. 
+ First, I need a table that will hold all my object definitions: 
+ 
+ Then I need a table for holding what sort of properties each object definition should have: 
+ 
+ I would also need a table that holds each object: 
+ 
+ Finally, I need a table that will hold the actual property values of each object, and one solution is for this table to have one column for each possible value type, such as this: 
+ 
+ If I implemented this schema, what would the "type" column of the prop_defs table hold? Integers that each map to a column name, varchars that simply hold the column name? Any other possibilities? Would a stored procedure help me out here in some way? And what would the SQL for fetching the "name" property of object 2 look like? 
+ 
+ You are implementing something called Entity-Attribute-Value model  http://en.wikipedia.org/wiki/Entity-attribute-value_model . 
+ Lots of folks will say it's a bad idea (usually I am one of those) because the answer to your last question, "What would the SQL for fetching..." tends to be "thick hairy and nasty, and gettting worse." 
+ These criticisms tend to hold once you allow users to start nesting objects inside of other objects, if you do not allow that, the situation will remain manageable. 
+ For your first question, "what would the "type" column of the prop_defs table hold", everything will be simpler if you have a table of types and descriptions that holds {"numeric","Any Number"}, {"textual","String"}, etc.  The first value is the primary key.  Then in prop_defs your column "type" is a foreign key to that table and holds values "numeric", "textual", etc.  Some will tell you incorrectly to always use integer keys because they JOIN faster, but if you use the values "numeric", "textual" etc.  you don't have to JOIN  and the fastest JOIN is the one you don't do. 
+ The query to grab a single value will have a CASE statement: 
+ 
+ 
+ You must accept that relational databases are not good at providing this kind of functionality. They CAN provide it, but are not good at it. (I hope I'm wrong). Relational databases lend themselves better to defined interfaces, not changing interfaces. 
+ --EAV tables give dynamic fields but suck on performance. Sucks on indexing. And it is complex to query. It gets the job done in many situations, but can fall apart on big tables with lots of users hitting the system.  
+ --"Regular" tables with several place holder columns are OK for performance, but you get non-descriptive column names and are limited in the number of columns you can "add". Also it does not support sub-type separation. 
+ --Typically you create/modify tables at development time, not run time. Should we really discriminate against modifying the database at run time? maybe, maybe not. Creating new tables, foreign keys, and columns at run-time can achieve true dynamic objects, while giving the performance benefits of "regular" tables.  But you would have to query the schema of the database, then dynamically generate all of your queries. That would suck. It would totally break the concept of tables as an interface. 
+ 

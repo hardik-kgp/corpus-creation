@@ -1,0 +1,55 @@
+*** django-and-read-only-database-connections ***
+
+ Assume a Django application which is supposed to use two MySQL databases: 
+ 
+  - for storing data represented by models   and   (read-write access) 
+  - for importing data represented by models   and   (read-only access) 
+ 
+ The   database is a part of an external application and  **cannot**
+ be modified. 
+ Since the Django application uses the built-in ORM for models   and   I figured it should use the very same ORM for models   and  , even though they map to tables in an external database ( .) 
+ In order to achieve that I defined the models   and   as follows: 
+ 
+ Then I defined a database router: 
+ 
+ And finally adjusted  : 
+ 
+ The user specified in   for the   database has been assigned read-only privileges. 
+ But when I run   it fails with the following output: 
+ 
+ It appears that Django tries to create the   table in the read-only database   nevertheless. 
+ Is there any clean way to prevent the migrations mechanism from attempting that? Or do I have to employ another ORM library for this read-only access to the   database? 
+ 
+ I encountered the same issue (using Django 1.11) and this question was at the top of my Google results for it.  
+ Your initial solution is only missing one critical piece. You need to tell Django what database models 'C' and 'D' are using.  What worked for me: 
+ 
+ Then tell your database router how to behave when it encounters that app_label in the allow_migrate() section: 
+ 
+ I'm not sure that is the most-correct-solution in the eyes of the Django team, but effect is allow_migrate() returning False for any models defined with that app_label attribute value.   
+ The Django  documentation on routers  doesn't mention this explicitly (or, at least with model code samples that make it clear how the ORM passes the value for 'db' to allow_migrate()), but between the 'app_label' and 'managed' attributes you can get it to work*. 
+ * In my case the default is postgres and the read-only database is Oracle 12 via cx_Oracle.  
+ 
+ It seems around the Django 1.10.1 timeframe, Tim Graham (the primary Django maintainer), accepted a patch that suppressed this specific exception but later withdrew the patch in favor of (roughly) the following method to work around this issue and to support read-only databases using the Django ORM. 
+ 
+ Define a database router as described in the  Django documentation
+on routers  I've attached an example router below that routes to a
+different database based on an 'app' flag in the model meta. 
+ In your routers allow_migrations method, return False for any db argument
+that corresponds to a read-only database. This prevents the migration of
+the model tables regardless of where they would be routed to. 
+ This next part is a little weird but where the rubber hits the road and
+actually answers the original question. To keep  makemigrations  from
+attempting to create the  django_migrations  table in your read-only
+database, the database traffic should not be routed. In the example
+router, that means 'read_only' is  **not**
+ in DATABASE_APPS_MAPPING. 
+ So, instead, Read-only databases are accessed explicitly with "using" (e.g. MyReadOnlyModel.objects.using('read_only').all() 
+ 
+ Django database apps router 
+ 
+ Had the same problem.
+Django is trying to create the 'django_migrations' table in all DBs.
+This happens even if there are no models associated with the read-only DB
+and all routers are pointing a different DB. 
+ I also ended up using peewee. 
+ 

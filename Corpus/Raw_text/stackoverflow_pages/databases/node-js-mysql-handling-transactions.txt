@@ -1,0 +1,31 @@
+*** node-js-mysql-handling-transactions ***
+
+ I am building an app on node.js using express, and node-mysql driver. There is a couple of cases in my app when I need to make a series of database inserts/updates. I want them in a transaction such that if the second or third one fails, the previous inserts are rolled back completely.  
+ Currently, the way I am doing this is to have some kind of middleware which does a   when a request arrives. During the course of processing of the request, if any error is thrown, I catch this error, and do a  . If no error occurs, I do a   before sending the response to the browser. 
+ However, I am now concerned that this won't work when multiple users access the application simultaneously, as MySQL does a forced commit if another request tries to begin it's own transaction with   ! I am currently using only a single instance of node, and a single MySQL connection for all the requests. 
+ Can someone please advice me if my concerns are valid, and how should I get in transactions support? 
+ 
+ You'll need to create a client pool, or somehow otherwise ensure that two different pages aren't interspersing commands on the same connection (at least while any of them is in a transaction). 
+ Since you want to conditionally do a rollback based upon the result of an earlier command, you'll need to chain the db calls together through their callbacks and not rely on the node-mysql queuing behavior. That will open up a window for some other page to come in and queue up an operation on the same connection as you suggest. 
+ You could create and manage your own queue, but that would end up serializing all transactional pages (assuming you're sticking with the single connection model).   
+ From a quick googling, it looks like there are several node-mysql pools on github. After looking at them, though, they don't look like they'll help with your issue. 
+ 
+ Check out  https://github.com/bminer/node-mysql-queues 
+ I implemented a little wrapper for node-mysql to support transactions and multiple statements.  It has not been tested, and is NOT production ready... but it will be in a few days.  :) 
+ **UPDATE**
+: I have tested this library pretty thoroughly now... should be good to go! 
+ 
+ Depending on how complex your transaction is you might run into some ugly nesting trying to queue your queries from Node, which might introduce ugly variable scoping issues. 
+ What you can do instead is write a stored procedure and end it by  ing a success/failure flag, then query the procedure with  node-mysql  as you would a   query. Here's how the stored procedure might look: 
+ 
+ Your Node code would look something like this: 
+ 
+ 
+ I find it hard to believe that if a separate session executes a   that other transactions are committed. That would be totally unsafe, especially when data needs to be rollbacked (or is it "rolled back"?). 
+ Is it possible you're mixing this up with a  same session   ? 
+See  http://dev.mysql.com/doc/refman/5.0/en/implicit-commit.html  where it explains that transactions cannot be nested. That of course applies to the  same session , not to another user's session. 
+ Assuming you haven't messed around with the isolation level of your session, or the global isolation level, then transactions should be safe. 
+ In any case, if you wanted to queue your transactions it wouldn't be hard to build a global queue object in node and chain the calls (so one starts when another finishes). A simple array with push and pop should do the trick. 
+ 
+ Just an idea: on postresql you can start a transaction and set an ID to it. So then, you could be reusing the same connection around, because in case you need to commit or rollback, you are going to refer to your transaction by id, right? 
+ 

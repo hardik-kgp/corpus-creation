@@ -1,0 +1,234 @@
+*** how-do-i-model-github-like-permissions-relationally ***
+
+ **tl;dr: how do i implement a permissions model like (e.g.) github's**
+  
+ **Updated to try to address some of @philipxy's comments:**
+
+ I am planning to implement a permissions model similar to github's: 
+ 
+ users 
+ users can be in groups 
+ users can be in organizations 
+ groups can be in organizations 
+ a user will be permitted any of C, R, U, and D operations on an asset, group, or organization  as :
+
+ 
+ an individual user who has been permitted those (any of C, R, U, D) operations 
+ a member of a group which has been granted those permissions 
+ a member of an organization that has been granted those permissions
+
+ 
+ or as a member of a group where that group belongs to an org that has permissions 
+ 
+ 
+ a user is granted Read because the asset/group/org is viewable (readable) to anonymous users ("public") 
+ a user should also have a set of permissions to say whether they can do any of  C, R, U, or D on the permissions (a user can create a permission[C,R,U,D] for another user, a group, or an org)
+
+ 
+ a user can set the permissions for any asset, group, or org they create, or any asset, group, or org for which they have been given permission to set permissions. 
+ 
+ 
+ These permissions will control who can perform Create, Read, Update, and Delete (CRUD) actions on assets, groups, and organizations in the site. 
+ Approximately how do I model this?  
+ Obviously i have these models: 
+ 
+ Asset 
+ User 
+ Group 
+ Organization 
+ 
+ What next? 
+ 
+ Permission?  
+ PermissionType (to capture C/R/U/D)? 
+ 
+ I am using mysql from node (via sequelize), but I can figure out specific syntax an all that myself, I just haven't yet figured out how to do this conceptually. 
+ **More to @philipxy's point:**
+
+ The very thing you are proposing I do more of is indeed the thing I think I'm asking for help with. That is, those info design methods (NIAM, FCO-IM, ORM2, IDEF1X) are what i'm looking for. I know a decent amount about relational db  implementation  (days of learning normalizing and normal forms and whatnot), but indeed the process of specifying business requirements and converting them into actionable specs is the challenge.  
+ 
+ ORM2  is difficult to find because of name collisions with the nodejs module.  : I have downloaded the book linked from the  NIAM wikipedia page 
+ NIAM seems to be less common in usage nowadays? 
+ FCO-IM: I have downloaded the book from their website 
+ IDEF1X: also looks interesting 
+ 
+ I guess I'm going to pick up a database text book. 
+ More work toward predicates: 
+ 
+  identifies a  
+  identifies an  
+  identifies a  
+ a     can be in 0 or more    
+  identifies an  
+ a     can be in 0 or more    
+ a     can be in 0 or more    
+ an asset   can be created by a    
+ CRUD on  :
+
+ 
+ an     can be permitted (through     ?) to perform actions   on  
+ those   are:
+
+ 
+ 
+ 
+ 
+ 
+ 
+ the   may be of types:
+
+ 
+ 
+ 
+ 
+ /"the public" 
+ 
+ details (shown only for  , but also relevant for  ,  , and  ):
+
+ 
+ a     can permit another     to   an    
+ a     can permit     who are members of     to   an    
+ a     can permit     who are members of     to   an    
+    in    , where   is a   that is in an     that has been permitted to      , are therefore permitted      
+ 
+ 
+ a     that references an     may only be created by certain users:
+
+ 
+ By default, the     who is the creator of an   can create   for that  ,  
+ but they may only reference   to which they have   (in the base case: those   create by  ) 
+ a   who as been  ed the privilege can also reference     in a  
+  identifies a  
+ 
+ a   gives an   the privilege to create, read, update, or delete   that reference another  
+ like  ,   have a transitive nature in that:
+
+ 
+ if     has been   the privilege to (e.g.) modify   for    , then  
+ not only may   who are members of   modify   referencing  , 
+
+ 
+ but also   who are members of any     where   is in   have the privilege to modify   referencing  
+ 
+ 
+ 
+ 
+ 
+ 
+ **Predicates and tables**
+
+ A  proposition  is a statement that is true or false of a business situation. A  predicate  is a column-parameterized statement that given a row gives a proposition. A table (base or query result) holds the rows that make a true proposition from its predicate. 
+ 
+ **Business rules**
+
+ A business rule is an always-true statement that defines a term or describes a policy or process. 
+ 
+ You can make true statements that are parameterless predicates. These can use parameter names that are bound by   &   ( ). Business rules phrased in terms of such propositional predicates and/or table names are  database constraints . Given   &   as shorthands for the first two predicates above as predicates for tables   &  , the following lines all say the same thing: 
+ 
+  states what the above do (note its similarity to the middle two) plus that R is UNIQUE NOT NULL in Grantor. 
+ Don't confuse rules with predicates. They have different uses & usually different forms. (A parameterless sentence template can be used as either.) A rule is a true statement; a predicate is a parameterized statement. Look at how my answer separates them. Base tables  and query result tables  have predicates. But a rule may suggest that you need a base predicate/table to record something. We have base predicates/tables when we see from a rule that we have to record some statements about the current situation. Note some rules inspire no base predicates. 
+ You probably want to  reify  types and permissions. 
+ 
+ **Design is **
+**finding necessary & sufficient rules & base predicates**
+
+ Here are relevant predicates to record situations that your exposition suggests arise. 
+ 
+ 
+ users 
+ 
+ 
+ 
+ 
+ 
+ users can be in groups 
+ 
+ 
+ 
+ 
+ 
+ users can be in organizations 
+ 
+ 
+ 
+ 
+ 
+ groups can be in organizations 
+ 
+ 
+ 
+ 
+ 
+ a user will be permitted CRUD operations on an asset, group, or organization 
+ 
+ 
+ 
+ 
+ 5.1 as an individual user, or as a member of a group, or as a member of an organization (or as a member of a group where that group belongs to an org that has permissions), 
+ 
+ 
+ 
+ or because the asset/group/org is viewable (readable) to anonymous users ("public") 
+ 
+ 
+ 
+ 
+ a user should also have a set of permissions to say whether they can set the above permissions 
+ 
+ 
+ 
+ What are "the above permissions"? Maybe you mean user CRUD permission and organization CRUD permission? Maybe you mean there are individual permissions for operations Create, Read, etc? You need to be clearer. 
+ What are the permissions in "a set of permissions"? By "permission" here do you instead really mean "particular permission to a particular grantee"? You need to be more clearer. 
+ The way to be clearer is to give rules & predicates that are as simple as possible but also not so simple that they don't mention relevant entities/values. You may afterwards want to generalize multiple rules & predicates into single ones. Eg instead of dealing with users, groups, organizations and assets, have grantors and crudables:   &  . If some such permissions are also associated with specific grantees you might also need predicates like  . 
+ 
+ 6.1. a user can set the permissions for any asset, group, or org they create, 
+ 
+ 
+ 
+ or any asset, group, or org for which they have been given permission to set permissions. 
+ 
+ 
+ You will want to record things like that  . 
+ **Learn about database design**
+
+ Search re database/SQL subtyping/inheritance/polymorphism idioms. Eg user, group and organization are types of permission possessors & holders; I made them subtypes of a type grantor. Maybe you want some kind of permission target type that is the union of crudable & grantor. Maybe you want types of permissions. Maybe some permission permissions have associated grantees. Maybe 'C', 'R', 'U' & 'D' are permissions, and 'CRUD' is a type of permission. You probably want to record what grantor gave what permission to a grantee. 
+ Later we can replace tables by their join if the join is on a shared PK/UNIQUE with the same set of values in both. When we can join on a PK/UNIQUE & FK we can replace tables by one like their join but with the FK nullable. There are yet other times we can replace multiple tables by one without problems. But first identify basic predicates.  
+ Learn about relational database design. Follow some information design method. Best are members of the the NIAM/FCO-IM/ORM2 family. Peek at IDEF1X. Don't rely on products. 
+ Learn about constraints. They  follow  from predicates and business rules. They are truths about possible business situations in terms of the predicates. Equivalently, they are truths about possible database states in terms of the tables. Also learn about constraints in SQL, both declarative (PK, UNIQUE, FK) & triggered. 
+ 
+ It seems to me that you need to create the concept of an entity which can receive permissions on a repository or an organization. 
+ In this model the problem becomes relatively simple, as the permissions would revolve around an   table of the form: 
+ 
+ and a   table of the form:  
+ 
+ There are two types of Entities   and  , and the permissions of any user will need to be checked in four ways: 
+ 
+ Direct  **User**
+ permissions on the  **Repository**
+ level 
+ **User**
+ membership in a  **Group**
+ with permissions on the  **Repository**
+ level 
+ Direct  **User**
+ permissions on the  **Organization**
+ level 
+ **User**
+ membership in a  **Group**
+ with permissions on the  **Organization**
+ level. 
+ 
+ the following query should retrieve all permission entries pertaining to the user   on repository  
+ 
+ 
+ Well it is problematic when you try to make a database behave the same way as something like Github. Databases have a completely different paradigm. It is why is is just as bad to design databases based on how C# works. Not the same functionality or rules. However it is an interesting question because too few people pay attention to the permission model as part of their database design and just grant everybody rights to everything because it is easier. 
+ In the first place, users should not be able to grant rights to others, only admins should do that. Users should NEVER be creating objects if you have a good database design. Database design has no business being handled by amateurs.  
+ Users can be individuals or you can use application users where all database requests coming from a specific application have the same rights. Applications can even have multiple generic users such as XYZAdmin, XYZUser, XYZReadonly (often used for senior managers who need to be able to see the data but aren't going to adjust it.). From my experience the biggest problems with the generic users is that it becomes difficult to audit who changed what in the database (very important in a regulated environment) and some users may have more permissions than they really need. 
+ In databases you have several basic types of permissions. You have permissions that extend to the whole database and object level permissions. You also have some specific server permissions such as the permissions to use Bulk insert or execute jobs. Groups should also be given permissions concerning which databases they can see on the server as most database servers have multiple databases.  So you can grant a user permissions to write to any table or grant them no rights to tables but only to specific stored procedures or views. In general administrative personnel get the overall rights to everything (or server level rights such a Bulk insert rights). This includes DBAs who have full rights and other specialists such as data analysts/senior developers/build team members who may only have rights concerning jobs and data entry or creating new objects but not rights to perform tasks such as setting permissions.  All other users should be locked in to object level permissions.  
+ Now no one should be given permissions as an individual (or at least it should be a rare thing). Each person should be in various groups which have rights. Individuals can be in more that one group and how those right interact between groups can be explained in the documentation associated with the specific database product you are using (yes this is specific by product, there is no one size fits all database permissions model.) The beauty of this is that when someone is no longer a user, you only have to remove them from the group(s) and the permissions are gone rather than searching out a multitude of individual permissions. 
+ Now when you are handling permissions by groups, you need to define the groups. You may also need to define some additional views or stored procedures if you want a group to only have permissions on a subset of the records or columns instead of the whole table. If you have multiple clients in one database and need to make sure the permissions are only for one specific client, then you need to use stored procedures/views and grant permissions only at the stored procedure/view level not at the table level. Using views for permissions can get tricky because each database product has specific rules about what makes a view updateable. You need to understand this at a deep level to determine how you are going to manage permissions.  
+ All database objects created will need to script the specific groups being granted permission to that object as part of the creation script. (You would never create database objects through any kind of GUI, always through scripts kept in source control.) 
+ You can also do some permissions work by client by setting up some database tables with meta data about specific pages the user can access or specific clients that he is allowed to access. Then when the application is loaded, the users data from these tables is loaded and the application would decide what he or she could do. This is frankly easier but can be risky.  
+ It means the users have to have table level permission and users really should not have those. Because the database level permissions are broader, it is easier for a malicious user to log in outside of the application and do things that he or she should not be able to do. This is something to be especially wary of if you have internal users who can easily log in through something other than the user's application such as SSMS for SQL Server. 
+ If your database application is in a legally regulated field such as finance or health care, you need to be very strict about permissions and using ORMs instead of stored procedures is contraindicated because at no time should you be setting permissions at the table level. 
+ 

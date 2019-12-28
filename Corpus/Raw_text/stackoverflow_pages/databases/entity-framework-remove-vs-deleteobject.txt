@@ -1,0 +1,37 @@
+*** entity-framework-remove-vs-deleteobject ***
+
+ You can remove an item from a database using EF by using the following two methods. 
+ 
+ EntityCollection.Remove Method 
+ ObjectContext.DeleteObject Method 
+ 
+ The first is on the   and the second on the  . 
+ When should each be used?  
+ Is one prefered over the other? 
+  returns a   and   returns  . 
+ 
+ It's not generally correct that you can " remove an item from a database " with both methods. To be precise it is like so: 
+ 
+  marks  **the entity as **
+ in the context. (It's   is   after that.) If you call   afterwards EF sends a SQL   statement to the database. If no referential constraints in the database are violated the entity will be deleted, otherwise an exception is thrown. 
+  marks  **the relationship between parent and **
+** as **
+. If the   itself is deleted from the database and what exactly happens when you call   depends on the kind of relationship between the two: 
+ 
+ If the relationship is  **optional**
+, i.e. the foreign key that refers from the child to the parent in the database allows   values, this foreign will be set to null and if you call   this   value for the   will be written to the database (i.e. the relationship between the two is removed). This happens with a SQL   statement. No   statement occurs. 
+ If the relationship is  **required**
+ (the FK doesn't allow   values) and the relationship is  **not identifying**
+ (which means that the foreign key is not part of the child's (composite) primary key) you have to either add the child to another parent or you have to explicitly delete the child (with   then). If you don't do any of these a referential constraint is violated and EF will throw an exception when you call   - the infamous  " The relationship could not be changed because one or more of the foreign-key properties is non-nullable "  exception or similar. 
+ If the relationship is  **identifying**
+ (it's necessarily  **required**
+ then because any part of the primary key cannot be  ) EF will mark the   as   as well. If you call   a SQL   statement will be sent to the database. If no other referential constraints in the database are violated the entity will be deleted, otherwise an exception is thrown. 
+ 
+ 
+ I am actually a bit confused about the  Remarks section on the MSDN page  you have linked because it says: " If the relationship has a referential integrity constraint, calling the Remove method on a dependent object marks both the relationship and the dependent object for deletion. ". This seems unprecise or even wrong to me because all three cases above have a " referential integrity constraint " but only in the last case the child is in fact deleted. (Unless they mean with " dependent object " an object that participates in an identifying relationship which would be an unusual terminology though.) 
+ 
+ If you really want to use Deleted, you'd have to make your foreign keys nullable, but then you'd end up with orphaned records (which is one of the main reasons you shouldn't be doing that in the first place). So just use  
+ ObjectContext.DeleteObject(entity)  marks the entity as Deleted in the context. (It's EntityState is Deleted after that.) If you call SaveChanges afterwards EF sends a SQL DELETE statement to the database. If no referential constraints in the database are violated the entity will be deleted, otherwise an exception is thrown. 
+ EntityCollection.Remove(childEntity)  marks the relationship between parent and childEntity as Deleted. If the childEntity itself is deleted from the database and what exactly happens when you call SaveChanges depends on the kind of relationship between the two: 
+ A thing worth noting is that setting    does not trigger automatically detected change.   ( archive ) 
+ 

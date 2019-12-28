@@ -1,0 +1,97 @@
+*** list-all-sequences-in-a-postgres-db-8-1-with-sql ***
+
+ I'm converting a db from postgres to mysql.  
+ Since i cannot find a tool that does the trick itself, i'm going to convert all postgres sequences to autoincrement ids in mysql with autoincrement value. 
+ So, how can i list all sequences in a  **Postgres**
+ DB ( **8.1**
+ version) with information about the table in which it's used, the next value etc with a SQL query? 
+ Be aware that i can't use the   view in the 8.4 release. 
+ 
+ The following query gives names of all sequences. 
+ 
+ Typically a sequence is named as  . Simple regex pattern matching will give you the table name. 
+ To get last value of a sequence use the following query: 
+ 
+ 
+ Note, that starting from PostgreSQL 8.4 you can get  **all**
+ information about sequences used in the database via: 
+ 
+ 
+ Since I'm using a higher version of PostgreSQL (9.1), and was searching for same answer high and low, I added this answer for posterity's sake and for future searchers. 
+ 
+ Run:  , and then  
+ 
+ after a little bit of pain, i got it. 
+ the best way to achieve this is to list all tables 
+ 
+ and then, for each table, list all columns with attributes 
+ 
+ then, for each column, test if it has a sequence 
+ 
+ and then, get the information about this sequence 
+ 
+ 
+ The relationship between automatically generated sequences ( such as those created for SERIAL columns ) and the parent table is modelled by the sequence owner attribute.  
+ You can modify this relationship using the OWNED BY clause of the  ALTER SEQUENCE commmand 
+ e.g. 
+     ALTER SEQUENCE foo_id OWNED by foo_schema.foo_table  
+ to set it to be linked to the table foo_table 
+ or
+     ALTER SEQUENCE foo_id OWNED by NONE 
+ to break the connection between the sequence and any table 
+ The information about this relationship is stored in the  pg_depend catalogue table .  
+ the joining relationship is the link between pg_depend.objid -> pg_class.oid WHERE relkind = 'S'  - which links the sequence to the join record and then pg_depend.refobjid -> pg_class.oid WHERE relkind = 'r' , which links the join record to the owning relation ( table ) 
+ This query returns all the sequence -> table dependencies in a database. The where clause filters it to only include auto generated relationships, which restricts it to only display sequences created by SERIAL typed columns. 
+ 
+ 
+ sequence info : max value 
+ 
+ sequence info : last value 
+ 
+ 
+ I know this post is pretty old, but I found the solution by  CMS  to be very useful as I was looking for an automated way to link a sequence to the table AND column, and wanted to share.  The use of  pg_depend  catalog table was the key.  I expanded what was done to: 
+ 
+ This version adds column to the list of fields returned.  With both the table name and the column name in hand, a call to  pg_set_serial_sequence  makes it easy to ensure that all sequences in the database are set correctly.  For example: 
+ 
+ Hope this helps someone with resetting sequences! 
+ 
+ Improvement of the previous answer: 
+ 
+ 
+ This statement lists the table and column that is associated with each sequence: 
+ Code: 
+ 
+ more see here  link to answer 
+ 
+ Partially tested but looks mostly complete. 
+ 
+ Credit where credit is due... it's partly reverse engineered from the SQL logged from a \d on a known table that had a sequence.  I'm sure it could be cleaner too, but hey, performance wasn't a concern. 
+ 
+ Kind of a hack, but try this: 
+ 
+ select 'select ''' || relname  || ''' as sequence, last_value from '  || relname || '  union'
+  FROM pg_catalog.pg_class c
+  WHERE c.relkind IN ('S',''); 
+ 
+ Remove the last UNION and execute the result 
+ 
+ Get sequences by each column of each table via parsing of DEFAULT clause. This method provides  **info about to which column sequences are linked**
+ and does not use  dependencies  which may not exist for some sequences. Even   function found  not all  sequences for me! 
+ Solution: 
+ 
+ Note that 1 sequence can be used in multiple tables, so it can be listed in multiple rows here. 
+ 
+ Thanks for your help.  
+ Here is the pl/pgsql function which update each sequence of a database. 
+ 
+ 
+ Here is another one which has the schema name beside the sequence name 
+ 
+ 
+ This function shows the last_value of each sequence. 
+ It outputs a 2 columns table that says the sequence name plus it's last generated value. 
+ 
+ 
+ Assuming   function declared in this post  https://stackoverflow.com/a/46721603/653539  , sequences together with their last values can be fetched using single query: 
+ 
+ 

@@ -1,0 +1,26 @@
+*** pros-and-cons-of-triggers-vs-stored-procedures-for-denormalization ***
+
+ When it comes to denormalizing data in a transactional database for performance, there are (at least) three different approaches: 
+ 
+ Push updates through stored procedures which update both the normalized transactional data and the denormalized reporting/analysis data; 
+ Implement triggers on the transactional tables that update the secondary tables; this is almost always the route taken when maintaining histories; 
+ Defer the processing to a nightly batch process, possibly doing an ETL into a data mart/warehouse. 
+ 
+ Let's assume for the purposes of this question that option #3 isn't viable, because the domain requires the denormalized data to be consistent with the normalized data at all times.  Hierarchical aggregates, which I deal with rather frequently, are one example of this. 
+ I've used both of the first two approaches a fair bit and lately I've been leaning toward the trigger-based approach, but I'm wondering if there are any "gotchas" that I haven't discovered yet, and thought it would be worth asking this question so I'll have some ideas to keep in mind when making long-term decisions in the future. 
+ So in your experience, what are the pros and cons of either tool for the specific purpose of maintaining real-time denormalized data?  In what situations would you choose one over the other, and why? 
+ (P.S. Please no answers like "triggers are too complicated" or "all updates should always go through a stored proc" - make it appropriate to the context of the question.) 
+ 
+ Triggers are useful where you multiple update paths on a table. 
+ We use stored procs and have about 4 paths at least (Add, Update, Deactivate, Copy) 
+ It's easier to work with the data we've just inserted/updated in a trigger no matter what action we do or how many rows we affect. 
+ A stored proc works for a single update path only I feel: unless you want to repeat code... 
+ Now, TRY/CATCH in triggers means correct, predictable error handling: triggers on SQL Server 2000 and earlier caused batch aborts on error/rollback which is not ideal (to say the least!). So, triggers are more reliable now anyway. 
+ 
+ **Triggers are automatic Side Effects and will almost certainly bite you down the line when you want to do something and can't because of the side effects of the triggers.**
+ Mainly things like having your system participate in some XA Transaction with other external systems. Triggers make this IMPOSSIBLE. Also it is Side Effect logic that can ONLY be activated by doing the Trigger activator again. If you want to recreate data in the Warehouse you can't just run some procedure and recreate it, you have to execute all the activities that will fire the Triggers, this is a nightmare. INSERTS, UPDATES and DELETES should be idempotent and orthogonal. Triggers needlessly complicate workflows, even if you think they are simplifying them they aren't. 
+ 
+ It depends on your business requirements and how your database is used. For instance, suppose there are many applications and many imports that affect the table (we have hundreds of things that can affect our tables) . Suppose also there is occasionally the need to write queries that are run from SSMS (yes even on prod) to do things like update all prices by 10%. If you do these types of things then a stored proc is impractical, you will never have every possible way to affect the database covered.  
+ If this data change is necessary to data integrity or many applications or processes (imports, SQL Server Jobs, etc.) can affect data, then it belongs in the trigger.  
+ If the data change is needed only sometimes or you have total control of how data is changed from only one application, then a stored proc is fine.  
+ 

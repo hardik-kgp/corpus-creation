@@ -1,0 +1,120 @@
+*** ms-access-mdb-concurrency ***
+
+ For a small project I need to utilize a simple database with very light requirements: few tables, no more than few thousands of records in total, 2 or 3 users. I am working in .NET environment. 
+ As a database server (even those Express editions) seems like a huge overkill in this case, a very simple MDB database could do for most of the requirements. I am however, concerned about concurrency. My idea is to place the .mdb file on a network share and let users access this file from their .NET-based clients. The db is mostly aimed at read-only operations but users will occasionally need to update/delete records as well. If this will not be possible at the time (due to the db being locked or whatever), I can hold the updates on the client and process them at a later time. 
+ The question itself goes along these points: 
+ 
+ How are concurrent reads handled in MDB? 
+ How are concurrent updates/deletes handled in MDB? 
+ Is there a concept of locks and how can I leverage it in a .NET app? 
+ Is placing the MDB file on a network share good or horrible idea? 
+ 
+ As I am working in .NET, I would also love to know how can I detect any concurrency problems and take appropriate action. I.e., which exception should I catch and what action would you recommend to take? 
+ **EDIT**
+: It may be my bad description of the problem, but most answers seem to advise going for a full blown DB server. I do understand the differences and benefits of having a server installation and have in fact implemented a fair number of projects on MSSQL and Oracle. In this question, however, I am only concerned with Access and its concurrency issues, so please do not suggest a db server. 
+ Thanks for your help. 
+ 
+ This is an old question, but nobody has ever actually answered it. Here are the questions: 
+ 
+ How are concurrent reads handled in MDB? 
+ How are concurrent updates/deletes handled in MDB? 
+ Is there a concept of locks and how can I leverage it in a .NET app? 
+ Is placing the MDB file on a network share good or horrible idea? 
+ 
+ The first two questions can basically be answered with one explanation. One key caveat here: the answers I'm giving here are specific to Jet MDBs (and their variants) and do not completely apply to the new file format introduced starting with A2007, i.e., ACCDB format. I have not fully explored the implications of the removal of Jet ULS from the ACE and some of the comments below may assume Jet ULS below the hood. For a lot of things, though, you can substitute "LACCDB file" for "LDB file" and the results will be the same. 
+ **1-2) Concurrent reads/updates/deletes**
+
+ The Jet database engine is often referred to as a "file server" database in that there is no server-side demon managing I/O with the data files on the server. What this means is that all clients using a Jet MDB are reading the file directly. 
+ That is, of course, a recipe for disaster if there's not some mechanism built in for handling concurrent access to the file. 
+ Jet uses a record-locking file, where if your MDB is "MyFile.MDB" the record locking file will be in the same folder and called "MyFile.LDB". The LDB file records what Jet ULS users have the MDB file open, what workstation that user is connected from, and all the information necessary for negotiating concurrency issues. 
+ Now, to those who cut their teeth on client/server database engines, this may seem primitive and dangerous, but at the time the Jet database engine was developed, its purpose was to be used as a desktop database engine for small workgroups, and it was competing with other desktop db engines like xBase and Paradox, both of which used analogous locking files to manage concurrent use of data files from multiple clients. 
+ Within a Jet database file, locks are applied either on data pages (which in Jet 4 were increased to 4K, whereas in Jet 3.x and before, they were 2K), or at the record level if the data table was originally created to use record-level locking. In the early days of Jet 4, record-level locking was found by many to be quite slow, particularly when using pessimistic locking, so a lot of Access developers never used anything but page-level locking (@David Fenton raises hand!). 
+ In fact, when using optimistic locking, you avoid most of the concurrency issues that would come with pessimistic locking. 
+ Some caveats: 
+ 
+ from DAO, record-level locking is unavailable, and you only ever get page-level locking. 
+ from DAO, there are a number of options for controlling optimistic/pessimistic locking, in particular the LockEdits argument of the OpenRecordset method, but that also interacts with certain of the setting specified in the OpenRecordset Options argument (e.g., Option dbReadOnly cannot be used with LockEdits). In addition to locking, there are also options for consistent/inconsistent updates, and all of this can interact with transactions (e.g., changes within an uncomitted transaction are not going to be visible to other users and thus will not conflict with them, but it can put read-only locks on the tables involved). 
+ 
+ From ADO/OLEDB, these Jet concurrency control structures are going to be mapped onto the relevant functions and arguments found in ADO/OLEDB. Since I use Jet only from Access, I interact with it only via DAO, so I can't advise on how you control these with ADO/OLEDB, but the point is that the Jet database engine offers control of your record locking when accessing it programmatically (as opposed to through the Access UI) -- it's just more complicated. 
+ **3) Locks and .NET**
+
+ I can't offer any advice here, other than that you'd likely use OLEDB as your data interface, but the point is that the locking functionality/control is there in the db engine itself, so there's likely a way to control it via OLEDB. It may not be pretty, though, as it seems to me that OLEDB is designed around client/server architectures, and Jet's file-based locking may not map onto that in an elegant way. 
+ **4) MDB on a network share**
+
+ Jet is very sensitive to the slightest hiccup in any network connection. Because of that, low-bandwidth networks can increase the vulnerability of Jet databases open across a slow connection. 
+ This is because major chunks of the database file have to be pulled across the wire to the local computer's RAM for processing. Now, many people erroneously claim that the entire MDB file is pulled across the wire, or that whole tables are pulled across the wire. This is not true. Instead, Jet first requests the indexes (and requests no more than necessary to fulfill the query) and then from that result determines exactly which data pages are needed and then pulls only those pages. This is surprisingly efficient and fast. 
+ Also, Jet does some very intelligent caching that can mean that a first data request can take a while, but subsequent requests for the same data happen nearly instantaneously because of caching. 
+ Now, if you haven't indexed your tables well, you may end up pulling the whole table and doing a full table scan. Likewise, if you base criteria on client-side functions that are not part of Jet's SQL dialect, you could end up pulling a full table (sorting on, say, Replace(MyField, "A", "Z") is likely to cause a full table scan). But that kind of thing is going to be inefficient with a client/server architecture, too, so it's just common-sense schema design to index things properly and be careful with using UDFs or non-Jet-compatible functions. In general, the same things that are efficient with client/server are going to be efficient with Jet (the major difference being that with Jet you're better off with a persistent connection in order to avoid the overhead of recreating the LDB file, which is significant). 
+ The other thing to avoid is trying to use Jet data across a WiFi connection. We all know how unreliable WiFi is, and it's just asking for trouble trying to work with Jet data across a WiFi connection. 
+ The bottom line: 
+ If you're using an MDB as a data store to serve data from a web server, you should put the data as close to the web server's RAM as possible. That means that where possible, on a disk volume that is attached to the physical web server. Where that's not possible, you want a fast, reliable LAN connection. GB LANs in data centers are pretty common these days and I'd be very comfortable working with Jet data across that kind of connection. 
+ For shared use, e.g., multiple client workstations running a VB.NET desktop app sharing a single Jet MDB as data store, it's pretty safe to have the data file on a reliable file server. Where possible, it's a good idea to put your Jet MDB files on machines that aren't serving multiple purposes (e.g., your domain controller that is running Exchange, SQL Server and acting as file server and print server may not be the best location). Apps like Exchange can badly interfere with file server functionality, and I'd usually recommend never putting MDB files on a server that is multi-tasking as an Exchange server unless it's extremely low volume. 
+ Other considerations: 
+ 
+ never try to distribute an MDB on a replicated file system, unless all users are using the same replica. That is, if you have two servers replicating files between them, don't even think about editing the MDB file from both servers. This will corrupt the file almost immediately. 
+ I would recommend against storing any MDB on anything other than a native Windows file system served via native Microsoft SMB networking. This means no Novell, no Linux, no SAMBA. The key reason for this is that there are apparently low-level hooks from Jet into some low-level locking functionality in the Windows file system that are not 100% replicated on other file systsm. Now, I'm very conservative on this, and many competent Access developers have reported excellent results with properly-configured Novell file servers (often there need to be some record-locking adjustments, though that may be less relevant these days -- I don't even know if Novell exists any more!), and blazing performance with Linux-based file servers running SAMBA. I'm cautious on this and would recommend any client against it (this includes various SAN devices, as well, since not a lot of them are Windows-based). 
+ I would never run them on any virtualized file system for the same reasons. However, I've got a client who has been running her single-user Access app under Parallels on a Mac Air for several years now without a single problem. But it's single-user, so the locking issues are going to be relatively minor. 
+ 
+ I don't know if that answers your questions or not. It's all based on my 13 years of regular use of Jet as an Access developer and study of the only published book on Jet, the Jet Database Engine Programmers Guide (for Jet 3.5 only). I haven't provided any real citations, but if anybody needs some details on anything I've said, I'll do the research if I can. 
+ 
+ I have built a dozen or so small business apps in Access over the years. Most have a max of 10-20 users on them at a time. The databases are split between an "app" and a "data" database. Performance is decent and no problems with concurrancy. Also corruption has been basically non-existant since Access 2000 SP2.  
+ There is a lot of people saying "don't ever use Access" - well if it is done right (ie by a professional developer) Access is quite a fine development package and I have made a good living at it. My customers are very happy with what I built. 
+ 
+ I've written two commercial products that use an Access database, running from a network share, for typically up to 10 users. If you don't abuse it, there's really no problem; but as you can see many developers don't ever get there - and because of its low end nature, there are a lot of crappy hacks built on it. In the case of one product, I had to redesign the app because of all the problems described in detail by others; but after I cleaned it up, I never had a database integrity issue across hundreds of installations. 
+ Its one big advantage is the single file database, which is easy to back up, restore, and copy to your laptop to dissect. Pretty much all the alternatives, including sqlite (although some won't admit it), require some form of DBA attention now and then. 
+ In most cases, Access provides record locks, and file locks for some DDL (e.g. schema changes) by default. 
+ But Microsoft is basically obsoleting it, and some of your colleagues will heap scorn upon you for using it. 
+ (At this point I normally duck for cover and yell "INCOMING!!!".) 
+ 
+ Access is really a desktop, single user solution. In practice, it has an upper user limit of "one". 
+ It is also a local engine. That is, when you run a query, data is pulled across the network to the local JET engine for processing. An .ldb file is placed on the network share to control locks. 
+ If you use a server side engine (MSSQL, MySQL, Sybase, 'Orable etc) then you submit a query to an engine that processes it and returns results to you. Locks are held internally. 
+ This has huge implications for performance, stability and data integrity. 
+ If your user decides to press the reset button, the Access databse has a fair chance of being corrupted and you'll have to delete the .ldb. 
+ With a proper database engine (MSSQL, Sybase, 'Orable: I don't like MySQL's backups) then you also a proper backup capability. Unless you have some whizzy software to backup inuse files, it's possible you'll have no backups of you data in the Access DB. 
+ I mentioned locks specifically because a db engine can handle concurrency and transaction far more efficiently and elegantly than any file-based system. 
+ I can see using an Access project as a front end for a database engine, but not investing in a full client app with an Access backend. 
+ 
+ I have been using Access, or more properly, Jet as a back-end on a very small, private site that can never grow as it is limited by the size of a profession in this small country. In three years I have not had any problems. There are less than 100 users, with about thirty to forty using it every day. The tables have a few thousand records. 
+ 
+ I don't have much experience with Access, but this link may be useful to you: 
+ http://office.microsoft.com/en-us/access/HP052408601033.aspx 
+ "You can put the entire Access database on a network server or in a shared folder. This is the easiest method to implement. Everyone shares the data and uses the same forms, reports, queries, macros, and modules. Use this strategy if you want everyone to use the Access database the same way or if you can't support users creating their own objects." 
+ "When you open an Access database file (.mdb) in shared mode, Microsoft Access also creates a locking information file (.ldb) with the same file name (for example, Northwind.ldb) and in the same folder as the database file. This locking information file stores the computer name (such as mypc) and security name (such as Admin) of each shared user of the database. Microsoft Access uses this information to control concurrency. In most cases, Microsoft Access automatically deletes the locking information file when the last user closes the database file." 
+ 
+ Access is supposed to be multi-user - I think Microsoft recommend it for up to 4 or 5 users, but in practice I'd recommend that you never use an Access database where there is more than a single user, although if you really don't have the choice it's acceptable for two or three, given certain provisos. 
+ I've had experience of four or five systems using an Access database back-end - all acquired from other 'developers' - and in all cases I've moved them to SQL Server as the as a priority after any immediate updates and fixes required when taking the contract - generally as soon as I could talk the boss paying the bill into it.  Time span for that is usually several months, so I have seen it running concurrent for a reasonable length of time under several different applications. 
+ Actually it will generally work passably well if the system does not have a lot of concurrent inserts/update and is not heavily used.  The chief practical problems in my experience are.. 
+ 
+ It's liable to corruption - it just does.  Generally this isn't too much of a problem as opening the file and running compact and repair will sort out the issues, but a good backup regime is absolutely essential. 
+ It's slow. Every time I've upgraded a system to SQL Server I've received a lot of kudos for speeding up the system from the users. 
+ The database file bloats because of the way that Access marks records as updated or deleted.  This further slows the system as the file has to be loaded across the network.  Consequently some regime that compresses the data, usually on a daily basis, is essential. 
+ 
+ All of the above are much less of a problem with single user systems as the underlying issues that prompt these are much less prominent. 
+ All in all I must emphasise that I would never recommend Access for any multi-user system.  However if really have too you'll probably get away with it so long as it's a lightly used application and you do institute the backup and maintenance procedures. 
+ 
+ It's already been stated several times to use a real multi-user, free database platform. But one of the reasons why has not been stated. This reason is, how many existing, messy, troublesome, large Access databases have started out as "a few records, one or two users max"? I'd venture to say all of them. 
+ Unless there are only two or three employees in the whole company, the odds are that if you develop a useful piece of software, it's going to eventually be used by more than the original two or three users, have more than the original few thousand records, and will expand over the years to include many forms, many more tables, and much more data. You can't redo the foundation of a house once the house is built. Build a strong foundation today, and you can expand the house to your heart's content. Same for software. 
+ 
+ When going with a network share I would go with a network enabled database (mysql/firebird/mssql) instead of access.  
+ For the situation your describing using Access wouldn't be a problem.  
+ I have used Access in more challenging situations then this mostly when working with websites when Access isn't abused beyond measure it really isn't that bad of a database engine. (not talking about forms and stuff like that just tables and records) 
+ When your doing inserts/updates/deletes from several users at once then it gets a bit hairy. This is the point where you start to think about real database engines.  
+ Also when you want a low overhead database which is thread safe you can have a look at vistadb (slower then access, not always free, 100% .NET) 
+ I think access uses table level locks with some kind of queeing mechanism things should work ok. 
+If your worried about it you can always throw a simulated stress test at it. 
+ 
+ I think you can define it in your .net application connection string. I googled for JET, access and record locking 
+ here's a  link  that might help. 
+ Please see the accepted answer for real details on how Access and JET get data. 
+ 
+ Please don't use Access for a multi-user scenario.  
+ I've just gone through two weeks of pain because my predeccessor on a project chose Access as a back end. 
+ Concrete reasons: 
+ 
+ There is no such thing as Linq-to-Access 
+ Access has numerous quirks like dependencies on the order of addition of parameters to commands that will take you ages to debug 
+ Access doesn't scale 
+ Database updates are a chore when compared to using SQL Server 
+ 
+ 

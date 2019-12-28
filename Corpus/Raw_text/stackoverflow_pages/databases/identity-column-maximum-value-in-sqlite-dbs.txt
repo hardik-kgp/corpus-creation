@@ -1,0 +1,32 @@
+*** identity-column-maximum-value-in-sqlite-dbs ***
+
+ I have a purely academic question about SQLite databases. 
+ I am using SQLite.net to use a database in my WinForm project, and as I was setting up a new table, I got to thinking about the maximum values of an ID column. 
+ I use the   for my   column, which according to  SQLite.net DataType Mappings , is equivalent to  .  I normally start my ID columns at zero (with that row as a test record) and have the database auto-increment.  
+ The maximum value ( ) is 9,223,372,036,854,775,807. For my purposes, I'll never even scratch the surface on reaching that maximum, but what happens in a database that does? While trying to read up on this, I found that DB2 apparently "wraps" the value around to the negative value (-9,223,372,036,854,775,807) and increments from there, until the database can't insert rows because the ID column has to be unique. 
+ Is this what happens in SQLite and/or other database engines? 
+ 
+ I doubt anybody knows for sure, because if a million rows per second were being inserted, it would take about 292,471 years to reach the wrap-around-risk point -- and databases have been around for a tiny fraction of that time (actually, so has Homo Sapiens;-). 
+ 
+ IDENTITY is not actually the proper way to auto-increment in SQLite.  That will require you do the incrementing in the app layer.  In the SQLite shell, try: 
+ 
+ You will see that id is simply null.  SQLite does not give any special significance to IDENTITY, so it is basically an ordinary (untyped) column. 
+ On the other hand, if you do: 
+ 
+ it will be 1 as I think you expect. 
+ Note that  there is also  a INTEGER PRIMARY KEY AUTOINCREMENT.  The basic difference is that AUTOINCREMENT ensures keys are never reused.  So if you remove John, 1 will never be reused as a id.   Either way, if you use PRIMARY KEY (with optional AUTOINCREMENT) and run out of ids, SQLite is supposed to fail with SQLITE_FULL, not wrap around. 
+ By using IDENTITY, you do open the (probably irrelevant) likelihood that your  app  will incorrectly wrap around if the db were ever full.  This is quite possible, because IDENTITY columns in SQLite can hold any value (including negative ints).  Again, try: 
+ 
+ Both of those are completely valid.  They would be valid for baz too.   However , with baz you can avoid manually specifying id.  That way, there will never be junk in your id column. 
+ 
+ The documentation at  http://www.sqlite.org/autoinc.html  indicates that the   will try to find an unused value via randomization once it reached its maximum number. 
+ For   it will fail with   on all attempts to insert into this table, once there was a maximum value in the table: 
+ 
+ If the table has previously held a row with the largest possible ROWID, then new INSERTs are not allowed and any attempt to insert a new row will fail with an SQLITE_FULL error. 
+ 
+ This is necessary, as the   guarantees that the ID is monotonically increasing. 
+ 
+ I can't speak to any specific DB2 implementation logic, but the "wrap around" behavior you describe is standard for numbers that implement signing via  two's complement . 
+ As for what would actually happen, that's completely up in the air as to how the database would handle it. The issue arises at the point in time of actually CREATING the id that's too large for the field, as it's unlikely that the engine internally uses a data type of more than 64 bits. At that point, it's anybody's guess...the internal language used to develop the engine could throw up, the number could silently wrap around and just cause a primary key violation (assuming that a conflicting ID existed), the world could come to an end due to your overflow, etc. 
+ But pragmatically, Alex is correct. The theoretical limit on the number of rows involved here (assuming it's a one-id-per row and not any sort of cheater identity insert shenanigans) would basically render the situation moot, as by the time that you could conceivably enter that many rows at even a stupendous insertion rate we'll all dead anyway, so it doesn't matter :) 
+ 

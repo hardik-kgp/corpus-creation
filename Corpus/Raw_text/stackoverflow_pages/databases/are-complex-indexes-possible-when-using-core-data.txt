@@ -1,0 +1,32 @@
+*** are-complex-indexes-possible-when-using-core-data ***
+
+ I'm working on an iOS flash-card style learning app that, on load, needs to grab a bunch of data from Core Data. But the data I need is a fairly specific subset of the entity, based on user settings, so there are multiple predicates involved testing equivalence. I'm finding these fetches are super slow and, based on research on SQLite, I think an index would be a good choice here. 
+ Now, I understand (largely from reading other stackoverflow questions) that SQLite and Core Data are two different, basically orthogonal things that should not be confused. But it's also my understanding that you're supposed to work through Core Data to do any sort of database work and tweaking; you shouldn't try to bypass and work directly with SQLite when optimizing or designing object permanence in your app. 
+ But the only thing I can find for indexes in Core Data is that one "indexed" checkbox for each attribute in a model. And that's just not doing the sort of optimization I'm looking for. 
+ Here's the fetch request, currently: 
+ 
+ So essentially what this fetch does is sort by next (the time when the given item is due) and filter for username, language being studied, the style being studied (in Chinese there's simplified and traditional) and the parts being studied (writing, tone, reading, or definition), and only fetching within a "next" range. Here's a short list of things I've learned from tweaking and fiddling with this: 
+ 
+ It always scans the whole table, or seems to. Though next is indexed, even if I force it to search a range which I know will return nothing, it still takes several seconds for the fetch to complete. 
+ The predicates, any number of predicates, makes this slow. If I remove some but not all, it's about as slow. If I remove all predicates (thus breaking the app) then it's much faster. 
+ The speed is heavily dependent on how many UserItems there are total in the table. The more items there are, the slower this is. Some people can have tens of thousands of items, and that's when this fetch can take as much as 10 seconds to complete. This is leading to awkward pauses in my app. 
+ The upper bound on the next value was added not because we need it, but because it speeds up the fetch a little bit. 
+ Having the query return a subset of the properties in a dictionary (rather than an entire managed object) and fetching the rest lazily is faster, but still not faster enough. 
+ 
+ I'm coming from Google App Engine here, so I'm used to the indexes they provide there. Essentially I want that sort of index, but applied to SQLite through Core Data. I found information on adding indexes in SQLite, the kind I would want, but doing this sort of indexing through Core Data, I can't find any information on that. 
+ 
+ What you want is a  **Compound Index**
+ which Core Data supports in iOS 5.0 and later. 
+ You can set it up in Xcode: The  Entity  inspector has an  Indexes  section, or if you're creating the   in code, use  . 
+ If you use Xcode, you'd add a line in the  Indexes  section that says 
+ 
+ That way SQL can use an index for your query. 
+ 
+ Core Data has an SQL backend. The way you have done this you will have all the data in one table (part of one entity) and to find the objects you are looking for will require searching through all rows, as you say is happening. 
+ In your Data Model you need to break up some of the attributes you are searching for into other entities. Try and make it more object based and think about what you will be searching for. 
+ E.g.
+have an entity for User, Language and perhaps one for lessons or whatever time based thing it is that you are searching over.  
+ The Lesson entity has a to many relationship for Language and a single relationship to user. (or to many if more than one user takes a class)   
+ Then to look for a user's data you fetch that user and investigate her Language or Lessons property to find out more. 
+ To look for a list of users studying a language fetch the language entity you are looking for and investigate the users property. 
+ 

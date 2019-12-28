@@ -1,0 +1,99 @@
+*** whats-faster-select-distinct-or-group-by-in-mysql ***
+
+ If I have a table 
+ 
+ and I want to get all unique values of   field, what would be faster (or recommended): 
+ 
+ or 
+ 
+ ? 
+ 
+ They are essentially equivalent to each other (in fact this is how some databases implement   under the hood). 
+ If one of them is faster, it's going to be  .  This is because, although the two are the same, a query optimizer would have to catch the fact that your   is not taking advantage of any group members, just their keys.   makes this explicit, so you can get away with a slightly dumber optimizer. 
+ When in doubt, test! 
+ 
+ If you have an index on  , these two are synonyms. 
+ If you don't, then use  . 
+  in   sorts results. You can even do: 
+ 
+ and get your professions sorted in   order. 
+  creates a temporary table and uses it for storing duplicates.   does the same, but sortes the distinct results afterwards. 
+ So 
+ 
+ is faster, if you don't have an index on  . 
+ 
+ Go for the simplest and shortest if you can -- DISTINCT seems to be more what you are looking for only because it will give you EXACTLY the answer you need and only that! 
+ 
+ All of the answers above are correct, for the case of DISTINCT on a single column vs GROUP BY on a single column. 
+Every db engine has its own implementation and optimizations, and if you care about the very little difference (in most cases) then you have to test against specific server AND specific version! As implementations may change... 
+ BUT, if you select more than one column in the query, then the DISTINCT is essentially different! Because in this case it will compare ALL columns of all rows, instead of just one column. 
+ So if you have something like: 
+ 
+ It is a common mistake to think that DISTINCT keyword distinguishes rows by the first column you specified, but the DISTINCT is a general keyword in this manner. 
+ So people you have to be careful not to take the answers above as correct for all cases... You might get confused and get the wrong results while all you wanted was to optimize! 
+ 
+ Group by is expensive than Distinct since Group by does a sort on the result while distinct avoids it. But if you want to make group by yield the same result as distinct give  **order by null**
+ ..  
+ 
+ **is equal to**
+  
+ 
+ 
+ well distinct can be slower than group by on some occasions in postgres (dont know about other dbs). 
+ tested example: 
+ 
+ http://www.pgsql.cz/index.php/PostgreSQL_SQL_Tricks_I 
+ so be careful ... :) 
+ 
+ It seems that the queries are not exactly the same. At least for MySQL.  
+ Compare: 
+ 
+ describe select distinct productname from northwind.products 
+ describe select productname from northwind.products group by productname 
+ 
+ The second query gives additionally "Using filesort" in Extra. 
+ 
+ In  MySQL , " " uses an extra step:  . I realize   is faster than  , and that was a surprise. 
+ 
+ (more of a functional note) 
+ There are cases when you have to use GROUP BY, for example if you wanted to get the number of employees per employer: 
+ 
+ In such a scenario   doesn't work right. Perhaps there is a way, but I just do not know it. (If someone knows how to make such a query with DISTINCT please add a note!) 
+ 
+ After heavy testing we came to the conclusion that GROUP BY is faster 
+ SELECT sql_no_cache
+opnamegroep_intern
+  FROM  
+  WHERE   IN (7,8,9,10,11,12,13) group by opnamegroep_intern 
+ 635 totaal 0.0944 seconds
+Weergave van records 0 - 29 ( 635 totaal, query duurde 0.0484 sec) 
+ SELECT sql_no_cache
+distinct (opnamegroep_intern)
+  FROM  
+  WHERE   IN (7,8,9,10,11,12,13)  
+ 635 totaal 0.2117 seconds ( almost 100% slower )
+Weergave van records 0 - 29 ( 635 totaal, query duurde 0.3468 sec) 
+ 
+ Here is a simple approach which will print the 2 different elapsed time for each query. 
+ 
+ OR try  SET STATISTICS TIME (Transact-SQL) 
+ 
+ It simply displays the number of milliseconds required to parse, compile, and execute each statement as below: 
+ 
+ 
+ This is not a rule 
+ For each query .... try separately distinct and then group by ... compare the time to complete each query and use the faster ....  
+ In my project sometime I use group by and others distinct 
+ 
+ If you don't have to do any group functions (sum, average etc in case you want to add numeric data to the table), use SELECT DISTINCT. I suspect it's faster, but i have nothing to show for it. 
+ In any case, if you're worried about speed, create an index on the column. 
+ 
+ SELECT DISTINCT will always be the same, or faster, than a GROUP BY.  On some systems (i.e. Oracle), it might be optimized to be the same as DISTINCT for most queries.  On others (such as SQL Server), it can be considerably faster. 
+ 
+ **If**
+ the problem allows it, try with EXISTS, since it's optimized to end as soon as a result is found (And don't buffer any response), so, if you are just trying to normalize data for a WHERE clause like this 
+ 
+ A faster response would be: 
+ 
+ This isn't always possible but when available you will see a faster response. 
+ 

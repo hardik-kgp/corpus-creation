@@ -1,0 +1,120 @@
+*** sqlite3busyexception ***
+
+ Running a rails site right now using SQLite3. 
+ About once every 500 requests or so, I get a 
+ ActiveRecord::StatementInvalid (SQLite3::BusyException: database is locked:... 
+ What's the way to fix this that would be minimally invasive to my code? 
+ I'm using SQLLite at the moment because you can store the DB in source control which makes backing up natural and you can push changes out very quickly. However, it's obviously not really set up for concurrent access. I'll migrate over to MySQL tomorrow morning. 
+ 
+ By default, sqlite returns immediatly with a blocked, busy error if the database is busy and locked.  You can ask for it to wait and keep trying for a while before giving up.  This usually fixes the problem, unless you do have 1000s of threads accessing your db, when I agree sqlite would be inappropriate. 
+ 
+    // set SQLite to wait and retry for up to 100ms if database locked
+    sqlite3_busy_timeout( db, 100 );
+ 
+ 
+ You mentioned that this is a Rails site. Rails allows you to set the SQLite retry timeout in your database.yml config file: 
+ 
+ The timeout value is specified in miliseconds. Increasing it to 10 or 15 seconds should decrease the number of BusyExceptions you see in your log. 
+ This is just a temporary solution, though. If your site needs true concurrency then you will have to migrate to another db engine. 
+ 
+ All of these things are true, but it doesn't answer the question, which is likely: why does my Rails app occasionally raise a SQLite3::BusyException in production? 
+ @Shalmanese: what is the production hosting environment like? Is it on a shared host? Is the directory that contains the sqlite database on an NFS share? (Likely, on a shared host). 
+ This problem likely has to do with the phenomena of file locking w/ NFS shares and SQLite's lack of concurrency. 
+ 
+ Just for the record. In one application with Rails 2.3.8 we found out that Rails was ignoring the "timeout" option Rifkin Habsburg suggested. 
+ After some more investigation we found a possibly related bug in Rails dev:  http://dev.rubyonrails.org/ticket/8811 . And after some more investigation we found  the solution  (tested with Rails 2.3.8): 
+ Edit this ActiveRecord file: activerecord-2.3.8/lib/active_record/connection_adapters/sqlite_adapter.rb 
+ Replace this: 
+ 
+ with 
+ 
+ And that's all! We haven't noticed a performance drop and now the app supports many more petitions without breaking (it waits for the timeout). Sqlite is nice! 
+ 
+ 
+ It worked for me it will reset and show the pending migration. 
+ 
+ Sqlite can allow other processes to wait until the current one finished. 
+ I use this line to connect when I know I may have multiple processes trying to access the Sqlite DB: 
+ conn = sqlite3.connect('filename',  **isolation_level = 'exclusive'**
+) 
+ According to the Python Sqlite Documentation: 
+ 
+ You can control which kind of BEGIN
+  statements pysqlite implicitly
+  executes (or none at all) via the
+  isolation_level parameter to the
+  connect() call, or via the
+  isolation_level property of
+  connections. 
+ 
+ 
+ I had a similar problem with rake db:migrate. Issue was that the working directory was on a SMB share.
+I fixed it by copying the folder over to my local machine. 
+ 
+ If you have this issue but  **increasing the timeout does not change anything**
+, you might have another concurrency issue with transactions, here is it in summary: 
+ 
+ Begin a transaction (aquires a  SHARED  lock) 
+ Read some data from DB (we are still using the  SHARED  lock) 
+ Meanwhile, another process starts a transaction and write data (acquiring the  RESERVED  lock). 
+ Then you try to write, you are now trying to request the  RESERVED  lock 
+ SQLite raises the SQLITE_BUSY exception  **immediately**
+ (indenpendently of your timeout) because your previous reads may no longer be accurate by the time it can get the  RESERVED  lock. 
+ 
+ One way to fix this is to patch the   sqlite adapter to aquire a  RESERVED  lock directly at the begining of the transaction by padding the   option to the driver. This will decrease performance a bit, but at least all your transactions will honor your timeout and occurs one after the other. Here is how to do this using   (Ruby 2.0+) put this in a initializer: 
+ 
+ Read more here:  https://rails.lighthouseapp.com/projects/8994/tickets/5941-sqlite3busyexceptions-are-raised-immediately-in-some-cases-despite-setting-sqlite3_busy_timeout 
+ 
+ Most answers are for Rails rather than raw ruby, and OPs question IS for rails, which is fine. :) 
+ So I just want to leave this solution over here should any raw ruby user have this problem, and is not using a yml configuration. 
+ After instancing the connection, you can set it like this: 
+ 
+ 
+ Source:  this link 
+ 
+ 
+ What table is being accessed when the lock is encountered? 
+ Do you have long-running transactions? 
+ Can you figure out which requests were still being processed when the lock was encountered? 
+ 
+ Argh - the bane of my existence over the last week. Sqlite3 locks the db file when any process  writes  to the database. IE any UPDATE/INSERT type query (also select count(*) for some reason). However, it handles multiple reads just fine. 
+ So, I finally got frustrated enough to write my own thread locking code around the database calls. By ensuring that the application can only have one thread writing to the database at any point, I was able to scale to 1000's of threads. 
+ And yea, its slow as hell. But its also fast enough and  correct , which is a nice property to have. 
+ 
+ I found a deadlock on sqlite3 ruby extension and fix it here: have a go with it and see if this fixes ur problem.  
+ 
+
+    https://github.com/dxj19831029/sqlite3-ruby
+
+ 
+ I opened a pull request, no response from them anymore. 
+ Anyway, some busy exception is expected as described in sqlite3 itself.  
+ **Be aware**
+ with this condition:  sqlite busy 
+ 
+
+    The presence of a busy handler does not guarantee that it will be invoked when there is 
+    lock contention. If SQLite determines that invoking the busy handler could result in a 
+    deadlock, it will go ahead and return SQLITE_BUSY or SQLITE_IOERR_BLOCKED instead of 
+    invoking the busy handler. Consider a scenario where one process is holding a read lock 
+    that it is trying to promote to a reserved lock and a second process is holding a reserved 
+    lock that it is trying to promote to an exclusive lock. The first process cannot proceed 
+    because it is blocked by the second and the second process cannot proceed because it is 
+    blocked by the first. If both processes invoke the busy handlers, neither will make any 
+    progress. Therefore, SQLite returns SQLITE_BUSY for the first process, hoping that this 
+    will induce the first process to release its read lock and allow the second process to 
+    proceed.
+
+ 
+ If you meet this condition, timeout isn't valid anymore. To avoid it, don't put select inside begin/commit. or use exclusive lock for begin/commit. 
+ Hope this helps. :) 
+ 
+ this is often a consecutive fault of multiple processes accessing the same database, i.e. if the "allow only one instance" flag was not set in RubyMine 
+ 
+ Try running the following, it may help:  
+ 
+ From:  Ruby: SQLite3::BusyException: database is locked: 
+ This may clear up the any transaction holding up the system 
+ 
+ I believe this happens when a transaction times out. You really should be using a "real" database. Something like Drizzle, or MySQL. Any reason why you prefer SQLite over the two prior options?  
+ 

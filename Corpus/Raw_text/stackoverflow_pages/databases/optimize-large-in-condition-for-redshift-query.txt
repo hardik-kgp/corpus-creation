@@ -1,0 +1,59 @@
+*** optimize-large-in-condition-for-redshift-query ***
+
+ I have a ~2TB fully vacuumed Redshift table with a distkey   (high cardinality, hundreds of millions of values) and compound sortkeys  . 
+ When I do a query like: 
+ 
+ It returns very quickly.  However when I increase the number of hashes beyond 10, Redshift converts the IN condition from a bunch of ORs to an array, per  http://docs.aws.amazon.com/redshift/latest/dg/r_in_condition.html#r_in_condition-optimization-for-large-in-lists 
+ The problem is when I have a couple dozen   values, the "optimized" query goes from less than a second response time to over half an hour.  In other words it stops using the sortkey and does a full table scan. 
+ Any idea how I can prevent this behavior and retain the use of sortkeys to keep the query quick? 
+ Here is the   difference between <10 hashes and >10 hashes: 
+ Less than 10 (0.4 seconds): 
+ 
+ More than 10 (45-60 minutes): 
+ 
+ 
+ It's worth a try to set  , putting   first. 
+ The reason of slowness might be because the leading column for the sort key is   which looks like a random character.
+As AWS redshift dev docs says, the timestamp columns should be as the leading column for the sort key if using that for where conditions. 
+ 
+ If recent data is queried most frequently, specify the timestamp
+  column as the leading column for the sort key.
+   -  Choose the Best Sort Key - Amazon Redshift 
+ 
+ With this order of the sort key, all columns will be sorted by  , then  .  ( What does it mean to have multiple sortkey columns? ) 
+ One note is that you have to recreate your table to change the sort key.  This  will help you to do that. 
+ 
+ You can try to create temporary table/subquery: 
+ 
+ Alternatively do searching in chunks (if query optimizer merge it to one, use auxiliary table to store intermediate results): 
+ 
+ If query optimizer merge it to one you can try to use temp table for intermediate results 
+ **EDIT:**
+
+ 
+ 
+ Do you really need   ? This operator could be expensive. 
+ I'd try to use  . In the query below the table   has a column   - this is your big batch of hashes. It could be a temp table, a (sub)query, anything. 
+ 
+ It is quite likely that optimizer implements   as a nested loop. It would loop through all rows in   and for each row run the  . The inner   should use index that you have on  . To play it safe include   into the index as well to make it a covering index:  . 
+ 
+ There is a very valid point in the answer by @Diego: instead of putting constant   values into the query, put them in a temporary or permanent table. 
+ I'd like to extend the answer by @Diego and add that it is important that this table with hashes has index, unique index.  
+ So, create a table   with one column   that has exactly the same type as in your main  . It is important that types match. Make that column a primary key with unique clustered index. Dump your dozens of   values into the   table. 
+ Then the query becomes a simple  , not lateral: 
+ 
+ It is still important that   has index on  . 
+ Optimizer should be able to take advantage of the fact that both joined tables are sorted by   column and that it is unique in the   table. 
+ 
+ you can get rid of the "ORs" by inserting the data you want into a temp table and joining it with your actual table. 
+ Here's an example (I'm using a CTE because with the tool Im using is hard to capture the plan when you have more than one SQL statement - but go with a temp table if you can) 
+ 
+ VERSUS 
+ 
+ and here's the plan, as you can see it looks more complex but that's because of the CTE, it wouldn't look that ways on a temp table: 
+ 
+ 
+ Did you try using union for all phash values? 
+ Just like that: 
+ 
+ 

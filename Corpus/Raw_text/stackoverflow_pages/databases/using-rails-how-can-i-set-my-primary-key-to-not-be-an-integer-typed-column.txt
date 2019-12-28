@@ -1,0 +1,103 @@
+*** using-rails-how-can-i-set-my-primary-key-to-not-be-an-integer-typed-column ***
+
+ I'm using Rails migrations to manage a database schema, and I'm creating a simple table where I'd like to use a non-integer value as the primary key (in particular, a string). To abstract away from my problem, let's say there's a table   where employees are identified by an alphanumeric string, e.g.  . 
+ I've tried creating the table in a migration like this: 
+ 
+ What this gives me is what seems like it completely ignored the line   and went ahead and made it an integer column. Is there some other way to have rails generate the PRIMARY_KEY constraint (I'm using PostgreSQL) for me, without having to write the SQL in an   call? 
+ **NOTE**
+: I know it's not best to use string columns as primary keys, so please no answers just saying to add an integer primary key. I may add one anyway, but this question is still valid. 
+ 
+ Unfortunately, I've determined it's not possible to do it without using  . 
+ **Why it doesn't work**
+
+ By examining the ActiveRecord source, we can find the code for  : 
+ In  : 
+ 
+ So we can see that when you try to specify a primary key in the   options, it creates a primary key with that specified name (or, if none is specified,  ). It does this by calling the same method you can use inside a table definition block:  . 
+ In  : 
+ 
+ This just creates a column with the specified name of type  . This is set to the following in the standard database adapters: 
+ 
+ **The workaround**
+
+ Since we're stuck with these as the primary key types, we have to use   to create a primary key that is not an integer (PostgreSQL's   is an integer using a sequence): 
+ 
+ And as  Sean McCleary mentioned , your ActiveRecord model should set the primary key using  : 
+ 
+ 
+ **This works:**
+
+ 
+ It may not be pretty, but the end result is exactly what you want. 
+ 
+ I have one way of handling this. The executed SQL is ANSI SQL so it will likely work on most ANSI SQL compliant relational databases.  I have tested that this works for MySQL. 
+ Migration: 
+ 
+ In your model do this: 
+ 
+ 
+ 
+ I have tried it in Rails 4.2. To add your custom primary key, you can write your migration as : 
+ 
+ While looking at the documentation of   and read the line : 
+ 
+ The   parameter is normally one of the migrations native types, which is one of the following: :primary_key, :string, :text, :integer, :float, :decimal, :datetime, :time, :date, :binary, :boolean. 
+ 
+ I got the above ides as i have shown. Here is the table meta data after running this migration : 
+ 
+ And from Rails console : 
+ 
+ 
+ In Rails 5 you can do 
+ 
+ See  create_table documentation . 
+ 
+ It looks like it is possible to do using this approach: 
+ 
+ That will make the column widget_id the primary key for the Widget class, then it is up to you to populate the field when objects are created.  You should be able to do so using the before create callback. 
+ So something along the lines of 
+ 
+ 
+ I am on Rails 2.3.5 and my following way works with SQLite3 
+ 
+ There is no need for :id => false. 
+ 
+ After nearly every solution which says "this worked for me on X database", I see a comment by the original poster to the effect of "didn't work for me on Postgres." The real issue here may in fact be the Postgres support in Rails, which is not flawless, and was probably worse back in 2009 when this question originally posted. For instance, if I remember correctly, if you're on Postgres, you basically can't get useful output from  . 
+ I am not a Postgres ninja myself, I got this info from Xavier Shay's excellent PeepCode video on Postgres. That video actually overlooks a library by Aaron Patterson, I think Texticle but I could be remembering wrong. But other than that it's pretty great. 
+ Anyway, if you're running into this problem on Postgres, see if the solutions work in other databases. Maybe use   to generate a new app as a sandbox, or just create something like 
+ 
+ in  . 
+ And if you can verify that it is a Postgres support issue, and you figure out a fix, please contribute patches to Rails or package your fixes in a gem, because the Postgres user base within the Rails community is pretty large, mainly thanks to Heroku. 
+ 
+ I found a solution to this that works with Rails 3: 
+ The migration  file: 
+ 
+ And in the employee.rb model: 
+ 
+ 
+ The trick that worked for me on Rails 3 and MySQL was this: 
+ 
+ So: 
+ 
+ use :id => false so as not to generate an integer primary key 
+ use the desired datatype, and add :null => false 
+ add a unique index on that column 
+ 
+ Seems that MySQL converts the unique index on a non null column to a primary key! 
+ 
+ you have to use the option :id => false 
+ 
+ 
+ How about this solution,  
+ Inside Employee model why can't we add code that will check for uniqueness in coloumn, for ex: Assume Employee is Model in that you have EmpId which is string then for that we can add   **":uniqueness => true"**
+ to EmpId 
+ 
+ I am not sure that this is solution but this worked for me. 
+ 
+ I know this is an old thread I stumbled across... but I'm kind of shocked no one mentioned DataMapper.  
+ I find if you need to stray out of the ActiveRecord convention, I've found that it is a great alternative. Also its a better approach for legacy and you can support the database "as-is".  
+ Ruby Object Mapper  (DataMapper 2) holds a lot of promise and build on AREL principles, too!   
+ 
+ Adding index works for me, I'm using MySql btw. 
+ 
+ 

@@ -1,0 +1,63 @@
+*** microservices-atomic-events ***
+
+ I'm learning about microservice data replication right now, and one thing I'm having trouble with is coming up with the right architecture for ensuring event atomicity.  The way I understand it, the basic flow is: 
+ 
+ Commit changes to a database. 
+ Publish an event detailing the changes on the global message bus. 
+ 
+ But what if, for example, a power outage occurred in-between Steps 1 and 2?  In a naively-built system, that would mean the changes persist but the event detailing them will never be published.  I've pondered the following ideas to create better guarantees, but I'm not quite sure of all the pros and cons of each: 
+ A:  Use an embedded database (like SQLite) in my microservice instance to track the full transaction, from the commit to the main database to the event publishing. 
+ B:  Create an Events table in my main database, using database transactions to insert the Event and commit the relevant changes at the same time.  The service would then push the Event to the bus, and then make another commit to the main database to mark the Event as Published. 
+ C:  As above, create an Events table in my main database, using database transactions to insert the Event and commit the relevant changes at the same time.  Then, notify (either manually via REST/Messages from within the service or via database hooks) a dedicated EventPusher service that a new event has been appended.  The EventPusher service will query the Events table and push the events to the bus, marking each one as Published upon acknowledgement.  Should a certain amount of time pass without any notification, the EventPusher will do a manual query. 
+ What are the pros and cons of each of the choices above?  Is there another superior option I have yet to consider? 
+ 
+ 
+ But what if, for example, a power outage occurred in-between Steps 1 and 2 
+ 
+ Consider the following approach:  
+ 
+ This pseudocode assumes that you are using something analogous to  Entity Framework  and  TransactionScope 
+ So even if your event store is implemented as some external service, your UpdateUser transaction will not be committed until event store signals success. 
+There is still  **small chance of failure**
+ when you've already got a response from the _eventStore but have not committed ORM transaction scope. In this worst case scenario you will end up with a published event but missing data from DB which always stores the latest snapshot of the state. Essentially, the snapshot becomes invalid for this aggregate.  
+ If your domain can not tolerate such risks,  **you should not store state/snapshot in the relational database at all**
+. Event store will be the only source of truth that you can rely on (this is a recommended approach by many CQRS/ES practitioners).  
+ 
+ B: Create an Events table in my main database, using database transactions to insert the Event and commit the relevant changes at the same time. The service would then push the Event to the bus, and then make another commit to the main database to mark the Event as Published. 
+ 
+ This approach will work as well, however, you will have to reinvent the wheel instead of simply reusing some  bulletproof implementation  of the event store. 
+ Options A and C are too exotic/overengineered to seriously consider as viable.  
+ 
+ I have been wondering the same thing.
+Apparently, there are a number of ways to deal with atomicity of updating the db and publishing the corresponding event. 
+ 
+ 
+ Event sourcing 
+ Application events 
+ Database triggers  
+ Transaction log tailing 
+ 
+ 
+ ( Pattern: Event-driven architecture ) 
+ The  Application events  pattern sounds similar to your ideas. 
+An example could be: 
+ 
+ The Order Service inserts a row into the ORDER table and inserts an
+  Order Created event into the EVENT table [in the scope of a single local db transaction]. The Event Publisher thread
+  or process queries the EVENT table for unpublished events, publishes
+  the events, and then updates the EVENT table to mark the events as
+  published. 
+ 
+ ( Event-Driven Data Management for Microservices ) 
+ If at any point the Event Publisher crashes or otherwise fails, the events it did not process are still marked as unpublished. 
+So when the Event Publisher comes back online it will immediately publish those events. 
+ If the Event Publisher published an event and then crashed before marking the event as published, the event might be published more than once. 
+For this reason, it is important that subscribers de-duplicate received messages. 
+ Additionally,  the answer  to a stackoverflow question — that might sound quite different to yours but in essence is asking the same thing — links to a couple of relevant blog posts. 
+ 
+ Removing 2PC (Two Phase Commit)   
+ Idempotency Patterns 
+ Transactions in Windows Azure (with Service Bus)  [See:  **Q: What are the chances that you will build something that will support at least transactional handoffs between Service Bus the Azure SQL database?**
+] 
+ 
+ 

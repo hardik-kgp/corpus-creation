@@ -1,0 +1,55 @@
+*** how-do-i-run-a-migration-without-starting-a-transaction-in-rails ***
+
+ I'm running some bizarre Postgres migration code from  OpenCongress  and I'm getting this error: 
+ 
+ So I'd like to try running it without getting wrapped by a transaction. 
+ 
+  has the following private method that gets called when running migrations: 
+ 
+ As you can see this will wrap the migration in a transaction if the connection supports it. 
+ In   you have: 
+ 
+ SQLite version 2.0 and beyond also support migration transactions.
+In   you have: 
+ 
+ So then, to skip transactions, you need to somehow circumvent this.
+Something like this might work, though I haven't tested it: 
+ 
+ You could then set up your migration as follows: 
+ 
+ 
+ There's now a method   that allows this, e.g.: 
+ 
+ 
+ An extremely simple, Rails-version-independent (2.3, 3.2, 4.0, doesn't matter) way about this is to simply add   to the beginning of your migration, and then write SQL. 
+ This immediately closes the Rails-started transaction, and allows you to write raw SQL that can create its own transactions.  In the below example, I use an   and a subselect   to handle updating a huge database table. 
+ As an example, 
+ 
+ 
+ The above answer is broken for Rails 3 as ddl_transaction was moved into ActiveRecord::Migrator. I could not figure out a way to monkey patch that class, so here is an alternate solution: 
+ I added a file under lib/ 
+ 
+ Then all you have to do in your migration is: 
+ 
+ What this does is disable transactions when the migration class is loaded (hopefully after all previous ones were loaded and before any future ones are loaded), then after the migration, restore whatever old transaction capabilities there were. 
+ 
+ Rails 4 +
+There is a method disable_ddl_transaction!, you can use it in your migration file like below. 
+ 
+ Below Rails 4  
+ Like some of answers above, there is a simple hack, you can commit the transaction and then after your migration has completed you again the begin the transaction, like below 
+ 
+ This can be helpful in case where we cant create/drop index concurrently, as these cannot be executed in a transaction.
+If you try you will get error "PG::ActiveSqlTransaction: ERROR:  DROP INDEX CONCURRENTLY cannot run inside a transaction block." 
+ 
+ I'm not saying this is the "right way" to do it, but what worked for me was to run just that one migration in isolation. 
+ 
+ where 20120801151807 is the timestamp of the migration. 
+ Apparently, it doesn't use a transaction when you run a single migration. 
+ 
+ As hacky as this is adding 'commit;' to the beginning of my sql worked for me, but that's for SQL Server, not sure if this works for postgres... 
+ Example:   is illegal inside a sql-server user transaction. 
+ so...: 
+ 
+ works fine...  We'll see if I regret it later. 
+ 

@@ -1,0 +1,34 @@
+*** why-is-hibernate-connection-autocommit-true-not-recommended-in-hibernate ***
+
+ In Hibernate API, there is a property  hibernate.connection.autocommit  which can be set to true.  
+ But in the API, they have mentioned that it is not recommended to set it like so: 
+ 
+ Enables autocommit for JDBC pooled connections (it is not
+  recommended). 
+ 
+ Why is it not recommended ? 
+What are the ill-effects of setting this property to true ? 
+ 
+ By default the autocommit value is false, therefore the transaction needs to be commited explicitly. This might be the reason why the changes not getting reflected in database, else can try flush to force the changes before commit. 
+ When you close the session, then it will get commited in database implicitly [depends on the implementation]. 
+ When you have cascading transactions & needs to rollback for atomicity, you need to have control over transactions & in that case, autocommit should be false. 
+ Either set autocommit as true or handle transactions explicitly. 
+ Here  is a good explanation on it. 
+ Hibernate forum  related to this. 
+ Stackoverflow question  on it. 
+ 
+ All database statements are executed within the context of a physical transaction,  even when we don’t explicitly declare transaction boundaries  (BEGIN/COMMIT/ROLLBACK). 
+ If you don't declare the transaction boundaries, then each statement will have to be executed in a separate transaction. This may even lead to opening and closing one connection per statement. 
+ Declaring a service as @Transactional will give you one connection for the whole transaction duration, and all statements will use that single isolation connection. This is way better than not using explicit transactions in the first place. On large applications you may have many concurrent requests and  reducing database connection acquiring request rate  is definitely improving your overall application performance. 
+ So the rule of thumb is: 
+ 
+ If you have read-only transactions that only execute one query, you can enable auto-commit for those. 
+ If you have transactions containing at more than one statement, you need to disable auto-commit, since you want all operations to execute in a single unit-of-work and you don't want to put extra pressure on your connection pool. 
+ 
+ 
+ My understanding is that if Hibernate autocommits, then a flush that fails part way through won't be rolled back. You'll have an incomplete/broken object graph. 
+ If you want a connection with autocommit on for something, you can always unwrap a newly created   to get the underlying JDBC Connection,   on it, do your work via JDBC APIs,  , and close the session. I would  not  recommend doing this on a   that's already done anything. 
+ 
+ Do not use the session-per-operation antipattern: do not open and close a Session for every simple database call in a single thread. The same is true for database transactions. Database calls in an application are made using a planned sequence; they are grouped into atomic units of work. This also means that auto-commit after every single SQL statement is useless in an application as this mode is intended for ad-hoc SQL console work. Hibernate disables, or expects the application server to disable, auto-commit mode immediately. Database transactions are never optional. All communication with a database has to occur inside a transaction. Auto-commit behavior for reading data should be avoided, as many small transactions are unlikely to perform better than one clearly defined unit of work. The latter is also more maintainable and extensible. 
+ find more information on this topic 
+ 

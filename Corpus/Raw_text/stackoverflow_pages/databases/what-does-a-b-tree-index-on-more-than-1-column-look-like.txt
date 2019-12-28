@@ -1,0 +1,47 @@
+*** what-does-a-b-tree-index-on-more-than-1-column-look-like ***
+
+ So I was reading up on indexes and their implementation, and I stumbled upon this website that has a brief explanation of b-tree indexes: 
+ http://20bits.com/articles/interview-questions-database-indexes/ 
+ The b-tree index makes perfect sense for indexes that are only on a single column, but let's say I create an index with multiple columns, how then does the b-tree work?  What is the value of each node in the b-tree?   
+ For example, if I have this table: 
+ 
+ and I create an index on: (id, name, city)  
+ and then run the following query: 
+ 
+ how does this query utilize the multiple column index, or does it not utilize it unless the index is created as (city, id, name) or (city, name, id) instead? 
+ 
+ Imagine that the key is represented by a Python tuple (col1, col2, col3) ... the indexing operation involves comparing   with   ... if you have don't know which value of col1 and col2 that you are interested in, but only col3, then it would have to read the whole index ("full index scan"), which is not as efficient. 
+ If you have an index on (col1, col2, col3), then you can expect that any RDBMS will use the index (in a direct manner) when the WHERE clause contains reference to (1) all 3 columns (2) both col1 and col2 (3) only col1. 
+ Otherwise (e.g. only col3 in the WHERE clause), either the RDBMS will not use that index at all (e.g. SQLite), or will do a full index scan (e.g. Oracle) [if no other index is better]. 
+ In your specific example, presuming that id is a unique identifier of a customer, it is pointless to have it appear in an index (other than the index that your DBMS should set up for a primary key or column noted as UNIQUE). 
+ 
+ With most implementations, the key is simply a longer key that includes all of the key values, with a separator.  No magic there ;-) 
+ In your example the key values could look something like 
+ 
+"123499|John Doe|Conway, NH"
+"32144|Bill Gates| Seattle, WA"
+ 
+ One of the characteristics of these indexes with composite keys is that the intermediate tree nodes can be used in some cases to "cover" the query. 
+ For example, if the query is to find the Name and City given the ID, since the ID is first in the index, the index can search by this efficiently. Once in the intermediate node, it can "parse" the Name and City, from the key, and doesn't need to go to the leaf node to read the same. 
+ If however the query wanted also to display the phone number, then the logic would follow down the leaf when the full record is found. 
+ 
+ Some implementations simply concatenate the values in the order of the columns, with delimiters. 
+ Another solution is to simply have a b-tree within a b-tree. When you hit a leaf on the first column, you get both a list of matching records and a mini b-tree of the next column, and so on. Thus, the order of the columns specified in the index makes a huge difference on whether that index will be useful for particular queries. 
+ Here's a related question I wrote last week: 
+ Does SQL Server jump leaves when using a composite clustered index? 
+ 
+ In Oracle a composite key index can be used even though the leading columns are not filtered. This is done through three mechanisms: 
+ 
+ A fast full index scan, in which multiblock reads are used to traverse the entire index segment. 
+ An index full scan, in which the index is read in the logical order of the blocks (I believe I read that in recent versions Oracle can use multiblock reads for this, but really you should count on single block reads) 
+ An inddex skip scan, where a very low cardinality for the non-predicated leading columns allows Oracle to perform multiple index range scans, one for each unique value of the leading column(s). These are pretty rare in my experience. 
+ 
+ Look for articles by Richard Foote or Jonathan Lewis for more information on Oracle index internals. 
+ 
+ Other than the "composite key" mechanism already described, one possibility is a   which works like a binary tree, but as you traverse each level you cycle through   dimensions.  That is, the first level of the tree separates the first dimension into two parts, the second level splits the second dimension, the  th level splits the first dimension again, etc..  This allows for efficient partitioning of data in any number of dimensions.  This approach is common in "spatial" databases (e.g., Oracle Spatial, PostGIS, etc.), but probably not as useful in "regular" multi-indexed tables. 
+ http://en.wikipedia.org/wiki/Kd-tree 
+ 
+ It can use the (id,name,city) index to satisfy a "City = ? " predicate, but very very inefficently. 
+ In order to use the index to satisfy this query it would need to walk most of tree structure looking for entries with the desired city. This is still probably an order of magnatude faster than scanning the table! 
+ An index of (city,name,id) would be the best index for your query. It would find all the desired city entries easily and would not need to access the underlying table to get the id and name values. 
+ 

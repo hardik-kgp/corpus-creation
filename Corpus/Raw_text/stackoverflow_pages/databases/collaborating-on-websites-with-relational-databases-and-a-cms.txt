@@ -1,0 +1,58 @@
+*** collaborating-on-websites-with-relational-databases-and-a-cms ***
+
+ What processes do you put in place when collaborating in a small team on websites with databases?  
+ We have no problems working on site files as they are under revision control, so any number of our developers can work from any location on this aspect of a website. 
+ But, when database changes need to be made (either directly as part of the development or implicitly by making content changes in a CMS), obviously it is difficult for the different developers to then merge these database changes. 
+ Our approaches thus far have been limited to the following: 
+ 
+ Putting a content freeze on the production website and having  **all**
+ developers work on the  **same**
+ copy of the production database 
+ Delegating tasks that will involve database changes to  **one**
+ developer and then asking other developers to import a copy of that database once changes have been made; in the meantime other developers work only on site files under revision control 
+ Allowing developers to make changes to their own copy of the database for the sake of their own development, but then manually making these changes on all other copies of the database (e.g. providing other developers with an SQL import script pertaining to the database changes they have made) 
+ 
+ I'd be interested to know if you have any better suggestions. 
+ We work mainly with MySQL databases and at present do not keep track of revisions to these databases. The problems discussed above pertain mainly to Drupal and Wordpress sites where a good deal of the 'development' is carried out in conjunction with changes made to the database in the CMS. 
+ 
+ Where i work, every developer (actually, every development virtual machine) has its own database (or rather, its own schema on a shared Oracle instance). Our working process is based around complete rebuilds. We don't have any ability to modify an existing database - we only ever have the nuclear option of blowing away the whole schema and building from scratch. 
+ We have a little 'drop everything' script, which uses queries on system tables to identify every object in the schema, constructs a pile of SQL to drop them, and runs it. Then we have a stack of DDL files full of CREATE TABLE statements, then we have a stack of XML files containing the initial data for the system, which are loaded by a loading tool. All of this is checked into source control. When a developer does an update from source control, if they see incoming database changes (DDL or data), they run the master build script, which runs them in order to create a fresh database from scratch. 
+ The good thing is that this makes life simple. We never need to worry about diffs, deltas, ALTER TABLE, reversibility, etc, just straightforward DDL and data. We never have to worry about preserving the state of the database, or keeping it clean - you can get back to a clean state at the push of a button. Another important feature of this is that it makes it trivial to set up a new platform - and that means that when we add more development machines, or need to build an acceptance system or whatever, it's easy. I've seen projects fail because they couldn't build new instances from their muddled databases. 
+ The main bad thing is that it takes some time - in our case, due to the particular depressing details of our system, a painfully long time, but i think a team that was really on top of its tools could do a complete rebuild like this in 10 minutes. Half an hour if you have a lot of data. Short enough to be able to do a few times during a working day without killing yourself. 
+ The problem is what you do about data. There are two sides to this: data generated during development, and live data. 
+ Data generated during development is actually pretty easy. People who don't work our way are presumably in the habit of creating that data directly in the database, and so see a problem in that it will be lost when rebuilding. The solution is simple: you don't create the data in the database, you create it in the loader scripts (XML in our case, but you could use SQL DML, or CSV with your database's import tool, or whatever). Think of the loader scripts as being source code, and the database as object code: the scripts are the definitive form, and are what you edit by hand; the database is what's made from them. 
+ Live data is tougher. My company hasn't developed a single process which works in all cases - i don't know if we just haven't found the magic bullet yet, or if there isn't one. One of our projects is taking the approach that live is different to development, and that there are no complete rebuilds; rather, they have developed a set of practices for identifying the deltas when making a new release and applying them manually. They release every few weeks, so it's only a couple of days' work for a couple of people that often. Not a lot. 
+ The project i'm on hasn't gone live yet, but it is replacing an existing live system, so we have a similar problem. Our approach is based on migration: rather than trying to use the existing database, we are migrating all the data from it into our system. We have written a rather sprawling tool to do this, which runs queries against the existing database (a copy of it, not the live version!), then writes the data out as loader scripts. These then feed into the build process just like any others. The migration is scripted, and runs every night as part of our daily build. In this case, the effort needed to write this tool was necessary anyway, because our database is very different in structure to the old one; the ability to do repeatable migrations at the push of a button came for free. 
+ When we go live, one of our options will be to adapt this process to migrate from old versions of our database to new ones. We'll have to write completely new queries, but they should be very easy, because the source database is our own, and the mapping from it to the loader scripts is, as you would imagine, straightforward, even as the new version of the system drifts away from the live version. This would let us keep working in the complete rebuild paradigm - we still wouldn't have to worry about ALTER TABLE or keeping our databases clean, even when we're doing maintenance. I have no idea what the operations team will think of this idea, though! 
+ 
+ You put all your database changes in SQL scripts. Put some kind of sequence number into the filename of each script so you know the order they must be run in. Then check in those scripts into your source control system. Now you have reproducible steps that you can apply to test and production databases. 
+ 
+ While you could put all your DDL into the VC, this can get very messy very quickly if you try to manage lots and lots of ALTER statements. 
+ Forcing all developers to use the same source database is not a very efficient approach either. 
+ The solution I used was to maintain a file for each database entity specifying how to create the entity (primarily so the changes could be viewed using a diff utility), then manually creating ALTER statements by comparing the release version with the current version - yes, it is rather labour intensive but the only way I've found to solve the problem.  
+ I had a plan to automate the generation of the ALTER statements - it should be relatively straightforward - indeed a quick google found  this article  and  this one . Never got round to implementing one myself since the effort of doing so was much greater than the frequency of schema changes on the projects I was working on. 
+ 
+ You can use the replication module of the database engine, if it has one. 
+One server will be the master, changes are to be made on it. 
+Developers copies will be slaves. 
+Any changes on the master will be duplicated on the slaves. 
+It's a one way replication. 
+ Can be a bit tricky to put into place as any changes on the slaves will be erased. 
+ Also it means that the developers should have two copy of the database. 
+One will be the slave and another the "development" database. 
+ There are also tools for cross database replications. 
+So any copies can be the master.  
+ Both solutions can lead to disasters (replication errors). 
+ The only solution is see fit is to have only one database for all developers and save it several times a day on a rotating history. 
+Won't save you from conflicts but you will be able to restore the previous version if it happens (and it always do...). 
+ 
+ Where I work we are using Dotnetnuke and this poses the same problems. i.e. once released the production site has data going into the database as well as files being added to the file system by some modules and in the DNN file system.  
+ We are versioning the site file system with svn which for the most part works ok. However, the database is a different matter. The best method we have come across so far is to use RedGate tools to synchronise the staging database with the production database. RedGate tools are very good and well worth the money. 
+ Basically we all develop locally with a local copy of the database and site. If the changes are major we branch. Then we commit locally and do a RedGate merge to put our DB changes on the the shared dev server. 
+ We use a shared dev server so others can do the testing. Once complete we then update the site on staging with svn and then merge the database changes from the development server to the staging server. 
+ Then to go live we do the same from staging to prod. 
+ This method works but is prone to error and is very time consuming when small changes need to be made. The prod DB is always backed up so we can roll back easily if a delivery goes wrong. 
+ One major headache we have is that Dotnetnuke uses identity cols in many tables and if you have data going into tables on development and production such as tabs and permissions and module instances you have a nightmare syncing them. Ideally you want to find or build a cms that uses GUI's or something else in the database so you can easily sync tables that are in use concurrently. 
+ We'd love to find a better method! As we have a lot of trouble with branching and merging when projects are concurrent. 
+ Gus 
+ 

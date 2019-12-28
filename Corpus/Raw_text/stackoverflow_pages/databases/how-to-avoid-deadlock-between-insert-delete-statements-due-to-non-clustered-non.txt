@@ -1,0 +1,36 @@
+*** how-to-avoid-deadlock-between-insert-delete-statements-due-to-non-clustered-non ***
+
+ Recently I have come across a deadlock scenario on OLTP box (Sql server 2005) of a client 
+and found that it's caused by two stored procedures being called by 2 different threads. 
+ 1, Insert sp that inserts data in X table. 
+ 
+ 2, Delete sp that deletes data from X table. 
+ 
+ X table has one unique, clustered primary key and two non clustered, non unique indexes. 
+I have analysed the deadlock by setting t1222 tace flag on and the output is summarized below;  
+ Insert sp acquired a IX lock on Non clustered index for Column 1.
+    Delete sp is waiting for X lock on the same Non clustered index for column 1 during this time. 
+ Delete sp acquired a U lock on Non clustered index for Column 2.
+    Insert sp is waiting for a IX lock on the same Non clustered index for Column 2 during this time. 
+ Any idea or suggestion to avoid deadlock would be really appreciated. 
+ **EDIT**
+
+ output of trace flag t1222 
+ 
+ 
+ One more important thing; the delete and insert statements always touches 2 different sets of data.  
+ 
+ Rather than post a description of your understanding of the deadlock graph, post the deadlock graph itself. the XML, not a bitmap of the graphical rendering. At a first glance, the fact that there is a conflict on an IX lock involved suggest lock escalation is occurring, which indicates there is no index to service the DELETE, or that the index tipping point on the join is hit. But then again, this is just speculation due to insufficient information. To give any meaningful answer, one would need the actual deadlock XML and the exact schema definition of the object involved. 
+ After UPDATE 
+ You still didn't provide the information requested: the exact schema of all objects involved, including the clustered and all non-clustered index definitions. Until then, the initial suspicion holds: the DELETE is doing a table scan and is has escalated to page lock granularity. This is due to bad indexing. 
+ Your evaluation that "the delete and insert statements always touches 2 different sets of data" is wrong on two accounts: 
+ 
+ when a query does a table scan it automatically implies that it will touch  all  the data, irrelevant of what rows actually qualify 
+ even on properly tuned databases where there all operation have covering indexes, locks are hashed and hashes conflict way more often than one would expect. A large scan will conflict with a lot more with just its own scanned rows, due to the  birthday paradox . See  %%lockres%% collision probability magic marker: 16,777,215 . 
+ 
+ As a side note, audit tables are almost always required to be clustered by incident date/time because all queries on them requests specific time intervals ('what happened between ... and ...') and item seeks can be satisfied by a non-clustered primary key in ID. Purging audit records, even when properly clustered, is riddled with performance problems and requires batching to avoid log explosion. The best solution is to deploy an  automated sliding window using partitioning , but that comes with its own challenges.  
+ 
+ I'd guess that table T2 has to be pretty big. Is column t2.date indexed? If not, then a table scan on a big table could cause your problems. Indexing that column could optimize the delete by avoiding the table scan. Alternatively, if the indexes on col1 or col2 are not really being used (or used enough), dropping them might also avoid the problem. 
+ How often do these deadlocks occur? If they are very infrequent, a kludgy work-around might suffice: Wrap each statement in a try/catch block, in the catch check if the error was due to deadlock, and if so retry the command. You can also  carefully  use   to pick which query will always win/lose (but you have to balance this with all calls to the table). 
+ Oh, and drop those  s. NOLOCK is ignored by inserts, updates, and deletes. 
+ 

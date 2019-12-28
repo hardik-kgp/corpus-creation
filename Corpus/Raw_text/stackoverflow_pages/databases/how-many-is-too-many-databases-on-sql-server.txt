@@ -1,0 +1,51 @@
+*** how-many-is-too-many-databases-on-sql-server ***
+
+ I am working with an application where we store our client data in separate SQL databases for each client.  So far this has worked great, there was even a case where some bad code selected the wrong customer ids from the database and since the only data in the database belonged to that client, the damage was not as bad as it could have been.  My concerns are about the number of databases you realistically have on an SQL Server. 
+ Is there any additional overhead for each new database you create? We we eventually hit a wall where we have just to many databases on one server? The SQL Server specs say you can have something like 32000 databases but is that possible, does anyone have a large number of database on one server and what are the problems you encounter. 
+ Thanks, 
+ Frank 
+ 
+ The upper limits are 
+ 
+ disk space 
+ memory 
+ maintenance 
+ 
+ Examples: 
+ 
+ Rebuilding indexes for 32k databases? When? 
+ If 10% of 32k databases each has a active set of 100MB data in memory at one time, you're already at 320GB target server memory 
+ knowing what DB you're connected too 
+ ... 
+ 
+ The effective limit depends on load, usage, database size etc. 
+ Edit: And bandwidth as Wyatt Barnett mentioned.. I forgot about network, the bottleneck everyone forgets about... 
+ 
+ The biggest problem with all the multiple databases is keeping them all in synch as you make schema changes. As far as realistic number of databases you can have and have the system work well, as usual it depends. It depends on how powerful the server is and how large the databases are. Likely you would want to have multiple servers at some point not just because it will be faster for your clients but because it will put fewer clients at risk at one time if something happens to the server. At what point that is, only your company can decide. Certainly if you start getting a lot of time-outs another server might be indicated (or fixing your poor queries might also do it). Big clients will often pay a premium to be on a separate server, so consider that in your pricing. We had one client so paranoid about their data we had to have a separate server that was not even co-located with the other servers. They paid big bucks for that as we had to rent extra space. 
+ 
+ ISPs routinely have one database server that is shared by hundreds or thousands of databases. 
+ 
+ Architecturally, this is the right call in general. You've seen the first huge advantage--oftentimes, damage can be limited to a single client and you have near zero risk of a client getting into another client's data. But you are missing the other big advantage--you don't have to keep all the clients on the same database server. When you do get big enough that your server is suffering, you can offload clients onto another box entirely with minimal effort. 
+ I'd also bet you'll run out of bandwidth to manage the databases before your server runs out of steam to handle more databases . . . 
+ 
+ What you are really asking about is Scalability;  Though, ideally setting up 32,000 Databases on one Server is probably not advantageous it is possible (though, not recommended).   
+ Read -  http://www.sql-server-performance.com/articles/clustering/massive_scalability_p1.aspx 
+ 
+ I know this is an old thread but it's the same structure we've had in place for the past 2 years and current run 1768 databases over 3 servers. 
+ We have the following setup (not included mirrors and so on): 
+ 
+ 2 web farm servers and 4 content servers 
+ SQL instance just for a master database of customers, which is queried when they access their webpage by the ID to get the server/instance and database name which their data resides on. This is then stored in the authentication ticket. 
+ 3 SQL servers to host customer databases on with load spread on creation based on current total number of learners that exist within all databases on each server (quickly calculated by license number field in master database). 
+ On each SQL Server there is a smaller master database setup which contains shared static data that is used by all clients, therefore allowing smaller client databases and quicker updating of the content. 
+ 
+ The biggest thing as mentioned above is keeping the database structures synchronises! For this I ended up programming a small .NET windows form that looks up all customers in the master database and you paste code in to execute and it'll loop through getting the database location and executing the SQL you past.  
+ Creating new customers also caused some issues for us, so I ended up programming a management system for our sale people and it create a new database based on a backup of a inactive "blank" database, therefore we have the latest DB without need to re-script the entire database creation script. It then inserts the customer details inside the master database with location of where the database was created and migrates any old data from an old version of our software. All this is done on a separate instance before moving, therefore reducing any SQL locks. 
+ We are now moving to a single database for our next version of the software as database redundancy is near impossible with so many databases! This is a huge thing to consider as SQL creates a couple of waiting tasks which mirror your data per database, once you start multiplying the databases it gets out of hand and the system almost solely is tasked with synchronising and can lock up due to the shear number of threads. See page 30 of Microsoft document below: 
+ SQLCAT's Guide to High Availability Disaster Recovery.pdf 
+ I do however have doubts about moving to a single database, due to some concerns as mentioned above, such as constantly checking in every single procedure that the current customer has access to only their data and also things along the lines of one little issue will now affect every single database, such as table indexing and so on. Also at the minute our customer are spaced over 3 servers, but the single database will mean yes we have redundancy, but if the error was within the database rather than server going down, then that's every single customer down, not just 1 customer database. 
+ All in all, it depends what you're doing and if you are wanting the redundancy; for me, the redundancy is now key and everything else in a perfect world shouldn't happen (such as error which causes errors within the database for everyone). We only started off expecting a hundred or so to move to the system from the old self hosted software and that quickly turned into 200,500,1000,1500... We now have over 750,000 users use our system each year and in August/September we have over 15,000 concurrent users online (expecting to hit 20,000 this year). 
+ Hope that this is of help to someone along the line :-) 
+ Regards 
+ Liam 
+ 

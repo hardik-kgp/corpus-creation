@@ -1,0 +1,88 @@
+*** best-representation-of-an-ordered-list-in-a-database ***
+
+ I know that this sort of goes against the principles of a relational database but let me describe the situation. 
+ I have a page where the user will place a number of items. 
+ 
+ These  items have must stay in a the order the user gives them. However this order may be changed an arbitrary number of times by the user. 
+ 
+ **Approach 1**
+
+ My original thought was to give the items an index to represent thier place in the list 
+ 
+ With this solution you can select items   and   which is convenient. However every time you change the order you have to change anywhere between one other item (best case) and all the other items (worst case). 
+ **Approach 2**
+
+ I also considered making a "linked list" like data structure where each item points to the next item in the list.  
+ 
+ This potentially makes changing the order less expensive but we would have to rely on front end programming to extract the order.  
+ Is there an approach that I haven't thought of? Please let me know. 
+ 
+ I think @a1ex07 is on the right track here (+1). I don't think gaps in   violate 3NF, but I do worry about a different violation of 3NF (more on this below). We also have to watch out for bad data in the   field. Here's how I'd start: 
+ 
+ The primary key ensures that for each page, for each user, there are unique items. The unique constraint ensures that for each page, for each user, there are unique itemOrders. Here's my worry about 3NF: in this scenario,   is not fully dependent on the primary key; it depends only on the   parts. That's not even 2NF; and that's a problem. We could include   in the primary key, but then I worry that it might not be minimal, as PKs need to be. We might need to decompose this into more tables. Still thinking . . . 
+ 
+ [ EDIT - More thinking on the topic . . . ] 
+ **Assumptions**
+
+ 
+ There are users. 
+ There are pages. 
+ There are items. 
+ (page, user) identifies a SET of items. 
+ (page, user) identifies an ordered LIST of slots in which we can store items if we like. 
+ We do not wish to have duplicate items in a (page,user)'s list. 
+ 
+ **Plan A**
+
+ Kill the   table, above. 
+ Add a table,  , to represent the SET of items identified by (page, user). 
+ 
+ Add table,  , to represent the ordered LIST of slots that might contain items. 
+ 
+ **Note 1**
+:   is nullable so that we can have empty slots if we want to. But if there is an item present it has to be checked against the items table. 
+ **Note 2**
+: We need the last FK to ensure that we don't add any items that are not in the set of possible items for this (user,page). 
+ **Note 3**
+: The unique constraint on   enforces our design goal of having unique items in the list (assumption 6). Without this we could add as many items from the set identified by (page,user) as we like so long as they are in different slots. 
+ Now we have nicely decoupled the items from their slots while preserving their common dependence on (page, user). 
+ This design is certainly in 3NF and might be in BCNF, though I worry about   in that regard. 
+ The problem is that because of the unique constraint in table   the cardinality of the relationship between   and   is one-to-one. In general, 1-1 relationships that are not entity subtypes are wrong. There are exceptions, of course, and maybe this is one. But maybe there's an even better way . . . 
+ **Plan B**
+
+ 
+ Kill the   table. 
+ Add a   column to  .  
+ Add a unique constraint on   to  .  
+ 
+ Now it's: 
+ 
+ **Note 4**
+: Leaving   nullable preserves our ability to specify items in the set that are not in the list. But . . . 
+ **Note 5**
+: Putting a unique constraint on a expression involving a nullable column might cause "interesting" results in some databases. I think it will work as we intend it to in Postgres. (See  this discussion  here on SO.)  For other databases, your mileage may vary. 
+ Now there is no messy 1-1 relationship hanging around, so that's better.
+It's still 3NF as the only non-key attribute ( ) depends on the key, the whole key, and nothing but the key. (You can't ask about   without telling me what page, user, and item you are talking about.) 
+ It's not BCNF because [   ->   ] and [  ->    ]. But that's why we have the unique constraint on (pid, uid, slotNum) which prevents the data from getting into an inconsistent state. 
+ I think this is a workable solution. 
+ 
+ Solution: make   a string (because strings, in essence, have infinite "arbitrary precision"). Or if you use an int, increment   by 100 instead of 1. 
+ The performance problem is this: there is no "in between" values between two sorted items. 
+ 
+ Instead, do like this (better solution below): 
+ 
+ Even better: here is how Jira solves this problem. Their "rank" (what you call index) is a string value that allows a ton of breathing room in between ranked items. 
+ Here is a real example of a jira database I work with 
+ 
+ Notice this example  . The advantage of a string rank is that you run out of room between two items, you  still  don't have to re-rank anything else. You just start appending more characters to the string to narrow down focus. 
+ EDIT: as mentioned in the comments, you can't insert anything between   and  . I guess that's why I see jira's database automatically append   at the end regularly instead of   to avoid that scenario. If you really want to prevent problems, then I  think  you can change your algorithm so that (for example) every time you would insert   at the end, you instead insert  . This way you logically guarantee that no ranking will end with the letter   -- which should mean that you will always have "room" to insert more items without having to re-order anything. 
+ 
+ You could add a new character (nvarchar) column to the   table called   that contains a delimited list of  's in the order you prefer, i.e.  . The advantage is just one field in one table to maintain - the obvious disadvantage would be the need to write a utility function(s) to convert between the character and numeric types which in reality probably wouldn't take too long. 
+ 
+ If you expect number of items is not huge, you can use a bit modified version of your first approach.  Just make gap between consecutive indexes. For example,  first item has index 100, second 200, etc. This way you don't have to update all indexes every time, only if you cannot find a gap 
+ 
+ Use the  **Approach 1**
+ and live with the performance implications of index updates. Unless you are dealing with  millions  of items per page, you are unlikely to find the performance lacking, and you retain all the power of SQL in dealing with  sets  of data. 
+ In addition to being much harder to work with from the pure non-procedural SQL, the  **Approach 2**
+ would still require you to traverse the list to find the right place to reconnect the "links" when reordering the item. 
+ 

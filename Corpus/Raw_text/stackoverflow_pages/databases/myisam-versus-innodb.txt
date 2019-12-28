@@ -1,0 +1,317 @@
+*** myisam-versus-innodb ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ I'm working on a projects which involves a lot of database writes, I'd say ( 70% inserts and 30% reads ).  This ratio would also include updates which I consider to be one read and one write.  The reads can be dirty (e.g. I don't need 100% accurate information at the time of read). 
+The task in question will be doing over 1 million database transactions an hour.   
+ I've read a bunch of stuff on the web about the differences between MyISAM and InnoDB, and MyISAM seems like the obvious choice to me for the particular database/tables that I'll be using for this task.  From what I seem to be reading, InnoDB is good if transactions are needed since row level locking is supported. 
+ Does anybody have any experience with this type of load (or higher)?  Is MyISAM the way to go? 
+ 
+ I have briefly  discussed  this question in a table so you can conclude whether to go with  **InnoDB**
+ or  **MyISAM**
+. 
+ Here is a small overview of which db storage engine you should use in which situation: 
+ 
+                                                 MyISAM   InnoDB
+----------------------------------------------------------------
+Required full-text search                        Yes      5.6.4
+----------------------------------------------------------------
+Require transactions                                      Yes
+----------------------------------------------------------------
+Frequent select queries                          Yes      
+----------------------------------------------------------------
+Frequent insert, update, delete                           Yes
+----------------------------------------------------------------
+Row locking (multi processing on single table)            Yes
+----------------------------------------------------------------
+Relational base design                                    Yes
+ 
+ To summarize: 
+ 
+Frequent reading, almost no writing   => MyISAM
+Full-text search in MySQL <= 5.5      => MyISAM
+ 
+ In all other circumstances,  **InnoDB**
+ is usually the best way to go. 
+ 
+ I'm not a database expert, and I do not speak from experience. However: 
+ MyISAM tables use table-level locking . Based on your traffic estimates, you have close to 200 writes per second. With MyISAM,  only one of these could be in progress at any time . You have to make sure that your hardware can keep up with these transaction to avoid being overrun, i.e., a single query can take no more than 5ms. 
+ That suggests to me you would need a storage engine which supports row-level locking, i.e., InnoDB. 
+ On the other hand, it should be fairly trivial to write a few simple scripts to simulate the load with each storage engine, then compare the results. 
+ 
+ People often talk about performance, reads vs. writes, foreign keys, etc. but there's one other must-have feature for a storage engine in my opinion:   **atomic updates.**
+
+ Try this: 
+ 
+ Issue an UPDATE against your MyISAM table that takes 5 seconds. 
+ While the UPDATE is in progress, say 2.5 seconds in, hit Ctrl-C to interrupt it. 
+ Observe the effects on the table.  How many rows were updated?  How many were not updated?  Is the table even readable, or was it corrupted when you hit Ctrl-C? 
+ Try the same experiment with UPDATE against an InnoDB table, interrupting the query in progress. 
+ Observe the InnoDB table.   Zero  rows were updated.  InnoDB has assured you have atomic updates, and if the full update could not be committed, it rolls back the whole change.  Also, the table is not corrupt.  This works even if you use   to simulate a crash. 
+ 
+ Performance is desirable of course, but  not losing data  should trump that. 
+ 
+ I've worked on a high-volume system using MySQL and I've tried both MyISAM and InnoDB. 
+ I found that the table-level locking in MyISAM caused serious performance problems for our workload which sounds similar to yours. Unfortunately I also found that performance under InnoDB was also worse than I'd hoped. 
+ In the end I resolved the contention issue by fragmenting the data such that inserts went into a "hot" table and selects never queried the hot table. 
+ This also allowed deletes (the data was time-sensitive and we only retained X days worth) to occur on "stale" tables that again weren't touched by select queries. InnoDB seems to have poor performance on bulk deletes so if you're planning on purging data you might want to structure it in such a way that the old data is in a stale table which can simply be dropped instead of running deletes on it. 
+ Of course I have no idea what your application is but hopefully this gives you some insight into some of the issues with MyISAM and InnoDB. 
+ 
+ A bit late to the game...but here's a quite comprehensive  post I wrote a few months back , detailing the major differences between MYISAM and InnoDB. Grab a cuppa (and maybe a biscuit), and enjoy. 
+ 
+ The major difference between MyISAM and InnoDB is in referential integrity and transactions. There are also other difference such as locking, rollbacks, and full-text searches. 
+ **Referential Integrity**
+
+ Referential integrity ensures that relationships between tables remains consistent. More specifically, this means when a table (e.g. Listings) has a foreign key (e.g. Product ID) pointing to a different table (e.g. Products), when updates or deletes occur to the pointed-to table, these changes are cascaded to the linking table. In our example, if a product is renamed, the linking table’s foreign keys will also update; if a product is deleted from the ‘Products’ table, any listings which point to the deleted entry will also be deleted. Furthermore, any new listing must have that foreign key pointing to a valid, existing entry. 
+ InnoDB is a relational DBMS (RDBMS) and thus has referential integrity, while MyISAM does not. 
+ **Transactions & Atomicity**
+
+ Data in a table is managed using Data Manipulation Language (DML) statements, such as SELECT, INSERT, UPDATE and DELETE. A transaction group two or more DML statements together into a single unit of work, so either the entire unit is applied, or none of it is. 
+ MyISAM do not support transactions whereas InnoDB does. 
+ If an operation is interrupted while using a MyISAM table, the operation is aborted immediately, and the rows (or even data within each row) that are affected remains affected, even if the operation did not go to completion. 
+ If an operation is interrupted while using an InnoDB table, because it using transactions, which has atomicity, any transaction which did not go to completion will not take effect, since no commit is made. 
+ **Table-locking vs Row-locking**
+
+ When a query runs against a MyISAM table, the entire table in which it is querying will be locked. This means subsequent queries will only be executed after the current one is finished. If you are reading a large table, and/or there are frequent read and write operations, this can mean a huge backlog of queries. 
+ When a query runs against an InnoDB table, only the row(s) which are involved are locked, the rest of the table remains available for CRUD operations. This means queries can run simultaneously on the same table, provided they do not use the same row. 
+ This feature in InnoDB is known as concurrency. As great as concurrency is, there is a major drawback that applies to a select range of tables, in that there is an overhead in switching between kernel threads, and you should set a limit on the kernel threads to prevent the server coming to a halt. 
+ **Transactions & Rollbacks**
+
+ When you run an operation in MyISAM, the changes are set; in InnoDB, those changes can be rolled back. The most common commands used to control transactions are COMMIT, ROLLBACK and SAVEPOINT. 1. COMMIT - you can write multiple DML operations, but the changes will only be saved when a COMMIT is made 2. ROLLBACK - you can discard any operations that have not yet been committed yet 3. SAVEPOINT - sets a point in the list of operations to which a ROLLBACK operation can rollback to 
+ **Reliability**
+
+ MyISAM offers no data integrity - Hardware failures, unclean shutdowns and canceled operations can cause the data to become corrupt. This would require full repair or rebuilds of the indexes and tables. 
+ InnoDB, on the other hand, uses a transactional log, a double-write buffer and automatic checksumming and validation to prevent corruption. Before InnoDB makes any changes, it records the data before the transactions into a system tablespace file called ibdata1. If there is a crash, InnoDB would autorecover through the replay of those logs. 
+ **FULLTEXT Indexing**
+
+ InnoDB does not support FULLTEXT indexing until MySQL version 5.6.4. As of the writing of this post, many shared hosting providers’ MySQL version is still below 5.6.4, which means FULLTEXT indexing is not supported for InnoDB tables. 
+ However, this is not a valid reason to use MyISAM. It’s best to change to a hosting provider that supports up-to-date versions of MySQL. Not that a MyISAM table that uses FULLTEXT indexing cannot be converted to an InnoDB table. 
+ **Conclusion**
+
+ In conclusion, InnoDB should be your default storage engine of choice. Choose MyISAM or other data types when they serve a specific need. 
+ 
+ For a load with more writes and reads, you will benefit from InnoDB. Because InnoDB provides row-locking rather than table-locking, your  s can be concurrent, not just with each other but also with many  s. However, unless you are intending to use SQL transactions, set the InnoDB commit flush to 2 ( innodb_flush_log_at_trx_commit ). This gives you back a lot of raw performance that you would otherwise lose when moving tables from MyISAM to InnoDB. 
+ Also, consider adding replication. This gives you some read scaling and since you stated your reads don't have to be up-to-date, you can let the replication fall behind a little. Just be sure that it can catch up under anything but the heaviest traffic or it will always be behind and will never catch up. If you go this way, however, I  strongly  recommend you isolate reading from the slaves and replication lag management to your database handler. It is so much simpler if the application code does not know about this. 
+ Finally, be aware of different table loads. You will not have the same read/write ratio on all tables. Some smaller tables with near 100% reads could afford to stay MyISAM. Likewise, if you have some tables that are near 100% write, you may benefit from  , but that is only supported in MyISAM (the   clause is ignored for an InnoDB table).  
+ But benchmark to be sure. 
+ 
+ To add to the wide selection of responses here covering the mechanical differences between the two engines, I present an empirical speed comparison study. 
+ In terms of pure speed, it is not always the case that MyISAM is faster than InnoDB but in my experience it tends to be faster for PURE READ working environments by a factor of about 2.0-2.5 times. Clearly this isn't appropriate for all environments - as others have written, MyISAM lacks such things as transactions and foreign keys. 
+ I've done a bit of benchmarking below - I've used python for looping and the timeit library for timing comparisons. For interest I've also included the memory engine, this gives the best performance across the board although it is only suitable for smaller tables (you continually encounter   when you exceed the MySQL memory limit). The four types of select I look at are: 
+ 
+ vanilla SELECTs  
+ counts 
+ conditional SELECTs 
+ indexed and non-indexed sub-selects 
+ 
+ Firstly, I created three tables using the following SQL 
+ 
+ with 'MyISAM' substituted for 'InnoDB' and 'memory' in the second and third tables. 
+   
+ 1) Vanilla selects 
+ Query:  
+ Result:  **draw**
+
+ 
+ The speed of these is all broadly the same, and as expected is linear in the number of columns to be selected. InnoDB seems  slightly  faster than MyISAM but this is really marginal. 
+ Code: 
+ 
+   
+ 2) Counts 
+ Query:  
+ Result:  **MyISAM wins**
+
+ 
+ This one demonstrates a big difference between MyISAM and InnoDB - MyISAM (and memory) keeps track of the number of records in the table, so this transaction is fast and O(1). The amount of time required for InnoDB to count increases super-linearly with table size in the range I investigated. I suspect many of the speed-ups from MyISAM queries that are observed in practice are due to similar effects. 
+ Code: 
+ 
+   
+ 3) Conditional selects 
+ Query:  
+ Result:  **MyISAM wins**
+
+ 
+ Here, MyISAM and memory perform approximately the same, and beat InnoDB by about 50% for larger tables. This is the sort of query for which the benefits of MyISAM seem to be maximised. 
+ Code: 
+ 
+   
+ 4) Sub-selects 
+ Result:  **InnoDB wins**
+
+ For this query, I created an additional set of tables for the sub-select. Each is simply two columns of BIGINTs, one with a primary key index and one without any index. Due to the large table size, I didn't test the memory engine. The SQL table creation command was 
+ 
+ where once again, 'MyISAM' is substituted for 'InnoDB' in the second table. 
+ In this query, I leave the size of the selection table at 1000000 and instead vary the size of the sub-selected columns. 
+ 
+ Here the InnoDB wins easily. After we get to a reasonable size table both engines scale linearly with the size of the sub-select. The index speeds up the MyISAM command but interestingly has little effect on the InnoDB speed.
+subSelect.png 
+ Code: 
+ 
+ I think the take-home message of all of this is that if you are  really  concerned about speed, you need to benchmark the queries that you're doing rather than make any assumptions about which engine will be more suitable. 
+ 
+ Slightly off-topic, but for documentation purposes and completeness, I would like to add the following. 
+ In general using InnoDB will result in a much LESS complex application, probably also more bug-free. Because you can put all referential integrity (Foreign Key-constraints) into the datamodel, you don't need anywhere near as much application code as you will need with MyISAM. 
+ Every time you insert, delete or replace a record, you will HAVE to check and maintain the relationships. E.g. if you delete a parent, all children should be deleted too. For instance, even in a simple blogging system, if you delete a blogposting record, you will have to delete the comment records, the likes, etc. In InnoDB this is done automatically by the database engine (if you specified the contraints in the model) and requires no application code. In MyISAM this will have to be coded into the application, which is very difficult in web-servers. Web-servers are by nature very concurrent / parallel and because these actions should be atomical and MyISAM supports no real transactions, using MyISAM for web-servers is risky / error-prone. 
+ Also in most general cases, InnoDB will perform much better, for a multiple of reasons, one them being able to use record level locking as opposed to table-level locking. Not only in a situation where writes are more frequent than reads, also in situations with complex joins on large datasets. We noticed a 3 fold performance increase just by using InnoDB tables over MyISAM tables for very large joins (taking several minutes). 
+ I would say that in general InnoDB (using a 3NF datamodel complete with referential integrity) should be the default choice when using MySQL. MyISAM should only be used in very specific cases. It will most likely perform less, result in a bigger and more buggy application. 
+ Having said this. Datamodelling is an art seldom found among webdesigners / -programmers. No offence, but it does explain MyISAM being used so much. 
+ 
+ InnoDB offers: 
+ 
+ In InnoDB all data in a row except for TEXT and BLOB can occupy 8,000 bytes at most. No full text indexing is available for InnoDB. In InnoDB the COUNT(*)s (when WHERE, GROUP BY, or JOIN is not used) execute slower than in MyISAM because the row count is not stored internally. InnoDB stores both data and indexes in one file. InnoDB uses a buffer pool to cache both data and indexes. 
+ MyISAM offers: 
+ 
+ MyISAM has table-level locking, but no row-level locking. No transactions. No automatic crash recovery, but it does offer repair table functionality. No foreign key constraints. MyISAM tables are generally more compact in size on disk when compared to InnoDB tables. MyISAM tables could be further highly reduced in size by compressing with myisampack if needed, but become read-only. MyISAM stores indexes in one file and data in another. MyISAM uses key buffers for caching indexes and leaves the data caching management to the operating system. 
+ Overall I would recommend InnoDB for most purposes and MyISAM for specialized uses only. InnoDB is now the default engine in new MySQL versions. 
+ 
+ If you use MyISAM, you won't be doing  **any**
+ transactions per hour, unless you consider each DML statement to be a transaction (which in any case, won't be durable or atomic in the event of a crash). 
+ Therefore I think you have to use InnoDB. 
+ 300 transactions per second sounds like quite a lot. If you absolutely need these transactions to be durable across power failure make sure your I/O subsystem can handle this many writes per second easily. You will need at least a RAID controller with battery backed cache. 
+ If you can take a small durability hit, you could use InnoDB with innodb_flush_log_at_trx_commit set to 0 or 2 (see docs for details), you can improve performance. 
+ There are a number of patches which can increase concurrency from Google and others - these may be of interest if you still can't get enough performance without them. 
+ 
+ **The Question and most of the Answers are out of date**
+. 
+ Yes, it is an old wives' tale that MyISAM is faster than InnoDB.  notice the Question's date:  2008; it is now almost a decade later.  InnoDB has made significant performance strides since then. 
+ The dramatic graph was for the one case where MyISAM wins:    without  a   clause.  But is that really what you spend your time doing? 
+ If you run  concurrency  test, InnoDB is very likely to win,  even against  . 
+ If you do any writes while benchmarking  , MyISAM and   are likely to lose because of table-level locking. 
+ In fact, Oracle is so sure that InnoDB is better that they have all but removed MyISAM from 8.0. 
+ The  Question  was written early in the days of 5.1.  Since then, these major versions were marked "General Availability": 
+ 
+ 2010: 5.5 (.8 in Dec.) 
+ 2013: 5.6 (.10 in Feb.) 
+ 2015: 5.7 (.9 in Oct.) 
+ 2018: 8.0 (.11 in Apr.) 
+ 
+ **Bottom line:  Don't use MyISAM**
+
+ 
+ **Please note**
+ that my formal education and experience is with Oracle, while my work with MySQL has been entirely personal and on my own time, so if I say things that are true for Oracle but are not true for MySQL, I apologize.  While the two systems share a lot, the relational theory/algebra is the same, and relational databases are still relational databases, there are still plenty of differences!! 
+ I particularly like (as well as row-level locking) that InnoDB is transaction-based, meaning that you may be updating/inserting/creating/altering/dropping/etc several times for one "operation" of your web application.  The problem that arises is that if only  some  of those changes/operations end up being committed, but others do not, you will most times (depending on the specific design of the database) end up with a database with conflicting data/structure.   
+ **Note:**
+ With Oracle, create/alter/drop statements are called "DDL" (Data Definition) statements, and implicitly trigger a commit.  Insert/update/delete statements, called "DML" (Data Manipulation), are  not  committed automatically, but only when a DDL, commit, or exit/quit is performed (or if you set your session to "auto-commit", or if your client auto-commits). It's imperative to be aware of that when working with Oracle, but I am not sure how MySQL handles the two types of statements.  Because of this, I want to make it clear that I'm not sure of this when it comes to MySQL; only with Oracle.   
+ **An example of when transaction-based engines excel:**
+
+ Let's say that I or you are on a web-page to sign up to attend a free event, and one of the main purposes of the system is to only allow up to 100 people to sign up, since that is the limit of the seating for the event.  Once 100 sign-ups are reached, the system would disable further signups, at least until others cancel. 
+ In this case, there may be a table for guests (name, phone, email, etc.), and a second table which tracks the number of guests that have signed up.  We thus have two operations for one "transaction".  Now suppose that after the guest info is added to the GUESTS table, there is a connection loss, or an error with the same impact.  The GUESTS table was updated (inserted into), but the connection was lost before the "available seats" could be updated. 
+ Now we have a guest added to the guest table, but the number of available seats is now incorrect (for example, value is 85 when it's actually 84). 
+ Of course  there are many ways to handle this, such as tracking available seats with "100 minus number of rows in guests table," or some code that checks that the info is consistent, etc....
+But with a transaction-based database engine such as InnoDB, either  ALL  of the operations are committed, or  NONE  of them are.  This can be helpful in many cases, but like I said, it's not the ONLY way to be safe, no (a nice way, however, handled by the database, not the programmer/script-writer).   
+ That's all "transaction-based" essentially means in this context, unless I'm missing something -- that either the whole transaction succeeds as it should, or  nothing  is changed, since making only partial changes could make a minor to SEVERE mess of the database, perhaps even corrupting it... 
+ But I'll say it one more time, it's not the only way to avoid making a mess.  But it is one of the methods that the engine itself handles, leaving you to code/script with only needing to worry about "was the transaction successful or not, and what do I do if not (such as retry)," instead of manually writing code to check it "manually" from outside of the database, and doing a lot more work for such events. 
+ **Lastly, a note about table-locking vs row-locking:**
+
+ **DISCLAIMER:**
+  I may be wrong in all that follows in regard to MySQL, and the hypothetical/example situations are things to look into, but I may be wrong in what  exactly  is possible to cause corruption with MySQL.  The examples are however very real in general programming, even if MySQL has more mechanisms to avoid such things... 
+ Anyway, I am fairly confident in agreeing with those who have argued that how many connections are allowed at a time  **does **
+**not**
+ work around a locked table.  In fact, multiple connections  **are the entire point of locking a table!!**
+  So that other processes/users/apps are not able to corrupt the database by making changes at the same time. 
+ How would two or more connections working on the same row make a REALLY BAD DAY for you??
+Suppose there are two processes both want/need to update the same value in the same row, let's say because the row is a record of a bus tour, and each of the two processes simultaneously want to update the "riders" or "available_seats" field as "the current value plus 1." 
+ Let's do this hypothetically, step by step: 
+ 
+ Process one reads the current value, let's say it's empty, thus '0' so far.   
+ Process two reads the current value as well, which is still 0. 
+ Process one writes (current + 1) which is 1. 
+ Process two  should  be writing 2, but since it read the current value  before  process one write the new value, it too writes 1 to the table. 
+ 
+ I'm  not certain  that two connections could intermingle like that, both reading before the first one writes...  But if not, then I would still see a problem with: 
+ 
+ Process one reads the current value, which is 0. 
+ Process one writes (current + 1), which is 1. 
+ Process two reads the current value now.  But while process one DID write (update), it has not committed the data, thus only that same process can read the new value that it updated, while all others see the older value, until there is a commit. 
+ 
+ Also, at least with Oracle databases, there are isolation levels, which I will not waste our time trying to paraphrase.  Here is a good article on that subject, and each isolation level having it's pros and cons, which would go along with how important transaction-based engines may be in a database... 
+ Lastly, there may likely be different safeguards in place within MyISAM, instead of foreign-keys and transaction-based interaction.  Well, for one, there is the fact that an entire table is locked, which makes it less likely that transactions/FKs are  needed .   
+ And alas, if you are aware of these concurrency issues, yes you can play it less safe and just write your applications, set up your systems so that such errors are not possible (your code is then responsible, rather than the database itself).  However, in my opinion, I would say that it is always best to use as many safeguards as possible, programming defensively, and always being aware that human error is impossible to completely avoid.  It happens to everyone, and anyone who says they are immune to it must be lying, or hasn't done more than write a "Hello World" application/script.  ;-) 
+ I hope that SOME of that is helpful to some one, and even more-so, I hope that I have not just now been a culprit of assumptions and being a human in error!!  My apologies if so, but the examples are good to think about, research the risk of, and so on, even if they are not potential in this specific context. 
+ Feel free to correct me, edit this "answer," even vote it down.  Just please try to improve, rather than correcting a bad assumption of mine with another.  ;-) 
+ This is my first response, so please forgive the length due to all the disclaimers, etc...  I just don't want to sound arrogant when I am not absolutely certain! 
+ 
+ I think this is an excellent article on explaining the differences and when you should use one over the other:
+ http://tag1consulting.com/MySQL_Engines_MyISAM_vs_InnoDB 
+ 
+ Also check out some drop-in replacements for MySQL itself: 
+ **MariaDB**
+
+ http://mariadb.org/ 
+ MariaDB is a database server that offers drop-in replacement functionality for MySQL. MariaDB is built by some of the original authors of MySQL, with assistance from the broader community of Free and open source software developers. In addition to the core functionality of MySQL, MariaDB offers a rich set of feature enhancements including alternate storage engines, server optimizations, and patches. 
+ **Percona Server**
+
+ https://launchpad.net/percona-server 
+ An enhanced drop-in replacement for MySQL, with better performance, improved diagnostics, and added features. 
+ 
+ In my experience, MyISAM was a better choice as long as you don't do DELETEs, UPDATEs, a whole lot of single INSERT, transactions, and full-text indexing. BTW, CHECK TABLE is horrible. As the table gets older in terms of the number of rows, you don't know when it will end. 
+ 
+ I've figure out that even though Myisam has locking contention, it's still faster than InnoDb in most scenarios because of the rapid lock acquisition scheme it uses. I've tried several times Innodb and always fall back to MyIsam for one reason or the other. Also InnoDB can be very CPU intensive in huge write loads. 
+ 
+ Every application has it's own performance profile for using a database, and chances are it will change over time. 
+ The best thing you can do is to test your options. Switching between MyISAM and InnoDB is trivial, so load some test data and fire jmeter against your site and see what happens. 
+ 
+ I tried to run insertion of random data into MyISAM and InnoDB tables. The result was quite shocking. MyISAM needed a few seconds less for inserting 1 million rows than InnoDB for just 10 thousand! 
+ 
+ myisam is a NOGO for that type of workload (high concurrency writes), i dont have that much experience with innodb (tested it 3 times and found in each case that the performance sucked, but it's been a while since the last test)
+if you're not forced to run mysql, consider giving postgres a try as it handles concurrent writes MUCH better 
+ 
+ In short, InnoDB is good if you are working on something that needs a reliable database that can handles a lot of INSERT and UPDATE instructions. 
+ and, MyISAM is good if you needs a database that will mostly be taking a lot of  read (SELECT) instructions rather than write (INSERT and UPDATES), considering its drawback on the table-lock thing. 
+ you may want to check out; 
+ Pros and Cons of InnoDB 
+ Pros and Cons of MyISAM 
+ 
+ I know this won't be popular but here goes: 
+ myISAM lacks support for database essentials like transactions and referential integrity which often results in glitchy / buggy applications. You cannot not learn proper database design fundamentals if they are not even supported by your db engine.  
+ Not using referential integrity or transactions in the database world is like not using object oriented programming in the software world.  
+ InnoDB exists now, use that instead! Even MySQL developers have finally conceded to change this to the default engine in newer versions, despite myISAM being the original engine that was the default in all legacy systems.  
+ No it does not matter if you are reading or writing or what performance considerations you have, using myISAM can result in a variety of problems, such as this one I just ran into: I was performing a database sync and at the same time someone else accessed an application that accessed a table set to myISAM. Due to the lack of transaction support and the generally poor reliability of this engine, this crashed the entire database and I had to manually restart mysql! 
+ Over the past 15 years of development I have used many databases and engines.  myISAM crashed on me about a dozen times during this period, other databases, only once! And that was a microsoft SQL database where some developer wrote faulty CLR code (common language runtime - basically C# code that executes inside the database) by the way, it was not the database engine's fault exactly. 
+ I agree with the other answers here that say that  **quality high-availability, high-performance applications should not use myISAM as it will not work, it is not robust or stable enough to result in a frustration-free experience.**
+ See Bill Karwin's answer for more details. 
+ P.S. Gotta love it when myISAM fanboys downvote but can't tell you which part of this answer is incorrect. 
+ 
+ For that ratio of read/writes I would guess InnoDB will perform better. 
+Since you are fine with dirty reads, you might (if you afford) replicate to a slave and let all your reads go to the slave. Also, consider inserting in bulk, rather than one record at a time.  
+ 
+ Almost every time I start a new project I Google this same question to see if I come up with any new answers. 
+ It eventually boils down to - I take the latest version of MySQL and run tests. 
+ I have tables where I want to do key/value lookups... and that's all. I need to get the value (0-512 bytes) for a hash key. There is not a lot of transactions on this DB. The table gets updates occasionally (in it's entirety), but 0 transactions. 
+ So we're not talking about a complex system here, we are talking about a simple lookup,.. and how (other than making the table RAM resident) we can optimize performance. 
+ I also do tests on other databases (ie NoSQL) to see if there is anywhere I can get an advantage. The biggest advantage I have found is in key mapping but as far as the lookup goes, MyISAM is currently topping them all. 
+ Albeit, I wouldn't perform financial transactions with MyISAM tables but for simple lookups, you should test it out.. typically 2x to 5x the queries/sec. 
+ Test it, I welcome debate. 
+ 
+ If it is 70% inserts and 30% reads then it is more like on the InnoDB side. 
+ 
+ bottomline: if you are working offline with selects on large chunks of data, MyISAM will probably give you better (much better) speeds. 
+ there are some situations when MyISAM is infinitely more efficient than InnoDB: when manipulating large data dumps offline (because of table lock).   
+ example: I was converting a csv file (15M records) from NOAA which uses VARCHAR fields as keys.  InnoDB was taking forever, even with large chunks of memory available. 
+ this an example of the csv (first and third fields are keys). 
+ 
+ since what i need to do is run a batch offline update of observed weather phenomena, i use  MyISAM table for receiving data and run JOINS on the keys so that i can clean the incoming file and replace VARCHAR fields with INT keys (which are related to external tables where the original VARCHAR values are stored). 
+ 

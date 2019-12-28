@@ -1,0 +1,34 @@
+*** wcf-service-for-many-concurrent-clients-and-database-access ***
+
+ I'm new to WCF services and wondered what the best way to tackle the following would be. 
+ I have many clients (~200 - ~500) that are all making requests of my service fairly constantly during the working day. Most requests involve interrogation of an underlying database to feed the correct response back. 
+ What I'm concerned with is the potential number of database connections spawned from the incoming requests. If all clients make simultaneous requests then the database server will be hit hard. I'd like to avoid a silly number of connections to the database if possible. 
+ Would it be better to restrict the number of concurrent connections to the WCF service and hence inadvertently reduce the possible number of database connections? 
+ I've looked at making the service a singleton that spawns threads to do the database transaction so I can control the number of threads but is this overkill and would restricting connections to the service suffice? 
+ Many thanks for any advice. 
+ 
+ As Marcos already mentioned - WCF has a built-in service throttling capability, which you can tweak on the server. This prevents that your database server will be flooded with too many requests at once. 
+ The defaults are: 
+ 
+ See the  MSDN docs on ServiceThrottlingBehavior  for more details. 
+ This means that a maximum of 16 calls are handled concurrently by WCF - that is,  **IF**
+ your WCF service class allows multiple callers at once! 
+ Contrary to Marcos, I would  **not**
+ recommend making your WCF service class a singleton. The common best practice is to have a simple WCF service class, and use it in a per call fashion - e.g. each incoming request will get its own, totally separate, newly created instance of your WCF service class - up to a maximum as defined by the service throttling behavior and controlled by the WCF runtime. 
+ If you make your WCF service class a singleton, you have to either set its ConcurrencyMode to Multiple - but then you need to use extreme caution not to let two simultaneous threads in your class change the same values from under one another; multi-threading safe programming is a major challenge! Or you don't set the concurrency mode to Multiple, but then your one and only WCF Service class instance can only handle requests in a serial fashion, one at a time - not very scalable! 
+ Per-call and one service instance per request is definitely the much easier way to go. That with service throttling in place, and with ADO.NET connection pooling makes for a very powerful and well behaved environment! 
+ Also see  Dan Rigsby's excellent blog post on WCF service throttling  for even more detail. 
+ 
+ If you're using ADO to connect to your database, it should to provide a connection pooling mechanism, so you don't need to deal with this. 
+ Please, read this article for more information:  ADO.NET Connection Pooling at a Glance 
+ 
+ We have a similar scenario and we solve it using only one conection from our WebService to the DB and using MARS from SqlServer that works perfectly and pretty fast. Sql Server really knows how to handle concurrent queries you don't must think in that. 
+ You avoid with that the overhead of open and close the connections (obviosly that connection pooling helps in this case) 
+ Remember also to add in your web service something like: 
+ 
+ And in the config: 
+ 
+ This option is inside 
+ 
+ Hope this helps :) 
+ 

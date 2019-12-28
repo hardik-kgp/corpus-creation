@@ -1,0 +1,75 @@
+*** three-customer-addresses-in-one-table-or-in-separate-tables ***
+
+ In my application I have a   class and an   class. The   class has three instances of the   class:  ,  ,  . 
+ **Whats the best way to reflect this structure in a database?**
+
+ 
+ The straightforward way would be a customer table and a separate address table.  
+ A more denormalized way would be just a customer table with columns for every address (Example for "street": customer_street, delivery_street, invoice_street)  
+ 
+ What are your experiences with that? Are there any advantages and disadvantages of these approaches? 
+ 
+ If you are 100% certain that a customer will only ever have the 3 addresses you described then this is OK: 
+ 
+ Otherwise I would model like this: 
+ 
+ 
+ I'd go (as database theory teaches) for two separate tables: Customer and Address. 
+The idea of putting three fields in the Customer table is bad, as you say, because it would violate normalization rules (and fail when addresses would become more than three).
+ 
+ **edit**
+: also, I'd split the Address table record in several fields, one for the toponomastic prefix, one for the street, etc. and put a unique key on those. Otherwise, you'd end with a database full of duplicates. 
+ 
+ I'd go with denormalized. It's easier. 
+ If you normalize it, the address table would require you to remove duplicates and relink records from the customer table.  If I had the same delivery and invoice address, it seems like it should link to the same record.  If I change one, you're required to: 
+ 
+ Create a new address record. 
+ Relink the customer record. 
+ 
+ If I change it back you need to check: 
+ 
+ Does a similar address entry already exist. 
+ Relink the customer record. 
+ 
+ This programming overhead seems to obviate the advantage of less space that normalization seems to offer.  A denormalized solution, like you pointed out, would provide faster queries and easier maintenance (programming-wise).  This seems to be the deciding factor for me.   
+ A normalized solution, like pointed out above, would allow you to add more addresses later.  But you'd have to add a field for the foreign key anyways, unless you planned on organizing the tables without linkage from the customer to the address table. 
+ Advantages of Normalized 
+ 
+ Less space. 
+ Duplicate logic kinda built in (though maybe they weren't  actually  duplicates?) 
+ Support addition of new address fields (kinda). 
+ 
+ Advantages of Denormalized 
+ 
+ Faster queries. 
+ Less programming. 
+ 
+ 
+ Go with 2 tables, Customer, Address. 
+ Once addresses have been created in the address table do not ordinarily allow them to be modified (perhaps a specific tool to correct typos).  IOW make the ID of the address idempotent with the address itself. 
+ You can now reference these address table entries anywhere.  For example when an order is dispatched to a customer the address ID that is referenced a by an Order table can be the same one as in the DeliveryAddressID field in the customer table. 
+ If the customer wishes to change the currently on file delivery address to a new one, a new address record is created.  The historical delivery data is unaffected by this yet new orders automatically use the new address. 
+ Note this is also helpful when caching Addresss objects (they're immutable and are safe for long term caching), they can be distributed and more easily tested for equality (via the ID property). 
+ 
+ I have this in Zen Cart (and probably osCommerce as well), in the orders table and wondered why they went that way, even more as they have an addresses table. 
+The only reason I saw, which is valid, is for record purposes: even if the customer changes their addresses, the order information must not change, it reflects the data at the time of the order. 
+ Now, it is a bit wasteful, even more if the same customer does lot of orders. A possible solution is to keep an history of addresses and reference them with the orders. 
+I wonder if these immutable addresses (or mutable if they have no related order yet) should be kept in the regular address book or in a separate, history table, filled in only if an order is made (avoiding duplicates if the same customer keep the same address, of course). 
+The former has the advantage of avoiding to have two tables of very similar structures and duplicated information, but might hinder performances (?) as history grows. Although people rarely change this information, in practice. 
+The latter has the advantage of separating roles (one is immutable, not the other), the history being rarely used. 
+ Overall, if you application doesn't need to keep an history, just go for two separated tables. 
+ 
+ In this case, putting each address field in a different row is not normalization.  It's just table partitioning.  The assumption that any schema with more tables is "more normalized" is wrong. 
+ Let's say we have these two alternative schemas in a database:
+1) user: user_id, username, password 
+ 2) user: user_id, password_id
+   password: password_id, password 
+ Is (2) "more normalized" than (1)?  **No**
+! 
+ In this OP's case, as long as:
+1) we're treating the address as an atomic value, 
+2) the application only requires those three types of addresses. 
+ Then it is just as valid valid to store each address in a different column.  The second solution does not decompose the addresses into its components (country, town, street, etc).  Therefore it is not "more normalized" than the first one! 
+ 
+ My two cents is that de-normalizing the way you describe is  OK , if you have a compelling reason. Sometimes that reason can be as simple as a high level of confidence you will never need the normalized form. As Stefan Mai implied, it's much easier to just retrieve and update a single table, if you only ever need to work with the three types of addresses you indicated. On the other hand, if the three addresses requirement has any possibility of changing then it probably will, and early-on is the better time to normalize. 
+ 

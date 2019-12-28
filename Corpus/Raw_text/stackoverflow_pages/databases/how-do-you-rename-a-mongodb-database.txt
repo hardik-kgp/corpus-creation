@@ -1,0 +1,91 @@
+*** how-do-you-rename-a-mongodb-database ***
+
+ There's a typo in my MongoDB database name and I'm looking to rename the database. 
+ I can  copy  and delete like so... 
+ 
+ Is there a command to rename a database? 
+ 
+ No there isn't. See  https://jira.mongodb.org/browse/SERVER-701 
+ 
+ Unfortunately, this is not an simple feature for us to implement due to the way that database metadata is stored in the original (default) storage engine. In MMAPv1 files, the namespace (e.g.: dbName.collection) that describes every single collection and index includes the database name, so to rename a set of database files, every single namespace string would have to be rewritten. This impacts: 
+ 
+ the .ns file 
+ every single numbered file for the collection 
+ the namespace for every index 
+ internal unique names of each collection and index 
+ contents of system.namespaces and system.indexes (or their equivalents in the future) 
+ other locations I may be missing 
+ 
+ This is just to accomplish a rename of a single database in a  **standalone**
+ mongod instance. For replica sets the above would need to be done on every replica node, plus on each node every single oplog entry that refers this database would have to be somehow invalidated or rewritten, and then if it's a sharded cluster, one also needs to add these changes to every shard if the DB is sharded, plus the config servers have all the shard metadata in terms of namespaces with their full names. 
+ There would be absolutely no way to do this on a live system. 
+ To do it offline, it would require re-writing every single database file to accommodate the new name, and at that point it would be as slow as the current "copydb" command... 
+ 
+ 
+ You could do this: 
+ 
+ Editorial Note: this is the same approach used in the question itself but has proven useful to others regardless. 
+ 
+ Alternative solution: you can dump your db and restore that in different name. As I've experienced it's much quicker than  . 
+ 
+ http://docs.mongodb.org/manual/tutorial/backup-with-mongodump/ 
+ 
+ 
+ NOTE: Hopefully this changed in the latest version. 
+ You cannot copy data between a MongoDB 4.0 mongod instance (regardless
+  of the FCV value) and a MongoDB 3.4 and earlier mongod instance.
+   https://docs.mongodb.com/v4.0/reference/method/db.copyDatabase/ 
+ 
+ **ALERT**
+: Hey folks just be careful while copying the database, if you don't want to mess up the different collections under single database. 
+ **The following shows you how to rename**
+
+ 
+ To rename you use the following syntax 
+ 
+ Example: 
+ 
+ Now you can safely delete the old db by the following way 
+ 
+ **Now just think what happens if you try renaming the new database name with existing database name**
+
+ Example: 
+ 
+ So in this context all the collections (tables) of  **testing**
+ will be copied to  **movies**
+ database. 
+ 
+ The above process is slow,you can use below method but you need to move collection by collection to another db. 
+ 
+ 
+ Although Mongodb does not provide the rename Database command, it provides the r ename Collection command , which not only modifies the collection name, but also modifies the database name. 
+ 
+ This command only modifies the metadata, the cost is very small, we only need to traverse all the collections under  , renamed to   to achieve rename Database name. 
+you can do it  in this Js script   
+ 
+ 
+ In the case you put all your data in the admin database (you shouldn't), you'll notice   won't work because your user requires a lot of privileges you probably don't want to give it. Here is a script to copy the database manually: 
+ 
+ 
+ There is no mechanism to re-name databases.  The  currently accepted answer at time of writing  is factually correct and offers some interesting background detail as to the excuse upstream, but offers no suggestions for replicating the behavior.  Other answers point at  , which is no longer an option as  the functionality has been removed in 4.0 .  I've updated  SERVER-701 with my notes  and incredulity. 🙃 
+ Equivalent behavior involves   and   in a bit of a dance: 
+ 
+ Export your data, making note of the "namespaces" in use.  For example, on one of my datasets, I have a collection with the namespace   — that prefix ( actually the database name ) will be needed in the next step. 
+ Import your data, supplying   and   arguments.  ( Documentation. )  Continuing with my above hypothetical (and extremely unreadable) example, to restore to a more sensical name, I invoke: 
+ 
+ 
+ Some may also point at the   argument to mongorestore, however this, too, is deprecated and triggers a warning against use on non-BSON folder backups with a completely erroneous suggestion to " ".  The above namespace translation is equivalent to use of the   option, and is the correct namespace manipulation setup to use as we are not attempting to filter what is being restored. 
+ 
+ I tried doing. 
+ 
+ and came to know that it has been Deprecated by the mongo community although it created the backup or renamed DB. 
+ 
+ So not convinced with the above approach I had to take Dump of local using below command 
+ 
+ connected to Db.  
+ 
+ then  
+ 
+ then restored the DB with command. 
+ 
+ 

@@ -1,0 +1,53 @@
+*** the-best-way-to-use-a-db-table-as-a-job-queue-a-k-a-batch-queue-or-message-queu ***
+
+ I have a databases table with ~50K rows in it, each row represents a job that need to be done. I have a program that extracts a job from the DB, does the job and puts the result back in the db. (this system is running right now) 
+ Now I want to allow more than one processing task to do jobs but be sure that no task is done twice (as a performance concern not that this will cause other problems). Because the access is by way of a stored procedure, my current though is to replace said stored procedure with something that looks something like this 
+ 
+ BTW; worker's tasks might drop there connection between getting a job and submitting the results. Also, I don't expect the DB to even come close to being the bottle neck unless I mess that part up (~5 jobs per minute) 
+ Are there any issues with this? Is there a better way to do this? 
+ Note: the  "Database as an IPC anti-pattern"  is only slightly apropos here because  
+ 
+ I'm not doing IPC (there is no process generating the rows, they all already exist right now) and  
+ the primary gripe described for that anti-pattern is that it results in unneeded load on the DB as processes wait for messages (in my case, if there are no messages, everything can shutdown as everything is done) 
+ 
+ 
+ Here's what I've used successfully in the past: 
+ MsgQueue table schema 
+ 
+ Your message types are what you'd expect - messages that conform to a contract between the process(es) inserting and the process(es) reading, structured with XML or your other choice of representation (JSON would be handy in some cases, for instance).   
+ Then 0-to-n processes can be inserting, and 0-to-n processes can be reading and processing the messages, Each reading process typically handles a single message type. Multiple instances of a process type can be running for load-balancing.   
+ The reader pulls one message and changes the state to "A"ctive while it works on it. When it's done it changes the state to "C"omplete. It can delete the message or not depending on whether you want to keep the audit trail. Messages of State = 'N' are pulled in MsgType/Timestamp order, so there's an index on MsgType + State + CreateTime. 
+ Variations: 
+State for "E"rror. 
+Column for Reader process code. 
+Timestamps for state transitions.   
+ This has provided a nice, scalable, visible, simple mechanism for doing a number of things like you are describing. If you have a basic understanding of databases, it's pretty foolproof and extensible. 
+ 
+ Code from comments: 
+ 
+ 
+ The best way to implement a job queue in a relational database system is to use  . 
+  is a lock acquisition option that applies to both read/share ( ) or write/exclusive ( ) locks and is widely supported nowadays: 
+ 
+ Oracle 10g and later 
+ PostgreSQL 9.5 and later 
+ SQL Server 2005 and later 
+ MySQL 8.0 and later 
+ 
+ Now, consider we have the following   table that is uses as a job queue: 
+ 
+ The   column is used as an Enum, having the values of PENDING (0), APPROVED (1) or SPAM (2). 
+ If we have multiple concurrent users trying to moderate the   records, we need a way to coordinate their efforts to avoid having two moderators review the same   row. 
+ So,   is exactly what we need. If two concurrent users, Alice and Bob, execute the following SELECT queries which lock the post records exclusively while also adding the   option: 
+ 
+ We can see that Alice can select the first two entries while Bob selects the next 2 records. Without  , Bob lock acquisition request would block until Alice releases the lock on the first 2 records. 
+ For more details about  , check out  this article . 
+ 
+ Just as a possible technology change, you might consider using MSMQ or something similar.   
+ Each of your jobs / threads could query the messaging queue to see if a new job was available.  Because the act of reading a message removes it from the stack, you are ensured that only one job / thread would get the message. 
+ Of course, this is assuming you are working with a Microsoft platform. 
+ 
+ Instead of having owner = null when it isn't owned, you should set it to a fake nobody record instead. Searching for null doesn't limit the index, you might end up with a table scan. (this is for oracle, SQL server might be different) 
+ 
+ You are trying to implement de "Database as IPC" antipattern. Look it up to understand why you should consider redesigning your software properly. 
+ 

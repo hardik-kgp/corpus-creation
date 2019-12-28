@@ -1,0 +1,57 @@
+*** when-using-continuous-or-automated-deployment-how-do-you-deploy-databases ***
+
+ I'm looking at implementing Team City and Octopus Deploy for CI and Deployment on demand. However, database deployment is going to be tricky as many are old .net applications with messy databases. 
+ Redgate seems to have a nice plug-in for Team City, but the price will probably be stumbling block 
+ What do you use? I'm happy to execute scripts, but it's the comparison aspect (i.e. what has changed) I'm struggling with. 
+ 
+ We utilize a free tool called  RoundhousE  for handling database changes with our project, and it was rather easy to use it with Octopus Deploy. 
+ We created a new project in our solution called DatabaseMigration, included the RoundhousE exe in the project, a folder where we keep the db change scripts for RoundhousE, and then took advantage of how Octopus can call powershell scripts before, during, and after deployment (PreDeploy.ps1, Deploy.ps1, and PostDeploy.ps1 respectively) and added a Deploy.ps1 to the project as well with the following in it: 
+ 
+ $roundhouse_exe_path = ".\rh.exe" 
+ $scripts_dir = ".\Databases\DatabaseName" 
+ $roundhouse_output_dir = ".\output" 
+ if ($OctopusParameters) { 
+ 
+ $env = $OctopusParameters["RoundhousE.ENV"] 
+ $db_server = $OctopusParameters["SqlServerInstance"] 
+ $db_name = $OctopusParameters["DatabaseName"] 
+ 
+ } else { 
+ 
+ $env="LOCAL" 
+ $db_server = ".\SqlExpress" 
+ $db_name = "DatabaseName"
+    } 
+ 
+ &$roundhouse_exe_path -s $db_server -d $db_name -f $scripts_dir --env $env --silent -o > $roundhouse_output_dir 
+ 
+ In there you can see where we check for any octopus variables (parameters) that are passed in when Octopus runs the deploy script, otherwise we have some default values we use, and then we simply call the RoundhousE executable. 
+ Then you just need to have that project as part of what gets packaged for Octopus, and then add a step in Octopus to deploy that package and it will execute that as part of each deployment. 
+ 
+ We've looked at the RedGate solution and pretty much reached the same conclusion you have, unfortunately it's the cost that is putting us off that route. 
+ The only things I can think of are to generate version controlled DB migration scripts based upon your existing database, and then execute these as part of your build process. If you're looking at .NET projects in future (that don't use a CMS), could potentially consider using entity framework code first migrations.  
+ 
+ I remember looking into this a while back, and for me it seems that there's a whole lot of trust you'd have to get put into this sort of process, as auto-deploying to a Development or Testing server isn't so bad, as the data is probably replaceable... But the idea of auto-updating a UAT or Production server might send the willies up the backs of an Operations team, who might be responsible for the database, or at least restoring it if it wasn't quite right. 
+ Having said that, I do think its the way to go, though, as its far too easy to be scared of database deployment scripts, and that's when things get forgotten or missed. 
+ I seem to remember looking at using Red Gate's SQL Compare and SQL Data Compare tools, as (I think) there was a command-line way into it, which would work well with scripted deployment processes, like Team City, CruiseControl.Net, etc. 
+ 
+ The risk and complexity comes in more when using relational databases. In a NoSQL database where everything is "document" I guess continuous deployment is not such a concern. Some objects will have the "old" data structure till they are updated via the newly released code. In this situation your code would need to be able to support different data structures potentially. Missing properties or those with a different type should probably be covered in a well written, defensively coded application anyway. 
+ I can see the risk in running scripts against the production database, however the point of CI and Continuous Delivery is that these scripts will be run and tested in other environments first to iron out any "gotchas" :-) 
+ This doesn't reduce the amount of finger crossing and wincing when you actually push the button to deploy though! 
+ 
+ Having database deploy automation is a real challenge especially when trying to perform the build once deploy many approach as being done to native application code. 
+ In the build once deploy many, you compile the code and creates binaries and then copy them within the environments. From the database point of view, is the equivalent to generate the scripts once and execute them in all environments. This approach doesn't handle merges from different branches, out-of-process changes (critical fix in production) etc… 
+ What I know works for  database deployment automation  (disclaimer - I'm working at DBmaestro) as I hear this from my customers is using the build and deploy on demand approach. With this method you build the database delta script as part of the deploy (execute) process. Using base-line aware analysis the solution knows if to generate the deploy script for the change or protect the target and not revert it or pause and allow you to merge changes and resolve the conflict. 
+ 
+ Consider a simple solution we have tried successfully at this thread -  How to continuously delivery SQL-based app? 
+ Disclaimer - I work at CloudMunch 
+ 
+ We using Octopus Deploy and database projects in visual studio solution. 
+ 
+ Build agent creates a nuget packages using octopack with a dacpac file and publish profiles inside and pushes it onto NuGet server. 
+ Then release process utilizes the   utility to generate the update script for the release environment and adds it as an artifact to the release. 
+ Previously created script executed in the next step with   utility.  
+ 
+ This separation of create and execute steps gives us a possibility to have a manual step in between, so that someone verifies before the script is executed on Live environment, not to mention, that script saved as an artifact in the release can always be referred to, at any later point. 
+ Would there be a demand I would provide more details and step scripts. 
+ 

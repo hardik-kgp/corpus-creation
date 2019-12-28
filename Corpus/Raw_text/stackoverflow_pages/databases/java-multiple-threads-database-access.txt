@@ -1,0 +1,69 @@
+*** java-multiple-threads-database-access ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  5 years ago . 
+ 
+ 
+ 
+ What could be the best solution for multithreaded Java application to ensure that all threads access db synchronously? For example, each thread represents separate transaction, and first checks db for value and then depending on answer has to insert or update some fields in database (note between check, insert and commit application is doing other processing). But the problem is that another thread might be doing just the same thing on same table.  
+ More specific example. Thread T1 starts transaction, then checks table ENTITY_TABLE for entry with code '111'. If found updates its date, if not found inserts new entry, then commits transaction. Now imagine thread T2 does exactly same thing. Now there are few problems:   
+ 
+ T1 and T2 checks db and find nothing and both insert same entry. 
+ T1 checks db, find entry with old date, but on commit T2 already has updated entry to more recent date. 
+ If we use cache and synchronize access to cache we have a problem: T1 acquires lock checks db and cache if not found add to cache, release lock, commit. T2 does the same, finds entry in cache going to commit. But T1 transaction fails and is roll backed. Now T2 is in bad shape, because it should insert to ENTITY_TABLE but doesn't know that. 
+ more? 
+ 
+ I'm working on creating simple custom cache with syncronization and solving problem 3. But maybe there is some more simple solution? 
+ 
+ This should be dealt with primarily within the DB, by configuring the desired  transaction isolation  level. Then on top of this, you need to select your locking strategy ( optimistic  or pessimistic). 
+ Without transaction isolation, you will have a hard time trying to ensure transaction integrity solely in the Java domain. Especially taking into consideration that even if the DB is currently accessed only from your Java app, this may change in the future. 
+ Now as to which isolation level to choose, from your description it might seem that you need the highest isolation level,  serializable . However, in practice this tends
+ to be a real performance hog due to extensive locking. So you may want to reevaluate your requirements to find the best balance of isolation and performance for your specific situation. 
+ 
+ If you want to SQL SELECT a row from a database, and then later UPDATE the same row, you have 2 choices as a Java developer. 
+ 
+ SELECT with ROWLOCK, or whatever the
+row lock syntax is for your
+particular data base. 
+ SELECT the row, do your processing,
+and just before you're ready to
+update, SELECT the row again to see
+if any other thread made changes. 
+If the two SELECTS return the same
+values, UPDATE.  If not, throw an
+error or do your processing again. 
+ 
+ 
+ I tumbled into this problem when working with a multi-threaded Java program that was using a Sqllite database. It uses file locking so I had to make sure that only one thread was doing work at the same time. 
+ I basically ended up with using synchronized. When the ConnectionFactory returns a db connection, it also returns a lock object that one should lock when using the connection. So you could do synchronization lock manually, or create a subclass of the class below which does it for you: 
+ 
+ And the DBConnection struct: 
+ 
+ 
+ Offhand, I think you would have to lock the table before you query it. This will force sequential operation of your threads. Your threads should then be prepared for the fact that they will have to wait for the lock and of course, the lock acquisition might time out. This could introduce quite a bottleneck into your application as well as your threads will all have to queue up for database resources.  
+ 
+ The problem you are facing is  **transaction isolation**
+. 
+ Seems like you need to have each thread lock the row concerned in the where clause, which requires serializable isolation. 
+ 
+ Why are you trying to reinvent the wheel? I'd suggest using an OR mapper framework for database access with transactions (for instance a JPA-spec implementor like Hibernate or Eclipselink). You could also add Spring DAO which handles the transactions for you. Then you can concentrate on the business logic and don't have to bother with such low-level stuff. 
+ 

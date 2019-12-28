@@ -1,0 +1,54 @@
+*** how-do-you-write-a-case-insensitive-query-for-both-mysql-and-postgres ***
+
+ I'm running a MySQL database locally for development, but deploying to Heroku which uses Postgres. Heroku handles almost everything, but my case-insensitive Like statements become case sensitive. I could use iLike statements, but my local MySQL database can't handle that. 
+ What is the best way to write a case insensitive query that is compatible with both MySQL and Postgres? Or do I need to write separate Like and iLike statements depending on the DB my app is talking to? 
+ 
+ 
+ If you set the parameter to upper case in the caller, you can avoid the second function call. 
+ 
+ The moral of this story is: Don't use a different software stack for development and production. Never. 
+ You'll just end up with bugs which you can't reproduce in dev; your testing will be worthless. Just don't do it. 
+ Using a different database engine is out of the question - there will be FAR more cases where it behaves differently than just LIKE (also, have you checked the collations in use by the databases? Are they identical in EVERY CASE? If not, you can forget ORDER BY on varchar columns working the same) 
+ 
+ Use Arel: 
+ 
+  will use the   operator for Postgres, and   for everything else. 
+ 
+ In postgres, you can do this: 
+ 
+ I'm not sure if there is an equivalent for MySQL but you can always do this which is a bit ugly but should work in both MySQL and postgres: 
+ 
+ 
+ There are several answers, none of which are very satisfactory. 
+ 
+ **LOWER(bar) = LOWER(?)**
+ will  work  on MySQL and Postgres, but is likely to  perform terribly on MySQL : MySQL won't use its indexes because of the LOWER function. On Postgres you can add a functional index (on  **LOWER(bar)**
+) but MySQL doesn't support this. 
+ MySQL will (unless you have set a case-sensitive  collation ) do case-insensitive matching automatically, and use its indexes. ( **bar = ?**
+). 
+ From your code outside the database, maintain  **bar**
+ and  **bar_lower**
+ fields, where bar_lower contains the result of  **lower(bar)**
+. (This may be possible using database triggers, also). (See a discussion of this solution on  Drupal ). This is clumsy but does at least run the same way on pretty much every database. 
+ 
+ 
+ REGEXP is case insensitive (unless used with BINARY), and can be used, like so... 
+ 
+ ...to match 'John', 'JOHN', 'john', etc. 
+ 
+ If you're using PostgreSQL 8.4 you can use the  citext  module to create case insensitive text fields. 
+ 
+ use COLLATE. 
+ http://dev.mysql.com/doc/refman/5.0/en/case-sensitivity.html 
+ 
+ You might also consider checking out the  searchlogic  plugin, which does the  LIKE/ILIKE  switch for you.  
+ 
+ You can also use ~* in postgres if you want to match a substring within a block. ~ matches case-sensitive substring, ~* case insensitive substring. Its a slow operation, but might I find it useful for searches. 
+ 
+ Both would hit on "Some Uneven text here"
+Only the former would hit on "Some UNEVEN TEXT here" 
+ 
+ Converting to upper is best as it covers compatible syntax for the 3 most-used Rails database backends. PostgreSQL, MySQL and SQLite all support this syntax. It  has the (minor) drawback that you have to uppercase your search string in your application or in your conditions string, making it a bit uglier, but I think the compatibility you gain makes it worthwile. 
+ Both MySQL and SQLite3 have a case-insensitive LIKE operator. Only PostgreSQL has a case-sensitive LIKE operator and a PostgreSQL-specific (per the manual) ILIKE operator for case-insensitive searches. You might specify ILIKE insead of LIKE in your conditions on the Rails application, but be aware that the application will cease to work under MySQL or SQLite. 
+ A third option might be to check which database engine you're using and modify the search string accordingly. This might be better done by hacking into / monkeypatching ActiveRecord's connection adapters and have the PostgreSQL adapter modify the query string to substitute "LIKE" for "ILIKE" prior to query execution. This solution is however the most convoluted and in light of easier ways like uppercasing both terms, I think this is not worh the effort (although you'd get plenty of brownie points for doing it this way). 
+ 

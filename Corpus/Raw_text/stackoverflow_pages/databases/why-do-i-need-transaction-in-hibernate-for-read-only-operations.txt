@@ -1,0 +1,31 @@
+*** why-do-i-need-transaction-in-hibernate-for-read-only-operations ***
+
+ Why do I need Transaction in Hibernate for read-only operations?   
+ Does the following transaction put a lock in the DB?  
+ Example code to fetch from DB: 
+ 
+ Can I use    instead of  ? 
+ 
+ You might actually have reasons to mark transactions as read-only. 
+ 
+ Transactions for reading might look indeed strange and often people don't mark methods for transactions in this case. But JDBC will create transaction anyway, it's just it will be working in   if different option wasn't set explicitly. 
+ But there is no guarantee that your method doesn't write into the database. If you mark method as  , Spring will set the JDBC transaction into a read-only mode, thus you'll dictate whether it's  actually  possible to write into DB in scope of this transaction. If your architecture is cumbersome and some team members may choose to put modification query where it's not expected, this flag would point you to the problematic place. 
+ Also read-only transactions can be optimized by DBs, but this of course is DB specific. E.g. MySQL added support for this only in InnoDB starting from 5.6.4 version. 
+ If you're not using JDBC directly, but rather an ORM, that might be problematic. For instance Hibernate community says that working outside of transaction might cause unpredictable behavior. This is because Hibernate will open transaction, but it won't close it on its own, thus connection will be returned to the Connection Pool with transaction being not committed. What happens then? JDBC keeps silence, thus this is implementation specific (MySQL rolls back transaction, Oracle afair commits it). This also can be configured on Connection Pool level (e.g. C3P0 gives you such an option, rollback by default). 
+ Another thing when it comes to Hibernate, Spring sets the FlushMode to MANUAL in case of read-only transactions, which leads to other optimizations like no need for dirty checks. 
+ You may want to override or set explicitly the transaction isolation level. This impacts read-transactions as well since you do or don't want to read uncommitted changes, be exposed to phantom reads, etc. 
+ 
+ To sum up - you can go both ways, but you need to understand consequences. 
+ 
+ All database statements are executed within the context of a physical transaction,  even when we don’t explicitly declare transaction boundaries  (BEGIN/COMMIT/ROLLBACK). 
+ If you don't declare transaction boundaries explicitly, then each statement will have to be executed in a separate transaction (  mode). This may even lead to opening and closing one connection per statement unless your environment can deal with connection-per-thread binding. 
+ Declaring a service as   will give you one connection for the whole transaction duration, and all statements will use that single isolation connection. This is way better than not using explicit transactions in the first place.  
+ On large applications, you may have many concurrent requests, and  reducing database connection acquisition request rate  will definitely improve your overall application performance. 
+ JPA doesn't enforce transactions on read operations. Only writes end up throwing a transaction required exception in case you forget to start a transactional context. Nevertheless, it's always better to declare transaction boundaries even for read-only transactions (in Spring   allows you to mark read-only transactions, which has a great performance benefit). 
+ 
+ Transactions indeed put locks on the database — good database engines handle concurrent locks in a sensible way — and are useful with read-only use to ensure that no  other  transaction adds data that makes your view inconsistent. You always want a transaction (though sometimes it is reasonable to tune the isolation level, it's best not to do that to start out with); if you never write to the DB during your transaction, both committing and rolling back the transaction work out to be the same (and very cheap). 
+ Now, if you're lucky and your queries against the DB are such that the ORM always maps them to single SQL queries, you can get away without  explicit  transactions, relying on the DB's built-in autocommit behavior, but ORMs are relatively complex systems so it isn't at all safe to rely on such behavior unless you go to a lot more work checking what the implementation actually does. Writing the explicit transaction boundaries in is far easier to get right (especially if you can do it with AOP or some similar ORM-driven technique; from Java 7 onwards try-with-resources could be used too I suppose). 
+ 
+ It doesn't matter whether you only read or not - the database must still keep track of your resultset, because other database clients may want to write data that would change your resultset. 
+ I have seen faulty programs to kill huge database systems, because they just read data, but never commit, forcing the transaction log to grow, because the DB can't release the transaction data before a COMMIT or ROLLBACK, even if the client did nothing for hours. 
+ 

@@ -1,0 +1,52 @@
+*** how-to-create-populated-mysql-docker-image-on-build-time ***
+
+ I would like to create a MySQL Docker image with data already populated. 
+ I want to create 3 layers like this: 
+ 
+ My question is now how to create a correct Dockerfile for layer 2 and 3?
+Where my empty_with_tables.sql file is loaded into layer 2 and customer1.sql and customer2.sql is loaded into two images in layer 3. I read something about putting SQL files into '/docker-entrypoint-initdb.d'. But this would result in the data being when the image is started for the first time. This not what I want. I want the data to be ready in the image (for example to be quickly available in testing). 
+ I could start the mysql image, load the data from commandline and do a 'commit' but this is not reproducible, requiring doing that again when data in the SQL files are changed. 
+ How can this be done? 
+ Best regards, 
+ 
+ Morten Green Hermansen 
+ 
+ 
+ I ran into the same problem this week. I've found a working solution without the need for  
+ The problem that's already stated is that   is a volume, and since Docker is not going to support   in it's Dockerfile in the near future, you can't use this location for your database storage if you want to start off with an empty database by default. ( https://github.com/docker/docker/issues/18287 ). That's why I overwrite  , giving mysql a new datadir. 
+ Together with pwes' his answer, you can create a Dockerile like this: 
+ 
+ The only change there is in   is the location of the datadir: 
+ 
+ 
+ This cannot be done cleanly the exact way you want it to, at least when basing on official   image, because you need to communicate with the server to import the data and the server is not run and initialized (from mysql's  ) until the container is run, which is only when the image is already built. 
+ The not-so-clean way is to run the process in the container, using the   script from mysql image, but you must take care of all the settings required by the entrypoint (like  ) as well as a clean way to stop the daemon just after importing the data. Something like: 
+ 
+ is a hackish way that results in pre-initialized DB, but... it doesn't work. The reason is that   is declared as a volume in mysql's Dockerfile, and any changes to this directory during build process are lost after the build step is done. This can be observed in the following Dockerfile: 
+ 
+ So I suggest going with   way you described. The end result is the same as the one you want to achieve, with an exception of Layer 2 maybe. 
+ **UPDATE**
+: As OP commented below, the commit doesn't contain volumes either. So, the only way seems to be to either edit MySQL Dockerfile and remove   to keep data inside the container, or to manage the volumes separately from containers. 
+ 
+ Building on MegaWubs's answer, I found this Dockerfile to be sufficient. 
+ 
+ 
+ MegaWubs's answer is great, except for this "sleep 30" that forces you to guess initdb's execution time.
+To avoid this, I put a small shell script to be executed after every others in /docker-entrypoint-initdb.d : 
+ 
+ With   : 
+ 
+ --  
+ In parallel, in Dockerfile, I run another script in replacement of Mortenn's "sleep && killall" : 
+ 
+ With   : 
+ 
+ -- 
+ And now,   stops only when all other files are processed in /docker-entrypoint-initdb.d 
+ 
+ So my solution to this problem was just NOT to layer everything but create a base image and use --volumes-from to inject the database files from a data-only container. 
+ 
+ Starting Docker 17.05 it is possible to use multistage builds feature to remove volumes 
+ 
+ and then add your data as in Phil Sabaty's answer. 
+ 

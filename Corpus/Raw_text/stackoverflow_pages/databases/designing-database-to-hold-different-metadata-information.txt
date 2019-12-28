@@ -1,0 +1,72 @@
+*** designing-database-to-hold-different-metadata-information ***
+
+ So I am trying to design a database that will allow me to connect one product with multiple categories. This part I have figured. But what I am not able to resolve is the issue of holding different type of product details.  
+ For example, the product could be a book (in which case i would need metadata that refers to that book like isbn, author etc) or it could be a business listing (which has different metadata) ..  
+ How should I tackle that? 
+ 
+ This is called  the Observation Pattern. 
+ 
+ Three objects, for the example 
+ 
+ This is how tables may look like: 
+ 
+ . 
+ 
+ . 
+ 
+ . 
+ 
+ . 
+ 
+ **EDIT:**
+
+ Jefferey raised a valid point (see comment), so I'll expand the answer. 
+ The model allows for dynamic (on-fly) creation of any number of entites
+with any type of properties without schema changes. Hovewer, this flexibility has a price -- storing and searching is slower and more complex than in a usual table design.  
+ Time for an example, but first, to make things easier, I'll flatten the model into a view. 
+ 
+ To use Jefferey's example from the comment 
+ 
+ This looks complicated to write, but on a closer inspection you may notice a pattern in CTEs. 
+ Now suppose we have a standard fixed schema design where each object property has its own column.
+The query would look something like: 
+ 
+ 
+ I wasn't going to answer, but right now the accepted answer has a very bad idea. A relational database should never be used to store simple attribute-value pairs. That will cause a lot of problems down the road. 
+ The best way to deal with this is to create a separate table for each type. 
+ 
+ Each row of each table should represent a proposition about the real world, and the structure of the tables and their constraints should reflect the realities that are being represented. The closer you can get to this ideal, the cleaner the data will be, and the easier it will be to do reporting and to extend the system in other ways. It will also run more effeciently. 
+ 
+ You could go with the schema-less approach: 
+ Hold the metadata in a TEXT column as a JSON object (or other serialization, but JSON is better for reasons soon explained). 
+ **Advantages to this technique:**
+
+ 
+ Less queries: you get all the information in one query, no need for "in directional" queries (to get meta-meta-data) and joins. 
+ You can add/remove any attributes you want at any time, no need to alter table (which is problematic in some databases, e.g Mysql locks the table, and it takes long time with huge tables) 
+ Since it's JSON, you don't need extra processing on your backend. Your webpage (I assume it's a web application) just reads the JSON as is from your web service and that's it, you can use the JSON object with javascript however you like. 
+ 
+ **Problems:**
+  
+ 
+ Potentially wasted space, if you have 100 books with the same author, an author table with all the books having just the author_id is more economical space wise. 
+ Need to implement indexes. since your metadata is a JSON object you don't have indexes straight away. But it's fairly easy to implement specific index for the specific metadata you need. e.g you want to index by author, so you create a author_idx table with author_id and item_id, when someone searches for author, you can look up this table and the items themselves. 
+ 
+ Depending on the scale, this might be an overkill. on smaller scale joins would work just fine. 
+ 
+ The product should be typed.  e.g. include type_id in the product table, that points to the categories of products you will support, and lets you know which other tables to query against for the appropriate related attributes. 
+ 
+ In this kind of problem, you have three choices: 
+ 
+ Create a table with "generic" columns. For example, if you sell both books and toasters, it is likely that your toasters don't have an ISBN and a title, but they still have some kind of product identifier and description. So give the fields generic names like "product_id" and "description", and for books the product_id is an ISBN, for toasters its the manufacturer's part number, etc. 
+ 
+ This works when the real-world entities are all being processed in the same way, at least for the most part, and so must have, if not the "same" data, at least analagous data. This breaks down when there are real functional differences. Like if for toasters we are calcualting watts = volts * amps, it is likely that there is no corresponding calculation for books. When you start creating a pages_volts fields that contains the page count for books and the voltage for toasters, things have gotten out of control. 
+ 
+ Use a property/value scheme like Damir suggests. See my comment on his post for the pros and cons there. 
+ What I'd usually suggest is a type/subtype scheme. Create a table for "product" that contains a type code and the generic fields. Then for each of the true types -- books, toasters, cats, whatever -- create a separate table that is connected to the product table. Then when you need to do book-specific processing, process the book table. When you need to do generic processing, process the product table. 
+ 
+ 
+ I understand this may not be the sort of answer you are looking for however unfortunately a relational database ( SQL ) is built upon the idea of a structured predefined schema. You are trying to store non structured schemaless data in a model that was not built for it. Yes you can fudge it so that you can technically store infinite amounts of meta data however this will soon cause lots of issues and quickly get out of hand. Just look at Wordpress and the amount of issues they have had with this approach and you can easily see why it is not a good idea.  
+ Luckily this has been a long standing issue with relational databases which is why NoSQL schemaless databases that use a document approach were developed and have seen such a massive rise in popularity in the last decade. It's what all of the fortune 500 tech companies use to store ever changing user data as it allows for individual records to have as many or as little fields ( columns ) as they wish whilst remaining in the same collection ( table ).  
+ Therefore I would suggest looking into NoSQL databases such as MongoDB and try to either convert over to them, or use them in conjunction with your relational database. Any types of data you know need to have the same amount of columns representing them should be stored in SQL and any types of data you know will differ between records should be stored in the NoSQL database. 
+ 

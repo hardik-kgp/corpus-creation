@@ -1,0 +1,38 @@
+*** java-versioned-data-structures ***
+
+ I have a data structure that is pretty simple (basically a structure containing some arrays and single values), but I need to record the history of the data structure so that I can efficiently get the contents of the data structure at any point in time. 
+ Is there a relatively straightforward way to do this? 
+ The best way I can think of would be to encapsulate the whole data structure with something that handles all the mutating operations by storing data in  functional data structures , and then for each mutation operation caching a copy of the data structure in a Map indexed by time-ordering (e.g. a TreeMap with real time as keys, or a HashMap with a counter of mutation operations combined with one or more indexes stored in TreeMaps mapping real time / tick count / etc. to mutation operations) 
+ any suggestions? 
+ **edit:**
+ In one case I already have the history as a series of transactions (this is reading items from a data file) so I can replay them, but this takes O(n) steps (n = # of transactions) every time I need to access the data. I'm looking for alternatives. 
+ 
+ You are correct. Storing the data in a purely function data structure is the way to go. Supporting anything moderately complicated using do/undo actions is reliant on the programmer being aware of all side effects of every operation, which does not scale and breaks encapsulation. 
+ 
+ You should use some form of persistent data structure that is immutable and is based on structural sharing (i.e. so that the parts of the data structure which do not change between versions only get stored once). 
+ I created an open source Java library of such data structures here: 
+ http://code.google.com/p/mikeralib/source/browse/#svn/trunk/Mikera/src/mikera/persistent 
+ These were somewhat inspired by Clojure's persistent data structures, which might also be suitable for your purposes (they are also written in Java). 
+ 
+ Either do as you already suggested, or have a base class of some sort with subclasses that represent the different changes.  Then get the proper class at run-time by passing the version/timestamp/whatever to a factory that hands you back the right one. 
+ 
+ If you are only storing a little bit of data and don't have a lot of changes then storing each version is fine. 
+ If you don't need to access the old version of the data too often, I wouldn't cache each one, I'd just make it so you could rebuild to it. 
+ You could do this by saving mutations as transactions and replaying the transactions (with the ability to stop at any point. 
+ So you start with an empty data structure and you might get an "Add" instruction followed by a "Change" and another "add" and then maybe a "Delete".  Each of these objects would contain a COPY (not a pointer to the same object) of the thing being added or changed. 
+ You would concatenate each operation into a list while at the same time mutating your collection. 
+ If you find that you need a version at an older timestamp, start with a new empty collection, replay until you hit that timestamp then stop and you have the collection as it would be at that time. 
+ If this was a very long-running application and you often needed to access items near the end, you could write an "Undo" for each add/change/delete operation object and actually mutate the data back and forth. 
+ So imagine you have your data object and this array of mutations, you could easily run up and down the mutation list changing the data object back and forth to any version you want. 
+ You could even contain multiple data objects, just create a new empty one and run it up the mutation array (think of it as a timeline--where each stored mutation would contain a timestamp or some version number) until you get it to the timestamp you want--this way you could have "Milestones" that you could reach instantly--for instance, if you allocated one milestone for each thread you could make the addMutation method synchronized and this data collection would become 100% threadsafe. 
+ Note that if you actually return the data object you should only return a copy of the data--otherwise the next time you mutated that milestone it would mutate the data object you returned. 
+ Hmm, you could also include "Rollup" functionality--if you ever decide that you will not need access to the tail (the first few transactions) you could apply them to a "Start" structure and then delete them--from then on you copy the start structure to begin from the start rather than always starting with an empty data structure. 
+ Man, this is an awesome pattern--now I want to implement it. 
+ 
+ Multi-level undo can be based on a model (ie data structure) and a sequence of actions. Each action supports two operations: "do" and "undo". To perform a change on the model you register a new action and "do" it. This allows you to "walk" back and forth in the history, but the state of the model at a specific index cannot be accessed in constant time. 
+ Maybe something like this would be applicable to your situation? 
+ 
+ How long will the application be running for?   
+ It seems like you could do what you suggested -- playing the transactions back -- but cache the data structure and list of transactions at particular points in time (every hour or every day?) to ease the pain of having to go through O(n) operations every time you need to rebuild the collection from scratch. 
+ Granted, there is definitely a trade-off between space (that the cache takes up) and the number of operations needed to re-build it, but hopefully you will be able to find a happy medium for it. 
+ 

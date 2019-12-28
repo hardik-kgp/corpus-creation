@@ -1,0 +1,76 @@
+*** connecting-to-ibm-as400-server-for-database-operations-hangs ***
+
+ I'm trying to talk to an AS400 in Python. The goal is to use SQLAlchemy, but when I couldn't get that to work I stepped back to a more basic script using just ibm_db instead of ibm_db_sa. 
+ 
+ The problem seems to be the port. If I use the 50000 I see in all the examples, I get an error. If I use 446, I get an error. The baffling part is this: if I use 8471, which  IBM says to do , I get no error, no timeout, no response whatsoever. I've left the script running for over twenty minutes, and it just sits there, doing nothing. It's active, because I can't use the command prompt at all, but it never gives me any feedback of any kind. 
+ This same 400 is used by the company I work for every day, for logging, emailing, and (a great deal of) database usage, so I know it works. The software we use, which talks to the database behind the scenes, runs just fine on my machine. That tells me my driver is good, the network settings are right, and so on. I can even telnet into the 400 from here. 
+ I'm on the SQLAlchemy and ibm_db email lists, and have been communicating with them for days about this problem. I've also googled it so much I'm starting to run out of un-visited links in my search results. No one seems to have the problem of the connection hanging indefinitely. If there's anything I can try in Python, I'll try it. I don't deal with the 400 directly, but I can ask the guy who does to check/configure whatever I need to. As I said though, several workstations can talk to the 400's database with no problems, and queries run against the library I want to access work fine, if run from the 400 itself. If anyone has any suggestions, I'd greatly appreciate hearing them. Thanks! 
+ 
+ The  README for   only lists DB2 for Linux/Unix/Windows in the "Supported Database" section. So it most likely doesn't work for DB2 for i, at least not right out of the box. 
+ Since you've stated you have IBM System i Access for Windows, I strongly recommend just using one of the drivers that comes with it (ODBC, OLEDB, or ADO.NET, as @Charles mentioned). 
+ Personally, I always use ODBC, with either   or  . Either one works fine. A simple example: 
+ 
+ Now, one of SQLAlchemy's connection methods is  , so I would think that if you can establish a connection using   directly, you can somehow configure SQLAlchemy to do the same. But I'm not an SQLAlchemy user myself, so I don't have example code for that. 
+ **UPDATE**
+
+ I managed to get SQLAlchemy to connect to our IBM i and execute straight SQL queries. In other words, to get it to about the same functionality as simply using PyODBC directly.  I haven't tested any other SQLAlchemy features.  What I did to set up the connection on my Windows 7 machine: 
+ 
+ Install   as an SQLAlchemy dialect 
+You may be able to use   for this, but I did it the low-tech way: 
+ 
+ Download   from PyPI. 
+As of this writing, the latest version is 0.3.2, uploaded on 2014-10-20. It's conceivable that later versions will either be fixed or broken in different ways (so in the future, the modifications I'm about to describe might be unnecessary, or they might not work). 
+ Unpack the archive ( ) and copy the enclosed   directory into the   directory. 
+ 
+ Modify  
+ 
+ Add the   method to the   class 
+The point of this is to override the method of the same name in  , which   inherits from. The problem is that   tries to set attributes   and  , neither of which is available or relevant when connecting to IBM i using PyODBC (as far as I can tell). 
+ Add the module-level name   and set it to the   class 
+ 
+ 
+ Code for the above modifications should go at the end of the file, and look like this: 
+ 
+ Note the indentation!  Remember, the   method needs to belong to the   class, and   needs to be global to the module. 
+ Finally, you need to give the engine creator the right URL: 
+ 'ibm_db_sa+pyodbc://username:password@host/*local' 
+ (Obviously, substitute valid values for  ,  , and  .) 
+ That's it. At this point, you should be able to create the engine, connect to the i, and execute plain SQL through SQLAlchemy. I would think a lot of the ORM stuff should also work at this point, but I have not verified this. 
+ 
+ The way to find out what port is needed is to look at the service table entries on the IBM i. 
+ Your IBM i guy can use the iNav GUI or the green screen Work with Service Table Entry (WRKSRVTBLE) command 
+ Should get a screen like so: 
+ 
+ The default port for the DB is indeed 8471.  Though drda is used for "distributed db" operations. 
+ Based upon this  thread , to use ibm_db to connect to DB2 on an IBM i, you need the IBM Connect product; which is a commercial package that has to be paid for. 
+ This  thread  suggests using ODBC via the pyodbc module.   It also suggests that JDBC via the JT400 toolkit may also work. 
+ 
+ Here is an example to work with as400, sqlalchemy and pandas.
+This exammple take a bunch of csv files and insert with pandas/sqlalchemy.
+Only works for windows, on linux the i series odbc driver segfaults (Centos 7 and Debian 9 x68_64) 
+ Client is Windows 10. 
+ My as400 version is 7.3 
+ Python is 2.7.14 
+ installed with pip: pandas, pyodbc, imb_db_sa, sqlalchemy 
+ You need to install i access for windows from  ftp://public.dhe.ibm.com/as400/products/clientaccess/win32/v7r1m0/servicepack/si66062/ 
+ Aditionally the modifications by @JohnY on pyodbc.py
+C:\Python27\Lib\site-packages\sqlalchemy\dialects\ibm_db_sa\pyodbc.py
+Change line 99 to 
+ 
+ The odbc driver changed it's name. 
+ 
+ Hope it helps. 
+ 
+ If you don't need Pandas/SQLAlchemy, just use pyodbc as suggested in  John Y's answer .  Otherwise, you can try doing what worked for me, below. It's taken from my answer to  my own, similar question , which you can check out for more detail on what  doesn't  work (I tried and failed in so many ways before getting it working). 
+ 
+ I created a blank file in my project to appease this message that I was receiving: 
+ 
+ Unable to open  : File not found
+  ( ). 
+ 
+ (My project folder is  , so I created the rest of the path.) 
+ With that file present, the code below now works for me.  For the record, it seems to work regardless of whether the   module is modified as suggested in  John Y's answer , so I would recommend leaving that module alone. Note that although they aren't imported by directly, you need these modules installed:  ,  , and possibly   (if using Python 2...I forget if it's necessary).  If you are using Python 3, I you'll need   instead of  .  I also have i Access 7.1 drivers installed on my computer, which probably came into play. 
+ 
+ 
+ 
+ 

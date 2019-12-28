@@ -1,0 +1,192 @@
+*** database-design-for-revisions ***
+
+ We have a requirement in project to store all the revisions(Change History) for the entities in the database. Currently we have 2 designed proposals for this: 
+ e.g. for "Employee" Entity 
+ **Design 1:**
+
+ 
+ **Design 2:**
+
+ 
+ Is there any other way of doing this thing?  
+ The problem with the "Design 1" is that we have to parse XML each time when you need to access data. This will slow the process and also add some limitations like we cannot add joins on the revisions data fields. 
+ And the problem with the "Design 2" is that we have to duplicate each and every field on all entities (We have around 70-80 entities for which we want to maintain revisions). 
+ 
+ 
+ Do  **not**
+ put it all in one table with an IsCurrent discriminator attribute.  This just causes problems down the line, requires surrogate keys and all sorts of other problems. 
+ Design 2 does have problems with schema changes.  If you change the Employees table you have to change the EmployeeHistories table and all the related sprocs that go with it.  Potentially doubles you schema change effort. 
+ Design 1 works well and if done properly does not cost much in terms of a performance hit.  You could use an xml schema and even indexes to get over possible performance problems.  Your comment about parsing the xml is valid but you could easily create a view using xquery - which you can include in queries and join to.  Something like this... 
+ 
+ 
+ 
+ I think the key question to ask here is 'Who / What is going to be using the history'? 
+ If it's going to be mostly for reporting / human readable history, we've implemented this scheme in the past... 
+ Create a table called 'AuditTrail' or something that has the following fields... 
+ 
+ You can then add a 'LastUpdatedByUserID' column to all of your tables which should be set every time you do an update / insert on the table. 
+ You can then add a trigger to every table to catch any insert / update that happens and creates an entry in this table for each field that's changed.  Because the table is also being supplied with the 'LastUpdateByUserID' for each update / insert, you can access this value in the trigger and use it when adding to the audit table. 
+ We use the RecordID field to store the value of the key field of the table being updated.  If it's a combined key, we just do a string concatenation with a '~' between the fields. 
+ I'm sure this system may have drawbacks - for heavily updated databases the performance may be hit, but for my web-app, we get many more reads than writes and it seems to be performing pretty well.  We even wrote a little VB.NET utility to automatically write the triggers based on the table definitions. 
+ Just a thought! 
+ 
+ The  History Tables  article in the  Database Programmer  blog might be useful - covers some of the points raised here and discusses the storage of deltas. 
+ **Edit**
+
+ In the  History Tables  essay, the author ( Kenneth Downs ), recommends maintaining a history table of at least seven columns: 
+ 
+ Timestamp of the change, 
+ User that made the change, 
+ A token to identify the record that was changed (where the history is maintained separately from the current state), 
+ Whether the change was an insert, update, or delete, 
+ The old value, 
+ The new value, 
+ The delta (for changes to numerical values). 
+ 
+ Columns which never change, or whose history is not required, should not be tracked in the history table to avoid bloat.  Storing the delta for numerical values can make subsequent queries easier, even though it can be derived from the old and new values. 
+ The history table must be secure, with non-system users prevented from inserting, updating or deleting rows.  Only periodic purging should be supported to reduce overall size (and if permitted by the use case). 
+ 
+ Avoid Design 1; it is not very handy once you will need to for example rollback to old versions of the records - either automatically or "manually" using administrators console. 
+ I don't really see disadvantages of Design 2. I think the second, History table should contain all columns present in the first, Records table. E.g. in mysql you can easily create table with the same structure as another table ( ). And, when you are about to change structure of the Records table in your live database, you have to use   commands anyway - and there is no big effort in running these commands also for your History table. 
+ Notes 
+ 
+ Records table contains only lastest revision; 
+ History table contains all previous revisions of records in Records table; 
+ History table's primary key is a primary key of the Records table with added   column; 
+ Think about additional auxiliary fields like   - the user who created particular revision. You may also want to have a field   to track who deleted particular revision. 
+ Think about what   should mean - either it means where this particular revision was created, or it will mean when this particular revision was replaced by another one. The former requires the field to be in the Records table, and seems to be more intuitive at the first sight; the second solution however seems to be more practical for deleted records (date when this particular revision was deleted). If you go for the first solution, you would probably need a second field   (only if you need it of course). Depends on you and what you actually want to record. 
+ 
+ Operations in Design 2 are very trivial: 
+ **Modify**
+
+ 
+ copy the record from Records table to History table, give it new RevisionId (if it is not already present in Records table), handle DateModified (depends on how you interpret it, see notes above) 
+ go on with normal update of the record in Records table 
+ 
+ **Delete**
+
+ 
+ do exactly the same as in the first step of Modify operation. Handle DateModified/DateDeleted accordingly, depending on the interpretation you have chosen. 
+ 
+ **Undelete (or rollback)**
+
+ 
+ take highest (or some particular?) revision from History table and copy it to the Records table 
+ 
+ **List revision history for particular record**
+
+ 
+ select from History table and Records table 
+ think what exactly you expect from this operation; it will probably determine what information you require from DateModified/DateDeleted fields (see notes above) 
+ 
+ If you go for Design 2, all SQL commands needed to do that will be very very easy, as well as maintenance! Maybe, it will be much much easier  **if you use the auxiliary columns (**
+**, **
+**) also in the Records table - to keep both tables at exactly the same structure**
+ (except for unique keys)! This will allow for simple SQL commands, which will be tolerant to any data structure change: 
+ 
+ Don't forget to use transactions! 
+ **As for the scaling**
+, this solution is very efficient, since you don't transform any data from XML back and forth, just copying whole table rows - very simple queries, using indices - very efficient! 
+ 
+ We have implemented a solution very similar to the solution that Chris Roberts suggests, and that works pretty well for us. 
+ Only difference is that we only store the new value. The old value is after all stored in the previous history row  
+ 
+ Lets say you have a table with 20 columns. This way you only have to store the exact column that has changed instead of having to store the entire row. 
+ 
+ If you have to store history, make a shadow table with the same schema as the table you are tracking and a 'Revision Date' and 'Revision Type' column (e.g. 'delete', 'update').  Write (or generate - see below) a set of triggers to populate the audit table. 
+ It's fairly straightforward to make a tool that will read the system data dictionary for a table and generate a script that creates the shadow table and a set of triggers to populate it. 
+ Don't try to use XML for this, XML storage is a lot less efficient than the native database table storage that this type of trigger uses. 
+ 
+ Ramesh, I was involved in development of system based on first approach. 
+It turned out that storing revisions as XML is leading to a huge database growth and significantly slowing things down. 
+My approach would be to have one table per entity: 
+ 
+ where  **IsActive**
+ is a sign of the latest version 
+ If you want to associate some additional info with revisions you can create separate table
+containing that info and link it with entity tables using PK\FK relation. 
+ This way you can store all version of employees in one table.
+Pros of this approach: 
+ 
+ Simple data base structure 
+ No conflicts since table becomes append-only 
+ You can rollback to previous version by simply changing IsActive flag 
+ No need for joins to get object history 
+ 
+ Note that you should allow primary key to be non unique. 
+ 
+ The way that I've seen this done in the past is have 
+ 
+ You never "update" on this table (except to change the valid of isCurrent), just insert new rows. For any given EmployeeId, only 1 row can have isCurrent == 1.  
+ The complexity of maintaining this can be hidden by views and "instead of" triggers (in oracle, I presume similar things other RDBMS), you can even go to materialized views if the tables are too big and can't be handled by indexes). 
+ This method is ok, but you can end up with some complex queries. 
+ Personally, I'm pretty fond of your Design 2 way of doing it, which is how I've done it in the past as well. Its simple to understand, simple to implement and simple to maintain.  
+ It also creates very little overhead for the database and application, especially when performing read queries, which is likely what you'll be doing 99% of the time.  
+ It would also be quite easy to automatic the creation of the history tables and triggers to maintain (assuming it would be done via triggers). 
+ 
+ Revisions of data is an aspect of the ' valid-time ' concept of a Temporal Database. Much research has gone into this, and many patterns and guidelines have emerged. I wrote a lengthy reply with a bunch of references to  this  question for those interested. 
+ 
+ I'm going to share with you my design and it's different from your both designs in that it requires one table per each entity type. I found the best way to describe any database design is through ERD, here's mine: 
+ 
+ In this example we have an entity named  employee .  user  table holds your users' records and  entity  and  entity_revision  are two tables which hold revision history for all the entity types that you will have in your system. Here's how this design works: 
+ The two fields of  entity_id  and  revision_id 
+ Each entity in your system will have a unique entity id of its own. Your entity might go through revisions but its entity_id will remain the same. You need to keep this entity id in you employee table (as a foreign key). You should also store the type of your entity in the  entity  table (e.g. 'employee'). Now as for the revision_id, as its name shows, it keep track of your entity revisions. The best way I found for this is to use the  employee_id  as your revision_id. This means you will have duplicate revision ids for different types of entities but this is no treat to me (I'm not sure about your case). The only important note to make is that the combination of entity_id and revision_id should be unique. 
+ There's also a  state  field within  entity_revision  table which indicated the state of revision. It can have one of the three states:  ,   or   (not relying on the date of revisions helps you a great deal to boost your queries). 
+ One last note on revision_id, I didn't create a foreign key connecting employee_id to revision_id because we don't want to alter entity_revision table for each entity type that we might add in future. 
+ **INSERTION**
+
+ For each  employee  that you want to insert into database, you will also add a record to  entity  and  entity_revision . These last two records will help you keep track of by whom and when a record has been inserted into database. 
+ **UPDATE**
+
+ Each update for an existing employee record will be implemented as two inserts, one in employee table and one in entity_revision. The second one will help you to know by whom and when the record has been updated. 
+ **DELETION**
+
+ For deleting an employee, a record is inserted into entity_revision stating the deletion and done. 
+ As you can see in this design no data is ever altered or removed from database and more importantly each entity type requires only one table. Personally I find this design really flexible and easy to work with. But I'm not sure about you as your needs might be different. 
+ **[UPDATE]**
+
+ Having supported partitions in the new MySQL versions, I believe my design also comes with one of the best performances too. One can partition   table using   field while partition   using its   field. This will boost the   queries by far while keep the design simple and clean. 
+ 
+ If indeed an audit trail is all you need, I'd lean toward the audit table solution (complete with denormalized copies of the important column on other tables, e.g.,  ). Keep in mind, though, that bitter experience indicates that a single audit  table will be a huge bottleneck down the road; it's probably worth the effort to create individual audit tables for all your audited tables. 
+ If you need to track the actual historical (and/or future) versions, then the standard solution is to track the same entity with multiple rows using some combination of start, end, and duration values. You can use a view to make accessing current values convenient. If this is the approach you take, you can run into problems if your versioned data references mutable but unversioned data. 
+ 
+ If you want to do the first one you might want to use XML for the Employees table too. Most newer databases allow you to query into XML fields so this is not always a problem. And it might be simpler to have one way to access employee data regardless if it's the latest version or an earlier version. 
+ I would try the second approach though. You could simplify this by having just one Employees table with a DateModified field. The EmployeeId + DateModified would be the primary key and you can store a new revision by just adding a row. This way archiving older versions and restoring versions from archive is easier too. 
+ Another way to do this could be the  datavault model  by Dan Linstedt. I did a project for the Dutch statistics bureau that used this model and it works quite well. But I don't think it's directly useful for day to day database use. You might get some ideas from reading his papers though. 
+ 
+ How about: 
+ 
+ EmployeeID 
+ DateModified 
+
+ 
+ and/or revision number, depending on how you want to track it 
+ 
+ ModifiedByUSerId
+
+ 
+ plus any other information you want to track 
+ 
+ Employee fields 
+ 
+ You make the primary key (EmployeeId, DateModified), and to get the "current" record(s) you just select MAX(DateModified) for each employeeid.  Storing an IsCurrent is a very bad idea, because first of all, it can be calculated, and secondly, it is far too easy for data to get out of sync.  
+ You can also make a view that lists only the latest records, and mostly use that while working in your app. The nice thing about this approach is that you don't have duplicates of data, and you don't have to gather data from two different places (current in Employees, and archived in EmployeesHistory) to get all the history or rollback, etc). 
+ 
+ If you want to rely on history data (for reporting reasons) you should use structure something like this: 
+ 
+ Or global solution for application: 
+ 
+ You can save your revisions also in XML, then you have only one record for one revision. This will be looks like: 
+ 
+ 
+ We have had similar requirements, and what we found was that often times the user just wants to  **see**
+ what has been changed, not necessarily roll back any changes.   
+ I'm not sure what your use case is, but what we have done was create and Audit table that is automatically updated with changes to an business  entity, including the friendly name of any foreign key references and enumerations.   
+ Whenever the user saves their changes we reload the old object, run a comparison, record the changes, and save the entity (all are done in a single database transaction in case there are any problems).   
+ This seems to work very well for our users and saves us the headache of having a completely separate audit table with the same fields as our business entity. 
+ 
+ It sounds like you want to track changes to specific entities over time, e.g. ID 3, "bob", "123 main street", then another ID 3, "bob" "234 elm st", and so on, in essence being able to puke out a revision history showing every address "bob" has been at. 
+ The best way to do this is to have an "is current" field on each record, and (probably) a timestamp or FK to a date/time table. 
+ Inserts have to then set the "is current" and also unset the "is current" on the previous "is current" record. Queries have to specify the "is current", unless you want all of the history. 
+ There are further tweaks to this if it's a very large table, or a large number of revisions are expected, but this is a fairly standard approach. 
+ 

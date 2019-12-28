@@ -1,0 +1,66 @@
+*** python-in-memory-object-database-which-supports-indexing ***
+
+ I'm doing some data munging which would be quite a bit simpler if I could stick a bunch of dictionaries in an in-memory database, then run simply queries against it.  
+ For example, something like: 
+ 
+ There are three confounding factors, though:  
+ 
+ Some of the values will be Python objects, and serializing them is out of the question (too slow, breaks identity). Of course, I could work around this (eg, by storing all the items in a big list, then serializing their indexes in that list… But that could take a fair bit of fiddling). 
+ There will be thousands of data, and I will be running lookup-heavy operations (like graph traversals) against them, so it  must  be possible to perform efficient (ie, indexed) queries. 
+ As in the example, the data is  unstructured , so systems which require me to predefine a schema would be tricky. 
+ 
+ So, does such a thing exist? Or will I need to kludge something together? 
+ 
+ What about using an in-memory SQLite database via the  sqlite3 standard library module , using the special value   for the connection? If you don't want to write your on SQL statements, you can always use an ORM, like  SQLAlchemy , to access an in-memory SQLite database. 
+ **EDIT**
+: I noticed you stated that the values may be Python objects, and also that you require avoiding serialization. Requiring arbitrary Python objects be stored in a database also necessitates serialization. 
+ Can I propose a practical solution if you must keep those two requirements? Why not just use Python dictionaries as indices into your collection of Python dictionaries? It sounds like you will have idiosyncratic needs for building each of your indices; figure out what values you're going to query on, then write a function to generate and index for each. The possible values for one key in your list of dicts will be the keys for an index; the values of the index will be a list of dictionaries. Query the index by giving the value you're looking for as the key. 
+ 
+ 
+ If the in memory database solution ends up being too much work, here is a method for filtering it yourself that you may find useful. 
+ The   function takes in arguments to define how you want to filter a dictionary, and returns a function that can be passed into the built in   function to filter a list of dictionaries. 
+ 
+ This is pretty easily extensible to more complex filtering, for example to filter based on whether or not a value is matched by a regex: 
+ 
+ 
+ The only solution I know is a package I stumbled across a few years ago on PyPI,  PyDbLite .  It's okay, but there are few issues: 
+ 
+ It still wants to serialize everything to disk, as a pickle file.  But that was simple enough for me to rip out.  (It's also unnecessary.  If the objects inserted are serializable, so is the collection as a whole.) 
+ The basic record type is a dictionary, into which it inserts its own metadata, two ints under keys   and  . 
+ The indexing is very simple, based only on value of the record dictionary.  If you want something more complicated, like based on a the attribute of a object in the record, you'll have to code it yourself.  (Something I've meant to do myself, but never got around to.) 
+ 
+ The author does seem to be working on it occasionally.  There's some new features from when I used it, including some nice syntax for complex queries. 
+ Assuming you rip out the pickling (and I can tell you what I did), your example would be (untested code): 
+ 
+ Hopefully it will be enough to get you started. 
+ 
+ As far as "identity" anything that is hashable you should be able to compare, to keep track of object identity. 
+ Zope Object Database (ZODB):
+ http://www.zodb.org/ 
+ PyTables works well:
+ http://www.pytables.org/moin 
+ Also Metakit for Python works well: 
+ http://equi4.com/metakit/python.html 
+ 
+ Research "Stream Processing", if your data sets are extremely large this may be useful:
+ http://www.trinhhaianh.com/stream.py/ 
+ Any in-memory database, that can be serialized (written to disk) is going to have your identity problem.  I would suggest representing the data you want to store as native types (list, dict) instead of objects if at all possible. 
+ Keep in mind NumPy was designed to perform complex operations on in-memory data structures, and could possibly be apart of your solution if you decide to roll your own. 
+ 
+ I wrote a simple module called  Jsonstore  that solves (2) and (3). Here's how your example would go: 
+ 
+ 
+ Not sure if it complies with all your requirements, but TinyDB (using in-memory storage) is also probably worth the try: 
+ 
+ Its simplicity and powerful query engine makes it a very interesting tool for some use cases. See  http://tinydb.readthedocs.io/  for more details. 
+ 
+ If you are willing to work around serializing, MongoDB could work for you. PyMongo provides an interface almost identical to what you describe. If you decide to serialize, the hit won't be as bad since Mongodb is memory mapped.  
+ 
+ It should be possible to do what you are wanting to do with just isinstance(), hasattr(), getattr() and setattr(). 
+ However, things are going to get fairly complicated before you are done!  
+ I suppose one could store all the objects in a big list, then run a query on each object, determining what it is and looking for a given attribute or value, then return the value and the object as a list of tuples. Then you could sort on your return values pretty easily. copy.deepcopy will be your best friend and your worst enemy.  
+ Sounds like fun! Good luck! 
+ 
+ I started developing one yesterday and it isn't published yet. It indexes your objects and allows you to run fast queries. All data is kept in RAM and I'm thinking about smart load and save methods. For testing purposes it is loading and saving through cPickle. 
+ Let me know if you are still interested. 
+ 

@@ -1,0 +1,58 @@
+*** mysql-primary-keys-uuid-guid-vs-bigint-timestamprandom ***
+
+ **tl;dr:  Is assigning rows IDs of {unixtimestamp}{randomdigits} (such as 1308022796123456) as a BIGINT a good idea if I don't want to deal with UUIDs?**
+  
+ Just wondering if anyone has some insight into any performance or other technical considerations / limitations in regards to IDs / PRIMARY KEYs assigned to database records across multiple servers.  
+ My PHP+MySQL application runs on multiple servers, and the data needs to be able to be merged.  So I've outgrown the standard sequential / auto_increment integer method of identifying rows. 
+ My research into a solution brought me to the concept of using UUIDs / GUIDs.  However the need to alter my code to deal with converting UUID strings to binary values in MySQL seems like a bit of a pain/work.  I don't want to store the UUIDs as VARCHAR for storage and performance reasons.    
+ Another possible annoyance of UUIDs stored in a binary column is the fact that rows IDs aren't obvious when looking at the data in PhpMyAdmin - I could be wrong about this though - but straight numbers seem a lot simpler overall anyway and are universal across any kind of database system with no conversion required. 
+ As a middle ground I came up with the idea of making my ID columns a BIGINT, and assigning IDs using the current unix timestamp followed by 6 random digits.  So lets say my random number came about to be 123456, my generated ID today would come out as:  **1308022796123456**
+  
+ A one in 10 million chance of a conflict for rows created within the same second is fine with me.  I'm not doing any sort of mass row creation quickly.  
+ One issue I've read about with randomly generated UUIDs is that they're bad for indexes, as the values are not sequential (they're spread out all over the place).  The UUID() function in MySQL addresses this by generating the first part of the UUID from the current timestamp.  Therefore I've copied that idea of having the unix timestamp at the start of my BIGINT.  Will my indexes be slow?   
+ **Pros of my BIGINT idea:**
+  
+ 
+ Gives me the multi-server/merging advantages of UUIDs  
+ Requires very little change to my application code (everything is already programmed to handle integers for IDs)  
+ Half the storage of a UUID (8 bytes vs 16 bytes)  
+ 
+ **Cons:**
+  
+ 
+ ???  - Please let me know if you can think of any.  
+ 
+ Some follow up questions to go along with this:   
+ 
+ Should I use more or less than 6 random digits at the end?  Will it make a difference to index performance?  
+ Is one of these methods any "randomer" ?:  Getting PHP to generate 6 digits and concatenating them together -VS- getting PHP to generate a number in the 1 - 999999 range and then zerofilling to ensure 6 digits.  
+ 
+ Thanks for any tips.  Sorry about the wall of text. 
+ 
+ I have run into this very problem in my professional life. We used timestamp + random number and ran into serious issues when our applications scaled up (more clients, more servers, more requests). Granted, we (stupidly) used only 4 digits, and then change to 6, but you would be surprised how often that the errors still happen. 
+ Over a long enough period of time, you are  guaranteed  to get duplicate key errors. Our application is mission critical, and therefore even the smallest chance it could fail to due inherently random behavior was unacceptable. We started using UUIDs to avoid this issue, and carefully managed their creation. 
+ Using UUIDs, your index size will increase, and a larger index will result in poorer performance (perhaps unnoticeable, but poorer none-the-less). However MySQL supports a native UUID type (never use varchar as a primary key!!), and can handle indexing, searching,etc pretty damn efficiently even compared to bigint. The biggest performance hit to your index is almost always the number of rows indexed, rather than the size of the item being index (unless you want to index on a longtext or something ridiculous like that). 
+ To answer you question: Bigint (with random numbers attached) will be ok if you do not plan on scaling your application/service significantly. If your code can handle the change without much alteration and your application will not explode if a duplicate key error occurs, go with it. Otherwise, bite-the-bullet and go for the more substantial option. 
+ You can always implement a larger change later, like switching to an entirely different backend (which we are now facing... :P) 
+ 
+ You can manually change the autonumber starting number. 
+ 
+ An unsigned int can store up to 4,294,967,295, lets round it down to 4,290,000,000. 
+ Use the first 3 digits for the server serial number, and the final 7 digits for the row id. 
+ This gives you up to 430 servers (including 000), and up to 10 million IDs for each server. 
+ So for server #172 you manually change the autonumber to start at 1,720,000,000, then let it assign IDs sequentially. 
+ If you think you might have more servers, but less IDs per server, then adjust it to 4 digits per server and 6 for the ID (i.e. up to 1 million IDs). 
+ You can also split the number using binary digits instead of decimal digits (perhaps 10 binary digits per server, and 22 for the ID. So, for example, server 76 starts at 2^22*76 = 318,767,104 and ends at 322,961,407). 
+ For that matter you don't even need a clear split. Take 4,294,967,295 divide it by the maximum number of servers you think you will ever have, and that's your spacing. 
+ You could use a bigint if you think you need more identifiers, but that's a seriously huge number. 
+ 
+ Use the GUID as a unique index, but  also  calculate a 64-bit (BIGINT)  hash  of the GUID, store that in a separate NOT UNIQUE column, and index it.  To retrieve, query for a match to  both  columns - the 64-bit index should make this efficient. 
+ What's good about this is that the hash: 
+a. Doesn't have to be unique. 
+b. Is likely to be well-distributed. 
+ The cost:  extra 8-byte column and its index. 
+ 
+ If you want to use the timestamp method then do this: 
+ Give each server a number, to that append the proccess ID of the application that is doing the insert (or the thread ID) (in PHP it's getmypid()), then to that append how long that process has been alive/active for (in PHP it's getrusage()), and finally add a counter that starts at 0 at the start of each script invocation (i.e. each insert within the same script adds one to it). 
+ Also, you don't need to store the full unix timestamp - most of those digits are for saying it's year 2011, and not year 1970. So if you can't get a number saying how long the process was alive for, then at least subtract a fixed timestamp representing today - that way you'll need far less digits. 
+ 

@@ -1,0 +1,71 @@
+*** are-parameters-really-enough-to-prevent-sql-injections ***
+
+ I've been preaching both to my colleagues and here on SO about the goodness of using parameters in SQL queries, especially in .NET applications. I've even gone so far as to promise them as giving immunity against SQL injection attacks. 
+ But I'm starting to wonder if this really is true. Are there any known SQL injection attacks that will be successfull against a parameterized query? Can you for example send a string that causes a buffer overflow on the server? 
+ There are of course other considerations to make to ensure that a web application is safe (like sanitizing user input and all that stuff) but now I am thinking of SQL injections. I'm especially interested in attacks against MsSQL 2005 and 2008 since they are my primary databases, but all databases are interesting.  
+ Edit: To clarify what I mean by parameters and parameterized queries. By using parameters I mean using "variables" instead of building the sql query in a string. 
+So instead of doing this:  
+ 
+ We do this: 
+ 
+ and then set the value of the @Name parameter on the query / command object. 
+ 
+ **Placeholders**
+ are enough to prevent injections.  You might still be open to buffer overflows, but that is a completely different flavor of attack from an SQL injection (the attack vector would not be SQL syntax but binary).  Since the parameters passed will all be escaped properly, there isn't any way for an attacker to pass data that will be treated like "live" SQL.  
+ You can't use functions inside placeholders, and you can't use placeholders as column or table names, because they are escaped and quoted as string literals. 
+ However, if you use  **parameters**
+ as part of a  **string concatenation**
+ inside your dynamic query, you are still vulnerable to injection, because your strings will not be escaped but will be literal.  Using other types for parameters (such as integer) is safe. 
+ That said, if you're using use input to set the value of something like  , then someone could just make themselves administrators in your system and have a free-for-all.  But that's just basic input validation, and has nothing to do with SQL injection. 
+ 
+ No, there is still risk of SQL injection any time you interpolate unvalidated data into an SQL query. 
+ Query parameters help to avoid this risk by separating literal values from the SQL syntax. 
+ 
+ That's fine, but there are other purposes of interpolating data into a dynamic SQL query that cannot use query parameters, because it's not an SQL value but instead a table name, column name, expression, or some other syntax. 
+ 
+ It doesn't matter whether you're using stored procedures or executing dynamic SQL queries directly from application code.  The risk is still there. 
+ The remedy in these cases is to employ  **FIEO**
+ as needed: 
+ 
+ **Filter Input:**
+ validate that the data look like legitimate integers, table names, column names, etc. before you interpolate them. 
+ **Escape Output:**
+ in this case "output" means putting data into a SQL query.  We use functions to transform variables used as string literals in an SQL expression, so that quote marks and other special characters inside the string are escaped.  We should also use functions to transform variables that would be used as table names, column names, etc.  As for other syntax, like writing whole SQL expressions dynamically, that's a more complex problem. 
+ 
+ 
+ There seems to be some confusion in this thread about the definition of a "parameterised query". 
+ 
+ SQL such as a stored proc that accepts parameters. 
+ SQL that is called using the DBMS Parameters collection. 
+ 
+ Given the former definition, many of the links show working attacks. 
+ But the "normal" definition is the latter one. Given that definition, I don't know of any SQL injection attack that will work. That doesn't mean that there isn't one, but I have yet to see it. 
+ From the comments, I'm not expressing myself clearly enough, so here's an example that will hopefully be clearer: 
+ This approach  **is**
+ open to SQL injection 
+ 
+ This approach  **isn't**
+ open to SQL injection 
+ 
+ 
+ any sql parameter of string type (varchar, nvarchar, etc) that is used to construct a dynamic query is still vulnerable 
+ otherwise the parameter type conversion (e.g. to int, decimal, date, etc.) should eliminate any attempt to inject sql via the parameter 
+ EDIT: an example, where parameter @p1 is intended to be a table name 
+ 
+ If @p1 is selected from a drop-down list it is a potential sql-injection attack vector;  
+ If @p1 is formulated programmatically w/out the ability of the user to intervene then it is not a potential sql-injection attack vector 
+ 
+ A buffer overflow is not SQL injection.  
+ Parametrized queries guarantee you are safe against SQL injection. They don't guarantee there aren't possible exploits in the form of bugs in your SQL server, but nothing will guarantee that. 
+ 
+ Your data is not safe if you use dynamic sql in any  way shape or form because the permissions must be at the table level. Yes you have limited the type and amount of injection attack from that particular query, but not limited the access a user can get if he or she finds a way into the system and you are completely vunerable to internal users accessing what they shouldn't in order to commit fraud or steal personal information to sell. Dynamic SQL of any type is a dangerous practice. If you use non-dynamic stored procs, you can set permissions at the procesdure level and no user can do anything except what is defined by the procs (except system admins of course).  
+ 
+ It is possible for a stored proc to be vulnerable to special types of SQL injection via overflow/truncation, see: Injection Enabled by Data Truncation here: 
+ http://msdn.microsoft.com/en-us/library/ms161953.aspx 
+ 
+ Just remember that with parameters you can easily store the string, or say username if you don't have any policies, "); drop table users; --" 
+ This in itself won't cause any harm, but you better know where and how that date is used further on in your application (e.g. stored in a cookie, retrieved later on to do other stuff. 
+ 
+ You can run dynamic sql as example 
+ 
+ 

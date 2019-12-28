@@ -1,0 +1,67 @@
+*** database-wide-unique-yet-simple-identifiers-in-sql-server ***
+
+ First, I'm aware of  this question , and the suggestion (using GUID) doesn't apply in my situation. 
+ I want simple UIDs so that my users can easily communicate this information over the phone : 
+ 
+ Hello, I've got a problem with order
+  1584 
+ 
+ as opposed to  
+ 
+ hello, I've got a problem with order
+  4daz33-d4gerz384867-8234878-14 
+ 
+ I want those to be unique (database wide) because I have a few different kind of 'objects' ... there are order IDs, and delivery IDs, and billing-IDs and since there's no one-to-one relationship between those, I have no way to guess what kind of object an ID is referring to. 
+ With database-wide unique IDs, I can immediately tell what object my customer is referring to. My user can just input an ID in a search tool, and I save him the extra-click to further refine what is looking for.  
+ My current idea is to use identity columns with different seeds 1, 2, 3, etc, and an increment value of 100. 
+ This raises a few question though : 
+ 
+ What if I eventually get more than 100 object types? granted I could use 1000 or 10000, but something that doesn't scale well "smells" 
+ Is there a possibility the seed is "lost" (during a replication, a database problem, etc?) 
+ more generally, are there other issues I should be aware of? 
+ is it possible to use an non integer (I currently use bigints) as an identity columns, so that I can prefix the ID with something representing the object type? (for example a varchar column) 
+ would it be a good idea to user a "master table" containing only an identity column, and maybe the object type, so that I can just insert a row in it whenever a need a new idea. I feel like it might be a bit overkill, and I'm afraid it would complexify all my insertion requests. Plus the fact that I won't be able to determine an object type without looking at the database 
+ are there other clever ways to address my problem? 
+ 
+ 
+ Why not use identities on all the tables, but any time you present it to the user, simply tack on a single char for the type? e.g. O1234 is an order, D123213 is a delivery, etc.? That way you don't have to engineer some crazy scheme... 
+ 
+ Handle it at the user interface--add a prefix letter (or letters) onto the ID number when reporting it to the users.  So o472 would be an order, b531 would be a bill, and so on.  People are quite comfortable mixing letters and digits when giving "numbers" over the phone, and are more accurate than with straight digits. 
+ 
+ You could use an autoincrement column to generate the unique id.  Then have a computed column which takes the value of this column and prepends it with a fixed identifier that reflects the entity type, for example OR1542 and DL1542, would represent order #1542 and delivery #1542, respectively.  Your prefix could be extended as much as you want and the format could be arranged to help distiguish between items with the same autoincrement value, say OR011542 and DL021542, with the prefixes being OR01 and DL02. 
+ 
+ I would implement by defining a generic root table. For lack of a better name call it Entity. The Entity table should have at a minimum a single Identity column on it. You could also include other fields that are common accross all your objects or even meta data that tells you this row is an order for example.  
+ Each of your actual Order, Delivery...tables will have a FK reference back to the Entity table. This will give you a single unique ID column 
+ Using the seeds in my opinion is a bad idea, and one that could lead to problems.  
+ Edit 
+ Some of the problems you mentioned already. I also see this being a pain to track and ensure you setup all new entities correctly. Imagine a developer updating the system two years from now. 
+ After I wrote this answer I had thought a but more about why your doing this, and I came to the same conclusion that Matt did.  
+ 
+ MS's intentional programing project had a GUID-to-word system that gave pronounceable names from random ID's 
+ 
+ Why not a simple Base36 representation of a bigint?   http://en.wikipedia.org/wiki/Base_36 
+ 
+ We faced a similar problem on a project. We solved it by first creating a simple table that only has one row: a BIGINT set as auto-increment identity.
+And we created an sproc that inserts a new row in that table, using default values and inside a transaction. It then stores the   in a variable, rolls back the transaction and then returns the stored  . 
+ This gives us a unique ID inside the database without filling up a table. 
+ If you want to know what kind of object the ID is referring to, I'd lose the transaction rollback and also store the type of object along side the ID. That way findout out what kind of object the Id is referring to is only one select (or inner join) away. 
+ 
+ I use a high/low algorithm for this.  I can't find a description for this online though.  Must blog about it. 
+ In my database, I have an ID table with an counter field.  This is the high part.  In my application, I have a counter that goes from 0 to 99.  This is the low part. The generated key is 100 * high + low. 
+ To get a key, I do the following 
+ 
+ The real code is more complicated with locks etc but that is the general gist. 
+ There are a number of ways of getting the high value from the database including auto inc keys, generators etc.  The best way depends on the db you are using. 
+ This algorithm gives simple keys while avoiding most the db hit of looking up a new key every time.  In testing, I found it had similar performance to guids and vastly better performance than retrieving an auto inc key every time. 
+ 
+ You could create a master   table with your identity and a subtype field. Subtables (Orders, Users, etc.) would have a FK to UniqueObject.   triggers should keep the pain to a minimum. 
+ 
+ Maybe an itemType-year-week-orderNumberThisWeek variant? 
+ 
+ Such identifier can consist of several database column values and simply formatted into a form of an identifier by the software. 
+ 
+ I had a similar situation with a project. 
+ My solution: By default,  users  only see the first 7 characters of the GUID. 
+ It's sufficiently random that collisions are extremely unlikely (1 in 268 million), and it's efficient for speaking and typing. 
+ Internally, of course, I'm using the entire GUID. 
+ 

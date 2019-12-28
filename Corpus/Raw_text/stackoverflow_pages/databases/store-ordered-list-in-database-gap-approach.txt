@@ -1,0 +1,51 @@
+*** store-ordered-list-in-database-gap-approach ***
+
+ I want to keep a large ordered list (millions of elements) in Google App Engine datastore. Fast insertion is required. 
+ The simplest way would be adding an indexed property (or column) "order_num" representing the order. For example, a list [A, B, C] would be stored like this: 
+ 
+ However, this doesn't give you fast insertion. For example, If I want to insert X after A, I have to renumber B and C to "make room" for X, i.e., let B become 3, C becomes 4, and X be 2. This would be a disaster if I have millions of elements. 
+ I found a feasible solution called "gap approach" described  here . This approach keeps a gap between adjacent elements. Like this: 
+ 
+ When I want to insert X after A, I can simply add X with its order_num set to (1000 + 2000) / 2 = 1500, no renumbering required. 
+ But with these gaps becoming smaller, renumbering may be required. My question is, is there any known strategy on renumbering? And deciding the size of gaps? 
+ Thanks! 
+ **UPDATE**
+
+ Here's more detail. Say I have a list of elements in database, and every element has an integer property named my_num. The value of my_num is an arbitrary positive integer. Suppose I have a list [A, B, C, D], and their my_num are 
+ 
+ Now, let's define an accum() operator: 
+ 
+ So the accum values for each element are 
+ 
+ But accum values probably should NOT be stored in database because the list is constantly updated. It's better to keep insertion fast. 
+ I want to design a query which input is an integer x: 
+ 
+ For example, query(11) is C and query(3) is A. 
+ Is it possible to design a datastore schema to make this query fast? Or the only way is accumulate it one by one at query time which I'm planning to do? 
+ 
+ alternatively, could you use decimals, or a string? 
+ 
+ Then to insert D between a and b,  give it the value 'aa' 
+ An algorithm for generating the strings is best shown for a binary string: if you want to insert something between "1011" and "1100", do the following: 
+ 
+ Avalue = 1+0*(1/2)+1*(1/4)+1*(1/8) 
+ Bvalue = 1+1*(1/2)+0*(1/4)+0*(1/8) 
+ 
+ average, new value = 1+0*(1/2)+1*(1/4)+1*(1/8)+1*(1/16)
+         new string = "10111" 
+ 
+ since you always average 2 values, the average will always have a finite binary development, and a finite string. It effectively defines a binary tree. 
+ As you know binary trees don't always turn out well balanced, in other words, some strings will be much longer than others after enough insertions. To keep them short, you could use any even number base - it has to be even because then the development of any average of two values is finite. 
+ But whatever you do, strings will probably become long, and you'll have to do some housekeeping at some point, cleaning up the values so that the string space is used efficiently. What this algorithm gives you is the certainty that between cleanups, the system will keep ticking along. 
+ 
+ You probably want to consider using  app-engine-ranklist , which uses a tree-based structure to maintain a rank order in the datastore. 
+ Or, if you can describe your requirements in more detail, maybe we can suggest an alternative that involves less overhead. 
+ 
+ You could make a giant  linked-list .... with each entity pointing to the next one in the list.  
+ It would be extremely slow to traverse the list later, but that might be acceptable depending on how you are using the data, and inserting into the list would only ever be two datastore writes (one to update the insertion point and one for your new entity). 
+ In the database, your linked list can be done like this: 
+ 
+ then when you insert new data, change the predecessor: 
+ 
+ Inserting is quick, but traversing will be slow indeed! 
+ 

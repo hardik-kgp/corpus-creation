@@ -1,0 +1,305 @@
+*** whats-the-difference-between-truncate-and-delete-in-sql ***
+
+ What's the difference between   and   in SQL? 
+ If your answer is platform specific, please indicate that. 
+ 
+ Here's a list of differences. I've highlighted Oracle-specific features, and hopefully the community can add in other vendors' specific difference also. Differences that are common to most vendors can go directly below the headings, with differences highlighted below. 
+ 
+ General Overview 
+ If you want to quickly delete all of the rows from a table, and you're really sure that you want to do it, and you do not have foreign keys against the tables, then a TRUNCATE is probably going to be faster than a DELETE. 
+ Various system-specific issues have to be considered, as detailed below. 
+ 
+ Statement type 
+ Delete is DML, Truncate is DDL ( What is DDL and DML? ) 
+ 
+ Commit and Rollback 
+ Variable by vendor 
+ **SQL*Server**
+
+ Truncate can be rolled back. 
+ **PostgreSQL**
+
+ Truncate can be rolled back. 
+ **Oracle**
+
+ Because a TRUNCATE is DDL it involves two commits, one before and one after the statement execution. Truncate can therefore not be rolled back, and a failure in the truncate process will have issued a commit anyway. 
+ However, see Flashback below. 
+ 
+ Space reclamation 
+ Delete does not recover space, Truncate recovers space 
+ **Oracle**
+
+ If you use the REUSE STORAGE clause then the data segments are not de-allocated, which can be marginally more efficient if the table is to be reloaded with data. The high water mark is reset. 
+ 
+ Row scope 
+ Delete can be used to remove all rows or only a subset of rows. Truncate removes all rows. 
+ **Oracle**
+
+ When a table is partitioned, the individual partitions can be truncated in isolation, thus a partial removal of all the table's data is possible. 
+ 
+ Object types 
+ Delete can be applied to tables and tables inside a cluster. Truncate applies only to tables or the entire cluster. (May be Oracle specific) 
+ 
+ Data Object Identity 
+ **Oracle**
+
+ Delete does not affect the data object id, but truncate assigns a new data object id  unless  there has never been an insert against the table since its creation Even a single insert that is rolled back will cause a new data object id to be assigned upon truncation. 
+ 
+ Flashback (Oracle) 
+ Flashback works across deletes, but a truncate prevents flashback to states prior to the operation. 
+ However, from 11gR2 the FLASHBACK ARCHIVE feature allows this, except in Express Edition 
+ Use of FLASHBACK in Oracle 
+ http://docs.oracle.com/cd/E11882_01/appdev.112/e41502/adfns_flashback.htm#ADFNS638 
+ 
+ Privileges 
+ Variable 
+ **Oracle**
+
+ Delete can be granted on a table to another user or role, but truncate cannot be without using a DROP ANY TABLE grant. 
+ 
+ Redo/Undo 
+ Delete generates a small amount of redo and a large amount of undo. Truncate generates a negligible amount of each. 
+ 
+ Indexes 
+ **Oracle**
+
+ A truncate operation renders unusable indexes usable again. Delete does not. 
+ 
+ Foreign Keys 
+ A truncate cannot be applied when an enabled foreign key references the table. Treatment with delete depends on the configuration of the foreign keys. 
+ 
+ Table Locking 
+ **Oracle**
+
+ Truncate requires an exclusive table lock, delete requires a shared table lock. Hence disabling table locks is a way of preventing truncate operations on a table. 
+ 
+ Triggers 
+ DML triggers do not fire on a truncate. 
+ **Oracle**
+
+ DDL triggers are available. 
+ 
+ Remote Execution 
+ **Oracle**
+
+ Truncate cannot be issued over a database link. 
+ 
+ Identity Columns 
+ **SQL*Server**
+
+ Truncate resets the sequence for IDENTITY column types, delete does not. 
+ 
+ Result set 
+ In most implementations, a   statement can return to the client the rows that were deleted. 
+ e.g. in an Oracle PL/SQL subprogram you could: 
+ 
+ 
+ The difference between truncate and delete is listed below: 
+ 
+ 
+ 
+ **DROP**
+
+ The DROP command removes a table from the database. All the tables' rows, indexes and privileges will also be removed. No DML triggers will be fired. The operation cannot be rolled back. 
+ **TRUNCATE**
+
+ TRUNCATE removes all rows from a table. The operation cannot be rolled back and no triggers will be fired. As such, TRUNCATE is faster and doesn't use as much undo space as a DELETE. Table level lock will be added when Truncating. 
+ **DELETE**
+
+ The DELETE command is used to remove rows from a table. A WHERE clause can be used to only remove some rows. If no WHERE condition is specified, all rows will be removed. After performing a DELETE operation you need to COMMIT or ROLLBACK the transaction to make the change permanent or to undo it. Note that this operation will cause all DELETE triggers on the table to fire. Row level lock will be added when deleting. 
+ 
+ From:  http://www.orafaq.com/faq/difference_between_truncate_delete_and_drop_commands 
+ 
+ All good answers, to which I must add: 
+ Since   is a DDL ( Data Defination Language ), not a DML ( Data Manipulation Langauge ) command, the   do not run. 
+ 
+ Summary of Delete Vs Truncate in SQL server 
+For Complete Article follow this link :  http://codaffection.com/sql-server-article/delete-vs-truncate-in-sql-server/ 
+ 
+ Taken from dotnet mob article : Delete Vs Truncate in SQL Server 
+ 
+ With SQL Server or MySQL, if there is a PK with auto increment, truncate will reset the counter. 
+ 
+ "Truncate doesn't log anything" is correct.  I'd go further: 
+ Truncate is not executed in the context of a transaction.   
+ The speed advantage of truncate over delete should be obvious.  That advantage ranges from trivial to enormous, depending on your situation. 
+ However, I've seen truncate unintentionally break referential integrity,  and violate other constraints.  The power that you gain by modifying data outside a transaction has to be balanced against the responsibility that you inherit when you walk the tightrope without a net. 
+ 
+  is the DDL statement whereas   is a DML statement. Below are the differences between the two:   
+ 
+ As   is a DDL ( Data definition language ) statement it does not require a commit to make the changes permanent. And this is the reason why rows deleted by truncate could not be rollbacked. On the other hand   is a DML ( Data manipulation language ) statement hence requires explicit commit to make its effect permanent. 
+  always removes all the rows from a table, leaving the table empty and the table structure intact whereas   may remove conditionally if the where clause is used. 
+ The rows deleted by   statement cannot be restored and you can not specify the where clause in the   statement. 
+  statements does not fire triggers as opposed of on delete trigger on   statement 
+ 
+ Here  is the very good link relevant to the topic. 
+ 
+ Yes, DELETE is slower, TRUNCATE is faster. Why?  
+ DELETE must read the records, check constraints, update the block, update indexes, and generate redo/undo. All of that takes time. 
+ TRUNCATE simply adjusts a pointer in the database for the table (the High Water Mark) and poof! the data is gone.  
+ This is Oracle specific, AFAIK. 
+ 
+ If accidentally you removed all the data from table using Delete/Truncate. You can rollback committed transaction. Restore the last backup and run transaction log till the time when Delete/Truncate is about to happen. 
+ The related information below is from  a blog post : 
+ 
+ While working on database, we are using Delete and Truncate without
+  knowing the differences between them. In this article we will discuss
+  the difference between Delete and Truncate in Sql. 
+ Delete: 
+ 
+ Delete is a DML command. 
+ Delete statement is executed using a row lock,each row in the table is locked for deletion. 
+ We can specify filters in where clause. 
+ It deletes specified data if where condition exists. 
+ Delete activities a trigger because the operation are logged individually. 
+ Slower than Truncate because it Keeps logs 
+ 
+ Truncate 
+ 
+ Truncate is a DDL command. 
+ Truncate table always lock the table and page but not each row.As it removes all the data. 
+ Cannot use Where condition.  
+ It Removes all the data. 
+ Truncate table cannot activate a trigger because the operation does not log individual row deletions. 
+ Faster in performance wise, because it doesn't keep any logs. 
+ 
+ Note: Delete and Truncate both can be rolled back when used with
+  Transaction. If Transaction is done, means committed then we can not
+  rollback Truncate command, but we can still rollback Delete command
+  from Log files, as delete write records them in Log file in case it is
+  needed to rollback in future from log files. 
+ If you have a Foreign key constraint referring to the table you are
+  trying to truncate, this won't work even if the referring table has no
+  data in it. This is because the foreign key checking is done with DDL
+  rather than DML. This can be got around by temporarily disabling the
+  foreign key constraint(s) to the table. 
+ Delete table is a logged operation. So the deletion of each row gets
+  logged in the transaction log, which makes it slow. Truncate table
+  also deletes all the rows in a table, but it won't log the deletion of
+  each row instead it logs the deallocation of the data pages of the
+  table, which makes it faster. 
+ ~ If accidentally you removed all the data from table using
+  Delete/Truncate. You can rollback committed transaction. Restore the
+  last backup and run transaction log till the time when Delete/Truncate
+  is about to happen. 
+ 
+ 
+ In SQL Server 2005 I believe that you  **can**
+ rollback a truncate 
+ 
+ 
+ **DELETE**
+
+ The DELETE command is used to remove rows from a table. A WHERE clause can be used to only remove some rows. If no WHERE condition is specified, all rows will be removed. After performing a DELETE operation you need to COMMIT or ROLLBACK the transaction to make the change permanent or to undo it. Note that this operation will cause all DELETE triggers on the table to fire. 
+ **TRUNCATE**
+
+ TRUNCATE removes all rows from a table. The operation cannot be rolled back and no triggers will be fired. As such, TRUCATE is faster and doesn't use as much undo space as a DELETE. 
+ **DROP**
+
+ The DROP command removes a table from the database. All the tables' rows, indexes and privileges will also be removed. No DML triggers will be fired. The operation cannot be rolled back. 
+ 
+ DROP and TRUNCATE are DDL commands, whereas DELETE is a DML command. Therefore DELETE operations can be rolled back (undone), while DROP and TRUNCATE operations cannot be rolled back. 
+ 
+ From:  http://www.orafaq.com/faq/difference_between_truncate_delete_and_drop_commands 
+ 
+ TRUNCATE can be rolled back if wrapped in a transaction.  
+ Please see the two references below and test yourself:- 
+ http://blog.sqlauthority.com/2007/12/26/sql-server-truncate-cant-be-rolled-back-using-log-files-after-transaction-session-is-closed/   
+ http://sqlblog.com/blogs/kalen_delaney/archive/2010/10/12/tsql-tuesday-11-rolling-back-truncate-table.aspx 
+ The TRUNCATE vs. DELETE is one of the infamous questions during SQL interviews. Just make sure you explain it properly to the Interviewer or it might cost you the job. The problem is that not many are aware so most likely they will consider the answer as wrong if you tell them that YES Truncate can be rolled back. 
+ 
+ A small correction to the original answer - delete also generates significant amounts of redo (as undo is itself protected by redo).  This can be seen from autotrace output: 
+ 
+ 
+ Here is my detailed answer on  the difference between DELETE and TRUNCATE in SQL Server 
+ •    **Remove Data**
+  : First thing first, both can be used to remove the rows from table. 
+But a DELETE can be used to remove the rows not only from a Table but also from a VIEW or the result of an OPENROWSET or OPENQUERY subject to provider capabilities.  
+ •    **FROM Clause**
+ : With DELETE you can also delete rows from one table/view/rowset_function_limited based on rows from another table by using another FROM clause.  In that FROM clause you can also write normal JOIN conditions.  Actually you can create a DELETE statement from a SELECT statement that doesn’t contain any aggregate functions by replacing SELECT with DELETE and removing column names. 
+With TRUNCATE you can’t do that.  
+ •    **WHERE**
+ : A TRUNCATE cannot have WHERE Conditions, but a DELETE can.  That means with TRUNCATE you can’t delete a specific row or specific group of rows. 
+TRUNCATE TABLE is similar to the DELETE statement with no WHERE clause. 
+ •    **Performance**
+ : TRUNCATE TABLE is faster and uses fewer system and transaction log resources. 
+And one of the reason is locks used by either statements. The DELETE statement is executed using a row lock, each row in the table is locked for deletion. TRUNCATE TABLE always locks the table and page but not each row. 
+ •    **Transaction log**
+ : DELETE statement removes rows one at a time and makes individual entries in the transaction log for each row. 
+TRUNCATE TABLE removes the data by deallocating the data pages used to store the table data and records only the page deallocations in the transaction log. 
+ •    **Pages**
+ : After a DELETE statement is executed, the table can still contain empty pages. 
+TRUNCATE removes the data by deallocating the data pages used to store the table data. 
+ •    **Trigger**
+ : TRUNCATE does not activate the delete triggers on the table.  So you must be very careful while using TRUNCATE.  One should never use a TRUNCATE if delete Trigger is defined on the table to do some automatic cleanup or logging action when rows are deleted. 
+ •    **Identity Column**
+ : With TRUNCATE if the table contains an identity column, the counter for that column is reset to the seed value defined for the column.  If no seed was defined, the default value 1 is used. 
+DELETE doesn’t reset the identity counter.  So if you want to retain the identity counter, use DELETE instead. 
+ •    **Replication**
+ : DELETE can be used against table used in transactional replication or merge replication. 
+While TRUNCATE cannot be used against the tables involved in transactional replication or merge replication.  
+ •    **Rollback**
+ : DELETE statement can be rolled back. 
+TRUNCATE can also be rolled back provided it is enclosed in a TRANSACTION block and session is not closed.  Once session is closed you won't be able to Rollback TRUNCATE. 
+ •    **Restrictions**
+ : The DELETE statement may fail if it violates a trigger or tries to remove a row referenced by data in another table with a FOREIGN KEY constraint. If the DELETE removes multiple rows, and any one of the removed rows violates a trigger or constraint, the statement is canceled, an error is returned, and no rows are removed. 
+And if DELETE is used against View, that View must be an Updatable view. 
+TRUNCATE cannot be used against the table used in Indexed view. 
+TRUNCATE cannot be used against the table referenced by a FOREIGN KEY constraint, unless a table that has a foreign key that references itself. 
+ 
+ The biggest difference is that truncate is non logged operation while delete is. 
+ Simply it means that in case of a database crash , you cannot recover the data operated upon by truncate but with delete you can.  
+ More details  here 
+ 
+ DELETE Statement: This command deletes only the rows from the table based on the condition given in the where clause or deletes all the rows from the table if no condition is specified. But it does not free the space containing the table. 
+ The Syntax of a SQL DELETE statement is: 
+ DELETE FROM table_name [WHERE condition]; 
+ TRUNCATE statement: This command is used to delete all the rows from the table and free the space containing the table. 
+ 
+ **DELETE**
+
+ 
+ 
+ 
+ **TRUNCATE**
+
+ 
+ 
+ 
+ For more details visit 
+ http://www.zilckh.com/what-is-the-difference-between-truncate-and-delete/ 
+ 
+ One further difference of the two operations is that if the table contains an identity column, the counter for that column is reset 1 (or to the seed value defined for the column) under TRUNCATE. DELETE does not have this affect. 
+ 
+ In short, truncate doesn't log anything (so is much faster but can't be undone) whereas delete is logged (and can be part of a larger transaction, will rollback etc). If you have data that you don't want in a table in dev it is normally better to truncate as you don't run the risk of filling up the transaction log 
+ 
+ A big reason it is handy, is when you need to refresh the data in a multi-million row table, but don't want to rebuild it.  "Delete *" would take forever, whereas the perfomance impact of Truncate would be negligible. 
+ 
+ Can't do DDL over a dblink. 
+ 
+ I'd comment on matthieu's post, but I don't have the rep yet... 
+ In MySQL, the auto increment counter gets reset with truncate, but not with delete. 
+ 
+ It is not that truncate does not log anything in SQL Server. truncate does not log any information but it log the deallocation of data page for the table on which you fired TRUNCATE. 
+ and truncated record can be rollback if we define transaction at beginning and we can recover the truncated record after rollback it. But can not recover truncated records from the transaction log backup after committed truncated transaction. 
+ 
+ Truncate  can also be Rollbacked  here  the  exapmle 
+ 
+ 
+ Truncate and Delete in SQL are two commands which is used to remove or delete data from table. Though quite basic in nature both Sql commands can create lot of trouble until you are familiar with details before using it.
+An Incorrect choice of command can result is either very slow process or can even blew up log segment, if too much data needs to be removed and log segment is not enough. That's why it's critical to know when to use truncate and delete command in SQL but before using these you should be aware of the Differences between Truncate and Delete, and based upon them, we should be able to find out when DELETE is better option for removing data or TRUNCATE should be used to purge tables. 
+ Refer check  click here 
+ 
+ By issuing a TRUNCATE TABLE statement, you are instructing SQL Server to delete every record within a table, without any logging or transaction processing taking place. 
+ 
+ DELETE statement can have a WHERE clause to delete specific records whereas TRUNCATE statement does not require any and wipes the entire table.
+Importantly, the DELETE statement logs the deleted date whereas the TRUNCATE statement does not. 
+ 
+ One more difference specific to microsoft sql server is with   you can use   statement to track what records have been deleted, e.g.: 
+ 
+ You cannot do this with  . 
+ 
+ **Truncate**
+ command is used to re-initialize the table, it is a DDL command which delete all the rows of table.Whereas  **DELETE**
+ is a DML command which is used to delete row or set of rows according to some condition, if condition is not specified then this command will delete all the rows from the table.  
+ 

@@ -1,0 +1,113 @@
+*** c-data-structures-alignment ***
+
+ I'm working with structures and have several questions about them. As I understand structure variables will be placed at memory sequentially. Length of blocks(words) depends on machine architecture (32 bit - 4 byte, 64 bit - 8 bytes). 
+ Lets say we have 2 data structures: 
+ 
+ In memory it will be: 
+ 
+ But we can rearrange it, to make this data fit into machine word. Like this: 
+ 
+ In this case for both 32 and 64 bit it will be represented at the same way (16 bytes): 
+ 
+ I have a couple of questions: 
+ 
+ It's like wild guess but main rule for   is to define variables with bigger size at the beginning? 
+ As I understand it's not working with stand-alone variables. Like  ? 
+ Padding byte, what code it has? Is it somewhere at ASCII table? Sorry, couldn't find it. 
+ 2 structures with all members represented at memory by different addresses and they can be placed not sequentially at memory? 
+ Such structure:  
+Has  , I understand that if we will add a member with other type into it, it will be aligned. But why it's not aligned before it? 
+ 
+ 
+ The basic rules are simple: 
+ 
+ 
+ members must be there in order (unless in C++ you use private: public: ... sections) 
+ padding is allowed between members and after the last 
+ 
+ 
+ That's about it. The rest is left to implementation: the storage taken by types, the padding amount. Normally you can expect it to be properly documented in  **ABI**
+ or directly in the compiler, and even have tools for manipulation. 
+ In practice padding is necessary on some architectures, say SPARC requires  **32-bit**
+ "ints" aligned on address divisible by 4. On others it is not requirement but misaligned entities may take more time to process, say a  **80286**
+ processor takes an extra cycle to read 16-bit entity from an odd address.   (Before I forget: representation of types itself is different!) 
+ It is usual that alignment requirement or best performance matches exactly: you shall align on boundary same as size. A good counter-example is the  **80-bit**
+ floating point numbers (available as double or long double in some compilers) that like 8 or 16 byte alignment rather than 10. 
+ To fiddle with padding compiler usually give you a switch to set default. That changes from version to version, so better taken into count on upgrade. And inside code override facility like   in  **gcc**
+ and   pack in  **MS**
+ and many others. Those are all extensions to standard obviously. 
+ The bottom line is, if you want to fiddle with layout, you start reading the dox of all the compilers you target for, now and in the future, to know what they do and how to control it.   Possibly also read dox of the target platforms, depending on why you're interested in layout in the first place.  
+ One usual motivation is to have a stable layout as you write out raw memory to file and expect to read it back. Maybe on different platform using different compiler. That is the easier one until a new platform type enters the scene.   
+ Other motivation is performance. That one is way more tricky, as rules change fast, and effect is hard to predict right away. Say on intel the basic "misaligned" penalty is gone for long time, instead what counts is to be inside a cache line. Where cache line size varies by processor. Also using more padding may produce better individual while fully packed structures are more economic in cache usage. 
+ And some operations require proper alignment, but are not directly enforced by the compiler, you may need to apply special alignment pragmas (like for certain  **SSE**
+-related stuff). 
+ Bottom line repeated: stop guessing, decide your targets and read the proper dox. (Btw for me reading the architecture manuals for  **SPARC**
+,  **IA32**
+ and others was tremendous fun and gain in many respects.) 
+ 
+ Answering your questions as posed (ignoring your very nice picture of the structure) 
+ 
+ It's like wild guess but main rule for struct is to define variables with bigger size at the beginning? 
+ 
+ Always put the stuff that requires the most alignment first. I wouldn't put a   first for instance. In general this works out as pointers, 64 bit native types, 32 bit native types, etc, but you have to be very careful if your structure contains members that are other structures. 
+ 
+ As I understand it's not working with stand-alone variables. Like  
+ 
+ I don't really understand this. If you define a char array on the stack, it has char alignment. If you define a char array followed by an int, there'll probably be padding on the stack, you just cant find it. 
+ 
+ Padding byte, what code it has? Is it somewhere at ASCII table? Sorry, couldn't find it. 
+ 
+ It has neither code nor data. It is compiler inserted padding and may contain any value, which may or may not be different between different instances of the structure in same or different runs of the program. 
+ 
+ 2 structures with all members represented at memory by different addresses and they can be placed not sequentially at memory? 
+ 
+ I do not understand this. Are you asking if the compiler can insert padding between structures? If not, please clarify, because this answer will not be much help; 
+ When the compiler creates a structure, it has to make it possible for you to sanely create an array of such structures. Consider this: 
+ 
+ If the compiler doesn't insert 3 bytes of padding after wobble, accesses to   won't be aligned properly, which will result in crashes on some hardware (and atrocious performance on other hardware). Basically, the compiler has to ensure padding at the end to ensure that the most aligned member of the structure is always correctly aligned for an array of such structures. 
+ 
+ Such structure:   Has size = 3, I understand that if we will add a member with other type into it, it will be aligned. But why it's not aligned before it? 
+ 
+ Do you mean 'Why doesn't the compiler put it in a place where it's correctly aligned'? Because the language doesn't let it. The compiler isn't allowed to reorder the members of your structure. It is only allowed to insert padding. 
+ 
+ Alignment of member of structures (and classes) depends on platform, true, but on compiler too. The reason of align members to its size is for performance reason. Making all integral type aligned with its size reduce the memory access. 
+ You usually can force the compiler to reduce the alignment, but is not a good idea except for specific reasons (for example, for data compatibility between different platforms, as communication data). In Visual C++ exists   for that, for example: 
+ 
+ But as I said before is usually not a good idea. 
+ Keep in mind the compiler is not just adding pad bytes after some fields. It's also assuring the struct is allocated in memory for all fields are right aligned. I mean, in your ST1 sample, because the bigger field type is double, compiler will be assured   field will be aligned at 8 bytes (except if using   or similar options): 
+ 
+ About your questions: 
+ 
+ If you want to save space, yes, is a good trick order fields by size, writing first the bigger. In case of composed structs, use the size of the bigger field of inner struct, instead the size of struct.  
+ It's working on standalone variables. But the compiler can order the variables in memory (as opposed as member of structs and classes). 
+ 
+ For example: 
+ 
+ 
+ Padding bytes can contains anything. Usually initialized data (at least you initialize it). Some times can contains specific byte pattern by compiler, for debugging reasons. 
+ About the structures with all members represented at memory by different addresses: sorry, I don't understand well what as you asking. 
+ The standard C++ says the address of a struct/class has to be the same of address of first field of such struct/class. Then, only is possible padding after  , but never before  . 
+ 
+ From N3337 (C++11) [9.2 class.menu, p.20]: 
+ 
+ A pointer to a standard-layout struct object, suitably converted using
+  a  , points to its initial member (or if that member is
+  a bit-field, then to the unit in which it resides) and vice versa. [
+  Note: There might therefore be unnamed padding within a
+  standard-layout struct object, but not at its beginning, as necessary
+  to achieve appropriate alignment. —end note ] 
+ 
+ 
+ for a gcc on intel architecture its takes more instructions and cycles to access (read/write) odd numbered memory address. so padding is added to achive even number memory address 
+ 
+ Be careful, you aren't sure that your variables are aligned (but it often is).
+If you use GCC you can use the  **attribute**
+ packed for be sure that your datas are aligned. 
+ Example : 
+ 
+ 
+ As I understand it's not working with stand-alone variables. Like char
+  str[] = "Hello";? 
+ 
+ This table will be aligned in your memory. 
+ 

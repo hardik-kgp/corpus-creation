@@ -1,0 +1,46 @@
+*** laying-out-a-database-schema-for-a-calendar-application ***
+
+ I want to write a calendar application. It is really recurring items that throw a wrench in the works for the DB schema. I would love some input on how to organize this. 
+ What if a user creates an event, and inputs that it repeats everyone Monday, forever? How could I store all that in the database? I can't create infinite events. Do I simply put a table in there that holds the relevant info so I can calculate where all the events go? If so, I would have to calculate them every time the user views a new part of the calendar. What if they page through the months, but they have a ton of recurring items? 
+ Also, the schema needs to handle when a user clicks an item and says "Edit this one in the sequence" not all items in the sequence. Do I then split the one item off of the sequence? 
+ **Update 1**
+
+ I have not looked at iCal at all. To be clear, I think saving the info that allows you to calculate the recurring items, and splitting off any that differ from the sequence is a great way to store it to be able to transfer it. But I think that in an application, this would be too slow, to do the date math all over the place. 
+ 
+ I recently created a calendar application and this was one of the many challenges that I faced.  
+ I eventually came up with a semi hack-ish solution. I created an   column. In that column, I had either:  ,  ,  , or  . I also had a   and an   columns. Everything else was handled in the actual backend code. 
+ I never tried to split an event if a user edited only one event. It wasn't necessary in the situation. However, you could split an event by changing the end_date of the first, creating a new event with a new   and the   of the original, and finally, a new event for the one you just chose to edit. This process would end up creating 3 events. 
+ Hack-ish, I know. I couldn't think of a clever way to handle this problem at the time. 
+ 
+ I have been struggling with the same problem, and I was actually toying with the "cache table" idea suggested above, but then I came across an alternative ( suggested here ) that doesn't seem to have been represented yet. 
+ Build a table containing all events  
+ 
+ Then add a table for  **exceptions**
+ to these events. This table uses a composite key, made up of the EventID that maps to the event table, and an instance ID to pick the particular event in the series.  
+ 
+ It seems to keep the event table normalised, and avoids splitting up series to handle exceptions. 
+ 
+ Why not use Google Calendar as a database for this calendar application by relying on  Google Calendar's API  for storing and retrieving calendar events? 
+ The Calendar API is a REST API that can be accessed through explicit HTTP calls; the API exposes most of the features available in the Google Calendar Web interface, so your calendar application can as much functionality as Google Calendar does (a lot of functionality!!!). 
+ Your application need only implement OAuth 2.0 for Google APIs, which can be made easy using a single sign-on service like  Auth0  to provide the appropriate access tokens. Then, your calendar application can use these tokens in conjunction with the Calendar API to provide seamless storage and retrieval of calendar events in a JSON format. 
+ Users create events within their own "New Calendar." This calendar is shared with you in the form of a gmail account dedicated to this application -  **the application's gmail account**
+. 
+ Basically, Google Calendar becomes your database, whereby you can have  **the application's gmail account**
+ not only store all of your application's events, but also allow you to view and edit these events with an intuitive interface. 
+ 
+ Hold the recurring item in the events table as normal, but flagged as recurring with the appropriate start/ end dates.  
+ If the user modifies a single instance of the appointment, just create a new event, perhaps with a 'parentId' equal to the recurring event's id.  
+ Build logic that causes the calendar to override any recurring events on a particular day with events with matching parent IDs. 
+ Your question about performance is basically the old speed vs. storage issue. I really don't think the calculation required would exceed the space requirement for storing so many appointments. Just read up on database optimization- indexing etc. 
+ 
+ Could you bridge the two worlds with a "cache" table, in which you pre-compute the next X days worth of events? 
+ So three tables: 
+ 
+ For any part of the calendar within X days of today, your query will UNION   and  . 
+ Then you would only have to do on-the-fly date calculations if the user tried to look at a part of the calendar more than X days in the future. I imagine you could find a sane X that would cover the majority of normal use. 
+ The   table would need to be updated whenever a user adds a new recurring event -- and possibly once a day offline, by a cron-job/scheduled-task. But only on days when no new recurring event has been created. 
+ 
+ The best way to do this is to store a standards based recurrence pattern string (iCal).. and leave blank if it's a single event.  There are a few APIs that can parse the recurrence pattern and create event objects that you can bind to UI elements.... none of the occurrences  need ever be stored in the database, only the initial event (occurrence).. 
+ 
+ Couldn't you store the events per day with start and end time? It will generate a lot of data for events that happen everyday (maybe go non-relational for this) but it will make querying easier and it will be possible to make exceptions (f.e. the event place burned down, or employees are striking). To generate the days for the event I would suggest to implement that in the front-end derived on some ICal-ish pattern. 
+ 

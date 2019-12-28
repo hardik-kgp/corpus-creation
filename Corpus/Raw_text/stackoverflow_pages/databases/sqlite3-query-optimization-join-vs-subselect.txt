@@ -1,0 +1,54 @@
+*** sqlite3-query-optimization-join-vs-subselect ***
+
+ I am trying to figure out the very best way, (probably doesn't matter in this case) to find the rows of one table, based on the existence of a flag, and an relational id in a row in another table. 
+ here are the schemas: 
+ 
+ I am using SQLite3 
+ there files table will be very large, 10K-5M rows typically.
+the resume_points will be small <10K with only 1-2 distinct  's 
+ so my first thought was: 
+ 
+ a coworker suggested turning the join around: 
+ 
+ then I thought since we know that the number of distinct  's will be so small, perhaps a subselect would be optimal (in this rare instance): 
+ 
+ the   outputs had the following rows: 42, 42, and 48 respectively. 
+ 
+ TL;DR: The best query and index is: 
+ 
+ Since I typically work with SQL Server, at first I thought that surely the query optimizer would find the optimal execution plan for such a simple query regardless of which way you write these equivalent SQL statements. So I downloaded SQLite, and started playing around. Much to my surprise, there was a huge difference in performance. 
+ Here's the setup code: 
+ 
+ I considered two indices: 
+ 
+ Below are the queries I tried and the execution times on my i5 laptop. The database file size is only about 200MB since it doesn't have any other data.  
+ 
+ It looks like SQLite's query optimizer isn't very advanced at all. The best queries first reduce resume_points to a small number of rows (Two in the test case. The OP said it would be 1-2.), and then look up the file to see if it is dirty or not.   index didn't make much of a difference for any of the files. I think it may be because of the way the data is arranged in the test tables. It may make a difference in production tables. However, the difference is not too great as there will be less than a handful of lookups.   does make a difference since it can reduce 10000 rows of resume_points to 2 rows without scanning through most of them.   did make some queries slightly faster, but not enough to significantly change the results. Notably it made group by very slow. In conclusion, reduce the result set early to make the biggest differences. 
+ 
+ Since   is the primary key, try  ing   this field rather than checking  
+ 
+ Another option to consider for performance is adding an index to  . 
+ 
+ 
+ You could try  , which will not produce any duplicate  : 
+ 
+ Of course it  might  help to have the proper indexes: 
+ 
+ Whether an index is helpful will depend on your data. 
+ 
+ I think jtseng gave the solution. 
+ 
+ Basically it's the same what you have posted as your last option: 
+ 
+ It's beacuse you have to avoid a full table scan/join. 
+ So at first you need your 1-2 distinct ids: 
+ 
+ after that only your 1-2 rows have to be joined on the other table instead of all 10K, which gives the performance optimization. 
+ if you need this statement several times, i would put it into a view. the view wont change the performance but it looks cleaner/easier to read.  
+ also check the query optimization documentation:  http://www.sqlite.org/optoverview.html 
+ 
+ If the table "resume_points" will have only one or two distinct file id numbers, it seems to need only one or two rows, and seems to need scan_file_id as the primary key. That table only has two columns, and the id number is meaningless. 
+ And if  that's  the case, you don't need either of the ID numbers. 
+ 
+ And now you don't need the join, either. Just query the "files" table. 
+ 

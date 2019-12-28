@@ -1,0 +1,89 @@
+*** bulk-insert-with-sqlalchemy-orm ***
+
+ Is there any way to get SQLAlchemy to do a bulk insert rather than inserting each individual object. i.e., 
+ doing: 
+ 
+ rather than: 
+ 
+ I've just converted some code to use sqlalchemy rather than raw sql and although it is now much nicer to work with it seems to be slower now (up to a factor of 10), I'm wondering if this is the reason. 
+ May be I could improve the situation using sessions more efficiently. At the moment I have   and do a   after I've added some stuff. Although this seems to cause the data to go stale if the DB is changed elsewhere, like even if I do a new query I still get old results back? 
+ Thanks for your help! 
+ 
+ SQLAlchemy introduced that in version  : 
+ Bulk operations - SQLAlchemy docs 
+ With these operations, you can now do bulk inserts or updates! 
+ For instance, you can do: 
+ 
+ Here, a bulk insert will be made. 
+ 
+ As far as I know, there is no way to get the ORM to issue bulk inserts. I believe the underlying reason is that SQLAlchemy needs to keep track of each object's identity (i.e., new primary keys), and bulk inserts interfere with that. For example, assuming your   table contains an   column and is mapped to a   class: 
+ 
+ Since SQLAlchemy picked up the value for   without issuing another query, we can infer that it got the value directly from the   statement. If you don't need subsequent access to the created objects via the  same  instances, you can skip the ORM layer for your insert: 
+ 
+ SQLAlchemy can't match these new rows with any existing objects, so you'll have to query them anew for any subsequent operations. 
+ As far as stale data is concerned, it's helpful to remember that the session has no built-in way to know when the database is changed outside of the session. In order to access externally modified data through existing instances, the instances must be marked as  expired . This happens by default on  , but can be done manually by calling   or  . An example (SQL omitted): 
+ 
+  expires  , so the first print statement implicitly opens a new transaction and re-queries  's attributes. If you comment out the first print statement, you'll notice that the second one now picks up the correct value, because the new query isn't emitted until after the update. 
+ This makes sense from the point of view of transactional isolation - you should only pick up external modifications between transactions. If this is causing you trouble, I'd suggest clarifying or  re-thinking your application's transaction boundaries instead of immediately reaching for  . 
+ 
+ The sqlalchemy docs have a  writeup  on the performance of various techniques that can be used for bulk inserts: 
+ 
+ ORMs are basically not intended for high-performance bulk inserts -
+  this is the whole reason SQLAlchemy offers the Core in addition to the
+  ORM as a first-class component. 
+ For the use case of fast bulk inserts, the SQL generation and
+  execution system that the ORM builds on top of is part of the Core.
+  Using this system directly, we can produce an INSERT that is
+  competitive with using the raw database API directly. 
+ Alternatively, the SQLAlchemy ORM offers the Bulk Operations suite of
+  methods, which provide hooks into subsections of the unit of work
+  process in order to emit Core-level INSERT and UPDATE constructs with
+  a small degree of ORM-based automation. 
+ The example below illustrates time-based tests for several different
+  methods of inserting rows, going from the most automated to the least.
+  With cPython 2.7, runtimes observed: 
+ 
+ Script: 
+ 
+ 
+ 
+ I usually do it using  . 
+ 
+ 
+ Direct support was added to SQLAlchemy as of version 0.8 
+ As per the  docs ,   should do the trick. (Note that this is  not  the same as   which results in many individual row inserts via a call to  ). On anything but a local connection the difference in performance can be enormous. 
+ 
+ SQLAlchemy introduced that in version  : 
+ Bulk operations - SQLAlchemy docs 
+ With these operations, you can now do bulk inserts or updates! 
+ For instance (if you want the lowest overhead for simple table INSERTs), you can use  : 
+ 
+ Or, if you want, skip the   tuples and write the dictionaries directly into   (but I find it easier to leave all the wordiness out of the data and load up a list of dictionaries in a loop). 
+ 
+ Piere's answer is correct but one issue is that   by default does not return the primary keys of the objects, if that is of concern to you. Set   to   to get this behavior. 
+ The documentation is  here . 
+ 
+ 
+ This is a way: 
+ 
+ This will insert like this: 
+ 
+ Reference: The SQLAlchemy  FAQ  includes benchmarks for various commit methods. 
+ 
+ All Roads Lead to Rome , but some of them crosses mountains, requires ferries but if you want to get there quickly just take the motorway. 
+ 
+ In this case the motorway is to use the  execute_batch()  feature of  psycopg2 . The documentation says it the best: 
+ The current implementation of   is (using an extremely charitable understatement) not particularly performing. These functions can be used to speed up the repeated execution of a statement against a set of parameters. By reducing the number of server roundtrips the performance can be orders of magnitude better than using  . 
+ In my own test   is  **approximately twice as fast**
+ as  , and gives the option to configure the page_size for further tweaking (if you want to squeeze the last 2-3% of performance out of the driver). 
+ The same feature can easily be enabled if you are using SQLAlchemy by setting   as a parameter when you instantiate the engine with  
+ 
+ The best answer I found so far was in sqlalchemy documentation: 
+ http://docs.sqlalchemy.org/en/latest/faq/performance.html#i-m-inserting-400-000-rows-with-the-orm-and-it-s-really-slow 
+ There is a complete example of a benchmark of possible solutions. 
+ As shown in the documentation: 
+ bulk_save_objects is not the best solution but it performance are correct. 
+ The second best implementation in terms of readability I think was with the SQLAlchemy Core: 
+ 
+ The context of this function is given in the documentation article. 
+ 

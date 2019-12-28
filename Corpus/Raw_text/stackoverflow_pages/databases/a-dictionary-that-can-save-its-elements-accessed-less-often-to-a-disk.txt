@@ -1,0 +1,29 @@
+*** a-dictionary-that-can-save-its-elements-accessed-less-often-to-a-disk ***
+
+ In my application I use a dictionary (supporting adding, removing, updating and lookup) where both keys and values are or can be made serializable (values can possibly be quite large object graphs). I came to a point when the dictionary became so large that holding it completely in memory started to occasionally trigger   (sometimes in the dictionary methods, and sometimes in other parts of code).  
+ After an attempt to completely replace the dictionary with a database, performance dropped down to an unacceptable level. 
+ Analysis of the dictionary usage patterns showed that usually a smaller part of values are "hot" (are accessed quite often), and the rest (a larger part) are "cold" (accessed rarely or never). It is difficult to say when a new value is added if it will be hot or cold, moreover, some values may migrate back and forth between hot and cold parts over time. 
+ I think that I need an implementation of a dictionary that is able to flush its cold values to a disk on a low memory event, and then reload some of them on demand and keep them in memory until the next low memory event occurs when their hot/cold status will be re-assessed. Ideally, the implementation should neatly adjust the sizes of its hot and cold parts and the flush interval depending on the memory usage profile in the application to maximize overall performance. Because several instances of a dictionary exist in the application (with different key/value types),  I think, they might need to coordinate their workflows. 
+ Could you please suggest how to implement such a dictionary? 
+ 
+ Compile for 64 bit, deploy on 64 bit, add memory. Keep it in memory. 
+ Before you grown your own you may alternatively look at WeakReference  http://msdn.microsoft.com/en-us/library/ms404247.aspx . It would of course require you to rebuild those objects that were reclaimed but one should hope that those which are reclaimed are not used much. It comes with the caveat that its own guidleines state to avoid using weak references as an automatic solution to memory management problems. Instead, develop an effective caching policy for handling your application's objects.  
+ Of course you can ignore that guideline and effectively work your code to account for it.   
+ You can implement the caching policy and upon expiry save to database, on fetch get and cache. Use a sliding expiry of course since you are concerned with keeping those most used.   
+ Do remember however that most used vs heaviest is a trade off. Losing an object 10 times a day that takes 5 minutes to restore would annoy users much more than losing an object 10000 times which tool just 5ms to restore. 
+ And someone above mentioned the web cache. It does automatic memory management with callbacks as noted, depends if you want to lug that one around in your apps.  
+ And...last but not least, look at a distributed cache. With sharding you can split that big dictionary across a few machines. 
+ 
+ Just an idea - never did that and never used  : 
+ Implement a wrapper around  MemoryCache  which will: 
+ 
+ Add items with an eviction callback specified. The callback will place evicted items to the database. 
+ Fetch item from database and put back into MemoryCache if the item is absent in MemoryCache during retrieval. 
+ If you expect a lot of request for items missing both in database and memory, you'll probably need to implement either bloom filter or cache keys for present/missing items also. 
+ 
+ 
+ I have a similar problem in the past. 
+ The concept you are looking for is  a read through cache with a LRU (Least Recently Used or Most Recently Used) queue. 
+ Is it there any LRU implementation of IDictionary? 
+ As you add things to your dictionary keep track of which ones where used least recently, remove them from memory and persist those to disk. 
+ 

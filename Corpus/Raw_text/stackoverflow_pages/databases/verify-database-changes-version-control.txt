@@ -1,0 +1,85 @@
+*** verify-database-changes-version-control ***
+
+ I have read lots of posts about the importance of database version control. However, I could not find a simple solution how to check if database is in state that it should be.  
+ For example, I have a databases with a table called "Version" (version number is being stored there). But database can be accessed and edited by developers without changing version number. If for example developer updates stored procedure and does not update Version database state is not in sync with version value. 
+ How to track those changes? I do not need to track what is changed but only need to check if database tables, views, procedures, etc. are in sync with database version that is saved in Version table.  
+ Why I need this? When doing deployment I need to check that database is "correct". Also, not all tables or other database objects should be tracked. Is it possible to check without using triggers? Is it possible to be done without 3rd party tools? Do databases have checksums? 
+ Lets say that we use SQL Server 2005. 
+ Edited: 
+ I think I should provide a bit more information about our current environment - we have a "baseline" with all scripts needed to create base version (includes data objects and "metadata" for our app). However, there are many installations of this "base" version with some additional database objects (additional tables, views, procedures, etc.). When we make some change in "base" version we also have to update some installations (not all) - at that time we have to check that "base" is in correct state. 
+ Thanks 
+ 
+ You seem to be breaking the first and second rule of " Three rules for database work ". Using one database per developer and a single authoritative source for your schema would already help a lot. Then, I'm not sure that you have a  Baseline  for your database and, even more important, that you are using  change scripts . Finally, you might find some other answers in  Views, Stored Procedures and the Like  and in  Branching and Merging .  
+ Actually, all these links are mentioned in this great article from Jeff Atwood:  Get Your Database Under Version Control . A must read IMHO. 
+ 
+ We use  DBGhost  to version control the database.  The scripts to create the current database are stored in TFS (along with the source code) and then DBGhost is used to generate a delta script to upgrade an environment to the current version.  DBGhost can also create delta scripts for any static/reference/code data. 
+ It requires a mind shift from the traditional method but is a fantastic solution which I cannot recommend enough.  Whilst it is a 3rd party product it fits seamlessly into our automated build and deployment process. 
+ 
+ I'm using a simple VBScript file based on  this codeproject article  to generate drop/create scripts for all database objects. I then put these scripts under version control. 
+ So to check whether a database is up-to-date or has changes which were not yet put into version control, I do this: 
+ 
+ get the latest version of the drop/create scripts from version control (subversion in our case) 
+ execute the SqlExtract script for the database to be checked, overwriting the scripts from version control 
+ now I can check with my subversion client (TortoiseSVN) which files don't match with the version under version control 
+ now either update the database or put the modified scripts under version control 
+ 
+ 
+ You have to restrict access to all databases and only give developers access to a local database (where they develop) and to the dev server where they can do integration.  The best thing would be for them to only have access to their dev area locally and perform integration tasks with an automated build.  You can use tools like redgates sql compare to do diffs on databases.  I suggest that you keep all of your changes under source control (.sql files) so that you will have a running history of who did what when and so that you can revert db changes when needed. 
+ I also like to be able to have the devs run a local build script to re initiate their local dev box.  This way they can always roll back.  More importantly they can create integration tests that tests the plumbing of their app (repository and data access) and logic stashed away in a stored procedure in an automated way.  Initialization is ran (resetting db), integration tests are ran (creating fluff in the db), reinitialization to put db back to clean state, etc. 
+ If you are an SVN/nant style user (or similar) with a single branch concept in your repository then you can read my articles on this topic over at DotNetSlackers:  http://dotnetslackers.com/articles/aspnet/Building-a-StackOverflow-inspired-Knowledge-Exchange-Build-automation-with-NAnt.aspx  and  http://dotnetslackers.com/articles/aspnet/Building-a-StackOverflow-inspired-Knowledge-Exchange-Continuous-integration-with-CruiseControl-NET.aspx . 
+ If you are a perforce multi branch sort of build master then you will have to wait till I write something about that sort of automation and configuration management. 
+ **UPDATE**
+
+ @Sazug:  "Yep, we use some sort of multi branch builds when we use base script + additional scripts :) Any basic tips for that sort of automation without full article?"  There are most commonly two forms of databases:  
+ 
+ you control the db in a new non-production type environment (active dev only) 
+ a production environment where you have live data accumulating as you develop 
+ 
+ The first set up is much easier and can be fully automated from dev to prod and to include rolling back prod if need be.  For this you simply need a scripts folder where every modification to your database can be maintained in a .sql file.  I don't suggest that you keep a tablename.sql file and then version it like you would a .cs file where updates to that sql artifact is actually modified in the same file over time.  Given that sql objects are so heavily dependent on each other.  When you build up your database from scratch your scripts may encounter a breaking change.  For this reason I suggest that you keep a separate and new file for each modification with a sequence number at the front of the file name.  For example something like 000024-ModifiedAccountsTable.sql.  Then you can use a custom task or something out of NAntContrib or an direct execution of one of the many ??SQL.exe command line tools to run all of your scripts against an empty database from 000001-fileName.sql through to the last file in the updateScripts folder.  All of these scripts are then checked in to your version control.  And since you always start from a clean db you can always roll back if someones new sql breaks the build. 
+ In the second environment automation is not always the best route given that you might impact production.  If you are actively developing against/for a production environment then you really need a multi-branch/environment so that you can test your automation way before you actually push against a prod environment.  You can use the same concepts as stated above.  However, you can't really start from scratch on a prod db and rolling back is more difficult.  For this reason I suggest using RedGate SQL Compare of similar in your build process.  The .sql scripts are checked in for updating purposes but you need to automate a diff between your staging db and prod db prior to running the updates.  You can then attempt to sync changes and roll back prod if problems occur.  Also, some form of a back up should be taken prior to an automated push of sql changes.  Be careful when doing anything without a watchful human eye in production!  If you do true continuous integration in all of your dev/qual/staging/performance environments and then have a few manual steps when pushing to production...that really isn't that bad! 
+ 
+ First point: it's hard to keep things in order without "regulations".
+Or for your example - developers changing anything without a notice will bring you to serious problems. 
+ Anyhow - you say "without using triggers".
+Any specific reason for this? 
+ If not - check out DDL Triggers. Such triggers are the easiest way to check if something happened. 
+ And you can even log WHAT was going on. 
+ 
+ Hopefully someone has a better solution than this, but I do this using a couple methods: 
+ 
+ Have a "trunk" database, which is the current development version. All work is done here as it is being prepared to be included in a release. 
+ Every time a release is done:
+
+ 
+ The last release's "clean" database is copied to the new one, eg, "DB_1.0.4_clean" 
+ SQL-Compare  is used to copy the changes from trunk to the 1.0.4_clean - this also allows checking exactly what gets included. 
+ SQL Compare is used again to find the differences between the previous and new releases (changes from DB_1.0.4_clean to DB_1.0.3_clean), which creates a change script "1.0.3 to 1.0.4.sql". 
+ 
+ 
+ We are still building the tool to automate this part, but the goal is that there is a table to track every version the database has been at, and if the change script was applied. The upgrade tool looks for the latest entry, then applies each upgrade script one-by-one and finally the DB is at the latest version.  
+ I don't have this problem, but it would be trivial to protect the _clean databases from modification by other team members. Additionally, because I use SQL Compare after the fact to generate the change scripts, there is no need for developers to keep track of them as they go.  
+ 
+ We actually did this for a while, and it was a HUGE pain. It was easy to forget, and at the same time, there were changes being done that didn't necessarily make it - so the full upgrade script created using the individually-created change scripts would sometimes add a field, then remove it, all in one release. This can obviously be pretty painful if there are index changes, etc.  
+ 
+ The nice thing about SQL compare is the script it generates is in a transaction -and it if fails, it rolls the whole thing back. So if the production DB has been modified in some way, the upgrade will fail, and then the deployment team can actually use SQL Compare on the production DB against the _clean db, and manually fix the changes. We've only had to do this once or twice (damn customers).  
+ The .SQL change scripts (generated by SQL Compare) get stored in our version control system (subversion). 
+ 
+ If you have Visual Studio (specifically the Database edition), there is a   that you can create and point it to a SQL Server database. The project will load the schema and basically offer you a lot of other features. It behaves just like a code project. It also offers you the advantage to script the entire table and contents so you can keep it under Subversion. 
+When you build the project, it validates that the database has integrity. It's quite smart. 
+ 
+ On one of our projects we had stored database version inside database. 
+ Each change to database structure was scripted into separate sql file which incremented database version besides all other changes. This was done by developer who changed db structure. 
+ Deployment script checked against current db version and latest changes script and applied these sql scripts if necessary. 
+ 
+ Firstly, your production database should either not be accessible to developers, or the developers (and everyone else) should be under strict instructions that no changes of any kind are made to production systems outside of a change-control system. 
+ Change-control is vital in any system that you expect to work (Where there is >1 engineer involved in the entire system). 
+ Each developer should have their own test system; if they want to make changes to that, they can, but system tesing should be done on a more controlled, system test system which has the same changes applied as production - if you don't do this, you can't rely on releases working because they're being tested in an incompatible environment. 
+ When a change is made, the appropriate scripts should be created and tested to ensure that they apply cleanly on top of the current version, and that the rollback works* 
+ *you are writing rollback scripts, right? 
+ 
+ I agree with other posts that developers should not have permissions to change the production database. Either the developers should be sharing a common development database (and risk treading on each others' toes) or they should have their own individual databases. In the former case you can use a tool like SQL Compare to deploy to production. In the latter case, you need to periodically sync up the developer databases during the development lifecycle before promoting to production. 
+ Here at Red Gate we are shortly going to release a new tool, SQL Source Control, designed to make this process a lot easier. We will integrate into SSMS and enable the adding and retrieving objects to and from source control at the click of a button. If you're interested in finding out more or signing up to our Early Access Program, please visit this page: 
+ http://www.red-gate.com/Products/SQL_Source_Control/index.htm 
+ 
+ I have to agree with the rest of the post. Database access restrictions would solve the issue on production. Then using a versioning tool like DBGhost or  DVC  would help you and the rest of the team to maintain the database versioning 
+ 

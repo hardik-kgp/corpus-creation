@@ -1,0 +1,158 @@
+*** detecting-database-tampering-is-it-possible ***
+
+ Long time listener, first time caller. 
+ 'Say you have a database table that is responsible for logging user activity. The integrity of this log is important, so you want to be able to detect if someone has modified any data from the table. To make things more interesting, also consider the fact that your system may be operated by an evil SQL admin who has complete control over this wretched system. yikes... 
+ How would you safeguard your data? 
+ How would you detect if someone has tampered with your data? 
+ You have unlimited tools at your disposal. (i.e. hashing, encrypting, etc.) 
+ 
+ If you really must detect that tampering has occurred, then add a checksum field to the table. The checksum for each new row must include the checksum of the prior row. Then to verify the content, walk through the dataset computing the checksum as you move forward. If the calculated checksum doesnt match the value in the table then some value has been tampered. 
+ -Mike 
+ 
+ If the "evil admin" has no access to the application that populates the database, a extra column on each table consisting of a  cryptographic signature  for the rest of the columns will do the job. The "no access" condition is needed such that they can't just extract your private key and sign their fake data. 
+ Edit: Ah, as the commenters point out, I didn't consider the admin just deleting a row. For this, you'll need one extra row with a cryptographically signed row count that you update each time (or a signed hash of the rest of the table content, or last access time, or whatever indicator you choose).  
+ 
+ Create a shadow table that hashes every filed with a key/salt only you and the application knows about. If you want to check for data tampering, rehash the user table and compare against the shadow table. 
+ 
+ If you really want to be secure Use - Write once Read Many Media for that table. 
+ 
+ Just run a paper log with your transaction ids, and keep the printer in a room with only 1 key. Work with financial systems, and you'll find that many of them still rely on their paper backups. Pretty much impossible to "hack" a paper log untraceably...It's why people keep pushing for paper logging in voting machines. 
+ Lot of people are saying, "Just add another database" and although I actually  practice  this sort of logging myself, I don't trust it. A malicious insider could knock out that safeguard in a dozen ways. 
+ All we're doing here is trying to find a way to make it obvious that something has happened. You're going to lose your logs. You're not going to be able to trust them: if I came across a system with a foolproof logging system, I'd either fill it with garbage data, or just wipe it entirely. Don't fall into a Maginot line mentality. 
+ But if you prepare  enough , so that too many failures have to happen, you can narrow the sabotage to an internal source. You need to log  around  the database, you need to keep extensive system logs, you need to monitor IP traffic, put a camera in the server room, leave a keylogger on the console, etc, etc. Even the best will slip up somewhere, and if you have enough mousetraps lying around, you might catch them somewhere by accident. 
+ 
+ Lets be clear: if you assume an Evil Sysadmin, there is no cryptographic solution that will prevent them from being able to modify data on the system in an untraceable fashion - there are solutions that will prevent them being able to decrypt information, but nothing that can prevent them from writing new information in any way they see fit. 
+ This situation requires the following conditions: 
+ 
+ That the system be, by necessity, stand-alone. If you can add another system in that the Evil Sysadmin has no access to as a logging host (say, a syslog server), then suddenly the problem becomes a trivial case of transferring logs or hashes on a regular basis. 
+ That the system not have non-software write-once components. The simplest ones, as suggested by others, are things like a printer, however you can use a CD or custom write-once hardware to prevent the issue. These get trickier but not insurmountable if the Evil Sysadmin has physical access to the machine. 
+ That you require certainty, rather than statistical likelihood. In the event that #1 and #2 are impossible, your only remaining solution is obscurification - the implementation of tricksy traps designed to catch the tampering if the Evil Sysadmin does not know about the trap. 
+ 
+ The secret to an effective #3 is tactical surprise. The objective is to convey the impression, to the attacker, that they know all about any countermeasures, while in fact having more that they are not aware of. In general this requires at a minimum two levels of cover - you need to have at least one layer of protection the Evil Sysadmin can be expected to compromise because they will be looking for it, and if they don't find it they'll get suspicious and dig deeper until they do. 
+ The important point is that this cover should be so convincing as to satisfy the Evil Sysadmin that, once they've found it, they need look no more. The second layer then identifies the tampering using alternative techniques and produces the appropriate alert. There are various suggestions in this thread re transactions etc that could be implemented. The lower the level of your solution, the more likely it is to succeed (ie, patch the database source code is far less visible than a standard process doing a connection and query, patching the kernel is less visible again, modifying the firmware..). 
+ It is important to emphasize that this is not a perfect solution. However complex your setup, it is possible that someone has figured out/compromised sufficient information to implement countermeasures. That is not the case with #1 and #2 (done properly). That said, if the value of the information you're protecting is sufficiently low that people with the necessary skills will not be interested in working to obtain it, it should provide a workable defense. 
+ 
+ You could use triggers whereby you audit inserts, updates, and deletes. Now, if the "evil SQL admin" disables triggers then you have some more difficult issues. I would not allow an evil admin to have complete control over the system if I wanted to safeguard my data. 
+ 
+ Consider creating a rolling, rapid, off-site, automated backup of your data.  S3  is so cheap these days that one might cron a  -type process to transfer your entire repository of data to a Transatlantic backup store every so often. How often exactly will depend on the evilness of your DBA. 
+ To make the process possible, simply find or institute a machine inside your network that the evil admin knows nothing about or wouldn't care to look at if she suspected anything. The simplicity and elegance of a  plug computer  can't be overstated here. 
+ Note on the actual export mechanism: knowing nothing about your particular system, I suggested   or Oracle   as the simplest and dumbest solution. If your application has a way of exporting data in a  native  format (such as XML, JSON, or even Protocol Buffers - in other words, any format that parts of a, say, SOA application use to talk to each other), then that format can be used as the format of your rolling dump. 
+ I've implemented this approach on my   box. Every three hours the contents get dumped to a European S3 bucket. It's a poor man's VCS of another VCS. 
+ 
+ Set up your system to write the logging data to a remote system the evil SQL admin does not have control over. This will not prevent said admin from removing or tampering with your logging program, but it will prevent him from modifying them after the fact. 
+ 
+ This is a common data security issue.  The simple answer is- if you are in a situation where one single "evil SQL admin" has access to your whole environment, you have no way to protect your data.   
+ A common practice for mission-critical data is to log to multiple backups and protect by ensuring that no single person has permissions. 
+ 
+ If your application is always running you could start up a transaction on the database and don't release it until your app closes... that way nothing can ever even view the table but your app... 
+ Also yes, encrypt all of the text string data that goes in and out of your program if you have time to do that... 
+ I like BobbyShaftoe's answer as well... take it a bit further though, see if you can get the trigger to "sleep" or something so after a few minutes all records go back to what they were... so our evil Admin thinks he made changes, but they will just get reverted. 
+ 
+ I think this is a great question!  But your scenario goes against the design principles of a database. 
+ Row checksums, triggers exporting to other databases - anything you do will be a compromise! 
+ I can only suggest something outside the box - would it help if you were to apply some type of standard such as  PCI  Compliance? 
+ If that fails, I would suggest looking for another job!  There is enough work in our industry where you don't need to work with these types of people... 
+ 
+ First, be very careful who you hire to administer your system.  
+ Next audit tables populated by triggers. Even if he gets around the trigger for his changes, you can at least look at the data from before he changed it (especially from your backup). 
+ Third automated backups that are removed offsite. This way even if the bad guy dropped the database and erased the onsite backup, you have a fallback position. Make sure the off-site backup is not accessible to the database admin, only someone else has the rights, someone who does not have production rights to the database server.  
+ Next, no direct rights to the tables for anyone except the admin. This means using stored procs with no dynamic SQL. This at least prevents others from changing the data in an unauthorized fashion. Now it's harder for your accounting folks to commit fraud. 
+ No production admin rights to anyone except the admin and one other as backup. This way if you find the trigger changed, you know who did it. Now anything goes wrong, you only have two suspects. 
+ SQL Server 2008 has DDL triggers that tell you who made structural changes. Again, if the trigger didn't record the change, it was made by the admin by default. 
+ Encrypt backups and certain personal data making it harder to steal. Now the off-site backup delivery person will havea  harder time stealing your data.  
+ Fire any admin who has proven to be untrustworthy even if it wasn't the data he was not trustworthy about. If he will fake a timesheet or steal office supplies, he will steal data. If he gets arrested for some serious crime (not a traffic violation),  you can put him on suspension if need be to see if the accusasion is proven. 
+ When the admin decides to move on to another job, do not let him have access to your system from the moment he tells you he is going. If you are firing him, this is especially important. 
+ 
+ I found this  article , it looks interesting, could be a possible solution, although I haven't taken the time to try and think of exploits yet. 
+ 
+ Off the top of my head I could picture having two separate databases, the "evil" sysadmin would only have access to one. 
+ One database would provide one-time-pads to the other database and log who requested the pad and when. This pad, along with the current time and row data could be hashed. 
+ This way if the evil sysadmin changed something the hash wouldn't check out, and if he tried to rehash you'd have a log of what time things  should  have happened. 
+ If the sysadmin can store the time and one-time-pad then this whole system collapses. 
+ This is a deceptively hard problem, I'm not sure that any protocol will really work, but adding physical security, and an audit log would be a good idea. 
+ 
+ If you want an automated approach, you would first have to know what actions and context were allowable for the user type. This is quite difficult, because in the right context a drop is acceptable, but its not for an everyday user.  
+ I do like the paper backup idea, however the amount of information that is produces can become quiet large very quickly with a large user base and heavy DB usage. 
+ 
+ Every few hours, make a hash of the table's contents. Also record the start and end row. For the second hash and on-wards, make a hash of both the contents of the entire table, and the rows hashed in the previous hash (the check hash). If the previous hash, and the check hash don't match, the database table has been tampered with. I would have these hashes emailed to you, so you can check if the rogue admin had gone through and regenerated all the hashes. I realise there is a gap, but I don't think there is much more then can be done (short of removing their access) than either this or what's already been mentioned. 
+ 
+ I like MikeMontana's solution but I thought it might be worth adding an addendum to it.  Sadly I can't leave comments yet so I posted it in a new answer, the original is quoted below: 
+ 
+ If you really must detect that
+  tampering has occurred, then add a
+  checksum field to the table. The
+  checksum for each new row must include
+  the checksum of the prior row. Then to
+  verify the content, walk through the
+  dataset computing the checksum as you
+  move forward. If the calculated
+  checksum doesnt match the value in the
+  table then some value has been
+  tampered. 
+ -Mike 
+ 
+ Several people pointed out: well the sysadmin could recalculate the checksum (even more an issue if you want to code to live on his server), to which I add the following enhancement: 
+ when data is inserted into the table it is encrypted with a public key, thus anyone can add to the database (assuming you have multiple people using it).  Periodically you decrypt the data using your private key and calculate the checksum.  If it is different that means the database has been modified (what you wanted to test).  You then recalculate the checksum and insert it into the table (public key encrypted as well, of course). 
+ Should the evil sysadmin try to recalculate a new check sum he is doing it on encrypted data. 
+ Additionally, if you are accessing this data remotely then this approach is immune to man in the middle attacks by having decryption and checksum calculations on a local box.  Intercepted data will remain encrypted, and thus unusable. 
+ The only flaw in this system is that any transaction to the database is detected.  You can solve this by abstraction and say:  
+ 
+ verify checksum  
+ insert data 
+ recalculate checksum 
+ 
+ but this removes the advantage of having anyone you want access the data without giving out your private key. 
+ Now it is possible to solve this problem in a different way, for which I would recommend you: 
+ Addressing the trust asymmetry problem in grid computing   
+ by Peter Dinda 
+ http://portal.acm.org/citation.cfm?id=1066656 
+ but the implementation details become longer. 
+ 
+ While there are some very good suggestions here, they will all bite the dust. 
+ Bacause you have an "untrusted" actor, the evil admin,  as custodian of your data you cannot protect yourself. There are various schemes in network protocols and in the real world to enable you to protect your data from tampering by an untrusted transport/courier. But to the best of my knowledge there is nothing that can protect you from an untrusted custodian as in "Hi. I'm Mr. Madoff I used to be chairman of the New York stock exchange you can trust me .... ". 
+ 
+ Separation of Power/Dual Power controls. 
+ I like the ideas that have been presented so far.  I wanted to add my own 2 cents.  
+ In the financial industry, separation of power has been key to keeping a single person from being completely evil.  Our core processing solution is administered by our bookkeeping department (bless their hearts) so we programmers don't really get a whole lot of access to our live data.   
+ Additionally a third party logs interactions with key parts of our system. 
+ Overall, no one person has enough control to affect all the checks and balances, making the payoff diminish enough that its (hopefully) not worth coordinating. 
+ 
+ There are two intresting research papers on this topic
+One of them proposes usage of HMAC alogrith. The other proposes use of Condensed-
+RSA scheme and BGLS signature scheme. 
+ Authentication and Integrity in Outsourced Databases 
+ http://www.isoc.org/isoc/conferences/ndss/04/proceedings/Papers/Mykletun.pdf 
+ A Generic Distortion Free Watermarking Technique for Relational Databases 
+ http://www.dsi.unive.it/~cortesi/paperi/iciss09.pdf 
+ I feel both are vaible solutions based on the amount of percieved risk.
+--Kiran.Kumar 
+ 
+ As well as triggers for auditing, checksums etc, you could look at replicating the database to another slave db - with nobody able to perform any actions directly on it. 
+ You still have the risk of someone messing with the triggers etc, but it would be extremely visible when they were messed with, so you'd be able to detect at which point the replication was broken. 
+ 
+ You could add a trigger to send a copy of the data as it is entered to a non-production database that the evil admin does not have access too.  The admin could stop the trigger from functioning, but the question was how to detect manipulation, not prevent it.  
+ 
+ Since you evil admin has full control of the server, you probably need an external auditing solution that's designed to monitor the activity of privileged SQL Server users. 
+ Guardium  make a network appliance that can log all of the query activity on a database or a server, and it does it at the network level (including local connections) so you can't do anything at the SQL Server level to interfere with it. 
+ This doesn't prevent your evil admin from changing the table but, because it's a locked down appliance, the evil admin can't change the table then persuade the appliance to say that he didn't do it. 
+ 
+ I found this thread while researching how to implement exactly such a solution. One (very much theoretical) solution I thought of would be much like using a perfect forward secret key system. 
+ What I figured that if you have a private-public key pair (call them Kpr and Kpb) and a set of algorithms (A and B) such that: 
+ 
+ 
+ (where K'pr and K'pb are a valid private-public key pair different from Kpr and Kpb) 
+ Using this, you could sign every row in the database, discarding every private key after use, but saving the public key with the signature. You could then save the first public key in a location that the evil admin could not feasibly change (i.e. send it to everyone you know, have it printed in a newspaper, tattoo it on your face, all of the above).  
+ There would be no way of re-signing every record as there is no private key anymore, and you'd be able to check if the public keys are all sequential. There are only two flaws I could think of: 
+ 
+ If the evil admin obtains a copy of a private key, he will be able to change any record from that moment on. This could be circumvented by using a hardware module to create the signatures, so the private key is not accessible from software 
+ The evil admin will be able to append data to your table. 
+ 
+ The problem is that I'm not aware of a set of algorithms such as the one I described. However, I'm not a cryptographer, so it may be possible. 
+ EDIT:  
+ After some more thinking I may have figured out a way to make this possible with existing tools. If you'd include the public key for the nth record on the (n-1)st record and its signature (which you can, because at the point of writing a record you  could  have access to the next private key), you'd secure every record with the previous one. After removing the private key, the signature cannot be recreated, so as long as you have the first public key you can always validate the entire table. This also removes the need to have 'sequential' private keys, you could simply generate a new private key for every line (although this would be very expensive). The same flaws still apply. 
+ 
+ The 2016 answer to this question would be to use a  blockchain  database. As per Wikipedia: 
+ 
+ The block chain is primarily tamper resistant through timestamping the hash of batches of recent valid transactions into "blocks", proving that the data must have existed at the time. Each block includes the prior timestamp, forming a chain of blocks, with each additional timestamp reinforcing the ones before it. 
+ 
+ 

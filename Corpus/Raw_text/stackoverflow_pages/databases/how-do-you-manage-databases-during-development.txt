@@ -1,0 +1,71 @@
+*** how-do-you-manage-databases-during-development ***
+
+ My development team of four people has been facing this issue for some time now: 
+ Sometimes we need to be working off the same set of data. So while we develop on our local computers, the dev database is connected to remotely. 
+ However, sometimes we need to run operations on the db that will step on other developers' data, ie we break associations. For this a local db would be nice. 
+ Is there a best practice for getting around this dilemma? Is there something like an "SCM for data" tool? 
+ In a weird way, keeping a text file of SQL insert/delete/update queries in the git repo would be useful, but I think this could get very slow very quickly.  
+ How do you guys deal with this? 
+ 
+ You may find my question  How Do You Build Your Database From Source Control  useful. 
+ **Fundamentally, effective management of shared resources (like a database) is hard.**
+ It's hard because it requires balancing the needs of multiple people, including other developers, testers, project managers, etc.  
+ Often, it's more effective to give individual developers their own sandboxed environment in which they can perform development and unit testing without affecting other developers or testers. This isn't a panacea though, because you now have to provide a mechanism to keep these multiple separate environments in sync with one another over time. You need to make sure that developers have a reasonable way of picking up each other changes (both data, schema, and code). This isn't necesarily easier. A good SCM practice can help, but it still requires a considerable level of cooperation and coordination to pull it off. Not only that, but providing each developer with their own copy of an entire environment can introduce costs for storage, and additional DBA resource to assist in the management and oversight of those environments. 
+ Here are some ideas for you to consider: 
+ 
+ Create a shared, public "environment whiteboard" (it could be electronic) where developers can easily see which environments are available and who is using them. 
+ Identify an individual or group to own database resources. They are responsible for keeping track of environments, and helping resolve the conflicting needs of different groups (developers, testers, etc). 
+ If time and budgets allow, consider creating sandbox environments for all of your developers. 
+ If you don't already do so, consider separating developer "play areas", from your integration, testing, and acceptance testing environments.  
+ Make sure you version control critical database objects - particularly those that change often like triggers, stored procedures, and views. You don't want to lose work if someone overwrites someone else's changes. 
+ 
+ 
+ We use local developer databases and a single, master database for integration testing.  We store creation scripts in SCM.  One developer is responsible for updating the SQL scripts based on the "golden master" schema.  A developer can make changes as necessary to their local database, populating as necessary from the data in the integration DB, using an import process, or generating data using a tool (Red Gate Data Generator, in our case).  If necessary, developers wipe out their local copy and can refresh from the creation script and integration data as needed.  Typically databases are only used for integration testing and we mock them out for unit tests so the amount of work keeping things synchronized is minimized. 
+ 
+ I recommend that you take a look at Scott Allen´s views on this matter.  He wrote a series of blogs which are, in my opinion, excellent.
+ Three Rules for Database Work ,
+ The Baseline , 
+ Change scripts ,
+ Views, stored procs etc , 
+ Branching and Merging . 
+ I use these guidelines more or less, with personal changes and they work. 
+ 
+ In the past, I've dealt with this several ways. 
+ One is the SQL Script repository that creates and populates the database. It's not a bad option at all and can keep everything in sync (even if you're not using this method, you should still maintain these scripts so that your DB is in Source Control). 
+ The other (which I prefer) was having a single instance of a "clean" dev database on the server that nobody connected to. When developers needed to refresh their dev databases, they ran a SSIS package that copied the "clean" database onto their dev copy. We could then modify our dev databases as needed without stepping on the feet of other developers. 
+ 
+ We have a database maintenance tool that we use that creates/updates our tables and our procs.  we have a server that has an up-to-date database populated with data. 
+ we keep local databases that we can play with as we choose, but when we need to go back to "baseline" we get a backup of the "master" from the server and restore it locally. 
+ if/when we add columns/tables/procs we update the dbMaintenance tool which is kept in source control. 
+ sometimes, its a pain, but it works reasonably well. 
+ 
+ If you use an ORM such as nHibernate, create a script that generate both the schema & the data in the LOCAL development database of your developers. 
+ Improve that script during the development to include typical data. 
+ Test on a staging database before deployment. 
+ We do replicate production database to UAT database for the end users. That database is not accessible by developers. 
+ It takes less than few seconds to drop all tables, create them again and inject test data. 
+ If you are using an ORM that generates the schema, you don't have to maintain the creation script. 
+ 
+ Previously, I worked on a product that was data warehouse-related, and designed to be installed at client sites if desired.  Consequently, the software knew how to go about "installation" (mainly creation of the required database schema and population of static data such as currency/country codes, etc.). 
+ Because we had this information in the code itself, and because we had pluggable SQL adapters, it was trivial to get this code to work with an in-memory database (we used HSQL).  Consequently we did most of our actual development work and performance testing against "real" local servers (Oracle or SQL Server), but all of the unit testing and other automated tasks against process-specific in-memory DBs. 
+ We were quite fortunate in this respect that if there was a change to the centralised static data, we needed to include it in the upgrade part of the installation instructions, so by default it was stored in the SCM repository, checked out by the developers and installed as part of their normal workflow.  On reflection this is very similar to your proposed DB changelog idea, except a little more formalised and with a domain-specific abstraction layer around it. 
+ This scheme worked very well, because  anyone  could build a fully working DB with up-to-date static data in a few minutes, without stepping on anyone else's toes.  I couldn't say if it's worthwhile if you don't need the install/upgrade functionality, but I would consider it anyway because it made the database dependency completely painless. 
+ 
+ What about this approach: 
+ Maintain a separate repo for a "clean db". The repo will be a sql file with table creates/inserts, etc. 
+ Using Rails (I'm sure could be adapted for any git repo), maintain the "clean db" as a submodule within the application. Write a script (rake task, perhaps) that queries a local dev db with the SQL statements. 
+ To clean your local db (and replace with fresh data): 
+ 
+ then 
+ 
+ 
+ I've done one of two things.  In both cases, developers working on code that might conflict with others run their own database locally, or get a separate instance on the dev database server. 
+ 
+ Similar to what @tvanfosson recommended, you keep a set of SQL scripts that can build the database from scratch,  or 
+ On a well defined, regular basis, all of the developer databases are overwritten with a copy of production data, or with a scaled down/deidentified copy of production, depending on what kind of data we're using. 
+ 
+ 
+ I would agree with all the LBushkin has said in his answer. If you're using SQL Server, we've got a solution here at Red Gate that should allow you to easily share changes between multiple development environments. 
+ http://www.red-gate.com/products/sql_source_control/index.htm 
+ If there are storage concerns that make it hard for your DBA to allow multiple development environments, Red Gate has a solution for this. With Red Gate's HyperBac technology you can create virtual databases for each developer. These appear to be exactly the same as ordinary database, but in the background, the common data is being shared between the different databases. This allows developers to have their own databases without taking up an impractical amount of storage space on your SQL Server. 
+ 

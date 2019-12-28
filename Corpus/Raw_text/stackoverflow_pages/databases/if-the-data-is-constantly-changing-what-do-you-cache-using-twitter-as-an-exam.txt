@@ -1,0 +1,35 @@
+*** if-the-data-is-constantly-changing-what-do-you-cache-using-twitter-as-an-exam ***
+
+ I've been spending some time looking into caching with (redis and memcached mostly) and am having a hard time figuring out where exactly to use caching when your data is constantly changing. 
+ Take Twitter for example (just read  Making Twitter 10000% faster ). How would you (or do they) cache their data when a large percentage of their database records are constantly changing? 
+ Say Twitter has these models:  ,  ,  ,  . 
+ Someone may post a Tweet that gets retweeted once in a day, and another that's retweeted a thousand times in a day. For that 1000x retweet, since there's about   minutes in day, that means the Tweet updated almost every minute (say it got 440 favorites as well). Same with following someone, charlie sheen has even attracted  1 million Twitter followers in 1 day . It doesn't seem worth it to cache in these cases, but maybe just because I haven't reached that level yet. 
+ Say also that the average Twitter follower either tweets/follows/favorites at least once a day. That means in the naive intro-rails schema case, the users table is updated at least once a day ( , etc.). This case makes sense for caching the user profile. 
+ But for the 1000x Tweets and 1M followers examples above, what are recommended practices when it comes to caching data? 
+ Specifically (assuming memcached or redis, and using a purely JSON API (no page/fragment caching)): 
+ 
+ Do you cache individual Tweets/records? 
+ Or do you cache chunks of records via pagination (e.g. redis lists of   each)? 
+ Or do you cache both the records individually and in pages (viewing a single tweet vs. a JSON feed)? 
+ Or do you cache lists of Tweets for each different scenario: home timeline tweets, user tweets, user favorite tweets, etc? Or all of the above? 
+ Or are you breaking the data into "most volatile (newest)" to "last few days" to "old" chunks, where "old" data is cached with a longer expiration date or into discrete paginated lists or something? And the newest records are just not cached at all. (i.e. if the data is time dependent like Tweets, do you treat it differently if you older records know it won't change much?) 
+ 
+ What I don't understand is what the ratio of how much the data changes vs. if you should cache it (and deal with the complexities expiring the cache). It seems like Twitter could be caching the different user tweet feeds, and the home tweets  per user , but that then invalidating the cache every time one favorites/tweets/retweets would mean updating all those cache items (and possibly cached lists of records), which at some point seems like it would mean invalidating the cache is counter productive. 
+ What are the recommended strategies for caching data that is changing a lot like this? 
+ 
+ Not saying that Twitter does it like this (although I'm pretty sure it's related), but: I recently got acquainted with  **CQRS**
+ +  **Event Sourcing**
+. (  http://martinfowler.com/bliki/CQRS.html  +  http://martinfowler.com/eaaDev/EventSourcing.html ) .  
+ Basically: reads and writes are entirely separated on an application as well as persistence level (CQRS) , and every write to the system is processed as an event which can be subscribed to (event sourcing). There's more to it (such as being able to replay the entire event stream, which is incredibly useful for implementing new functionality later-on), but this is the relevant part.  
+ Following this, the general practice is that a   (think in-mem cache) is recreated whenever the responsible   (i.e: it projects an event to a new read-model) receives a new event of an event-type it is subscribed to.  
+ In this case an event could be TweetHandled which would be handled by all subscribers among which a  ,  , etc. to update their respective ReadModels. 
+ The result is a collection of ReadModels that areeventually consistent and don't need any invalidation, i.e: the updated writes and the resulting events are the trigger for updating the ReadModels to begin with.  
+ I agree that in the end a Read Model for Charlie Sheen would get updated a lot (although this updating can be very efficient) so the cache-advantage is probably pretty low. However, looking at the average postings per timeunit for the average user, and the picture is entirely different.  
+ Some influential people in the DDD / CQRS / event-sourcing scene: Greg Young, Udi Dahan. 
+ The concepts are pretty 'profound' so don't expect to completely grok it in an hour (at least I didn't) . Perhaps this recent mindmap on related concepts is useful too:  http://www.mindmeister.com/de/181195534/cqrs-ddd-links 
+ Yeah I'm pretty enthousiastic about this, if you didn't notice already :) 
+ 
+ My humble 2 cents: Redis allows you to operate on its data structures, meaning that you can do in-memory operations faster than touching a relational database everytime. 
+ So, the "cache" can be altered so it's not invalidated as much as you are expecting. 
+ In my project, I load periodically 500K records to sorted sets, and then run statistic reports only by doing range queries over them, which brought the report execution time to under 2s average. 
+ 

@@ -1,0 +1,108 @@
+*** strange-characters-in-database-text-%c3%83-%c3%83-%c2%a2-%c3%a2-%e2%82%ac ***
+
+ I'm not certain when this first occured. 
+ I have a new drop-shipping affiliate website, and receive an exported copy of the product catalog from the wholesaler. I format and import this into Prestashop 1.4.4. 
+ **The front end of the website contains combinations of strange characters inside product text: Ã, Ã, ¢, â**
+‚ etc.  They appear in place of common characters like , - : etc. 
+ These characters are present in about 40% of the database tables, not just product specific tables like ps_product_lang. 
+ Another website thread  says  **this same problem occurs when the database connection string uses an incorrect character encoding type**
+. 
+ In /config/setting.inc, there is no character encoding string mentioned, just the MySQL Engine, which is set to InnoDB, which matches what I see in PHPMyAdmin. 
+ I exported ps_product_lang, replaced all instances of these characters with correct characters, saved the CSV file in UTF-8 format, and reimported them using PHPMyAdmin, specifying UTF-8 as the language. 
+ However, after doing a new search in PHPMyAdmin, I now have about 10 times as many instances of these bad characters in ps_product_lang than I started with. 
+ If the problem is as simple as specifying the correct language attribute in the database connection string, where/how do I set this, and what to?  
+ Incidently, I tried running this command in PHPMyAdmin mentioned in  this thread , but the problem remains: 
+ 
+ **UPDATE**
+: PHPMyAdmin says: 
+ 
+ **MySQL charset: UTF-8 Unicode (utf8)**
+
+ 
+ This is the same character set I used in the last import file, which caused more character corruptions.  UTF-8 was specified as the charset of the import file during the import process. 
+ **UPDATE2**
+
+ Here is a sample: 
+ 
+ people are truly living untetheredÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¯Ã¢â‚¬Â
+  Ã‚ï† buying and renting movies online, downloading software, and
+  sharing and storing files on the web. 
+ 
+ **UPDATE3**
+
+ I ran an SQL command in PHPMyAdmin to display the character sets: 
+ 
+ character_set_client     utf8 
+ character_set_connection     utf8 
+ character_set_database   latin1 
+ character_set_filesystem     binary 
+ character_set_results    utf8 
+ character_set_server     latin1 
+ character_set_system     utf8 
+ 
+ So, perhaps my database needs to be converted (or deleted and recreated) to UTF-8.  Could this pose a problem if the MySQL server is latin1?   
+ Can MySQL handle the translation of serving content as UTF8 but storing it as latin1?  I don't think it can, as UTF8 is a superset of latin1.  My web hosting support has not replied in 48 hours.  Might be too hard for them. 
+ 
+ If the charset of the tables is the same as it's content try to use  . Note that MySQL uses   to specify the UTF-8 encoding instead of   which is more common. 
+ Check  my other answer  on a similar question too. 
+ 
+ This is surely an encoding problem. You have a different encoding in your database and in your website and this fact is the cause of the problem. Also if you ran that command you have to change the records that are already in your tables to convert those character in UTF-8. 
+ **Update**
+: Based on your last comment, the core of the problem is that you have a database and a data source (the CSV file) which use different encoding. Hence you can convert your database in UTF-8 or, at least, when you get the data that are in the CSV, you have to convert them from UTF-8 to latin1. 
+ You can do the convertion following this articles: 
+ 
+ Convert latin1 to UTF8 
+ http://wordpress.org/support/topic/convert-latin1-to-utf-8 
+ 
+ 
+ This appears to be a UTF-8 encoding issue that may have been caused by a double-UTF8-encoding of the database file contents. 
+ This situation could happen due to factors such as the character set that was or was not selected (for instance when a database backup file was created) and the file format and encoding database file was saved with. 
+ I have seen these strange UTF-8 characters in the following scenario (the description may not be entirely accurate as I no longer have access to the database in question): 
+ 
+ As I recall, there the database and tables had a "uft8_general_ci" collation. 
+ Backup is made of the database. 
+ Backup file is opened on Windows in UNIX file format and with ANSI encoding. 
+ Database is restored on a new MySQL server by copy-pasting the contents from the database backup file into phpMyAdmin. 
+ 
+ Looking into the file contents: 
+ 
+ Opening the SQL backup file in a text editor shows that the SQL backup file has strange characters such as "sÃƒÂ¥". On a side note, you may get different results if opening the same file in another editor. I use TextPad here but opening the same file in SublimeText said "sÃ¥" because SublimeText correctly UTF8-encoded the file -- still, this is a bit confusing when you start trying to fix the issue in PHP because you don't see the right data in SublimeText at first. Anyways, that can be resolved by taking note of which encoding your text editor is using when presenting the file contents. 
+ The strange characters are double-encoded UTF-8 characters, so in my case the first "Ãƒ" part equals "Ã" and "Â¥" = "¥" (this is my first "encoding"). THe "Ã¥" characters equals the UTF-8 character for "å" (this is my second encoding). 
+ 
+ So,  **the issue is that "false" (UTF8-encoded twice) utf-8 needs to be converted back into "correct" utf-8 (only UTF8-encoded once)**
+. 
+ Trying to fix this in PHP turns out to be a bit challenging: 
+ utf8_decode() is not able to process the characters. 
+ 
+ iconv() fails with "Notice: iconv(): Detected an illegal character in input string". 
+ 
+ Another  fine and possible solution  fails silently too in this scenario 
+ 
+ mb_convert_encoding() silently:  # 
+ 
+ Trying to fix the encoding in MySQL by  converting the MySQL database characterset and collation to UTF-8  was unsuccessfully: 
+ 
+ I see a couple of ways to resolve this issue. 
+ The first is to make a backup with correct encoding (the encoding needs to match the actual database and table encoding). You can verify the encoding by simply opening the resulting SQL file in a text editor. 
+ The other is to replace double-UTF8-encoded characters with single-UTF8-encoded characters. This can be done manually in a text editor. To assist in this process, you can manually pick incorrect characters from Try  UTF-8 Encoding Debugging Chart  (it may be a matter of replacing 5-10 errors). 
+ Finally, a script can assist in the process: 
+ 
+ 
+ Apply these two things. 
+ 
+ You need to set the character set of your database to be  . 
+ You need to call the   in the file where you made the connection with the database and right after the selection of database like   use the  . That will allow you to add and retrieve data properly in whatever the language. 
+ 
+ 
+ I encountered today quite a similar problem : mysqldump dumped my utf-8 base encoding utf-8 diacritic characters as two latin1 characters, although the file itself is regular utf8. 
+ For example : "é" was encoded as two characters "Ã©". These two characters correspond to the utf8 two bytes encoding of the letter but it should be interpreted as a single character.  
+ To solve the problem and correctly import the database on another server, I had to convert the file using the ftfy (stands for "Fixes Text For You). ( https://github.com/LuminosoInsight/python-ftfy ) python library. The library does exactly what I expect : transform bad encoded utf-8 to correctly encoded utf-8. 
+ For example : This latin1 combination "Ã©" is turned into an "é". 
+ ftfy comes with a command line script but it transforms the file so it can not be imported back into mysql. 
+ I wrote a python3 script to do the trick :  
+ 
+ 
+ The error usually gets introduced while creation of CSV. Try using Linux for saving the CSV as a TextCSV. Libre Office in Ubuntu can enforce the encoding to be UTF-8, worked for me.
+I wasted a lot of time trying this on Mac OS. Linux is the key. I've tested on Ubuntu. 
+ Good Luck 
+ 

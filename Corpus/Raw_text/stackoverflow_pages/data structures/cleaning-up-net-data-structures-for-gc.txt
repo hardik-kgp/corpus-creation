@@ -1,0 +1,26 @@
+*** cleaning-up-net-data-structures-for-gc ***
+
+ Does it make difference to clean up the data structures, when they are not needed anymore? I don't mean disposing the disposables - it's obviously required, but, for example, cleaning up dictionaries, lists or other structures to reduce the number of references to objects. 
+ Does it help GC to free the memory faster when there are less refferences (simpler GC graph)? 
+ 
+ No, it doesn't. If a "parent" object isn't reachable, then its "child" references won't be traversed anyway, so they make no difference. 
+ More importantly, clean-up code generally acts as a distraction from the  real  code. It's  very rarely  worth explicitly setting variables to null etc in an effort to help the garbage collector. There  are  times when it's worth doing, but they usually suggest that perhaps you should refactor your code anyway (e.g. to use smaller methods if you were setting local variables to null, or creating smaller objects if you were setting instance variables to null). 
+ 
+ There are two notable situations in which setting things to null will hasten garbage collection: 
+ 
+ A variable holds a reference which will in fact never be used again, but the code is such that the compiler can't tell that.  Note that while debugging, variables are kept around as long as they're in scope regardless of whether they'll be used again (among other things, since the operator can force them to be used again by setting the execution point to an earlier position in the current scope), but in release builds the compiler may abandon variables that won't be used again (note that this may, if one isn't careful, cause Finalize-related bugs!)
+ If a generation-2 object holds a reference to a generation-0 object, the generation-0 object won't be eligible for collection until there is a full generation-2 collection.  That might not happen for quite awhile.  Clearing the reference would allow the generation-0 object to be collected much sooner.
+ If an object which needs to be kept alive has one or more fields that hold references which are no longer going to be used, clearing out those references will help the garbage collector.
+ 
+ Unless you have reason to believe that one of those situations is likely to exist, clearing out references is unlikely to be helpful.  The first situation may seem to occur often in debugging, but unless one has reason to believe the compiler won't recognize a variable as obsolete one shouldn't worry about it.  The second may occur during debugging or production, but the specific circumstances required for it to occur aren't terribly common.  The third is the one most worth worrying about.  A common variation occurs when a class holds an array of object references along with a "size" field which indicates how many array elements are "meaningful".  There are four ways to "clear" such a structure: 
+ 
+ Simply set the size field to zero
+ Set the size field to zero, and re-allocate a new (possibly smaller) array, abandoning the old one.
+ Set the size field to zero and clear out all the elements of the array.
+ Set the size field to zero, clear out all the elements of the array, and then abandon the array and allocate a new one
+ 
+ Setting the size field to zero is the fastest way to "logically" clear out the data structure.  Unless or until it is re-filled with as many items as it had held, however, it will retain references to abandoned elements.  Allocating a new array and abandoning the old one will avoid that problem, but if the array has been around awhile it may result in situation #2 mentioned above.  Clearing out all the elements of the array but keeping the array itself may be the best approach if the array is not particularly large.  Clearing out all the elements and abandoning the array may be the best approach if the array is large and the data structure is not likely to be immediately re-filled with anything close to the number of elements it used to have. 
+ 
+ Edit: Rather than delete the post, as promised I have checked the text and as I suspected before even leaving work that I was wrong.  I appreciate Mr Skeet not outright calling me a bloody idiot on the forum, although he probably wanted to.  I am not sure where I got this idea stuck in my head even after reading the text I referenced, which has a fantastic description of how the garbage collection scheme works.  Anyway, I apologize and admit my error.  Crow tastes bad but I have learned from my errant ways :) 
+ The CLR keeps an indexor for each object created and increments/decrements as execution moves along.  When an object reference count gets to zero, that memory allocation is scheduled for garbage collection.  References can be decremented by a object going out of scope, the object being set to null, or the IDisposable interface members being called.  The purpose behind implementing IDisposable for your classes would be to clean up resources that are not POCO, or use system resources that are not cleaned up automatically such as file handles, database connections, network streams, etc.  Otherwise, when the object goes out of scope, the memory will be cleaned during the next GC cycle. 
+ 

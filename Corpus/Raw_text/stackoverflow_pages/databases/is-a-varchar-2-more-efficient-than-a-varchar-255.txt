@@ -1,0 +1,39 @@
+*** is-a-varchar-2-more-efficient-than-a-varchar-255 ***
+
+ I'm using Django and setting my CharField( **max_length=255**
+), even though I only intend to use about 5 characters. Is this less efficient? I've read that it doesn't really matter with varchar but then read that it'll save hard drive space to specify only what you need. 
+ 
+ In general, varchar(255) requires as much storage as varchar(1). In each case the table stores something like a pointer into a string table and a length. E.g. 4 bytes offset + 1 byte size = 5 bytes fixed per row, just for overhead. 
+ The actual content is of course in the string table, which is only as long as the string your store in it. So if you store a 5 letter name in a varchar(255) field, it'll only use (say) 5 overhead bytes + 5 content bytes = 10 bytes. 
+ Using a varchar(10) field will use exactly the same amount, but will only truncate strings longer than 10 bytes. 
+ 
+ Of course, the specific numbers depend on the storage engine implementation. 
+ 
+ A varchar won't take up more space than the string you store in it, aside from the  overhead for storing the string length : 
+ 
+ However, if you really do only require 5 chars, then consider using char(5) if there are no other variable width columns in the table (i.e., varchars, text or blobs). Then you will have fixed length record, which does carry some  performance advantages : 
+ 
+ For MyISAM tables that change
+  frequently, you should try to avoid
+  all variable-length columns (VARCHAR,
+  BLOB, and TEXT). The table uses
+  dynamic row format if it includes even
+  a single variable-length column. See
+  Chapter 13, Storage Engines. 
+ 
+ 
+ One caveat about using char instead of varchar is that the character set affects the space that must be allocated. For example, if the character set for that column is utf8, then it's possible that 3 bytes will be needed to store a single character. 
+ Since a char column results in a fixed size allocation regardless of what is stored, the database has to accommodate the worst case. So, MySQL has to always allocate 15 bytes per row for that char(5) column, even if you actually only store 5 single-byte characters in every row. 
+ A varchar uses just what is needed for each row as it is stored, so those same 5 single-byte characters take up only 6 or 7 bytes. The extra byte or two are for tracking the actual length. For a varchar of width up to 255 in a single-byte character set, MySQL needs to allocate only 1 byte to store the actual width. A varchar of width 256 to 65,535 needs 2 bytes to store the length, assuming single byte character set. 
+ Since a utf8 varchar(255) might require 255*3 bytes of storage, MySQL must allocate 2 bytes to store the length. Much of this info is covered in the MySQL docs  here . 
+ Though you can declare a width of 65,535, the max effective size in bytes is 65,532. However, depending on the character set and the characters you are storing, you can store a max of many fewer multi-byte characters than that. 
+ As Paul points out, though, you may still want to use a char if that would allow the entire row to be fixed width. Among other things, certain seeks can be faster (e.g., skip the first 1000 rows) because of the fixed offset. 
+ There are also performance issues to consider around updates to the column. If you have a char(5) and start with 1 character and then update the value to 5 characters, the row can be updated in place. With a varchar, depending on the storage engine implementation, the entire row may need to be rewritten in a new location. 
+ Finally, if MySQL needs to create an in-memory temp table to sort a result set from your persistent table, it uses fixed length records. So, it allocates a lot more space in memory for those oversized varchar columns than you might have thought. This is covered in the MySQL docs for Memory storage engine tables. I believe MySQL also does this for disk-based sorts. 
+ 
+ Hard drive space is cheap, but CPU cache space is expensive. You can fit more smaller fields than larger fields. 
+ 
+ Instead of using large space unnecessarily, utilize the space which not only give you more storage place but also a fast execution speed as it did not need to read all the characters.
+If you allocate varchar(255) and add text 'abc', It will read character 'a','b','c' and other as a space. 
+ So, always use the space u required instead of keeping the max space. 
+ 

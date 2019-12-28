@@ -1,0 +1,62 @@
+*** eventual-consistency-with-both-database-and-message-queue-records ***
+
+ I have an application where I need to store some data in a database (mysql for instance) and then publish some data in a message queue. My problem is: If the application crashes after the storage in the database, my data will never be written in the message queue and then be lost (thus eventual consistency of my system will not be guaranted).
+How can I solve this problem ? 
+ 
+ 
+ I have an application where I need to store some data in a database (mysql for instance) and then publish some data in a message queue. My problem is: If the application crashes after the storage in the database, my data will never be written in the message queue and then be lost (thus eventual consistency of my system will not be guaranted). How can I solve this problem ? 
+ 
+ In this particular case, the answer is to load the queue data from the database. 
+ That is, you write the messages that need to be queued to the  database , in the same transaction that you use to write the data.  Then, asynchronously, you read that data from the database, and write it to the queue. 
+ See  Reliable Messaging without Distributed Transactions , by Udi Dahan. 
+ If the application crashes, recovery is simple -- during restart, you query the database for all unacknowledged messages, and send them again. 
+ Note that this design really expects the consumers of the messages to be designed for  at least once delivery . 
+ 
+ This is too long for a comment. 
+ I am assuming that you have a loss-less message queue, where once you get a confirmation for writing data, the queue is guaranteed to have the record. 
+ Basically, you need a loop with a transaction that can roll back or a status in the database.  The pseudo code for a transaction is: 
+ 
+ Begin transaction 
+ Insert into database 
+ Write to message queue 
+ When message queue confirms, commit transaction 
+ 
+ Personally, I would probably do this with a status: 
+ 
+ Insert into database with a status of "pending" (or something like that) 
+ Write to message queue 
+ When message confirms, change status to "committed" (or something like that) 
+ 
+ In the case of recovery from failure, you may need to check the message queue to see if any "pending" records were actually written to the queue. 
+ 
+ Adding to what @Gordon Linoff said, assuming durable messaging (something like MSMQ?) the method/handler is going to be transactional, so if it's all successful, the message will be written to the queue and the data to your view model, if it fails, all will fail... 
+ To mitigate the ID issue you will need to use GUIDs instead of DB generated keys (if you are using messaging you will need to remove your referential integrity anyway and introduce GUIDS as keys). 
+ One more suggestion, don't update the database, but inset only/upsert (the pending row and then the completed row) and have the reader do the projection of the data based on the latest row (for example)  
+ 
+ I'm afraid that answers (VoiceOfUnreason, Udi Dahan) just sweep the problem under the carpet. The problem under carpet is: How the movement of data from database to queue should be designed so that the message will be posted just once (without XA). If you solve this, then you can easily extend that concept by any additional business logic. 
+ CAP theorem  tells you the limits clearly.  
+ XA transactions is not 100% bullet proof solution, but seems to me best of all others that I have seen. 
+ 
+ Writing message as part of transaction is a good idea but it has multiple drawbacks like 
+ If your  
+ a. database/language does not support transaction 
+ b. transaction are time taking operation 
+ c. you can not afford to wait for queue response while responding to your service call. 
+ d. If your database is already under stress, writing message will exacerbate the impact of higher workload. 
+ the best practice is to use  **Database Streams**
+. Most of the modern databases support streams( Dynamodb ,  mongodb ,  orcale  etc.). You have consumer of database stream running which reads from database stream and write to queue or invalidate cache, add to search indexer etc. Once all of them are successful you mark the stream item as processed. 
+ Pros of this approach 
+ 
+ it will work in the case of multi-region deployment where there is a regional failure. (you should read from regional stream and hydrate all the regional data stores.) 
+ No Overhead of writing more records or performance bottle necks of queues. 
+ You can use this pattern for other data sources as well like caching, queuing, searching. 
+ 
+ Cons 
+ 
+ You may need to call multiple services to construct appropriate message.  
+ One database stream might not be sufficient to construct appropriate message. 
+ ensure the reliability of your streams, like  redis stream is not reliable 
+ 
+ **NOTE**
+ this approach also does not guarantee exactly once semantics. The consumer logic should be idempotent and should be able to handle duplicate message   
+ 

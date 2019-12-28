@@ -1,0 +1,63 @@
+*** database-deadlocks ***
+
+ One of the classical reasons we have a database deadlock is when two transactions are inserting and updating tables in a different order. 
+ For example, transaction A inserts in Table A then Table B. 
+ And transaction B inserts in Table B followed by A. 
+ Such a scenario is always at risk of a database deadlock (assuming you are not using serializable isolation level). 
+ My questions are: 
+ 
+ What kind of patterns do you follow in your design to make sure that all transactions are inserting and updating in the same order.
+A book I was reading- had a suggestion that you can sort the statements by the name of the table. Have you done something like this or different - which would enforce that all inserts and updates are in the same order? 
+ What about deleting records? Delete needs to start from child tables and updates and inserts need to start from parent tables. How do you ensure that this would not run into a deadlock? 
+ 
+ 
+ 
+ All transactions are
+inserting\updating in the same order. 
+ Deletes; identify records to be
+deleted outside a transaction and
+then attempt the deletion in the
+smallest possible transaction, e.g.
+looking up by the primary key or similar
+identified during the lookup stage. 
+ Small transactions generally. 
+ Indexing and other performance
+tuning to both speed transactions
+and to promote index lookups over
+tablescans. 
+ Avoid 'Hot tables',
+e.g. one table with incrementing
+counters for other tables primary
+keys. Any other 'switchboard' type
+configuration is risky. 
+ Especially if not using Oracle, learn
+the looking behaviour of the target
+RDBMS in detail (optimistic /
+pessimistic, isolation levels, etc.)
+Ensure you do not allow row locks to
+escalate to table locks as some
+RDMSes will. 
+ 
+ 
+ Deadlocks are no biggie.  Just be prepared to retry your transactions on failure.   
+ And keep them short.  Short transactions consisting of queries that touch very few records (via the magic of indexing) are ideal to minimize deadlocks - fewer rows are locked, and for a shorter period of time. 
+ You need to know that modern database engines don't lock tables; they lock rows; so deadlocks are a bit less likely. 
+ You can also avoid locking by using MVCC and the CONSISTENT READ transaction isolation level: instead of locking, some threads will just see stale data. 
+ 
+ 
+ Carefully design your database processes to eliminate as much as possible transactions that involve multiple tables. When I've had database design control there has never been a case of deadlock for which I could not design out the condition that caused it. That's not to say they don't exist and perhaps abound in situations outside my limited experience; but I've had no shortage of opportunities to improve designs causing these kinds of problems. One obvious strategy is to start with a chronological write-only table for insertion of new complete atomic transactions with no interdependencies, and apply their effects in an orderly asynchronous process. 
+ Always use the database default isolation levels and locking settings  unless  you are absolutely sure what risks they incur, and have proven it by testing. Redesign your process if at all possible first. Then, impose the least increase in protection required to eliminate the risk (and test to prove it.) Don't increase restrictiveness "just in case" - this often leads to unintended consequences, sometimes of the type you intended to avoid. 
+ To repeat the point from another direction, most of what you will read on this and other sites advocating the alteration of database settings to deal with transaction risks and locking problems is misleading and/or false, as demonstrated by how they conflict with each other so regularly. Sadly, especially for SQL Server, I have found no source of documentation that isn't hopelessly confusing and inadequate. 
+ 
+ 
+ I have found that one of the best investments I ever made in avoiding deadlocks was to use a Object Relational Mapper that could order database updates. The exact order is not important, as long as every transaction writes in the same order (and deletes in exactly the reverse order).  
+ The reason that this avoids most deadlocks out of the box is that your operations are  always  table A first, then table B, then table C (which perhaps depends on table B). 
+ You can achieve a similar result as long as you exercise care in your stored procedures or data layer's access code. The only problem is that it requires  great  care to do it by hand, whereas a ORM with a Unit of Work concept can automate most cases. 
+ UPDATE: A delete should run forward to verify that everything is the version you expect (you still need record version numbers or timestamps) and then delete backwards once everything verifies. As this should all happen in one transaction, the possibility of something changing out from under you shouldn't exist. The only reason for the ORM doing it backwards is to obey the key requirements, but if you do your check forward, you will have all the locks you need already in hand. 
+ 
+ I analyze all database actions to determine, for each one, if it needs to be in a multiple statement transaction, and then for each such case, what the minimum isolation level is required to prevent deadlocks... As you said serializable will certainly do so... 
+ Generally, only a very few database actions require a multiple statement transaction in the first place, and of those, only a few require serializable isolation to eliminate deadlocks. 
+ For those that do, set the isolation level for that transaction before you begin, and reset it whatever your default is after it commits. 
+ 
+ Your example would only be a problem if the database locked the ENTIRE table. If your database is doing that...run :) 
+ 

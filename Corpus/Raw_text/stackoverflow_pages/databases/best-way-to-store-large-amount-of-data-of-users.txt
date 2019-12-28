@@ -1,0 +1,135 @@
+*** best-way-to-store-large-amount-of-data-of-users ***
+
+ I store files of users in their own name directory something like  
+ 
+ But if more users come and upload more files then this creates problem because this will lead to migration of some or many users to another drive.I choose username directory solution first because i dont want filenames to be mixed. I dont want to change filename too. Also if another user upload same filename then it creates problem ,if the files are stored with original name. 
+ What could be the best way to do this. I have one solution but want to ask community is this the best way . 
+ i will use sequential folders and then hash the file name to some thing very unique and store into the directory. 
+What i will do is store the original name of file and username into database and hashvalue of filename which is stored in Disk. 
+ When anyone want to access that file,I will read that file through php either replace the name or will do something at that point so that the file is downloaded as original filename. 
+ I have only this proposed solution in mind. Do you guys have any other better than this one. 
+ Edit: 
+ I use folder system too, and possibly for 2nd way i will use virtual folders.
+My database is MongoDB 
+ **Guys all your answers were awesome and really helpful. i wanted to give bounty to everyone, thats why i left it so that community can provide automatically. 
+Thanks all for your answers.I really appreciate it.**
+  
+ 
+ I handle file metadata on the database and retrive the files with a UUID. What i do is: 
+ 
+ **Content based identification**
+
+ 
+ MD5 from file's content 
+ Namespaced UUID:v5 to generate unique identifier based on user's uuid and file's md5.  
+ Custom function to generate path based on 'realname'. 
+ Save on the database: uuid, originalname (the uploaded name), realname (the generated name), filesize, and mime. (optional dateAdded, and md5) 
+ 
+ **File retrival.**
+
+ 
+ UUID to retrive metadata. 
+ regenerate filepath based on realname. 
+ Originalname is used to show a familiar name to the user that downloads the file. 
+ 
+ 
+ I process the file's name assigning it a namespaced UUID as the database primary key, and Generate the path based on User and filename. The precondition is that your user has a uuid assigned to him.  The following code will help you avoid id collisions on the database, and help you identify files by its contents (If you ever need to have a way to spot duplicate content and not necesarily filenames). 
+ 
+ I use a function to generate the filepath based on some custom parameteres, you could use $username and $realname. This is helpful if you implement a distributed folder structure which you might have partitioned on file naming scheme, or any custom scheme. 
+ 
+ As an added bonus this also: 
+ 
+ helps you maintain a versioned file repository if you add an attribute on the file's record of which file (uuid) it has replaced. 
+ create a application Access Control List if you add an attributes of 'owner' and/or 'group' 
+ also works on a single folder structure. 
+ 
+ Note: I used php's $_FILE as an example of the file source based on this question's tags. It can be from any file source or generated content. 
+ 
+ Could you create relational MySQL tables? e.g.: 
+ A   table and a   table. 
+ Your users table would keep track of everything you are (I assume) already tracking: 
+ ,  ,  ,  etc. 
+ Then the files table would store something like: 
+ ,  ,   ,   <----   would be the foreign key pointing to the   field in the   table. 
+ then when you save your file you could save it as it's  .  and use a query to pull the user associated with that file, or all files associated with a user. 
+ e.g.: 
+ 
+ 
+ Since you already use MongoDB, I would suggest checking out GridFS. It's a specification that allows you to store files(even if they are larger than 16mb) into MongoDB collections.  
+ It is scalable, so you'll have no problems if you add another server, it also stores metadata, it is possible to read files in chunks and it also has built in backup functions. 
+ 
+ I would generate a GUID based on a hash of the filename, Date and Time of the Upload and username for the Filename, save those values, as well as the path to the file in a database for later use. If you generate such a GUID, the filenames can not be guessed.  
+ As example lets take user Daniel Steiner (me) uploads a file called resume.doc on the 23rd of april 2013 at 37 past twelve am to your server. this would give a base value of
+Daniel_Steiner+2013/23/04+00:37+resume.doc which then would be as MD5 hash 05c2d2f501e738b930885d991d136f1e. to ensure that the file will be opened in the right programm, we will afterwards add the right file ending and thus will get something like  http://link.to/your/site/05c2d2f501e738b930885d991d136f1e.doc  If your useraccounts already have a user id, you could add those to the URL, for example, if my User ID would be 123145, the url would be  http://link.to/your/site/123145/05c2d2f501e738b930885d991d136f1e.doc 
+ If you save the original filename to the database, you can later also offer a downloadscript that provides the file with its original filename for download, even tough it has another filename on your server.  
+ In case you can use symbolic links, relocating the files on another harddisk shouldn't be a problem either.  
+ If you want to, I could come up with an PHP example as well - shouldn't be too much code.  
+ 
+ Since filesystem is a tree, not a graph (faceted classification), its hard to come up with some way for it to easily represent multiple entities, like users, media types, dates, events, image crop types etc. Thats why using relational database is easier - it is convertible to graph.  
+ But since its another level of abstraction, you need to write functions that do low-level synchronization yourself, including avoiding name collisions, long path names, large file count per folder, ease of transfer per-entity, horizontal scaling etc. So it depends how complex your application needs to be 
+ 
+ Another tactic is to create a 2-dimensional structure where the first level of directories are the first 2 characters of the username, then the second level is the remaining characters (similar to how Git stores its SHA-1 object IDs). For example: 
+ 
+ for user 'jrandomuser'. 
+ Please note that as usernames will likely not be distributed as randomly as SHA-1 values, you may need to add another level later on. Doubt it, though. 
+ 
+ I suggest to use following database structure: 
+ 
+ Where   table has at least: 
+ 
+  is an   column / primary key.
+  is   foreign key. 
+ For   I suggest: 
+ 
+ Still, another columns might be added to the   table: 
+ 
+ Actual upload date and time 
+ Actual mime-type 
+ Actual storage place (for distributed storage systems) 
+ Download count (another table might be a better solution) 
+ 
+ etc... 
+ **Some benefits:**
+
+ 
+ You don't need to calculate file size, hash, extension or any file meta, because you might obtain it with one database operation. 
+ You can obtain statistics for each user of a file count / space used / whatever you wrote to   table by single   statement, and it would be faster, than analysis of actual files, which may be spread across multiple storage devices. 
+ You may apply file access permissions for different users. It will cost not significant change of table structures database. 
+ 
+ 
+ I don't consider as an option, that original filenames needed at storage, because of two reasons: 
+ 
+ File may have name, which not correctly supported by Server OS filesystem, like Cyrillic ones. 
+ Two different files may have completely identical names, so one of them might be overwritten by another. 
+ 
+ **So, there is a solution:**
+
+ 1) Rename files when they are uploaded to   from   into   table. It's safe and there are no dublicates. 
+ 2) Restore name of the file, when it's needed / downloaded, like: 
+ 
+ 3) Actual files may be stored within single directory (because   is safe) and  -named subdirectory - depends on a situation. 
+ 4) As   is a direct sequence, if some of files are gone missing, you may obtain their database meta by evaluating missing segments of actual filenames sequence. Then, you may "inform owners", "delete file meta" or both of this actions. 
+ 
+ I'm against the idea of storing large actual files in DBMS itself as a binary content . 
+ DBMS is about data and analysis, it's not a FileSystem, and should never be used in that way, if my humble opinion matters. 
+ 
+ You can install a LDAP server. LDAP lookup is very fast since it is highly optimized for heavy read operations. You can even query for data 
+ LDAP organizes the data in a tree like fashion. 
+ You can organize data as following example "user->IP address->folder->file name". This way file could be physically/geographically spread out and you can fetch the location very quickly. 
+ You can query too using standard LDAP query for e.g. get all the list of file for a particular user or get the list of files in the folder etc. 
+ 
+ 
+ Mongodb to store the actual filename (eg: myImage.jpg) and other attributes (eg: MIME types), plus   from 2. & 3. below 
+ Generate some  , eg:   or  
+ Physically store the file as   - always good to maintain same extension 
+ NOTE: Use   to ensure the input filename doesn't pose security risk to Mongodb. 
+ 
+ Amazon S3 is reliable and cheap, be aware of "Eventual Concurrency" with S3. 
+ 
+ Assuming users have a unique ID (Primary Key) in the database, if a user with ID 73 uploads a file, save it like this: 
+ "uploads/$userid_$filename.$ext" 
+ For example, 73_resume.doc, 73_myphoto.jpg 
+ Now, when fetching files, use this code: 
+ 
+ This can be combined with hashing solutions (stored in the DB), so that a user who gets a download path as 73_photo.jpg does not randomly try 74_photo.jpg in the browser address bar. 
+ 

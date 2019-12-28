@@ -1,0 +1,75 @@
+*** strategy-for-tracking-user-recent-activity ***
+
+ Our customer would like to know  **who**
+ is online and currently using the custom application we wrote for them.  I discussed it with them and this does not need to be  **exact**
+, more of a guestimate will work.   
+ So my thought is a 15 minute time interval to determine user activity.  Some ideas I have for doing this are as follows: 
+ 
+ Stamp their user record with a date and time of their last activity every time they do something that hits the database, or requests a web page ... this though could be quite database intensive. 
+ Send out a "who is online request" from our software, looking for responses, this could be done at a scheduled interval, and then stamp the user record with the current date and time for each response I received. 
+ 
+ What are your thoughts?  And how would you handle this situation? 
+ **Clarification**
+
+ I would like to use the same architecture for both Windows or the Web if possible.  I have a single business logic layer that multiple user interfaces interact with, could be Windows or the Web. 
+ By Windows I would mean client-server. 
+ **Clarification**
+
+ I am using an n-tier architecture so my business objects handle all the interaction with the presentation layer.  That presentation layer could be feeding a client-server Windows application, Web application, Web Service and so on.   
+ It is not a high traffic application, as it was developed for a customer of ours, maybe 100 users at most. 
+ 
+ Our solution is to maintain a "Transaction" table (which follows what was done), in addition to our "Session" table (which follows who was here). UPDATE, INSERT and DELETE instructions are all managed through a "Transaction" object and each of these SQL instruction is stored in the "Transaction" table once it has been successfully executed on the database (depending on tables updated: we have the possibility to specifically follow some tables and ignore others). This "Transaction" table has other fields such as transactiontType (I for INSERT, D for DELETE, U for UPDATE), transactionDateTime, etc, and a foreign key "sessionId", telling us finally who sent the instruction. It is even possible, through some code, to identify who did what and when (Gus created the record on monday, Tim changed the Unit Price on tuesday, Liz added an extra discount on thursday, etc). 
+ Pros for this solution are: 
+ 
+ you're able to tell "what who and when", and to show it to your users! (you'll need some code to analyse SQL statements) 
+ if your data is replicated, and replication fails, you can rebuild your database through this table 
+ 
+ Cons are 
+ 
+ 100 000 data updates per month mean 100 000 records in Tbl_Transaction 
+ Finally, this table tends to be 99% of your database volume 
+ 
+ Our choice: all records older than 90 days are automatically deleted every morning 
+ 
+ I've seen strategy 1 work before. Of course the site was a small one.  
+ 
+ I wonder how a site like stackoverflow does it?   
+ They must target a specific event, as I just tooled around the site, take a look at my profile, and still says something like  **last seen 8 minutes ago**
+. 
+ 
+ I'd just drop a log record table in the db.   
+ UserId int FK 
+Action char(3) ('in' or 'out') 
+Time DateTime   
+ You can drop a new record in the table when somebody logs in or out or alternatively update the last record for the user. 
+ 
+ If you have session data just use that. Most session systems already have timestamps so they can expire sessions not used for x minutes.  
+ 
+ You can increment a global variable everytime a user session is created, and decrement it when it is destroyed. This way you will  **always**
+ know how many users are online at any given moment.  
+ If you want to monitor it over time, on the other hand, I think logging session start and end to the database is the best option, and you calculate user activity after the fact with a simple query. 
+ 
+ [DISCLAIMER 1 --- Java solution] 
+ If each meaningful user is given a Session, then you could write your own SessionListener implementation to track each session that has been created and destroyed. 
+ [DISCLAIMER 2 --- Code not tested or compiled] 
+ 
+ And register this in your web.xml: 
+ 
+ Hope this helps. 
+ 
+ The only problem with a web application solution is you often don't know when someone signs out.  Obviously, if you have a login / authentication requirement, you can capture when a person signs on, and as part of your data access code, you can log when a person hits the database.  But you will have to accept that there will be on reliable way of capturing when a person logs off - many will just move away from the site without taking the "log off" action. 
+ 
+ I would imagine that using a trigger would be a reasonable option that would preclude you from having to mess with any logic differences between the web and the non-web environment (or any other environment for that matter).  However, this only captures changes to the environment and doesn't do anything when select statements are made.  This, however, can be overcome if all your commands from your apps are run through stored procedures. 
+ 
+ With a web app, the concept of "online" is a little nebulous.  The best you can really do is "made a request in the last X minutes" or maybe "authenticated in the last X minutes".    
+ Choose a set of events (made request, performed update,  authenticated, ...), and log them to a DB table.   
+ **Log them to a table in a separate DB**
+
+ 
+ I have worked with many systems that have utilized the first method you listed, with a little careful planning it can be done in a manner that really doesn't have much of an effect. 
+ It all depends on exactly when/how/what you are trying to track.  If you need to track multiple sessions I'll typically see people that use a session system tied to a user account, and then by a specific elapsed time that session is consiered dead. 
+ If you are truly looking for currently online, your first option is the best. 
+ 
+ I've just implemented a last seen system for my website. Your first option is similar, but I only update every +-5 minutes. It works for my situation, but larger scale websites might require something a little extra. 
+ 
+ 

@@ -1,0 +1,69 @@
+*** microservices-datasource-per-instance-or-per-microservice ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ Building microservice architecture I faced the problem of data sharing between instances of the same microservice. 
+ I have microservice, that massively uses it's datasource - every request to service cause database request (usually insert). This service will be used very heavily and I plan to hide multiple instances behind Load Balancer. And here rises a question: shall these instances use ONE database (will the database be a bottleneck?) or MULTIPLE (datasource per instance) have? 
+ 
+ In my experience with mSOA architecture, I've never seen 
+ 
+ MULTIPLE (datasource per instance) 
+ 
+ to be used. Even if you plan to load it heavily, the most common DBs by nature support multi-threading access. Usually the bottleneck (or slowest part) of a DB system is the disk. We had to scale our clusters several times (relatively cheap if you are in the cloud, but scalability can also become an issue, as more threads will be required to manage and execute the scaled DB system). Keep in mind that some RDBMS use a temporary DB (tempdb) that is used by all the DBs on that instance for sorting, hashing, temporary variables, etc. Multithreading and splitting up this tempdb files can be used to improve the throughput of the tempdb, thereby improving overall server performance.  
+ Since now I work with  Orchard , I have to say that there are some corner cases, when your actions over one instance are not completely (and timely) synced. This causes access over resources to be denied (right after registration of the event) even after correct authentication. 
+ 
+ I plan to hide multiple instances behind Load Balancer 
+ 
+ This is a proper design for your App servers, so utilizing a DB cluster should be suitable as well. Aiming at full answer - you can consider  DWH , in case you have a lot of services and you want to be able to do some data mining and analysis from all their DBs. 
+ 
+ Having one database instance per microservice instance is a very unusual architecture.  If you are concerned about load on the database, you could cluster it for higher throughput, however, inserts don't cause much load.   
+ I'd suggest you look into a NoSQL database if you are concerned about the database being a bottleneck.  NoSQL databases are designed to scale better for high throughput and handle large amounts of data well.  Of course the downside is that they don't handle complex data models well. 
+ 
+ My approach would be a service local DB (read: datasource per instance). In memory or in the same Pod. To synchronize the at startup always fresh DB I would use Apache Kafka. As soon as the service begins initializing, it queries Kafka for all entries it is interested in (mind the  compact log -Feature of Kafka, that only returns the recent state of an entity) populates its DB and begins serving requests. 
+ This would increase startup time of course, but the benefit is, that the DB can be of any tech or scheme the service wants it to be (this could even change from version to version of the service). Also there is no need of an DB-Cluster, but you would need a properly configured Kafka-Service, but that could also be used for Event Sourcing among your services. 
+ 
+ A lot depends on your actual use case but I think write-behind or write-back could be one of your solution.  This  link talks about the technique with EhCache, I think there should be other caches supporting the feature, you may want to google a bit on that. 
+ 
+ It really depends on your scalability requirements, and how/if your microservice instances need to cooperate to provide a single result. It helps to know what the trade-offs are: 
+ **Keeping it all in one database**
+
+ 
+ Easier configuration 
+ No coordination or communication with other instances of your service
+needed  
+ Easier to discover your full dataset  
+ System performance limited by database performance 
+ 
+ **Keeping the databases separate**
+
+ 
+ The full answer for a request may be spread across microservice
+instances In that case you have increased communication and
+negotiation to resolve the request Handling data when you loose that
+microservice node (even when the database is still up, you can't get
+at it until a new one with the right configuration is stood back up) 
+ Increased configuration complexity 
+ 
+ 

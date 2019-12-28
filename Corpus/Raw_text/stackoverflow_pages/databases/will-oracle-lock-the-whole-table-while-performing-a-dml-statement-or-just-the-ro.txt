@@ -1,0 +1,33 @@
+*** will-oracle-lock-the-whole-table-while-performing-a-dml-statement-or-just-the-ro ***
+
+ When i try to insert/update something in a  db table, will Oracle lock the whole table or only the row being inserted/updated? 
+ Is this something that can be controlled through external configuration? 
+ 
+ We can issue locks explicitly with the LOCK TABLE command.   Find out more 
+ Otherwise, an insert does not lock any other rows.  Because of Oracle's read isolation model that row only exists in our session until we commit it, so nobody else can do anything with it.   Find out more . 
+ An update statement only locks the affected rows.  Unless we have implemented a pessimistic locking strategy with SELECT ... FOR UPDATE.   Find out more . 
+ Finally, in Oracle writers do not block readers.  So even locked rows can be read by other sessions, they just can't be changed.   Find out more .   
+ This behaviour is baked into the Oracle kernel, and is not configurable. 
+ 
+ Justin makes a good point about the table-level DDL lock.  That lock will cause a session executing DDL on the table to wait until the DML session commits, unless the DDL is something like CREATE INDEX in which case it will fail immediately with ORA-00054.   
+ 
+ It depends what you mean by "lock". 
+ For 99.9% of what people are likely to care about, Oracle will acquire a row-level lock when a row is modified.  The row-level lock still allows readers to read the row (because of multi-version read consistency, writers never block readers and readers never do dirty reads). 
+ If you poke around  , you'll see that updating a row also takes out a lock on the table.  But that lock only prevents another session from doing DDL on the table.  Since you'd virtually never want to do DDL on an active table in the first place, that generally isn't something that would actually cause another session to wait for the lock. 
+ 
+ When a regular DML is executed (UPDATE/DELETE/INSERT,MERGE, and SELECT ... FOR UPDATE) oracle obtains 2 locks.
+Row level Lock (TX) - This obtains a lock on the particular row being touched and any other transaction attempting to modify the same row gets blocked, till the one already owning it finishes.
+Table Level Lock (TM) - When Row lock (TX) is obtained an additional Table lock is also obtained to prevent any DDL operations to occur while a DML is in progress. 
+ What matters is though in what mode the Table lock is obtained.
+A row share lock (RS), also called a subshare table lock (SS), indicates that the transaction holding the lock on the table has locked rows in the table and intends to update them. An SS lock is the least restrictive mode of table lock, offering the highest degree of concurrency for a table. 
+ A row exclusive lock (RX), also called a subexclusive table lock (SX), indicates that the transaction holding the lock has updated table rows or issued SELECT ... FOR UPDATE. An SX lock allows other transactions to query, insert, update, delete, or lock rows concurrently in the same table. Therefore, SX locks allow multiple transactions to obtain simultaneous SX and SS locks for the same table. 
+ A share table lock (S) held by one transaction allows other transactions to query the table (without using SELECT ... FOR UPDATE) but allows updates only if a single transaction holds the share table lock. Multiple transactions may hold a share table lock concurrently, so holding this lock is not sufficient to ensure that a transaction can modify the table. 
+ A share row exclusive table lock (SRX), also called a share-subexclusive table lock (SSX), is more restrictive than a share table lock. Only one transaction at a time can acquire an SSX lock on a given table. An SSX lock held by a transaction allows other transactions to query the table (except for SELECT ... FOR UPDATE) but not to update the table. 
+ An exclusive table lock (X) is the most restrictive mode of table lock, allowing the transaction that holds the lock exclusive write access to the table. Only one transaction can obtain an X lock for a table. 
+ 
+ You should probably read the oracle concepts manual regarding locking.
+For standard DML operations (insert, update, delete, merge), oracle takes a shared DML (type TM) lock.
+This allows other DMLs on the table to occur concurrently (it is a share lock.)
+Rows that are modified by an update or delete DML operation and are not yet committed will have an exclusive row lock (type TX).  Another DML operation in another session/transaction can operate on the table, but if it modifies the same row it will block until the holder of the row lock releases it by either committing or rolling back. 
+ Parallel DML operations and serial insert direct load operations take exclusive table locks. 
+ 

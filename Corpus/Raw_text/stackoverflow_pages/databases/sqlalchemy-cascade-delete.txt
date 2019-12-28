@@ -1,0 +1,96 @@
+*** sqlalchemy-cascade-delete ***
+
+ I must be missing something trivial with SQLAlchemy's cascade options because I cannot get a simple cascade delete to operate correctly -- if a parent element is a deleted, the children persist, with   foreign keys.  
+ I've put a concise test case here: 
+ 
+ Output: 
+ 
+ There is a simple, one-to-many relationship between Parent and Child. The script creates a parent, adds 3 children, then commits. Next, it deletes the parent, but the children persist. Why? How do I make the children cascade delete? 
+ 
+ The problem is that sqlalchemy considers   as the parent, because that is where you defined your relationship (it doesn't care that you called it "Child" of course). 
+ If you define the relationship on the   class instead, it will work: 
+ 
+ (note   as a string: this is allowed when using the declarative style, so that you are able to refer to a class that is not yet defined) 
+ You might want to add   as well (  causes children to be deleted when the parent gets deleted,   also deletes any children that were "removed" from the parent, even if the parent is not deleted) 
+ EDIT: just found out: if you  really  want to define the relationship on the   class, you can do so, but you will have to define the cascade  **on the backref**
+ (by creating the backref explicitly), like this: 
+ 
+ (implying  ) 
+ 
+ @Steven's asnwer is good when you are deleting through   which never happens in my case. I noticed that most of the time I delete through   (which doesn't put elements in the memory and deletes directly from db).
+Using this method sqlalchemy's   doesn't work. There is a solution though:   through db (note: not all databases support it).  
+ 
+ 
+ Pretty old post, but I just spent an hour or two on this, so I wanted to share my finding, especially since some of the other comments listed aren't quite right. 
+ **TL;DR**
+
+ Give the child table a foreign or modify the existing one, adding  : 
+ 
+ And  one  of the following relationships: 
+ a) This on the parent table: 
+ 
+ b)  Or  this on the child table: 
+ 
+ 
+ **Details**
+
+ First off, despite what the accepted answer says, the parent/child relationship is not established by using  , it's established by using  . You can put the   on either the parent or child tables and it will work fine. Although, apparently on the child tables, you have to use the   function in addition to the keyword argument. 
+ **Option 1 (preferred)**
+
+ Second, SqlAlchemy supports two different kinds of cascading. The first, and the one I recommend, is built into your database and usually takes the form of a constraint on the foreign key declaration. In PostgreSQL it looks like this: 
+ 
+ This means that when you delete a record from  , then all the corresponding rows in   will be deleted for you by the database. It's fast and reliable and probably your best bet. You set this up in SqlAlchemy through   like this (part of the child table definition): 
+ 
+ The   is the part that creates the   on the table. 
+ **Gotcha!**
+
+ There's an important caveat here. Notice how I have a   specified with  ? If you don't have that, the entire thing will not work. This is because by default when you delete a parent record SqlAlchemy does something really weird. It sets the foreign keys of all child rows to  . So if you delete a row from   where   = 5, then it will basically execute 
+ 
+ Why you would want this I have no idea. I'd be surprised if many database engines even allowed you to set a valid foreign key to  , creating an orphan. Seems like a bad idea, but maybe there's a use case. Anyway, if you let SqlAlchemy do this, you will prevent the database from being able to clean up the children using the   that you set up. This is because it relies on those foreign keys to know which child rows to delete. Once SqlAlchemy has set them all to  , the database can't delete them. Setting the   prevents SqlAlchemy from  ing out the foreign keys. 
+ You can read more about passive deletes in the  SqlAlchemy docs . 
+ **Option 2**
+
+ The other way you can do it is to let SqlAlchemy do it for you. This is set up using the   argument of the  . If you have the relationship defined on the parent table, it looks like this: 
+ 
+ If the relationship is on the child, you do it like this: 
+ 
+ Again, this is the child so you have to call a method called   and putting the cascade data in there. 
+ With this in place, when you delete a parent row, SqlAlchemy will actually run delete statements for you to clean up the child rows. This will likely not be as efficient as letting this database handle if for you so I don't recommend it. 
+ Here are the  SqlAlchemy docs  on the cascading features it supports. 
+ 
+ Steven is correct in that you need to explicitly create the backref, this results in the cascade being applied on the parent (as opposed to it being applied to the child like in the test scenario). 
+ However, defining the relationship on the Child does NOT make sqlalchemy consider Child the parent. It doesn't matter where the relationship is defined (child or parent), its the foreign key that links the two tables that determines which is the parent and which is the child. 
+ It makes sense to stick to one convention though, and based on Steven's response, I'm defining all my child relationships on the parent. 
+ 
+ I struggled with the documentation as well, but found that the docstrings themselves tend to be easier than the manual.  For example, if you import relationship from sqlalchemy.orm and do help(relationship), it will give you all the options you can specify for cascade.  The bullet for   says: 
+ 
+ if an item of the child's type with no parent is detected, mark it for deletion. 
+  Note that this option prevents a pending item of the child's class from being
+  persisted without a parent present. 
+ 
+ I realize your issue was more with the way the documentation for defining parent-child relationships.  But it seemed that you might also be having a problem with the cascade options, because   includes  .    is the only option that's not included in  . 
+ 
+ Steven's answer is solid.  I'd like to point out an additional implication. 
+ By using  , you're making the app layer (Flask) responsible for referential integrity. That means other processes that access the database not through Flask, like a database utility or a person connecting to the database directly, will not experience those constraints and could change your data in a way that breaks the logical data model you worked so hard to design. 
+ Whenever possible, use the   approach described by d512 and Alex. The DB engine is very good at truly enforcing constraints (in an unavoidable way), so this is by far the best strategy for maintaining data integrity.  The only time you need to rely on an app to handle data integrity is when the database can't handle them, e.g. versions of SQLite that don't support foreign keys. 
+ If you need to create further linkage among entities to enable app behaviors like navigating parent-child object relationships, use   in conjunction with  .  
+ 
+ Answer by Stevan is perfect. But if you are still getting the error. Other possible try on top of that would be - 
+ http://vincentaudebert.github.io/python/sql/2015/10/09/cascade-delete-sqlalchemy/ 
+ Copied from the link- 
+ Quick tip if you get in trouble with a foreign key dependency even if you have specified a cascade delete in your models. 
+ Using SQLAlchemy, to specify a cascade delete you should have   on your parent table. Ok but then when you execute something like: 
+ 
+ It actually triggers an error about a foreign key used in your children tables. 
+ The solution I used it to query the object and then delete it: 
+ 
+ This should delete your parent record AND all the children associated with it. 
+ 
+ **TLDR:**
+ If the above solutions don't work, try adding nullable=False to your column. 
+ I'd like to add a small point here for some people who may not get the cascade function to work with the existing solutions (which are great). The main difference between my work and the example was that I used automap. I do not know exactly how that might interfere with the setup of cascades, but I want to note that I used it. I am also working with a SQLite database.  
+ I tried every solution described here, but rows in my child table continued to have their foreign key set to null when the parent row was deleted. I'd tried all the solutions here to no avail. However, the cascade worked once I set the child column with the foreign key to nullable = False. 
+ On the child table, I added: 
+ 
+ With this setup, the cascade functioned as expected.  
+ 

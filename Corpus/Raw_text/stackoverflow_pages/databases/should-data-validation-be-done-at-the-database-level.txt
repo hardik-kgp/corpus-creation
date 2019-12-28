@@ -1,0 +1,64 @@
+*** should-data-validation-be-done-at-the-database-level ***
+
+ I am writing some stored procedures to create tables and add data.  One of the fields is a column that indicates percentage.  The value there should be 0-100.  I started thinking, "where should the data validation for this be done? Where should data validation be done in general? Is it a case by case situation?" 
+ It occurs to me that although today I've decided that 0-100 is a valid value for percentage, tomorrow, I might decide that any positive value is valid.  So this could be a business rule, couldn't it?  Should a business rule be implemented at the database level? 
+ Just looking for guidance, we don't have a dba here anymore. 
+ 
+ Generally, I would do validations in multiple places: 
+ 
+ Client side using validators on the aspx page 
+ Server side validations in the code behind 
+ 
+ I use database validations as a last resort because database trips are generally more expensive than the two validations discussed above. 
+ I'm definitely not saying "don't put validations in the database", but I would say, don't let that be the only place you put validations. 
+ If your data is consumed by multiple applications, then the most appropriate place would be the middle tier that is (should be) consumed by the multiple apps. 
+ What you are asking in terms of business rules, takes on a completely different dimension when you start thinking of your entire application in terms of business rules. If the question of validations is small enough, do it in individual places rather than build a centralized business rules system. If it is a rather large system, them you can look into a business rules engine for this. 
+ 
+ In general, I would think that the closer the validation is to the data, the better. 
+ This way, if you ever need to rewrite a top level application or you have a second application doing data access, you don't have two copies of the (potentially different) code operating on the same data. 
+ 
+ If you have a good data access tier, it almost doesn't matter which approach you take. 
+ That said, a database constraint is a lot harder to bypass (intentionally or accidentally) than an application-layer constraint. 
+ In my work, I keep the business logic and constraints as close to the database as I can, ensuring that there are fewer potential points of failure. Different constraints are enforced at different layers, depending on the nature of the constraint, but everything that  can be  in the database,  is  in the database. 
+ 
+ It would depend on how you are interacting with the database, IMO.  For example, if the only way to the database is through your application, then just do the validation there. 
+ If you are going to allow other applications to update the database, then you may want to put the validation in the database, so that no matter how the data gets in there it gets validated at the lowest level. 
+ But, validation should go on at various levels, to give the user the quickest opportunity possible to know that there is a problem. 
+ You didn't mention which version of SQL Server, but you can look at user defined datatypes and see if that would help you out, as you can just centralize the validation. 
+ 
+ I worked for a government agency, and we had a -ton- of business rules.  I was one of the DBA's, and we implemented a large number of the business rules in the database; however, we had to keep them pretty simple to avoid Oracle's dreaded 'mutating table' error.  Things get complicated very quickly if you want to use triggers to implement business rules which span several tables. 
+ Our decision was to implement business rules in the database where we could because data was coming in through the application -and- through data migration scripts.  Keeping the business rules only in the application wouldn't do much good when data needed to be migrated in to the new database. 
+ I'd suggest implementing business rules in the application for the most part, unless you have data being modified elsewhere than in the application.  It can be easier to maintain and modify your business rules that way. 
+ 
+ One can make a case for: 
+ 
+ In the database implement enough to ensure overall data integrity (e.g. in SO this could be every question/answer has at least one revision). 
+ In the boundary between presentation and business logic layer ensure the data makes sense for the business logic (e.g. in SO ensuring markup doesn't contain dangerous tags) 
+ 
+ But one can easily make a case for different places in the application layers for every case. Overall philosophy of what the database is there for can affect this (e.g. is the database part of the application as a whole, or is it a shared data repository for many clients). 
+ The only thing I try to avoid is using Triggers in the database, while they can solve legacy problems (if you cannot change the clients...) they are a case of the Action at a Distance anti-pattern. 
+ 
+ I think basic data validation like you described makes sure that the data entered is correct. The applications should be validating data, but it doesn't hurt to have the data validated again on the database. Especially if there is more than one way to access the database. 
+ 
+ In a perfect world the only thing talking (updating, deleting, inserting) to your database would be your business api.  In the perfect world databae level constraints are a waste of time, your data would already have been validated and cross checked in your business api.
+In the real world we get cowboys taking shortcuts and other people writing directly to the database.  In this case some constraints on the database are well worth the effort.  However if you have people not using your api to read/write you have to consider where you went wrong in your api design. 
+ 
+ You can reasonable restrict the database so that the data always makes sense.  A database will support multiple applications using the same data so some restrictions make sense. 
+ I think the only real cost in doing so would be time.  I think such restrictions aren't a big deal unless you are doing something crazy.  And, you can change the rules later if needed (although some changes are obviously harder than others) 
+ 
+ First ideal: have a "gatekeeper" so that your data's consistency does not depend upon each developer applying the same rules. Simple validation such as range validation may reasonably be implemented in the DB. If it changes at least you have somewhere to put. 
+ Trouble is the "business rules" tend to get much more complex. It can be useful to offload processing to the application tier where OO languages can be better for managing complex logic. 
+ The trick then is to structure the app tier so that the gatekeeper is clear and unduplicated.  
+ In a small organisation (no DBA ergo, small?) I would tend to put the business rules where you have strong development expertise. 
+ This does not exclude doing initial validation in higher levels, for example you might validate all the way up in the UI to help the user get it right, but you don't  depend  upon that initial validation - you still have the gatekeeper. 
+ 
+ If you percentage is always 'part divided by whole' (and you don't save part and whole values elsewhere), then checking its value against [0-100] is appropriate at db level. Additional constraints should be applied at other levels. 
+ If your percentage means some kind of growth, then it may have any kind of values and should not be checked at db level. 
+ It is case by case situation. Usually you should check at db level only constraints, which can never change or have natural limits (like first example). 
+ 
+ Richard is right: the question is subjective the way it has been asked here. 
+ Another take is: what are the schools of thought on this? Do they vary by sector or technology? 
+ I've been doing Ruby on Rails for a bit now, and there, even relationships between records (one-to-many etc.) are NOT respected on the DB level, not to mention cascade deleting and all that stuff. Neither are any kind of limits aside from basic data types, which allow the DB to do its work. Your percentage thing is not handled on the DB level but rather at the Data Model level. 
+ So I think that one of the trends that we're seeing lately is to give more power to the app level. You MUST check the data coming in to your server (so somewhere in the presentation level) and you MIGHT check it on the client and you MIGHT check again in the business layer of your app. Why would you want to check it again at the database level? 
+ However: the darndest things do happen and sometimes the DB gets values that are "impossible" reading the business-layer's code. So if you're managing, say, financial data, I'd say to put in every single constraint possible at every level. What do people from different sectors do?  
+ 

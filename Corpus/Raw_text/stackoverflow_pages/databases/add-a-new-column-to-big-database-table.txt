@@ -1,0 +1,62 @@
+*** add-a-new-column-to-big-database-table ***
+
+ I need to add a new column to a table in my database. The table contains around 140 million rows and I'm not sure how to proceed without locking the database. 
+ The database is in production and that's why this has to be as smooth as it can get. 
+ I have read a lot but never really got the answer if this is a risky operation or not.
+The new column is nullable and the default can be NULL. As i understood there is a bigger issue if the new column needs a default value. 
+ I'd really appreciate some straight forward answers on this matter. Is this doable or not? 
+ 
+ Yes, it is eminently doable. 
+ Adding a column where NULL is acceptable and has no default value does not require a long-running lock to add data to the table. 
+ If you supply a default value, then SQL Server has to go and update each record in order to write that new column value into the row. 
+ **How it works in general:**
+
+ 
+ **The caveat bit:**
+
+ I can't remember off the top of my head what happens when you add a column that causes the size of the NULL bitmap to be expanded. I'd like to say that the NULL bitmap represents the nullability of all the the columns  currently in the row , but I can't put my hand on my heart and say that's definitely true. 
+ Edit -> @MartinSmith pointed out that the NULL bitmap will only expand when the row is changed, many thanks. However, as he also points out, if the size of the row expands past the 8060 byte limit in SQL Server 2012 then  a long running lock may still be required . Many thanks * 2. 
+ **Second caveat:**
+
+ Test it. 
+ **Third and final caveat:**
+
+ No really, test it. 
+ 
+ My example is how do I add a new column to the table by tens of millions of rows and fill it by default value without long running lock  
+ 
+  changes only the metadata (Sch-M locks) and lock time does not depend on the number of rows in a table 
+ After that, I fill a new column by default value in small portions (5000 rows). I wait one second after each cycle so as not to block the table too aggressively. I have a int column "ID" as the primary clustered key 
+ Finally, when all the new column is filled I change it to NOT NULL 
+ 
+ No one can tell how much time will the operation cost as this depend on many ither factors after all.  
+ You should not be worried about the operations itself because the SQL Server is doing everything right: 
+ 
+ The Database Engine uses schema modification (Sch-M) locks during a
+  table data definition language (DDL) operation, such as adding a
+  column or dropping a table. During the time that it is held, the Sch-M
+  lock prevents concurrent access to the table. This means the Sch-M
+  lock blocks all outside operations until the lock is released. 
+ 
+ I have never done   operation on such amount of data and the only advice that I can give is to do it when there are not so many connections to the database (during the night). 
+ EDIT:  
+ Here  you can found more information about your question. Generally,   is right and 
+ 
+ The only time that adding a column to a table results in a
+  size-of-data operation (i.e. an operation that modifies every row in a
+  table) is when the new column has a non-null default. 
+ 
+ and when 
+ 
+ New column is nullable, with a NULL default. The table's metadata
+  records the fact that the new column exists but may not be in the
+  record. This is why the null bitmap also has a count of the number of
+  columns in that particular record. SQL Server can work out whether a
+  column is present in the record or not. So – this is NOT a
+  size-of-data operation – the existing table records are not updated
+  when the new column is added. The records will be updated only when
+  they are updated for some other operation. 
+ 
+ 
+ There is one way that I usually do - Export that table and create new column at local and re-name the table name, then import table table, and just re-name the existing table and convert the first table name as it wa original. 
+ 

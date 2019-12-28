@@ -1,0 +1,91 @@
+*** leaderboard-design-using-sql-server ***
+
+ I am building a leaderboard for some of my online games. Here is what I need to do with the data:  
+ 
+ Get rank of a player for a given game across multiple time frame (today, last week, all time, etc.) 
+ Get paginated ranking (e.g. top score for last 24 hrs., get players between rank 25 and 50, get rank or a single user) 
+ 
+ I defined with the following table definition and index and I have a couple of questions. 
+ **Considering my scenarios, do I have a good primary key?**
+ The reason why I have a clustered key across gameId, playerName and score is simply because I want to make sure that all data for a given game is in the same area and that score is already sorted. Most of the time I will display the data is descending order of score (+ updatedDateTime for ties) for a given gameId. Is this a right strategy? In other words, I want to make sure that I can run my queries to get the rank of my players as fast as possible. 
+ 
+ Below is the first iteration of the query I will be using to get the rank of my players. However, I am a bit disappointed by the execution plan (see below).  **Why does SQL need to sort?**
+ The additional sort seem to come from the RANK function. But isn’t my data already sorted in descending order (based on the clustered key of the score table)? I am also wondering if I should normalize a bit more my table and move out the PlayerName column in a Player table. I originally decided to keep everything in the same table to minimize the number of joins. 
+ 
+ 
+ Thank you for the help! 
+ 
+ [Updated] 
+ **Primary key is not good**
+
+ You have a unique entity that is [GameID] + [PlayerName]. And composite clustered Index > 120 bytes  with nvarchar. Look for the answer by @marc_s in the related topic  SQL Server - Clustered index design for dictionary 
+ **Your table schema does not match of your requirements to time periods**
+
+ Ex.: I earned 300 score on Wednesday and this score stored on leaderboard. Next day I earned 250 score, but it will not record on leaderboard and you don't get results if I run a query to Tuesday leaderboard 
+ For complete information you can get from a historical table games played score but it can be very expensive 
+ 
+ Here are solutions to accelerate it related with the aggregation: 
+ 
+ Indexed view on historical table (see  post  by @Twinkles). 
+ 
+ You need 3 indexed view for the 3 time periods. Potentially huge size of historical tables and 3 indexed view. Unable to remove the "old" periods of the table. Performance issue to save score. 
+ 
+ Asynchronous leaderboard 
+ 
+ Scores saved in the historical table. SQL job/"Worker" (or several) according to schedule (1 per minute?) sorts historical table and populates the leaderboards table (3 tables for 3 time period or one table with time period key) with the precalculated rank of a user. This table also can be denormalized (have score, datetime, PlayerName and ...). Pros: Fast reading (without sorting), fast save score, any time periods, flexible logic and flexible schedules. Cons: The user has finished the game but did not found immediately himself on the leaderboard 
+ 
+ Preaggregated leaderboard 
+ 
+ During recording the results of the game session do pre-treatment. In your case something like   for the player / game id but you did it only for "All time" leaderboard. The scheme might look like this: 
+ 
+ 
+playerId    timePeriod  timePeriodFrom  Score
+----------------------------------------------
+1           0           1900-01-01      300  
+...
+1           1           2013-10-01      150
+1           1           2013-11-01      300
+...
+1           2           2013-10-07      150
+1           2           2013-11-18      300
+...
+1           3           2013-11-19      300
+1           3           2013-11-20      250
+...
+ 
+ So, you have to update all 3 score for all time period. Also as you can see leaderboard will contain "old" periods, such as monthly of October. Maybe you have to delete it if you do not need this statistics. Pros: Does not need a historical table. Cons: Complicated procedure for storing the result. Need maintenance of leaderboard. Query requires sorting and JOIN 
+ 
+ This is only an example for the presentation of ideas. It can be optimized. For example, combining columns GameID, TimePeriod, TimePeriodDate to one column through the dictionary table. The effectiveness of the index will be higher. 
+ P.S. Sorry for my English. Feel free to fix grammatical or spelling errors 
+ 
+ You could look into  indexed views  to create scoreboards for common time ranges (today, this week/month/year, all-time). 
+ 
+ to get the rank of a player for a given game across multiple timeframes, you will select the game and rank (i.e. sort) by score over a multiple timeframes. for this, your nonclustered index could be changed like this since this is the way your select seems to query. 
+ 
+ for the paginated ranking: 
+ for the 24h-top score i guess you will want all the top scores of a single user across all games within the last 24h. for this you will be querying   with  . 
+ for the players between rank 25-50, i assume you are talking about a single game and have a long ranking that you can page through. the query will then be based upon   and a little on   for the ties. 
+ the single-user ranks, probably for each game, is a little more difficult. you will need to query the leaderboards for all games in order to get the player's rank in them and then filter on the player. you will need   and then filter by player. 
+ concluding all this, i propose you keep your nonclustered index and change the primary key to: 
+ 
+ for the 24h-top score i think this might help: 
+ 
+ the dense_rank query sorts because it selects  . see my comment on the nonclustered index above. 
+ i would also think twice about including the   in your queries and subsequently in your indexes. maybe sometmes two players get the same rank, why not?   will let your index swell up significantly.  
+ also you might think about partitioning tables by  . 
+ 
+ As a bit of a sidetrack: 
+ Ask yourself how accurate and how up to date do the scores in the leaderboard actually need to be?  
+ As a player I don't care if I'm number 142134 in the world or number 142133. I do care if I beat my friends' exact score (but then I only need my score compared to a couple of other scores) and I want to know that my new highscore sends me from somewhere around 142000 to somewhere around 90000. (Yay!) 
+ So if you want really fast leaderboards, you do not actually need all data to be up to date. You could daily or hourly compute a static sorted copy of the leaderboard and when showing player X's score, show at what rank it'd fit in the static copy. 
+ When comparing to friends, last minute updates do matter, but you're dealing with only a couple hundred scores, so you can look up their actual scores in the up to date leaderboards. 
+ Oh, and I care about the top 10 of course. Consider them my "friends" merely based on the fact that they scored so well, and show these values up to date. 
+ 
+ Your clustered index is composite so it means that order is defined by more than one column. You request   which is the 2nd column in the clustered index. For that reason, entries in the index are not necessarily in the order of  , e.g. entries 
+ 
+ If you select just  , the order will be 
+ 
+ which needs to be sorted. 
+ 
+ i would not put the "score" column into the clustered index because it will probably change all the time ... and updates on a column that's part of the clustered index will be expensive 
+ 

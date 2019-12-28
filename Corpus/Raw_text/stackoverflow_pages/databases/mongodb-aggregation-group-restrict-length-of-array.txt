@@ -1,0 +1,90 @@
+*** mongodb-aggregation-group-restrict-length-of-array ***
+
+ I want to group all the documents according to a field but to restrict the number of documents grouped for each value. 
+ Each message has a conversation_ID. I need to get 10 or lesser number of messages for each conversation_ID. 
+ I am able to group according to the following command but can't figure out how to restrict the 
+number of grouped documents apart from slicing the results
+ 
+ How to limit the length of msgs array for each conversation_ID to 10? 
+ 
+ **Modern**
+
+ From MongoDB 3.6 there is a "novel" approach to this by using   to perform a "self join" in much the same way as the original cursor processing demonstrated below. 
+ Since in this release you can specify a   argument to   as a source for the "join", this essentially means you can use   and   to gather and "limit" the entries for the array: 
+ 
+ You can optionally add additional projection after the   in order to make the array items simply the values rather than documents with an   key, but the basic result is there by simply doing the above. 
+ There is still the outstanding  SERVER-9277  which actually requests a "limit to push" directly, but using   in this way is a viable alternative in the interim. 
+ 
+ **NOTE**
+: There also is   which was introduced after writing the original answer and mentioned by "outstanding JIRA issue" in the original content. Whilst you can get the same result with small result sets, it does involve still "pushing everything" into the array and then later limiting the final array output to the desired length. 
+ So that's the main distinction and why it's generally not practical to   for large results. But of course can be alternately used in cases where it is. 
+ There are a few more details on  mongodb group values by multiple fields  about either alternate usage. 
+ 
+ 
+ **Original**
+
+ As stated earlier, this is not impossible but certainly a horrible problem. 
+ Actually if your main concern is that your resulting arrays are going to be exceptionally large, then you best approach is to submit for each distinct "conversation_ID" as an individual query and then combine your results. In very MongoDB 2.6 syntax which might need some tweaking depending on what your language implementation actually is: 
+ 
+ But it all depends on whether that is what you are trying to avoid. So on to the real answer: 
+ 
+ The first issue here is that there is no function to "limit" the number of items that are "pushed" into an array. It is certainly something we would like, but the functionality does not presently exist. 
+ The second issue is that even when pushing all items into an array, you cannot use  , or any similar operator in the aggregation pipeline. So there is no present way to get just the "top 10" results from a produced array with a simple operation. 
+ But you can actually produce a set of operations to effectively "slice" on your grouping boundaries. It is fairly involved, and for example here I will reduce the array elements "sliced" to "six" only. The main reason here is to demonstrate the process and show how to do this without being destructive with arrays that do not contain the total you want to "slice" to. 
+ Given a sample of documents: 
+ 
+ You can see there that when grouping by your conditions you will get one array with ten elements and another with "five". What you want to do here reduce both to the top "six" without "destroying" the array that only will match to "five" elements. 
+ And the following query: 
+ 
+ You get the top results in the array, up to six entries: 
+ 
+ 
+ As you can see here, loads of fun. 
+ After you have initially grouped you basically want to "pop" the   value off of the stack for the array results. To make this process simplified a little, we actually do this in the initial operation. So the process becomes: 
+ 
+  the array 
+ Compare to the values already seen with an   equality match 
+  the results to "float"   unseen values to the top ( this still retains order ) 
+  back again and "pop" the   unseen value as the next member on the stack. Also this uses the   operator to replace "seen" values in the array stack with   to help in the evaluation. 
+ 
+ The final action with   is there to make sure that future iterations are not just adding the last value of the array over and over where the "slice" count is greater than the array members. 
+ That whole process needs to be repeated for as many items as you wish to "slice". Since we already found the "first" item in the initial grouping, that means   iterations for the desired slice result. 
+ The final steps are really just an optional illustration of converting everything back into arrays for the result as finally shown. So really just conditionally pushing items or   back by their matching position and finally "filtering" out all the   values so the end arrays have "six" and "five" members respectively. 
+ So there is not a standard operator to accommodate this, and you cannot just "limit" the push to 5 or 10 or whatever items in the array. But if you really have to do it, then this is your best approach. 
+ 
+ You could possibly approach this with mapReduce and forsake the aggregation framework all together. The approach I would take ( within reasonable limits ) would be to effectively have an in-memory hash-map on the server and accumulate arrays to that, while using JavaScript slice to "limit" the results: 
+ 
+ So that just basically builds up the "in-memory" object matching the emitted "keys" with an array never exceeding the maximum size you want to fetch from your results. Additionally this does not even bother to "emit" the item when the maximum stack is met. 
+ The reduce part actually does nothing other than essentially just reduce to "key" and a single value. So just in case our reducer did not get called, as would be true if only 1 value existed for a key, the finalize function takes care of mapping the "stash" keys to the final output. 
+ The effectiveness of this varies on the size of the output, and JavaScript evaluation is certainly not fast, but possibly faster than processing large arrays in a pipeline. 
+ 
+ Vote up the  JIRA issues  to actually have a "slice" operator or even a "limit" on "$push" and "$addToSet", which would both be handy. Personally hoping that at least some modification can be made to the   operator to expose the "current index" value when processing. That would effectively allow "slicing" and other operations. 
+ Really you would want to code this up to "generate" all of the required iterations. If the answer here gets enough love and/or other time pending that I have in tuits, then I might add some code to demonstrate how to do this. It is already a reasonably long response. 
+ 
+ Code to generate pipeline: 
+ 
+ That builds the basic iterative approach up to   with the steps from   to  . Also embedded in there are details of the final projections required and the "nested" conditional statement. The last is basically the approach taken on this question: 
+ Does MongoDB's $in clause guarantee order? 
+ 
+ The $slice operator is not an aggregation operator so you  **can't**
+ do this (like I suggested in this answer, before the edit):  
+ 
+ Neil's answer is very detailed, but you can use a slightly different approach (if it fits your use case). You can aggregate your results and output them to a new collection: 
+ 
+ The  $out  operator will write the results of the aggregation to a new collection. You can then use a regular find query project your results with the $slice operator: 
+ 
+ For this test documents: 
+ 
+ The result will be: 
+ 
+ **Edit**
+
+ 
+ I assume this would mean duplicating the whole messages collection.
+  Isn't that overkill? 
+ 
+ Well, obviously this approach won't scale with huge collections. But, since you're considering using large aggregation pipelines or large map-reduce jobs you probably won't use this for "real-time" requests. 
+ There are many cons of this approach: 16 MB BSON limit if you're creating huge documents with aggregation, wasting disk space / memory with duplication, increased disk IO... 
+ The pros of this approach: its simple to implement and thus easy to change. If your collection is rarely updated you can use this "out" collection like a cache. This way you wouldn't have to perform the aggregation operation multiple times and you could then even support "real-time" client requests on the "out" collection. To refresh your data, you can periodically do aggregation (e.g. in a background job that runs nightly).  
+ Like it was said in the comments this isn't an easy problem and there isn't a perfect solution for this (yet!). I showed you another approach you can use, it's up to you to benchmark and decide what's most appropriate for your use case.  
+ 

@@ -1,0 +1,44 @@
+*** preferred-way-to-query-a-database-multiple-times ***
+
+ When using JDBC in Java, the generally accepted method of querying a database is to acquire a connection, create a statement from that connection, and then execute a query from that statement. 
+ 
+ However, I am unsure of how to treat a second query to the same database. 
+ 
+ Can another query be executed safely on the same   object, or must another statement be created from the   object in order to execute another query? 
+ If the same   object can be used for multiple queries, what is the purpose of the   class (since it would then make more sense for a   method to exist)? 
+ 
+ 
+ Yes you can reuse the   object, but the   objects returned by the   closes already opened resultsets. 
+ See the  javadoc  for the explanation 
+ 
+ By default, only one ResultSet object per Statement object can be open
+  at the same time. Therefore, if the reading of one ResultSet object is
+  interleaved with the reading of another, each must have been generated
+  by different Statement objects. All execution methods in the Statement
+  interface implicitly close a statment's current ResultSet object if an
+  open one exists. 
+ 
+ So the following occurs: 
+ 
+ For example you can find an open source implementation of Statement in the jTDS project.
+In the  Statement.executeQuery() method  you can see a call to   that  closes all the resultsets  already opened 
+ 
+ 
+ Programmatically, you can reuse the same connection and the same statement for more than one query and close the statement and the connection at the end. 
+ However, this is not a good practice. Application performance is very sensitive to the way database is accessed. Ideally, each connection should be open for the least amount of time possible. Then, the connections must be pooled. Going by that, you would enclose each query in a block of  . This is also the way most SQL Templates are implemented. If concurrency permits, you can fire several such queries at the same time using a thread pool. 
+ 
+ I have one thing to add should you use Connection and Statement in a threaded environment.
+My experience shows that stmt.executeQuery(..) is save to use in a parallel environment but with the consequence that each query is serialized and thus processed sequencially, not yielding any speed-ups.
+So it es better to use a new Connection (not Statement) for every thread. 
+ For a standard sequential environment my experience has shown that reusing Statements is no problem at all and ResultSets need not be closed manually. 
+ 
+ I wouldn't worry about creating new statements. However opening up a database connection may be resource intensive and opening and closing connections does impact performance. 
+ Leaving up connections in some self management way usually is pretty bad. 
+ You should consider using  connection pooling . You usually issue a close commando however you are only giving that connection back to the pool. When you request a new connection then it will reuse the connection you gave back earlier. 
+ You may want to have different statements for one connection. Statement is an implementation and an interface. Depending on what you need you sometimes want a use a  CallableStatment . Some some logic may be reused when required. 
+ 
+ Usually, it's one statement for one query. It might not be necessary to do that but when writing real application, you don't want to repeat those same steps again and again. That's against the DRY principal, plus it also will get more complicated as the application grows. 
+ It's good to write objects that will handle that kind of low level (repetitive) stuffs, and provide different methods to access db by providing the queries.  
+ 
+ Well that's why we have the concept of classes in object oriented programming . A class defines constituent members which enable its instances to have state and behavior. Here statement deals with everything related to an sql statement. There are so many more function that one might perform like batch queries etc.  
+ 

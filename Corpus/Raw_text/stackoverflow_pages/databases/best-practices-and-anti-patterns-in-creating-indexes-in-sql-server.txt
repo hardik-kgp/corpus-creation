@@ -1,0 +1,41 @@
+*** best-practices-and-anti-patterns-in-creating-indexes-in-sql-server ***
+
+ What are the things that you would consider when defining indexes, clustered and non-clustered, for SQL Server? Are there any anti-patterns that DB newbies should be aware of?  Please explain the "Why" or provide references if possible. 
+ 
+ An index is basically a "cheat sheet". It allows the DBMS to find a particular value (or range of values) on disk without having to scan the whole table. Generally, you pay a little bit of penalty on INSERT / UPDATE / DELETE by having an index, but rarely so much that it's a bottleneck on its own. A good DBMS will only use indexes when they help query performance, so there aren't a lot of hugely negative anti-patterns here; it doesn't usually hurt you very much if you have extra indexes (unless you're talking about very highly transactional tables). That said, careful indexing across the board will help you make sure that the really important ones are there, and the best way to discover that is by profiling your application. 
+ The key to understanding when and when not to use indexes is to get a grasp on what they're really doing under the covers. In a nutshell, you want them when the selectivity of the index is high (i.e. the number of different possible values is high compared to the size of the relation). So, for example, if you have a table with 10,000 rows, and you have a column called "color" on that table that's either "red" or "blue", it doesn't help much to have an index, because the DBMS will probably have to load most of the pages into memory anyway (assuming a random distribution). Conversely, an index on the primary key id of a table (which is nearly always automatically added) will make lookups in that table lightening fast - on the order of log(n) - because a very small number of nodes in the tree have to be examined to find the page on disk where the record resides. 
+ Indexes in most modern database systems are implemented with a B+ tree, which is a very cool variant of B-Trees that's optimized for slow secondary storage (disks instead of memory). You can get a good introduction to their use and functionality from  Database Systems: The Complete Book . 
+ 
+ Don't test indexes or optimize queries without a database filled with representative data. 
+ The database will generally ignore any index on a boolean field. It will ignore it as part of a composite index. (However, see "filtered index" in SQL Server 2008.) 
+ For composite indexes, where all values will be provided, enumerate them in reverse order by cardinality (or arity, or how many distinct values there are in the data.) 
+ Don't assume anything. Test everything. 
+ You only have one clustered index. Don't waste it on a unique index unless you're sure you will really need to almost always pull rows sequenced on that column. You want to use it for cases where multiples of adjacent rows are often fetched. 
+ A "covering" index is one that, by itself, contains all the fields required to resolve a select. Remember that an index that "almost" covers isn't good enough in most critical cases. 
+ Most of what you read in online blogs about designing indexes is either wrong, or highly qualified and not applicable in your case, or badly calibrated as to benefit and cost. 
+ 
+ **The Blunderbus**
+ - An indexing anti-pattern I have been guilty of in the past.  Putting an index or variations of the same index on columns in a table without having looked at an explain plan or really understanding how the optimizer is working. 
+ 
+ Here's a couple more indexing anti-patterns that I have seen or have been guilty of: 
+ **Blanket coverage**
+ - Placing indexes on tables with little or no growth and a (very) low rowcount.  This is counterproductive as the index lookup can take longer than a table scan.  
+ **Industrial Strength Indexing**
+ - Placing an index on a primary key column.  I've been asked to do this to "speed up" a query. 
+ 
+ Consider reading  Relational Database Index Design and the Optimizers .  It will give you a lot of ideas and the reasons why they are good. 
+ 
+ I see a pattern of people just using the Database Engine Tuning Advisor and thinking that it is somehow smart enough to suggest the most optimal indexes and stats. That is an pattern you should avoid. 
+ Instead look at your query plan outputs before deciding how to approach optimization. They can tell you lots of useful information about how to best approach a query. Often times people throw indexes on all kinds of fields because they think it is the right thing to do, ignoring that in some cases any gain they might achieve could be overall negated by the impact of having the index itself (lots of indexes on a table can slow down inserts and updates). 
+ Pick up a book on T-SQL Querying by Itzik Ben-Gan (MS Press) the next time you are in a bookstore (They will have it). Read the first 3 chapters and it will cover how the query process works inside SQL Server - as far as your work with this particular technology they may prove to be the most important 3 chapters you will ever read.  
+ 
+ One thing that I have found that people forget to do when indexing is index the foreign key. Primary key indexes are built automatically (I'm speaking SQL Server her, other databases may vary) but foreign keys are not. But many people assume they are (presumably the same people who presume triggers will act on only one record at a time). Since they are almost always involved in joins (Why else would you have one?), they need to be indexed most of the time (Exception would be a really small table).  
+ I would define my favorite indexing anti-Pattern as:
+Why Are My queries so Slow - the condition that happens when non database people design large databases and don't even know enough to put any indexes on it. Typical symptom is found on a message board with the person asking why it takes 40 minutes to do a simple query against their 50 million record table. Likely this antipattern will occur with alot of other database design antipatterns as someone not even familiar with indexing is unlikely to have designed an efficient or effective database structure.  
+ 
+ Putting a clustered index on a GUID column is mostly not a good idea.
+A clustered index defines the physical order of how the data is stored.  Therefore, it is best to put a clustered index on a column which increments or decrements, and which is unique. 
+(If the Clustered index is not unique, SQL Server will add the PK internally to the clustered index).
+A Guid is a random value (unless you make sure that you use sequential guid's), so this means that every time you insert or update a guid in a column that is part of a clustered index, Sql Server will have to move records around in the data pages. 
+ Also, try to put a clustered index on columns that you often use to perform 'range' searches. 
+ 

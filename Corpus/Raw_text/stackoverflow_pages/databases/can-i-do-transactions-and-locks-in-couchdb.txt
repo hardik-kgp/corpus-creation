@@ -1,0 +1,92 @@
+*** can-i-do-transactions-and-locks-in-couchdb ***
+
+ I need to do transactions (begin, commit or rollback), locks (select for update).
+How can I do it in a document model db? 
+ Edit: 
+ The case is this: 
+ 
+ I want to run an auctions site. 
+ And I think how to direct purchase as well. 
+ In a direct purchase I have to decrement the quantity field in the item record, but only if the quantity is greater than zero. That is why I need locks and transactions. 
+ I don't know how to address that without locks and/or transactions. 
+ 
+ Can I solve this with CouchDB? 
+ 
+ No.  CouchDB uses an "optimistic concurrency" model.  In the simplest terms, this just means that you send a document version along with your update, and CouchDB rejects the change if the current document version doesn't match what you've sent. 
+ It's deceptively simple, really.  You can reframe many normal transaction based scenarios for CouchDB. You do need to sort of throw out your RDBMS domain knowledge when learning CouchDB, though.  It's helpful to approach problems from a higher level, rather than attempting to mold Couch to a SQL based world. 
+ **Keeping track of inventory**
+
+ The problem you outlined is primarily an inventory issue.  If you have a document describing an item, and it includes a field for "quantity available", you can handle concurrency issues like this: 
+ 
+ Retrieve the document, take note of the   property that CouchDB sends along 
+ Decrement the quantity field, if it's greater than zero 
+ Send the updated document back, using the   property 
+ If the   matches the currently stored number, be done! 
+ If there's a conflict (when   doesn't match), retrieve the newest document version 
+ 
+ In this instance, there are two possible failure scenarios to think about.  If the most recent document version has a quantity of 0, you handle it just like you would in a RDBMS and alert the user that they can't actually buy what they wanted to purchase.  If the most recent document version has a quantity greater than 0, you simply repeat the operation with the updated data, and start back at the beginning.  This forces you to do a bit more work than an RDBMS would, and could get a little annoying if there are frequent, conflicting updates. 
+ Now, the answer I just gave presupposes that you're going to do things in CouchDB in much the same way that you would in an RDBMS.  I might approach this problem a bit differently: 
+ I'd start with a "master product" document that includes all the descriptor data (name, picture, description, price, etc).  Then I'd add an "inventory ticket" document for each specific instance, with fields for   and  .  If you're selling a model of hammer, and have 20 of them to sell, you might have documents with keys like  ,  , etc, to represent each available hammer. 
+ Then, I'd create a view that gives me a list of available hammers, with a reduce function that lets me see a "total".  These are completely off the cuff, but should give you an idea of what a working view would look like. 
+ **Map**
+
+ 
+ This gives me a list of available "tickets", by product key.  I could grab a group of these when someone wants to buy a hammer, then iterate through sending updates (using the   and  ) until I successfully claim one (previously claimed tickets will result in an update error). 
+ **Reduce**
+
+ 
+ This reduce function simply returns the total number of unclaimed   items, so you can tell how many "hammers" are available for purchase. 
+ **Caveats**
+
+ This solution represents roughly 3.5 minutes of total thinking for the particular problem you've presented.  There may be better ways of doing this!  That said, it does substantially reduce conflicting updates, and cuts down on the need to respond to a conflict with a new update.  Under this model, you won't have multiple users attempting to change data in primary product entry.  At the very worst, you'll have multiple users attempting to claim a single ticket, and if you've grabbed several of those from your view, you simply move on to the next ticket and try again. 
+ Reference:  https://wiki.apache.org/couchdb/Frequently_asked_questions#How_do_I_use_transactions_with_CouchDB.3F 
+ 
+ Expanding on MrKurt's answer. For lots of scenarios you don't need to have stock tickets redeemed in order.  Instead of selecting the first ticket, you can select randomly from the remaining tickets. Given a large number tickets and a large number of concurrent requests, you will get much reduced contention on those tickets, versus everyone trying to get the first ticket. 
+ 
+ A design pattern for restfull transactions is to create a "tension" in the system. For the popular example use case of a bank account transaction you must ensure to update the total for both involved accounts: 
+ 
+ Create a transaction document "transfer USD 10 from account 11223 to account 88733". This creates the tension in the system. 
+ To resolve any tension scan for all transaction documents and
+
+ 
+ If the source account is not updated yet update the source account (-10 USD) 
+ If the source account was updated but the transaction document does not show this then update the transaction document (e.g. set flag "sourcedone" in the document) 
+ If the target account is not updated yet update the target account (+10 USD) 
+ If the target  account was updated but the transaction document does not show this then update the transaction document  
+ If both accounts have been updated you can delete the transaction document or keep it for auditing. 
+ 
+ 
+ The scanning for tension should be done in a backend process for all "tension documents" to keep the times of tension in the system short. In the above example there will be a short time anticipated inconsistence when the first account has been updated but the second is not updated yet. This must be taken into account the same way you'll deal with eventual consistency if your Couchdb is distributed. 
+ Another possible implementation avoids the need for transactions completely: just store the tension documents and evaluate the state of your system by evaluating every involved tension document. In the example above this would mean that the total for a account is only determined as the sum values in the transaction documents where this account is involved. In Couchdb you can model this very nicely as a map/reduce view. 
+ 
+ No, CouchDB is not generally suitable for transactional applications because it doesn't support atomic operations in a clustered/replicated environment. 
+ CouchDB sacrificed transactional capability in favor of scalability.  In order to have atomic operations you need a central coordination system, which limits your scalability. 
+ If you can guarantee you only have one CouchDB instance or that everyone modifying a particular document connects to the same CouchDB instance then you could use the conflict detection system to create a sort of atomicity using methods described above but if you later scale up to a cluster or use a hosted service like Cloudant it will break down and you'll have to redo that part of the system. 
+ So, my suggestion would be to use something other than CouchDB for your account balances, it will be much easier that way. 
+ 
+ As a response to the OP's problem, Couch is probably not the best choice here.  Using views is a great way to keep track of inventory, but clamping to 0 is more or less impossible.  The problem being the race condition when you read the result of a view, decide you're ok to use a "hammer-1" item, and then write a doc to use it.  The problem is that there's no atomic way to only write the doc to use the hammer if the result of the view is that there are > 0 hammer-1's.  If 100 users all query the view at the same time and see 1 hammer-1, they can all write a doc to use a hammer 1, resulting in -99 hammer-1's.  In practice, the race condition will be fairly small - really small if your DB is running localhost.  But once you scale, and have an off site DB server or cluster, the problem will get much more noticeable.  Regardless, it's unacceptable to have a race condition of that sort in a critical - money related system. 
+ An update to MrKurt's response (it may just be dated, or he may have been unaware of some CouchDB features) 
+ A view is a good way to handle things like balances / inventories in CouchDB. 
+ You don't need to emit the docid and rev in a view.  You get both of those for free when you retrieve view results.  Emitting them - especially in a verbose format like a dictionary - will just grow your view unnecessarily large. 
+ A simple view for tracking inventory balances should look more like this (also off the top of my head) 
+ 
+ And the reduce function is even more simple 
+ 
+ This uses a  built in reduce function  that just sums the values of all rows with matching keys. 
+ In this view, any doc can have a member "InventoryChange" that maps product_key's to a change in the total inventory of them.  ie. 
+ 
+ Would add 10 hammer_1234's and 25 saw_4321's. 
+ 
+ Would burn 5 hammers from the inventory. 
+ With this model, you're never updating any data, only appending.  This means there's no opportunity for update conflicts.  All the transactional issues of updating data go away :) 
+ Another nice thing about this model is that ANY document in the DB can both add and subtract items from the inventory.  These documents can have all kinds of other data in them.  You might have a "Shipment" document with a bunch of data about the date and time received, warehouse, receiving employee etc. and as long as that doc defines an InventoryChange, it'll update the inventory.  As could a "Sale" doc, and a "DamagedItem" doc etc.  Looking at each document, they read very clearly.  And the view handles all the hard work. 
+ 
+ Actually, you can in a way.  Have a look at the  HTTP Document API  and scroll down to the heading "Modify Multiple Documents With a Single Request". 
+ Basically you can create/update/delete a bunch of documents in a single post request to  URI /{dbname}/_bulk_docs  and they will either all succeed or all fail.  The document does caution that this behaviour may change in the future, though. 
+ EDIT: As predicted, from version 0.9 the bulk docs no longer works this way. 
+ 
+ Just use SQlite kind of lightweight solution for transactions, and when the transaction is  completed successfully replicate it, and mark it replicated in SQLite 
+ SQLite table 
+ 
+ You can also delete the transactions which are replicated successfully. 
+ 

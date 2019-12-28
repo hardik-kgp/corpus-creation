@@ -1,0 +1,55 @@
+*** why-database-designers-do-not-make-identity-columns-start-from-the-min-value-rat ***
+
+ As we know, In Sql Server, The   means that the values will start from  , and the increment value is  , but I noticed that all database designers make Identity columns as   , without taking advantage of all values of int data type which are from  ,  
+ I am planning to make all Identity columns as  , (the identity columns are hidden from the application user). 
+ Is that a good idea ? 
+ 
+ If you find that 2billion values isn't enough, you're going to find out that 4billion isn't enough either (needing more than twice as many of  anything  over the lifetime of a project, than it was first designed for, is hardly rare*), so you need to take a different approach entirely (possibly long values, possibly something totally different). 
+ Otherwise you're just being strange and unreadable for no gain. 
+ Also, who doesn't have a database where they know that e.g. item 312 is the one with some nice characteristics for testing particular things? I know I have some arbitrary ids burned in my head. They may call it "so good they named it twice", but I'll always know New York as "city 657, covers most of our test cases". It's only a shorthand, but -2147482991 wouldn't be as handy. 
+ *To add a bit to that. With some things you might say "ah about 100" and find it's actually 110, okay. With others you'll find actually it's actually 100,000 - you were out by orders of magnitude. The higher the number, the more often the mistake is of this sort due to the sort of problems that end up with estimates in the billions being different to those that end up with answers in the dozens. If you estimate 200 is your max in a given case, you should probably leave room for maybe a few hundred more. If you estimate 2billion in a given case, you should probably leave room for a few quadrillion more. That said, the only time I saw someone actually start an id at minus 2billion they ended up having about 3,000 rows. 
+ 
+ If you have a class that represent your table in your code (which is very likely to happen), everytime you will create a new object it will be assigned the ID 0 by default. It could lead to mistakes that overwrite data in the database if the ID 0 is already assigned. This also makes it easy to determine if an object is new or if it came from the database by just doing  
+ 
+ On the SQL Server side the negative ID-s are ok, handled like positive numbers, so you could do that.  
+ The others are right, you should think about different suggestion, but the major problems are the applications connected to your database. 
+ Let say take MS Enviroment. Here is an example:
+ **.NET DataSet**
+ is using  **negative ID**
+-s on  autoincremented  id-s to track changes in a code. So may you will have trouble, because: 
+ The negative keys are used for temporary instances for the rows. 
+ Here is the reference :  MSDN 
+ So definietly it is not a good idea to design a database like this for MSSQL in an MS Enviroment. 
+ 
+ One of the 'nice' side effects of working with integers close to zero is that they are easy on the eye and easy for devs, testers etc to remember, especially with debugging and unit testing in mind. 
+ Also, surrogate keys have a nasty habit of creeping into business terminology, e.g. users may be able to see the PK sitting in the URL querystring at the top of the browser - the more digits in the number, the more likely they are to misquote something in a helpdesk query. 
+ So this is one of the reasons why I'm quite happy to seed my identities at 1, and  **not**
+ at -2147483231, and instead, as will, as @Jon suggests, move up to a   anytime that I may ever need more than 2 billion rows in my table. 
+ 
+ As you transition from the negative numbers to positive ids, you will cross zero. That means (assuming you are actually inserting a couple of billion rows) that you will eventually have an identifier of zero. This is not intrinsically bad, but could present a potential edge-case for ORM tools or simply sloppy applicaiton code that has difficulty differentiating between a zero and a null. 
+ 
+ Negative IDs can be useful for testing in a live environment where dummy data needs to be mixed with real data for testing purposes, then disposed of once the testing is complete. This should be done only with very good reason - I've only used the technique once. 
+ Negative IDs can also be useful for Administrator purposes in single-row, read-only tables (i.e., no transactions, no executable SQL run on the table). 
+ Aside from those specific purposes, identity values <= 0 will generate more heat than light. 
+ 
+ And just to add, according to MS Docs ( https://docs.microsoft.com/en-us/sql/relational-databases/in-memory-oltp/implementing-identity-in-a-memory-optimized-table?view=sql-server-2014 ), IDENTITY(1, 1) is supported on a memory-optimized table. However, identity columns with definition of IDENTITY(x, y) where x != 1 or y != 1 are NOT supported on memory-optimized tables. 
+ So in my opinion, and the other reasons alluded to by the other users, IDENTITY(1, 1) is more practical and memory efficient for memory-optimized tables. 
+ Start with INT IDENTITY(1, 1), then when you have maxed-out you can follow these steps to   'upgraded' to BIGINT:  
+ 
+ **Drop current PK constraint:**
+
+   ALTER TABLE [dbo].[tbName] DROP CONSTRAINT [PK_tbName_Id]
+   GO 
+ **Upgrade PK to BIGINT:**
+
+   ALTER TABLE [dbo].[tbName] ALTER COLUMN [dbo.Id] BIGINT 
+ **Recreate the PK Constraint:**
+
+  ALTER TABLE [dbo].[tbName] ADD  CONSTRAINT [PK_tbName_Id] PRIMARY KEY 
+  CLUSTERED 
+  (
+    [Id] ASC
+  ) 
+ 
+ Hope this helps, and good lucky! 
+ 

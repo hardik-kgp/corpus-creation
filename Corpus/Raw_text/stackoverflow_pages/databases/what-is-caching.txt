@@ -1,0 +1,177 @@
+*** what-is-caching ***
+
+ I'm constantly hearing about person y had performance issue x which they solved through caching. 
+ Or, how doing x,y,z in your programs code can hurt your caching ability. 
+ Even in one of the latest podcasts, Jeff Atwood talks about how they cache certain values for speedy retrieval. 
+ There seems to be some ambiguity in the terms "cache" and "caching" and it has led me to be confused about it's meaning in different cases.  Whether you are referring to application or database caching, cpu, etc and what that means. 
+ **What is caching and what are the different types?**
+
+ 
+ From context I can get a sense of it,
+  to store an oft retrieved value into
+  main memory and have quicklook up
+  access to it.  However, what is it
+   really ? 
+ This word seems to be used in a lot of different contexts with slightly different meaning (cpu, database, application, etc) and I'm really looking to clear it up. 
+ 
+ **Is there a distinction between how caching works in your applications vs your database caching?**
+
+ 
+ When someone says that they found a
+  piece of code that would hurt caching
+  and after they fixed it, it improved
+  the speed of their app, what are they
+  talking about? 
+ Is the program's caching something
+  that is done automatically?  How do
+  you allow values to be cached in your
+  programs?  I've often read users on
+  this site say that they cached a value
+  in their application, I sit here and
+  wonder what they mean. 
+ Also, what does it really mean when
+  someone talks about database
+  caching?  Is this simply a feature
+  they turn on in their database?  Do
+  you have to explicitly cache values or
+  does the database  pick which ones to
+  cache for you? 
+ 
+ **How do I begin caching items myself to improve performance?**
+
+ 
+ Can you give me some examples of how I can begin caching values in my  **applications**
+?  Or again, is this something that is already done, under the hood and I simply have to write my code in a particular way to allow "caching"? 
+ What about database caching, how do I begin that?  I've heard about things like memcache.  Is this type of utility required to cache in databases? 
+ 
+ I'm looking to get a good distinction between caching in applications vs databases, how they are used and how it is implemented in both cases. 
+ 
+ Caching is just the practice of storing data in and retrieving data from a high-performance store (usually memory) either explicitly or implicitly. 
+ Let me explain.  Memory is faster to access than a file, a remote URL (usually), a database or any other external store of information you like.  So if the act of using one of those external resources is  **significant**
+ then you may benefit from caching to increase performance. 
+ Knuth once said that premature optimization is the root of all evil.  Well, premature caching is the root of all headaches as far as I'm concerned.  Don't solve a problem until you  **have**
+ a problem.  Every decision you make comes at a cost that you'll pay to implement it now and pay again to change it later so the longer you can put off making a deicsion and changing your system the better. 
+ So first  **identify that you actually have a problem and where it is**
+.  Profiling, logging and other forms of performance testing will help you here.  I can't stress enough how important this step is.  The number of times I've seen people "optimize" something that isn't a problem is staggering. 
+ Ok, so you have a performance problem.  Say your pages are running a query that takes a long time.  If it's a read then you have a number of options: 
+ 
+ Run the query as a separate process and put the result into a cache.  All pages simply access the cache.  You can update the cached version as often as is appropriate (once a day, once a week, one every 5 seconds, whatever is appropriate); 
+ Cache transparently through your persistence provider, ORM or whatever.  Of course this depends on what technology you're using.  Hibernate and Ibatis for example support query result caching; 
+ Have your pages run the query if the result isn't in the cache (or it's "stale", meaning it is calculated longer ago than the specified "age") and put it into the cache.  This has concurrency problems if two (or more) separate processes all decide they need to update the result so you end up running the same (expensive) query eight times at once.  You can handle this locking the cache but that creates another performance problem.  You can also fall back to concurrency methods in your language (eg Java 5 concurrency APIs). 
+ 
+ If it's an update (or updates take place that need to be reflected in your read cache) then it's a little more complicated because it's no good having an old value in the cache and a newer value in the database such that you then provide your pages with an inconsistent view of the data.  But broadly speaking there are four approaches to this: 
+ 
+ Update the cache and then queue a request to update the relevant store; 
+ Write through caching: the cache provider may provide a mechanism to persist the update and block the caller until that change is made; and 
+ Write-behind caching: same as write-through caching but it doesn't block the caller.  The update happens asynchronously and separately; and 
+ Persistence as a Service models: this assumes your caching mechanism supports some kind of observability (ie cache event listeners).  Basically an entirely separate process--unknown to the caller--listens for cache updates and persists them as necessary. 
+ 
+ Which of the above methodologies you choose will depend a lot on your requirements, what technologies you're using and a whole host of other factors (eg is clustering and failover support required?). 
+ It's hard to be more specific than that and give you guidance on what to do without knowing  **much**
+ more detail about your problem (like whether or not you have a problem). 
+ 
+ You will most likely read about caching in the context of web applications. Because of the nature of the Web, caching can make a big performance difference. 
+ Consider the following: 
+ A web page request gets to the web server, which passes the request on to the application server, which executes some code that renders the page, which needs to turn to the database to dynamically retrieve data. 
+ This model does not scale well, because as the number of requests for the page goes up, the server has to do the same thing over and over again, for every request. 
+ This becomes even more of an issue if web server, application server, and database are on different hardware and communicate over the network with each other. 
+ If you have a large number of users hitting this page, it makes sense to not go all the way through to the database for every request. Instead, you resort to caching at different levels. 
+ **Resultset Cache**
+
+ Resultset caching is storing the results of a database query along with the query in the application. Every time a web page generates a query, the applications checks whether the results are already cached, and if they are, pulls them from an in-memory data set instead. The application still has to render the page. 
+ **Component Cache**
+
+ A web page is comprised of different components - pagelets, or whatever you may want to call them. A component caching strategy must know what parameters were used to request the component. For instance, a little "Latest News" bar on the site uses the user's geographical location or preference to show local news. Consequently, if the news for a location is cached, the component does not need to be rendered and can be pulled from a cache. 
+ **Page Cache**
+
+ One strategy for caching entire pages is to store the query string and/or header parameters along with the completely renderered HTML. The file system is fast enough for this - it is still way less expensive for a web server to read a file than to make a call to the application server to have the page rendered. 
+In this case, every user who sends the same query string will get the same cached content. 
+ Combining these caching strategies intelligently is the only way to create really scalable web apps for large numbers of concurrent users. As you can easily see, the potential risk here is that if a piece of content in the cache cannot be uniquely identified by it's key, people will start to see the wrong content. This can get pretty complicated, particularly when users have sessions and there is security context. 
+ 
+ There are two meanings that I know of. 
+ 
+ One is  **application caching**
+. This is when, if data is slow to get from somewhere (e.g. from over the network) or slow to calculate, then the application caches a copy of the data (so that it doesn't need to get it again or to recalculate: it's already cached). Implementing a cache takes a bit of extra application software (logic to use the cache) and extra memory (in which to store the cached data). 
+ That's "caching" being used as you're quoting here: 
+ 
+ From context I can get a sense of it, to store an oft retrieved value into main memory and have quicklook up access to it. 
+ 
+ 
+ Another is  **CPU caching**
+, which is described in  this Wikipedia article . CPU caching happens automatically. If you do a lot of reading from a small amount of memory, then the CPU can do most of those reads from its cache. OTOH if you read from a large amount of memory, it can't all fit in the cache and the CPU must spend more time working with the slower memory. 
+ That's "caching" being used as you're quoting here: 
+ 
+ When someone says that they found a piece of code that would hurt caching and after they fixed it, it improved the speed of their app, what are they talking about? 
+ 
+ It means they found a way to rearrange their code to cause fewer  Cache misses . 
+ 
+ As for  **database caching**
+, I don't know. 
+ 
+ There's a couple of issues. 
+ One, is granularity. Your application can have very fine levels of caching over and above what the database does. For example, the database is likely to simply cache pages of data, not necessarily specific rows. 
+ Another thing is that the application can store data in its "native" format, whereas the DB obviously only caches in its internal format. 
+ Simple example. 
+ Say you have a User in the database, which is made of the columns:  ,  ,  . Very simple. 
+ You wish to load a User,  , into your application. What are the steps involved? 
+ 
+ Issuing the database call 
+ Parsing the request( ) 
+ Planning the request (i.e. how is the system going to fetch the data) 
+ Fetching the data from the disk 
+ Streaming the data from the database to the application 
+ Converting the Database data to application data (i.e.   to an integer, say, the names to Strings. 
+ 
+ The database cache will, likely, caches steps 2 and 3 (that's a statement cache, so it won't parse or replan the query), and caches the actual disk blocks. 
+ So, here's the key. Your user,  , name  . You can see that this isn't a lot of data. But the database is caching disk blocks. You have the index block (with the   on it), then the data block (with the actual data, and all of the other rows that fit on that block). So what is nominally, say, 60-70 bytes of data actually has a caching and data impact on the DB of, probably, 4K-16K (depends on block size). 
+ The bright side? If you need another row that's nearby (say  ), odds are high the index and data are already cached. 
+ But even with that caching, you still have to pay the cost to move the data over the wire (and it's alway over the wire unless you're using a local DB, then that's loopback), and you're "unmarshalling" the data. That is, converting it from Database bits to language bits, to Application bits. 
+ Now, once the Application get its  , it stuff the value in a long lived hash map. 
+ If the application ever wants it again, it will look in the local map, the application cache, and save the lookup, wire transport, and marshalling costs. 
+ The dark side of application caching is synchronization. If someone comes in and does a  , your application doesn't "know that", and thus the cache is dirty. 
+ So, then there's a bunch of details in handling that relationship to keep the application in sync with the DB. 
+ Having a LOT of database cache is very nice for large queries over a "hot" set of data. The more memory you have, the more "hot" data you can have. Up to the point if you can cache the entire DB in RAM, you eliminate the I/O (at least for reads) delay of moving data from the disk to a RAM buffer. But you still have the transport and marshalling costs. 
+ The Application can be much more selective, such as caching more limited subsets of data (DBs just cache blocks), and having the data "closer" to the application ekes out that much better performance. 
+ The down side is that not everything is cached in the Application. The database tends to store data more efficiently, overall, than the application. You also lack a "query" language against your app cached data. Most folks simply cache via a simple key and go from there. Easy to find  , harder for "ALL USERS NAMED JESSE". 
+ Database caching tends to be "free", you set a buffer number and the DBMS handles the rest. Low impact, reduces overall I/O and disk delays. 
+ Application caching is, well, application specific. 
+ It works very well for isolated "static" data. That's very easy. Load a bunch of stuff in to lookup tables at startup and restart the app if they change. That's easy to do. 
+ After that complexity starts to increase as you add in "dirty" logic, etc. 
+ What it all comes down to, tho, is that as long as you have a Data API, you can cache incrementally. 
+ So, as long as you call   everywhere rather than hitting the DB, then you can later come back and add caching to   without impacting your code. 
+ So, I always suggest some kind of Data Access Layer in everyone's code, to provide that bit of abstraction and interception layer. 
+ 
+ caching is taking the result of a long or cpu intensive algorithm and saving the answer so that you do not have to run the algorithm again, you just reuse the result. 
+ 
+ The cache concept is an overloaded term here.  I'm not familiar with the nuts and bolts of database caching. 
+ In applications there are two uses of the term. 
+ 
+ When someone says that they found a
+  piece of code that would hurt caching
+  and after they fixed it, it improved
+  the speed of their app, what are they
+  talking about? 
+ 
+ In this case they're making reference to the CPU cache.  
+ The CPU cache is on-CPU memory that's a lot quicker than RAM, but it doesn't have random access.  What the CPU decides to load into cache can get a little complicated.  See Ulrich Dreppers  What every programmer should know about memory  for lots of details. 
+ Being mindful of the CPU cache can speed things up pretty well - you just have to pay a little more attention to where things are going to placed relative to each other in physical memory and when they're likely to be used. 
+ One example (also probably an anti-pattern for maintainability) is that is you have an array of structures and you do a lot of looping over the members of the structure you might be better served with a structure where the fields are all arrays.  If the data you're looping over is contiguous in memory you have a better chance at non upsetting the cache. 
+ All kinds of things can effect the efficiency of your cache usage - branch prediction for code loaded into the cache, size and alignment of data structures and access patterns, where and when to declare local variables that are going to be put onto the stack.   
+ The other common use of the term for application programming can be done by something called  memoization .  The factorial example on that wikipedia page explains things better than I would have done. 
+ 
+ Caching in databases is typically a function the database and it is managed automatically by the database. Caching in applications is going to vary from one platform to another.  
+ An object cache is a mechanism that you can use to put commonly used objects into memory so that you don't need to pay the cost to retrieve the data and recreate them. This is generally managed via code and varies on what caching solution you are using. 
+ There are distributed cache solutions that involve setting up services on multiple servers to give you a cache farm of sorts. This provides scalability and redundancy. The clients can request the cached information across the network. Again this is a manual procedure in your code. An example of a distributed cache provider is memcached: 
+ http://www.danga.com/memcached/ 
+ An example of a specific type of caching would be the asp.net caching. Asp.net supports several kinds of cache. There is the traditional object cache (which can be used in all kinds of .net apps, not just websites). There is also caching features that allow you to configure pages and user controls to automatically cache their output. This doesn't cache data, it caches the end result (the HTML of the page) and serves that up when the user requests the same page with the same query string parms as a previous user. 
+ 
+ It's probably easier than you could imagine--and that's why people are trying to close it. 
+ It just means to store the values in your memory rather than go back to the database for them every time. 
+ There are lots of ways to do so, but the concept itself is trivial. 
+ Edit: It can be done at ANY level too--anything that takes a long time can be cached somewhere that you can get to more quickly. 
+ 
+ Caching does not necessarily only apply to 'oft retrieved' values but to anything you can save time on by reducing the number of times you recompute it. A simple example that comes to mind is calculating the  fibonacci sequence . The simplest recursive implementation looks like this (in psuedo-code): 
+ 
+ This can be improved with caching to prevent recalculating already known values: 
+ 
+ 

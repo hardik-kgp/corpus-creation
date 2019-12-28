@@ -1,0 +1,92 @@
+*** how-can-i-force-entity-framework-to-insert-identity-columns ***
+
+ I want to write some C# code to initialize my database with some seed data.  Clearly, this is going to require the ability to be able to set the values of various Identity columns when inserting.  I'm using a code-first approach.  By default,   handles the database connection and so you can't  .  So, what I've done so far is use the   constructor that lets me specify a DB connection to be used.  Then, I set   to   in that DB connection, and then try to insert my records using entity framework.  Here's an example of what I've got so far: 
+ 
+ So close and yet so far - because, although   works fine, when I then run  , I'm informed that "Explicit value must be specified for identity column in table 'MyUser' either when IDENTITY_INSERT is set to ON or when a replication user is inserting into a NOT FOR REPLICATION identity column." 
+ Presumably, because MyUserId (which is the Identity column in the MyUser table) is the primary key, entity framework doesn't try to set it when I call  , even though I gave the   entity a value for the   property. 
+ Is there a way to force entity framework to try and insert even primary key values for an entity, then?  Or maybe a way to temporarily mark   as not being a primary key value, so EF tries to insert it? 
+ 
+ **EF 6**
+ method, using the  msdn article : 
+ 
+ **Update:**
+ To avoid error "Explicit value must be specified for identity column in table 'TableName' either when IDENTITY_INSERT is set to ON or when a replication user is inserting into a NOT FOR REPLICATION identity column", you should change value of  **StoreGeneratedPattern**
+ property of identity column from Identity to  **None**
+ in model designer. 
+ Note, changing of StoreGeneratedPattern to None will fail inserting of object without specified id (normal way) with error "Cannot insert explicit value for identity column in table 'TableName' when IDENTITY_INSERT is set to OFF". 
+ 
+ You don't need to do any funny business with the connection, you can cut out the middle man and just use  . 
+ You could then achieve what you want by doing this: 
+ 
+ I don't know of any inbuilt way of telling EF to set identity insert on though. 
+ It's not perfect, but it'd be more flexible and less "hacky" than your current approach. 
+ **Update:**
+
+ I just realised that there is a second part to your problem.  Now that you've told SQL that you want to do identity inserts, EF isn't even trying to insert values for said identity (why would it? we haven't told it to). 
+ I've not got any experience with a code first approach, but from some quick searches it seems that you need to tell EF that your column shouldn't be generated from the store.  You'll need to do something like this. 
+ 
+ Hopefully this will get you pointed in the right direction :-) 
+ 
+ Bit late to the party, but in case somebody encounters this problem in EF5 with DB first: I couldn't get either solution to work, but found another workaround: 
+ Before the running the   command, I reset the table's identity counter: 
+ 
+ This means that   needs to be applied after every addition - but at least it works! 
+ 
+ Here is the solution of the problem. I have tried it on EF6 and it worked for me. Following is some pseudo code that should work. 
+ First of all you need to create the overload of the default dbcontext. If you check the base class, you will find the one with passing existing dbConnection.
+Check following code- 
+ 
+ And in On modelcreating remove the db generated option like, 
+ 
+ Now in code you need to pass a connection object explicitly, 
+ 
+ 
+ After careful consideration, I've decided that entity framework's refusal to insert identity columns is a feature, not a bug.  :-)  If I were to be inserting all entries in my database including their identity values, I'd also have to create an entity for every link table that entity framework had created automatically for me!  It's just not the right approach. 
+ So what I'm doing is setting up seeding classes that just use C# code and create EF entities, then use a   to save the newly-created data.  It takes a bit longer to take the dumped SQL and turn it into C# code, but there isn't (and shouldn't be) too much data just for "seeding" data - it should be a smallish amount of data which is representative of the kind of data that would be in a live DB that can quickly be put into a fresh DB for debugging/development purposes.  This does mean that if I want to link entities together, I do have to do queries on what has already been inserted or my code wouldn't know their generated identity value, eg. This kind of thing will appear within the seeding code, after I have set up and done   for  : 
+ 
+ Doing it this way also makes it more likely I will update my seeding data when I change the schema, because I will likely break the seeding code when I change it (if I remove a field or entity, the existing seeding code that uses that field/entity will fail to compile).  With a SQL script for doing seeding, that wouldn't be the case, and nor would the SQL script be database-agnostic. 
+ So I think that if you're trying to set the identity fields of entities for doing DB seeding data, you've definitely taken the wrong approach. 
+ If I were actually dragging a load of data from say SQL Server to PostgreSQL (a full live DB, not just some seeding data), I could do it via EF, but I'd want to have two contexts open at the same time, and write some code to grab all the various entities from the source context and put them into the destination context, then save changes. 
+ Generally, the only time it's appropriate to insert identity values is when you're copying from one DB to another DB within the same DBMS (SQL Server -> SQL Server, PostgreSQL -> PostgreSQL, etc.), and then you'd do it in a SQL script and not EF code-first (the SQL script wouldn't be DB-agnostic, but it wouldn't need to be; you're not going between different DBMSs). 
+ 
+ **This idea only works reliably if the target table is empty, or records are being inserted with ids higher than all already existing ids in the table!**
+
+ 3 years on and I hit a similar problem transferring production data into a test system. The users wanted to be able to copy the production data into the test system whenever they wanted to, so instead of setting up a transfer job in SQL Server I looked for a way to accomplish the transfer in the application using the existing EF classes. This way I could provide the users a menu item to start the transfer whenever they wanted. 
+ The application uses a MS SQL Server 2008 database and EF 6. As the two databases generally have the same structure I thought I could easily transfer data from one DbContext instance to another by reading the records of each entity using   and just   (or  ) the records to the appropriate property on the target DbContext instance. 
+ Here is a DbContext with one entity to illustrate: 
+ 
+ To copy the People data I did the following: 
+ 
+ As long as the tables were copied in the right order (to avoid problems with foreign key constraints) this worked very well. Unfortunately tables using identity columns made things a little difficult, as EF ignored the id values and just let SQL Server insert the next identity value. For tables with identity columns I ended up doing the following: 
+ 
+ Read all the records of a given entity 
+ Order the records by id in ascending order 
+ set the identity seed for the table to the value of the first id 
+ keeping track of the next identity value, add the records one by one. If the id is not the same as the expected next identity value set the identity seed to the next required value 
+ 
+ As long as the table is empty (or all the new records have ids higher that current hisghest id), and the ids are in ascending order, EF and MS SQL will insert the required ids and neither system will complain. 
+ Here is a bit of code to illustrate: 
+ 
+ Using reflection I was able to write a   and a   method that worked for all the entities in the DbContext. 
+ It's a bit of a hack, but it allows me to use the standard EF methods for reading and writing entities and overcomes the problem of how to set identity columns to particular values under a set of given circumstances. 
+ I hope this will be of help to someone else faced with a similar problem. 
+ 
+ After experimenting several options found on this site, the following code worked for me ( **EF 6**
+). Notice that it first attempts a normal update if the item already exists.  If it does not, then tries a normal insert, if the error is due to IDENTITY_INSERT then tries the workaround.  Notice also that db.SaveChanges will fail, hence the db.Database.Connection.Open() statement and optional verification step.  Be aware this is not updating the context, but in my case it is not necessary.  Hope this helps! 
+ 
+ 
+ I'm just a DBA, but whenever something like this pops up, I consider it a code smell. That is, why do you have anything that relies on certain rows having certain identity values? That is to say, in your above example, why does Mrs Novelette need an identity value of 106? Rather than rely on that always being the case, you can get her identity value and use that wherever you'd have hardcoded 106. A little more cumbersome, but way more flexible (in my opinon). 
+ 
+ 
+ Is there a way to force entity framework to try and insert even primary key values for an entity? 
+ 
+ Yes, but not as cleanly as I would like to see.  
+ Assuming you are using an auto-generated identity key, EF will completely ignore your attempt to store the key value. This appears to be "By design" for the many good reasons detailed above, but there are still times when you want to fully control your seed data (or an inital load). I suggest EF accomidate this kind of seeding in a future version. But until they do, just write a little code that works within the framework and automates the messy details.  
+ Eventho VendorID is ignored by EF, you can use it with basic looping and counting to determine how many place holder records to add between your live records. The place holders are assigned the next available ID number when they are added. Once your live records have the requested IDs, you just need to delete the junk. 
+ 
+ It worked as expected, except I had to do "SaveChanges" frequently to keep the IDs in order. 
+ 
+ I couldn't find a way to insert records into a table. Basically, I created a SQL script with something like this... 
+ 
+ I am using EF 6. 
+ 

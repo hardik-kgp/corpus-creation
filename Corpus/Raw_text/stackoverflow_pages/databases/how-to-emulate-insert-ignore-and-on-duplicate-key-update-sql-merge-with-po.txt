@@ -1,0 +1,71 @@
+*** how-to-emulate-insert-ignore-and-on-duplicate-key-update-sql-merge-with-po ***
+
+ Some SQL servers have a feature where   is skipped if it would violate a primary/unique key constraint. For instance, MySQL has  . 
+ What's the best way to emulate   and   with PostgreSQL? 
+ 
+ Try to do an UPDATE. If it doesn't modify any row that means it didn't exist, so do an insert. Obviously, you do this inside a transaction. 
+ You can of course wrap this in a function if you don't want to put the extra code on the client side. You also need a loop for the very rare race condition in that thinking.  
+ There's an example of this in the documentation:  http://www.postgresql.org/docs/9.3/static/plpgsql-control-structures.html , example 40-2 right at the bottom. 
+ That's usually the easiest way. You can do some magic with rules, but it's likely going to be a lot messier. I'd recommend the wrap-in-function approach over that any day. 
+ This works for single row, or few row, values. If you're dealing with large amounts of rows for example from a subquery, you're best of splitting it into two queries, one for INSERT and one for UPDATE (as an appropriate join/subselect of course - no need to write your main filter twice) 
+ 
+ With PostgreSQL 9.5, this is now  native functionality  (like  MySQL has had  for several years): 
+ 
+ **INSERT ... ON CONFLICT DO NOTHING/UPDATE ("UPSERT")**
+
+ 9.5 brings support for "UPSERT" operations.
+  INSERT is extended to accept an ON CONFLICT DO UPDATE/IGNORE clause. This clause specifies an alternative action to take in the event of a would-be duplicate violation. 
+ 
+ ... 
+ 
+ Further example of new syntax:   
+ 
+ 
+ 
+ Edit: in case you missed  warren's answer , PG9.5 now has this natively; time to upgrade! 
+ 
+ Building on Bill Karwin's answer, to spell out what a rule based approach would look like (transferring from another schema in the same DB, and with a multi-column primary key): 
+ 
+ Note: The rule applies to all   operations until the rule is dropped, so not quite ad hoc. 
+ 
+ For those of you that have Postgres 9.5 or higher, the new  **ON CONFLICT DO NOTHING**
+ syntax should work: 
+ 
+ For those of us who have an earlier version, this right join will work instead: 
+ 
+ 
+ To get the  **insert ignore**
+ logic you can do something like below. I found simply inserting from a select statement of literal values worked best, then you can mask out the duplicate keys with a NOT EXISTS clause. To get the update on duplicate logic I suspect a pl/pgsql loop would be necessary. 
+ 
+ 
+ 
+ 
+ Looks like PostgreSQL supports a schema object called a  rule . 
+ http://www.postgresql.org/docs/current/static/rules-update.html 
+ You could create a rule   for a given table, making it do   if a row exists with the given primary key value, or else making it do an   instead of the   if a row exists with the given primary key value. 
+ I haven't tried this myself, so I can't speak from experience or offer an example.   
+ 
+ This solution avoids using rules: 
+ 
+ but it has a performance drawback (see  PostgreSQL.org ): 
+ 
+ A block containing an EXCEPTION clause is significantly more expensive
+  to enter and exit than a block without one. Therefore, don't use
+  EXCEPTION without need. 
+ 
+ 
+ As @hanmari mentioned in his comment. when inserting into a postgres tables, the on conflict (..) do nothing is the best code to use for not inserting duplicate data.: 
+ 
+ The ON CONFLICT line of code will allow the insert statement to still insert rows of data. The query and values code is an example of inserted date from a Excel into a postgres db table.
+I have constraints added to a postgres table I use to make sure the ID field is unique. Instead of running a delete on rows of data that is the same, I add a line of sql code that renumbers the ID column starting at 1.
+Example: 
+ 
+ If my data has an ID field, I do not use this as the primary ID/serial ID, I create a ID column and I set it to serial.
+I hope this information is helpful to everyone.
+*I have no college degree in software development/coding. Everything I know in coding, I study on my own. 
+ 
+ On bulk, you can always delete the row before the insert. A deletion of a row that doesn't exist doesn't cause an error, so its safely skipped. 
+ 
+ For data import scripts, to replace "IF NOT EXISTS", in a way, there's a slightly awkward formulation that nevertheless works: 
+ 
+ 

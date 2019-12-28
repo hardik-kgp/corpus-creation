@@ -1,0 +1,97 @@
+*** how-many-database-indexes-is-too-many ***
+
+ I'm working on a project with a rather large Oracle database (although my question applies equally well to other databases).  We have a web interface which allows users to search on almost any possible combination of fields. 
+ To make these searches go fast, we're adding indexes to the fields and combinations of fields on which we believe users will commonly search.  However, since we don't really know how our customers will use this software, it's hard to tell which indexes to create. 
+ Space isn't a concern; we have a 4 terabyte RAID drive of which we are using only a small fraction.  However, I'm worried about the possible performance penalties of having too many indexes.  Because those indexes need to be updated every time a row is added, deleted, or modified, I imagine it'd be a bad idea to have dozens of indexes on a single table. 
+ So how many indexes is considered too many?  10?  25?  50?  Or should I just cover the really, really common and obvious cases and ignore everything else? 
+ 
+ It depends on the operations that occur on the table. 
+ If there's lots of SELECTs and very few changes, index all you like.... these will (potentially) speed the SELECT statements up. 
+ If the table is heavily hit by UPDATEs, INSERTs + DELETEs ... these will be very slow with lots of indexes since they all need to be modified each time one of these operations takes place 
+ Having said that, you can clearly add a lot of pointless indexes to a table that won't do anything.  Adding B-Tree indexes to a column with 2 distinct values will be pointless since it doesn't add anything in terms of looking the data up.  The more unique the values in a column, the more it will benefit from an index. 
+ 
+ I usually proceed like this. 
+ 
+ Get a log of the  real  queries run on the data on a typical day. 
+ Add indexes so the most important queries hit the indexes in their execution plan. 
+ Try to avoid indexing fields that have a lot of updates or inserts 
+ After a few indexes, get a new log and repeat. 
+ 
+ As with all any optimization, I stop when the requested performance is reached (this obviously implies that point 0. would be getting specific performance requirements). 
+ 
+ Everyone else has been giving you great advice. I have an added suggestion for you as you move forward. At some point you have to make a decision as to your best indexing strategy. In the end though, the best PLANNED indexing strategy can still end up creating indexes that don't end up getting used. One strategy that lets you find indexes that aren't used is to monitor index usage. You do this as follows:- 
+ 
+ You can then monitor whether the index is used or not from that point forward by querying v$object_usage. Information on this can be found in the  Oracle® Database Administrator's Guide . 
+ Just remember that if you have a warehousing strategy of dropping indexes before updating a table, then recreating them, you will have to set the index up for monitoring again, and you'll lose any monitoring history for that index. 
+ 
+ In data warehousing it is very common to have a high number of indexes. I have worked with fact tables having two hundred columns and 190 of them indexed. 
+ Although there is an overhead to this it must be understood in the context that in a data  warehouse we generally only insert a row  once, we never update it, but it can then participate in thousands of SELECT queries which might benefit from indexing on any of the columns. 
+ For maximum flexibility a data warehouse generally uses  single column bitmap indexes except on high cardinality columns, where (compressed) btree indexes can be used. 
+ The overhead on index maintenance is mostly associated with the expense of writing to a great many blocks and the block splits as new rows are added with values that are "in the middle" of existing value ranges for that column. This can be mitigated by partitioning and having the new data loads aligned with the partitioning scheme, and by using direct path inserts. 
+ To address your question more directly, I think it is probably fine to index the obvious at first, but do not be afraid of adding more indexes on if the queries against the table would benefit. 
+ 
+ In a paraphrase of  Einstein  about simplicity, add as many indexes as you need and no more. 
+ Seriously, however, every index you add requires maintenance whenever data is added to the table. On tables that are primarily read only, lots of indexes are a good thing. On tables that are highly dynamic, fewer is better. 
+ My advice is to cover the common and obvious cases and then, as you encounter issues where you need more speed in getting data from specific tables, evaluate and add indices at that point. 
+ Also, it's a good idea to re-evaluate your indexing schemes every few months, just to see if there is anything new that needs indexing or any indices that you've created that aren't being used for anything and should be gotten rid of. 
+ 
+ In addition to the points everyone else has raised, the Cost Based Optimizer incurs a cost when creating a plan for an SQL statement if there are more indexes because there are more combinations for it to consider.  You can reduce this by correctly using bind variables so that SQL statements stay in the SQL cache.  Oracle can then do a soft parse and re-use the plan it found last time. 
+ As always, nothing is simple. If there are skewed columns and histograms involved then this can be a bad idea. 
+ In our web applications we tend to limit the combinations of searches that we allow.  Otherwise you would have to test literally every combination for performance to ensure you did not have a lurking problem that someone will find one day.  We have also implemented resource limits to stop this causing issues elsewhere in the application should something go wrong. 
+ 
+ I made some simple tests on my real project and real MySql database. I already answered in this topic:  What is the cost of indexing multiple db columns? 
+ But I think it will be better if I quote it here: 
+ 
+ I made some simple tests using my real
+  project and real MySql database.  
+ My results are: adding average index
+  (1-3 columns in an index) to a table -
+  makes inserts slower by 2.1%. So, if
+  you add 20 indexes, your inserts will
+  be slower by 40-50%. But your selects
+  will be 10-100 times faster.  
+ So is it ok to add many indexes? - It
+  depends :) I gave you my results - You
+  decide! 
+ 
+ 
+ Ultimately how many indexes you need depend on the behavior of your applications that ride on top of your database server. 
+ In general the more inserting you do the more painful your indexes become. Each time you do an insert, all the indexes that include that table have to be updated. 
+ Now if your application has a decent amount of reading, or even more so if it's almost all reading, then indexes are the way to go as there will be major performance improvements for very little cost. 
+ 
+ There's no static answer in my opinion, this sort of thing falls under 'performance tuning'. 
+ It could be that everything your app does is looked up by a primary key, or it could be the oposite in that queries are done over unristricted combinations of fields and any one in particular could be used at any given time. 
+ Beyond just indexing, there's reogranizing your DB to include calculated search fields, splitting tables, etc - it's really dependant on your load shapes and query parameters, how much/what data 'really' needs to be retruend by a query. 
+ If your entire DB is fronted by stored-procedure facades turning becomes a bit easier, as you don't have to wory about every ad-hoc query.  Or you may have a deep understanding of the kind of queries that will hit your DB, and can limit the tuning to those. 
+ For SQL Server I've found the Database Engine Tuning advisor usefull - you set up 'typical' workloads and it can make recommendations about adding/removing indexes and statistics.  I'm sure other DBs have similar tools, either 'offical' or third party. 
+ 
+ This really is a more theoretical questions than practical. Indexes impact on your performance depends on the hardware you have, the version of Oracle, index types, etc. Yesterday I heard Oracle announced a dedicated storage, made by HP, which is supposed to perform 10 times faster with 11g database.
+As for your case, there can be several solutions:
+1. Have a large amount of indexes (>20) and rebuild them daily (nightly). This would be especially useful if the table gets thousands of updates/deletes daily.
+2. Partition your table (if that applies your data model).
+3. Use a separate table for new/updated data, and run a nightly process which combines the data together. This would require a change in your application logic.
+4. Switch to IOT (index organized table), if your data support this. 
+ Of course there might be many more solutions for such case. My first suggestion to you, would be to clone the DB to a development environment, and run some stress testing against it. 
+ 
+ If you do mostly reads (and few updates) then there's really no reason not to index everything you'll need to index. If you update often, then you may need to be cautious on how many indexes you have. There's no hard number, but you'll notice when things start to slow down. Make sure your clustered index is the one that makes the most sense based on the data. 
+ 
+ One thing you may consider is building indexes to target a standard combination of searches. If column1 is commonly searched, and column2 is often used with it, and column3 is sometimes used with column2 and column1, then an index on column1, column2, and column3 in that order can be used for any of those three circumstances, though it is only one index that has to be maintained. 
+ 
+ An index imposes a cost when the underlying table is updated.  An index provides a benefit when it is used to spped up a query.  For each index, you need to balance the cost against the benefit.  How much slower does the query run without the index?  How much of a benefit is running faster?  Can you or your users tolerate the slow speed when the index is missing? 
+ Can you tolerate the additional time it takes to complete an update?  
+ You need to compare costs and benefits.  That's particular to your situation.  There's no magic number of indexes that passes the threshold of "too many". 
+ There's also the cost of the space needed to store the index, but you've said that in your situation that's not an issue.  The same is true in  most situations, given how cheap disk space has become.   
+ 
+ How many columns are there?
+I have always been told to make single-column indexes, not multi-column indexes.  So no more indexes than the amount of columns, IMHO. 
+ 
+ What it really comes down to is, don't add an index unless you know (and this often means gathering usage statistics) that it will be used far more often than it's updated.  
+ Any index that doesn't meet that criteria will cost you more to rebuild than the performance penalty of not having it in the odd case it got used.  
+ 
+ Sql server gives you some good tools that let you see which indexes are actually being used.
+This article,  http://www.mssqltips.com/tip.asp?tip=1239 , gives you some queries that let you get a better insight into how much an index is used, as opposed to how much it is updated. 
+ 
+ It is totally based on the columns which are being used in Where Clause. 
+And as the Thumb of Rule, we must have indexes on Foreign Key Columns to avoid DEADLOCKS.
+AWR report should analyze periodically to understand the need of indexes. 
+ 

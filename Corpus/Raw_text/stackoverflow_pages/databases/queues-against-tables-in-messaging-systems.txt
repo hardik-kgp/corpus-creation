@@ -1,0 +1,79 @@
+*** queues-against-tables-in-messaging-systems ***
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+                            As it currently stands, this question is not a good fit for our Q&A format. We expect answers to be supported by facts, references,   or expertise, but this question will likely solicit debate, arguments, polling, or extended discussion. If you feel that this question   can be improved and possibly reopened,  visit the help center  for guidance.
+                            
+                         
+ 
+ 
+ Closed  8 years ago . 
+ 
+ 
+ I've been experiencing the good and the bad sides of messaging systems in  **real production environments**
+, and I must admit that a well organized table or schema of tables simply beats every time any other form of messaging queue, because: 
+ 
+ Data are permanently stored on a table. I've seen so many java (jms) applications that lose or vanish messages on their way for uncaught exceptions or other bugs. 
+ Queues tend to fill up. Db storage is virtually infinite, instead. 
+ Tables are easily accessible, while you have to use esotic instruments to read from a queue. 
+ 
+ What's your opinion on each approach? 
+ 
+ The phrase  beats every time  totally depends on what your requirements were to begin with. Certainly its not going to beat every time for everyone. 
+ If you are building a single system which is already using a database, you don't have very high performance throughput requirements and you don't have to communicate with any other teams or systems then you're probably right. 
+ For simple, low thoughput, mostly single threaded stuff, database are a totally fine alternative to message queues. 
+ Where a message queue shines is when 
+ 
+ you want a high performance, highly concurrent and scalable load balancer so you can process tens of thousands of messages per second concurrently across many servers/processes (using a database table you'd be lucky to process a few hundred a second and processing with multiple threads is pretty hard as one process will tend to lock the message queue table) 
+ you need to communicate between different systems using different databases (so don't have to hand out write access to your systems database to other folks in different teams etc) 
+ 
+ For simple systems with a single database, team and fairly modest performance requirements - sure use a database. Use the right tool for the job etc. 
+ However where message queues shine is in large organisations where there are lots of systems that need to communicate with each other (and so you don't want a business database to be a central point of failure or place of version hell) or when you have high performance requirements. 
+ In terms of performance a message queue will always beat a database table - as message queues are specifically designed for the job and don't rely on pessimistic table locks (which are required for a database implementation of a queue - to do the load balancing) and  good message queues will perform eager loading of messages to queues to avoid the network overhead of a database . 
+ Similarly - you'd never use a database to do load balancing of HTTP requests across your web servers - as it'd be too slow - if you have high performance requirements for your load balancer you'd not use a database either. 
+ 
+ I've used tables first, then refactor to a full-fledged msg queue when (and if) there's reason - which is trivial if your design is reasonable. 
+ The biggest benefits are a.) it's easier, (b. it's a better audit trail because you have the other tables to join to, c.) if you know the database tools really well, they are easier to use than the Message Queue tools, d.) it's generally a bit easier to set up a test/dev environment in a context that already exists for your app (if same familiarity applies). 
+ Oh, and e.) for perhaps you and others, it's not another product to learn, install, configure, administer, and support. 
+ IMPE, it's just as reliable, disconnectable, and  you can convert if it needs more scalable. 
+ 
+ 
+ Data are permanently stored on a table. I've seen so many java (jms) applications that loose or vanish messages on their way for uncaught exceptions or other bugs. 
+ Which JMS implementation?  Sun sells reliable queue which can't lose messages.  Perhaps you just purchased a cheesy JMS-compliant product.  IBM's MQ is extremely reliable, and there are JMS libraries to access it. 
+ Queues tend to fill up. Db storage is virtually infinite, instead. 
+ Ummm... If your queue fills up, it sounds like something is broken.  If your apps crash, that's not a good thing, and queues have little to do with that.  If you've purchased a really poor JMS implementation, I can see where you might be unhappy with it.  It's a competitive market-place.  Find a better queue manager.  Sun's JCAPS has a really good queue manager, formerly the SeeBeyond message queue. 
+ Tables are easily accessible, while you have to use esotic instruments to read from a queue.   
+ That doesn't fit with my experience.  Tables are accessed through this peculiar "other language" (SQL), and requires that I be aware of structure mappings from tables to objects and data type mappings from VARCHAR2 to String.  Further, I have to use some kind of access layer (JDBC or an ORM which uses JDBC).  That seems very, very complex.  A queue is accessed through MessageConsumers and MessageProducers using simple sends and receives. 
+ 
+ 
+ It sounds as though the problems you've experienced are not inherent to messaging, but rather are artifacts of poorly-implemented messaging systems.  Is building messaging systems harder than building database systems?  Yes, if all you ever do is build database systems. 
+ 
+ Losing messages to uncaught exceptions?  That's hardly the fault of the message queue.  The applications you're using are poorly engineered.  They're removing messages from the queue before processing completes.  They're not using transactions, or journalling.   
+ Message queues fill up while DB storage is "virtually infinite"?  You talk as though managing disk space were something that databases didn't require.  Message queue servers require administration, just like database servers do. 
+ Esoteric instruments to read from a queue?  Maybe if you find asynchronous methods esoteric.  Maybe if you find serialization and deserialization esoteric.  (At least, those are the things I found esoteric when I was learning messaging.  Like many seemingly-esoteric technologies, they're actually quite mundane once you understand them, and understanding them is an important part of the seasoned developer's education.) 
+ 
+ Aspects of messaging that make it superior to databases: 
+ 
+ **Asynchronous processing.**
+  Message queues notify waiting processes when new messages arrive.  To accomplish this functionality in a database, the waiting processes have to poll the database. 
+ **Separation of concerns.**
+  The communications channel is decoupled from the implementation details of the message content.  Only the sender and the receiver need to know anything about the format of the data stream within a given message. 
+ **Fault-tolerance.**
+.  Messaging can function when connections between servers are intermittent.  Message queues can store messages locally and only forward them to remote servers when the connection is live. 
+ **Systems integration.**
+  In the Windows world, at least, messaging is built into the operating system.  It uses the OS's security model, it's managed through the OS's tools, etc. 
+ 
+ If you don't need these things, you probably don't need messaging. 
+ Here's a simple example of an application for messaging:  I'm building a system right now where users, distributed across multiple networks, are entering fairly intricate sets of transactions that are used to produce printed output.  Output generation is computationally expensive and not part of their workflow; i.e. the users don't care when the output gets generated, just that it does. 
+ So we serialize the transactions into a message and drop it in a queue.  A process running on a server grabs messages from the queue, produces the output, and stores the output in an imaging system. 
+ If we used a database as our message store, we'd have to come up with a schema to store a transaction format that right now only the sender and receiver care about, we'd need to make sure every workstation on the network had permanent persistent connections to the database server, we'd have no capacity to distribute this transaction load across multiple servers, and our output server would have to query the database thousands of times a day waiting to see if there were new jobs to process. 
+ 
+ Queues provide reliable messaging. The store-and-forward, disconnected nature of queueing make it much more scalable than databases, not to mention more robust. 
+ And queues shouldn't really be used for permanent storage of information - it is best to think of them as temporary  inboxes, unlike databases. 
+ 

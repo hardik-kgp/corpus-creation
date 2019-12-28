@@ -1,0 +1,72 @@
+*** how-to-optimize-query-with-many-joins ***
+
+ I have simple but long query which count the content of the result it takes about 14 seconds. the count itself on the main table takes less than a second but after multiple join the delay is too high  as follow 
+ 
+ The output of explain is 
+ +---+---+---+---+---+---+---+---+---+---+
+| id | select_type | table | type | possible_keys | key | key_len | ref | rows | Extra |
++---+---+---+---+---+---+---+---+---+---+
+| 1 | SIMPLE | specialties | index | PRIMARY | specialty_name | 52 | NULL | 53 | Using index |
+| 1 | SIMPLE | clients | ref | PRIMARY,specialty | specialty | 4 | crm_db.specialties.id | 143 |  |
+| 1 | SIMPLE | clients_locations | ref | PRIMARY,client_id | client_id | 4 | crm_db.clients.id | 1 |  |
+| 1 | SIMPLE | locations | eq_ref | PRIMARY | PRIMARY | 4 | crm_db.clients_locations.location_id | 1 |  |
+| 1 | SIMPLE | districts | eq_ref | PRIMARY | PRIMARY | 4 | crm_db.locations.district_id | 1 | Using where |
+| 1 | SIMPLE | visits | ref | unique_visit,client_location_id | unique_visit | 4 | crm_db.clients_locations.id | 4 | Using index |
+| 1 | SIMPLE | calls | ref | call_unique,visit_id | call_unique | 4 | crm_db.visits.id | 1 | Using index |
++---+---+---+---+---+---+---+---+---+---+ 
+ **Update 1**
+
+The above query used with dynamic where statement   but the i submitted it in simple form . So do not consider the answer just eleminate the joins :) 
+ **Update 2**
+
+Here is example of dynamic filtering 
+ 
+ But in startup case which is our case no where statement 
+ 
+ Left joins  always  return a row from the first table, but may return multiple rows if there are multiple matching rows. But because you are counting distinct visit rows, left joining to another table while counting distinct visits is the same as just counting the rows of visits. Thus the only joins that affect the result are inner joins, so you can remove all "completely" left joined tables without affecting the result.  
+ What I mean by "completely" is that some left joined tables are effectively inner joined; the inner join to   requires the join to   to succeed and thus also be an inner join, which in turn requires the join to   to succeed and thus also be an inner join. 
+ Your query (as posted) can be reduced to: 
+ 
+ Removing all those unnecessary joins will however greatly improve the runtime of your query, not only because there are less joins to make but also because the resulting rowset size could be enormous when you consider that the size is the  product  of the matches in all the tables (not the  sum . 
+ For maximum performance, create a covering indexes on all id-and-fk columns: 
+ 
+ so index-only scans can be used where possible. I assume there are indexes on the PK columns. 
+ 
+ You don't seem to have any (or much) intentional filtering.  If you want to know the number of visits referred to in  , I would propose: 
+ 
+ 
+ in order to optimize the whole process you can dynamically construct the pre-where SQL according to the filters you are going to apply. Like: 
+ 
+
+    // base select and left join 
+    $preSQL = "Select  Count(Distinct visits.id) As Count_id From  visits ";
+    $preSQL .= "Left Join  clients_locations  ON visits.client_location_id = clients_locations.id ";
+
+    // filtering by province_id
+    $temp = $this->province_id;
+    if ($temp != null) {
+            $preSQL .= "Left Join  locations ON clients_locations.location_id = locations.id ";
+            $preSQL .= "Left Join  districts ON locations.district_id = districts.id ";
+            $preSQL .= "Left Join  provinces ON districts.province_id = provinces.id ";
+            $whereFilter = "provinces.id In ($temp) ";
+        }
+
+    $sql = $preSQL . "Where ".   $whereFilter;
+    // ...
+ 
+ If you are using multiple filters you can put all inner/left-join strings in an array and then after analysing the request, you can construct your   using the minimum of joins. 
+ 
+ Use COUNT(CASE WHEN  !="" THEN 1 END) as visit. 
+ Hope this will help 
+ 
+ Isn't it just: 
+ 
+ because all the left outer joins also return a visits.id when theres no matching clients, ..., calls and id's ought to be unique? 
+ Different hint: The one inner join also is only effective when a client exists. Generally when needing inner joins they must be put as high/near as possible to the source table, so in your example it would have been best in the line after "left join clients". 
+ 
+ I didn't understand too much your idea, specially your INNER JOIN that will tranform some LEFT in INNER JOINs, it seems strange, but lets try a solution: 
+ Usually the LEFT JOINs has a very bad performance, and I think you'll need them only if you'll use them in WHERE clause, then you can include them with INNER JOIN only if you'll use them.
+For example: 
+ 
+ I think it'll help your performance and it'll works as you need. 
+ 

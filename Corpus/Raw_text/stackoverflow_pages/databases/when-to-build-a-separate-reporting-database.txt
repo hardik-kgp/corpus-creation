@@ -1,0 +1,72 @@
+*** when-to-build-a-separate-reporting-database ***
+
+ We're building an application that has a database (yeah, pretty exciting huh :).  The database is mainly transactional (to support the app) and also does a bit of "reporting" as part of the app - but nothing too strenuous. 
+ Above and beyond that we have some reporting requirements - but they're pretty vague and high-level at the moment.  We have a standard reporting tool that we-use in-house which we'll use to do the "heavier" reporting as the requirements solidify. 
+ My question is: how do you know when a separate database for reporting is required? 
+ What sort of questions need to be asked? What sort of things would make you decide a separate reporting database was necessary? 
+ 
+ In general, the more mission critical the transactional app and the more sophisticated the reporting requirements, the more splitting makes sense. 
+ 
+ When transaction performance is critical. 
+ When it's hard to get a maintenance window on the transactional app. 
+ If reporting needs to correlate results not only from this app, but from other application silos. 
+ If the reports need to support trending or other types of reporting that are best suited for a star schema/Business Intelligence environment. 
+ If the reports are long running. 
+ If the transactional app is on an expensive hardware resource (cluster, mainframe, etc.) 
+ If you need to do data cleansing/extract-transform-load operations on the transactional data (e.g., state names to canonical state abbreviations). 
+ 
+ It adds non-trivial complexity, so imo, there has to be a good reason to split. 
+ 
+ Typically, I would try to report off the transactional database initially. 
+ Ensure that any indexes you add to facilitate efficient reporting are all frequently used.  The more indexes you add, the poorer performance is going to be on inserts and (if you alter keys) updates. 
+ When you do go to a reporting database, remember there are only a few reasons you are going there: 
+ Ultimately, the number one thing about reporting databases is that you are removing locking contention from the OLTP database.  So if your reporting database is a straight copy of the same database, you're simply using delayed snapshots which won't interfere with production transactions. 
+ Next, you can have a separate indexing strategy to support the reporting usage scenarios.  These extra indexes are OK to maintain in the reporting database, but would cause unnecessary overhead in the OLTP database. 
+ Now both the above could be done on the same server (even the same instance in a separate database or even just in a separate schema) and still see benefits.  When CPU and IO are completely pegged, at that point, you definitely need to have it on a completely separate box (or upgrade your single box). 
+ Finally, for ultimate reporting flexibility, you denormalize the data (usually into a dimensional model or star schemas) so that the reporting database is the same data in a different model.  Reporting of large amounts of data (particularly aggregates) is extremely fast in dimensional models because the star schemas are very efficient for that.  It also is efficient for a larger variety of queries without a lot of re-indexing or analysis to change indexes, because the dimensional model lends itself better to unforeseen usage patterns (the old "slice and dice every which way" request).  You could view this is a kind of mini-data warehouse where you use data warehousing techniques, but aren't necessarily implementing a full-blown data warehouse.  Also, star schemas are particular easy for users to get to grips with, and data dictionaries are much simpler and easier to build for BI tools or reporting tools from star schemas.  You could do this on the same box or different box etc, just like discussed earlier. 
+ 
+ This question requires experience rather than science.  
+ As a BI architect, the approach I take on designing each BI solution for my clients are very different. I don't go through a checklist. It requires a general understanding of their system, their reporting requirements, budget and man power.  
+ I personally prefer to keep the reporting processes as much as possible on the database side (Best practice in BI world). REPORTING TOOLS ARE FOR DISPLAYING PURPOSE ONLY (MAXIMUM FOR SMALL CALCULATIONS). This approach requires a lot of pre-processing of data which requires different staging tables, triggers and etc. 
+ When you said: 
+ 
+ I work on projects with hundreds of millions of rows with real time reporting along with hundreds of users accessing the application/database at the same time with out issue. 
+ 
+ There are a few things wrong with your statement. 
+ 
+ Hundreds of millions of rows are A LOT. even today's in memory tools like Cognos TM1 or Qlikview would struggle to get such a results. (look at SAP HANA from SAP to understand how giants in the industry handle it).  
+ If you have Hundreds of millions of rows in database, it doesn't necessarily mean that the report needs to go through all those records. maybe the report worked on 1000s not millions. probably that's what you saw. 
+ Transactional reports are very different than dashboards. Most dashboard tools pre-processing and cache the data. 
+ 
+ My point is that it all comes to experience for deciding when to: 
+ 
+ design a new schema 
+ create a semantic database 
+ work on the same transactional database 
+ or even use a reporting tool (Sometimes handwritten dashboards with Java/JSF/Ajax/jQuery or JSP would work fine for client) 
+ 
+ 
+ The main reason you would need a separate database for reporting issues is when the generation of the reports interferes with the transactional responsibilities of the app.  E.g. if a report takes 20 minutes to generate and utilizes 100% of the CPU/Disk/etc... during a time of high activity you might think of using a separate database for reporting. 
+ As for questions, here are some basic one: 
+ 
+ Can I do the high intensity reports during non-peak hours? 
+ Does it interfere with the users using the system? 
+ If yes to #2, what are the costs of the interference Vs the cost of another database server, refactoring code, etc...? 
+ 
+ 
+ Basically, when the database load from the app becomes incompatible with the database load for reporting. This could be due to: 
+ 
+ Reporting consuming inordinate amount of database server resources impacting the app's DB performance.  
+ A part of this category would be the app DB work having to wait on a majorly slow report query due to locking, though it might be possible to resolve with less drastic methods like locking tuning. 
+ Reporting queries being very incompatible with app queries as far as tuning (e.g. indices but not limited to that) - the most dumb example would be something like a hot spot affecting app inserts because of the reporting-purpose index. 
+ Timing issues. E.g. the only small windows for DB maintenance available (due to application usage) are the times of heavy reporting work 
+ Reporting data's sheer volume (e.g. logging, auditing, statistics) is so big that your primary DB server architecture is a bad solution for such reporting (see Sybase ASE vs. Sybase IQ). BTW, this is a real scenario - we moved our performance reporting to IQ because of this. 
+ 
+ 
+ I would also add another reason for which you might use a reporting database, and that is: CQRS pattern (Command Query Responsibility Separation). 
+ If you have a large number of users accessing and writing to a small set of data, you would do wise to consider this pattern. It basicly, in its simplest form, means that all your commands (Create, Update, Delete) are pushed to the transactional database. 
+All of your queries (Read) are from your reporting database. This lets you freely scopy your architecture and upgrade function. 
+ There are MUCH more to it in the pattern, I just mentioned the bit which was interesting due to your question regarding reporting database. 
+ 
+ I would also add that transactional databases are meant to hold current state and oftentimes do so to be self-maintaining.  You don't want transactional databases growing beyond their necessary means.  When a workflow or transaction is complete then move that data out and into a Reporting database, which is much better designed to hold historical data. 
+ 

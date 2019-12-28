@@ -1,0 +1,38 @@
+*** comparing-sift-features-stored-in-a-mysql-database ***
+
+ I'm currently extending an image library used to categorize images and i want to find duplicate images, transformed images, and images that contain or are contained in other images. 
+I have tested the SIFT implementation from OpenCV and it works very well but would be rather slow for multiple images. Too speed it up I thought I could extract the features and save them in a database as a lot of other image related meta data is already being held there.   
+ **What would be the fastest way to compare the features of a new images to the features in the database?**
+
+Usually comparison is done calculating the euclidean distance using kd-trees, FLANN, or with the  Pyramid Match Kernel  that I found in another thread here on SO, but haven't looked much into yet. 
+ Since I don't know of a way to save and search a kd-tree in a database efficiently, I'm currently only seeing three options: 
+* Let MySQL calculate the euclidean distance to every feature in the database, although I'm sure that that will take an unreasonable time for more than a few images. 
+* Load the entire dataset into memory at the beginning and build the kd-tree(s). This would probably be fast, but very memory intensive. Plus all the data would need to be transferred from the database. 
+* Saving the generated trees into the database and loading all of them, would be the fastest method but also generate high amounts of traffic as with new images the kd-trees would have to be rebuilt and send to the server. 
+ I'm using the SIFT implementation of OpenCV, but I'm not dead set on it. If there is a feature extractor more suitable for this task (and roughly equally robust) I'm glad if someone could suggest one. 
+ 
+ So I basically did something very similar to this a few years ago.   **The algorithm you want to look into was proposed a few years ago by David Nister, the paper is: "Scalable Recognition with a Vocabulary Tree".  They pretty much have an exact solution to your problem that can scale to millions of images.**
+
+ Here is a link to the abstract, you can find a download link by googleing the title.
+ http://ieeexplore.ieee.org/xpl/freeabs_all.jsp?arnumber=1641018 
+ The basic idea is to build a tree with a hierarchical k-means algorithm to model the features and then leverage the sparse distribution of features in that tree to quickly find your nearest neighbors...  or something like that, it's been a few years since I worked on it.  You can find a powerpoint presentation on the authors webpage here:  http://www.vis.uky.edu/~dnister/Publications/publications.html 
+ A few other notes: 
+ 
+ I wouldn't bother with the pyramid match kernel, it's really more for improving object recognition than duplicate/transformed image detection. 
+ I would not store any of this feature stuff in an SQL database.  Depending on your application it is  sometimes  more effective to compute your features on the fly since their size can exceed the original image size when computed densely.  Histograms of features or pointers to nodes in a vocabulary tree are much more efficient. 
+ SQL databases are not designed for doing massive floating point vector calculations.   **You can store things in your database, but don't use it as a tool for computation.**
+  I tried this once with SQLite and it ended very badly. 
+ If you decide to implement this, read the paper in detail and keep a copy handy while implementing it, as there are many minor details that are very important to making the algorithm work efficiently. 
+ 
+ 
+ The key, I think, is that is this isn't a SIFT question. It is a question about approximate nearest neighbor search. Like image matching this too is an open research problem. You can try googling "approximate nearest neighbor search" and see what type of methods are available. If you need exact results, try: "exact nearest neighbor search". 
+ The performace of all these geometric data structures (such as kd-trees) degrade as the number of dimensions increase,  so the key I think is that you may need to represent your SIFT descriptors in a lower number of dimensions (say 10-30 instead of 256-1024) to have really efficient nearest neighbor searches (use PCA for example). 
+ Once you have this I think it will become secondary if the data is stored in MySQL or not. 
+ 
+ I think speed is not the main issue here.  The main issue is how to use the features to get the results you want.   
+ If you want to categorize the images (e. g. person, car, house, cat), then the Pyramid Match kernel is definitely worth looking at.  It is actually a histogram of the local feature descriptors, so there is no need to compare individual features to each other.  There is also a class of algorithms known as the "bag of words", which try to cluster the local features to form a "visual vocabulary".  Again, in this case once you have your "visual words" you do not need to compute distances between all pairs of SIFT descriptors, but instead determine which cluster each feature belongs to.  On the other hand, if you want to get point correspondences between pairs of images, such as to decide whether one image is contained in another, or to compute the transformation between the images, then you do need to find the exact nearest neighbors. 
+ Also, there are local features other than SIFT.  For example SURF are features similar to SIFT, but they are faster to extract, and they have been shown to perform better for certain tasks. 
+ If all you want to do is to find duplicates, you can speed up your search considerably by using a global image descriptor, such as a color histogram, to prune out images that are obviously different.  Comparing two color histograms is orders of magnitude faster than comparing two sets each containing hundreds of SIFT features.  You can create a short list of candidates using color histograms, and then refine your search using SIFT. 
+ 
+ I have some tools in python you can play with  here  . Basically its a package that uses SIFT transformed vectors, and then computes a nearest lattice hashing of each 128d sift vector. The hashing is the important part, as it is locality sensitive, simply meaning that vectors near in R^n space result in equivalent hash collision probabilities. The work I provide is an extension of  Andoni  that provides a query adaptive heuristic for pruning the LSH exact search lists, as well as an optimized CUDA implementation of the hashing function. I also have a small app that does image database search with nice visual feedback, all under bsd (exception is SIFT which has some additional restrictions). 
+ 

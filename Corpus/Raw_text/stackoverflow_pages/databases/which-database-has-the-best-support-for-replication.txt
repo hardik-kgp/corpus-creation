@@ -1,0 +1,64 @@
+*** which-database-has-the-best-support-for-replication ***
+
+ I have a fairly good feel for what MySQL replication can do.  I'm wondering what other databases support replication, and how they compare to MySQL and others? 
+ Some questions I would have are: 
+ 
+ Is replication built in, or an add-on/plugin? 
+ How does the replication work (high-level)?  MySQL provides statement-based replication (and row-based replication in 5.1).  I'm interested in how other databases compare.  What gets shipped over the wire?  How do changes get applied to the replicas? 
+ Is it easy to check consistency between master and slaves? 
+ How easy is it to get a failed replica back in sync with the master? 
+ Performance?  One thing I hate about MySQL replication is that it's single-threaded, and replicas often have trouble keeping up, since the master can be running many updates in parallel, but the replicas have to run them serially.  Are there any gotchas like this in other databases? 
+ Any other interesting features... 
+ 
+ 
+ MySQL's replication is weak inasmuch as one needs to sacrifice other functionality to get full master/master support (due to the restriction on supported backends). 
+ PostgreSQL's replication is weak inasmuch as only master/standby is supported built-in (using log shipping); more powerful solutions (such as Slony or Londiste) require add-on functionality. Archive log segments are shipped over the wire, which are the same records used to make sure that a standalone database is in working, consistent state on unclean startup. This is what I'm using presently, and we have resynchronization (and setup, and other functionality) fully automated. None of these approaches are fully synchronous. More complete support will be built in as of PostgreSQL 8.5. Log shipping does not allow databases to come out of synchronization, so there is no need for processes to test the synchronized status; bringing the two databases back into sync involves setting the backup flag on the master, rsyncing to the slave (with the database still runnning; this is safe), and unsetting the backup flag (and restarting the slave process) with the archive logs generated during the backup process available; my shop has this process (like all other administration tasks) automated. Performance is a nonissue, since the master has to replay the log segments internally anyhow in addition to doing other work; thus, the slaves will always be under less load than the master. 
+ Oracle's RAC (which isn't properly replication, as there's only one storage backend -- but you have multiple frontends sharing the load, and can build redundancy into that shared storage backend itself, so it's worthy of mention here) is a multi-master approach far more comprehensive than other solutions, but is  extremely  expensive. Database contents aren't "shipped over the wire"; instead, they're stored to the shared backend, which all the systems involved can access. Because there is only one backend, the systems cannot come out of sync. 
+ Continuent offers a third-party solution which does fully synchronous statement-level replication with support for all three of the above databases; however, the commercially supported version of their product isn't particularly cheap (though vastly less expensive. Last time I administered it, Continuent's solution required manual intervention for bringing a cluster back into sync. 
+ 
+ I have some experience with MS-SQL 2005 (publisher) and SQLEXPRESS (subscribers) with overseas merge replication. Here are my comments: 
+ 1 - Is replication built in, or an add-on/plugin? 
+ Built in 
+ 2 - How does the replication work
+    (high-level)? 
+ Different ways to replicate, from snapshot (giving static data at the subscriber level) to transactional replication (each INSERT/DELETE/UPDATE instruction is executed on all servers). Merge replication replicate only final changes (successives UPDATES on the same record will be made at once during replication).   
+ 3 - Is it easy to check consistency between master and slaves? 
+ Something I have never done ... 
+ 4 - How easy is it to get a failed replica back in sync with the master? 
+ The basic resynch process is just a double-click one  .... But if you have 4Go of data to reinitialize over a 64 Kb connection, it will be a long process unless you customize it. 
+ 5 - Performance?  
+ Well ... You will of course have a bottleneck somewhere, being your connection performance, volume of data, or finally your server performance. In my configuration, users only write to subscribers, which all replicate with the main database = publisher. This server is then never sollicited by final users, and its CPU is strictly dedicated to data replication (to multiple servers) and backup. Subscribers are dedicated to clients and one replication (to publisher), which gives a very interesting result in terms of data availability for final users. Replications between publisher and subscribers can be launched together. 
+ 6 - Any other interesting features... 
+ It is possible, with some anticipation, to keep on developping the database without even stopping the replication process....tables (in an indirect way), fields and rules can be added and replicated to your subscribers. 
+ Configurations with a main publisher and multiple suscribers can be VERY cheap (when compared to some others...), as you can use the free SQLEXPRESS on the suscriber's side, even when running merge or transactional replications 
+ 
+ Try  Sybase SQL Anywhere 
+ 
+ Just adding to the options with SQL Server (especially SQL 2008, which has Change Tracking features now). Something to consider is the  Sync Framework  from Microsoft. There's a few options there, from the basic hub-and-spoke architecture which is great if you have a single central server and sometimes-connected clients, right through to peer-to-peer sync which gives you the ability to do much more advanced syncing with multiple 'master' databases. 
+ The reason you might want to consider this instead of traditional replication is that you have a lot more control from code, for example you can get events during the sync progress for Update/Update, Update/Delete, Delete/Update, Insert/Insert conflicts and decide how to resolve them based on business logic, and if needed store the loser of the conflict's data somewhere for manual or automatic processing. Have a look at  this guide  to help you decide what's possible with the different methods of replication and/or sync. 
+ For the keen programmers the Sync Framework is open enough that you can have the clients connect via WCF to your WCF Service which can abstract any back-end data store (I hear some people are experimenting using Oracle as the back-end). 
+ My team has just gone release with a large project that involves multiple SQL Express databases syncing sub-sets of data from a central SQL Server database via WAN and Internet (slow dial-up connection in some cases) with great success. 
+ 
+ MS SQL 2005 Standard Edition and above have excellent replication capabilities and tools. Take a look at: 
+ http://msdn.microsoft.com/en-us/library/ms151198(SQL.90).aspx 
+ It's pretty capable. You can even use SQL Server Express as a readonly subscriber. 
+ 
+ There are a lot of different things which databases CALL replication. Not all of them actually involve replication, and those which do work in vastly different ways. Some databases support several different types. 
+ MySQL supports asynchronous replication, which is very good for some things. However, there are weaknesses. Statement-based replication is not the same as what most (any?) other databases do, and doesn't always result in the expected behaviour. Row-based replication is only supported by a non production-ready version (but is more consistent with how other databases do it). 
+ Each database has its own take on replication, some involve other tools plugging in. 
+ 
+ A bit off-topic but you might want to check Maatkit for tools to help with MySQL replication. 
+ 
+ All the main commercial databases have decent replication - but some are more decent than others.  IBM Informix Dynamic Server (version 11 and later) is particularly good.  It actually has two systems - one for high availability (HDR - high-availability data replication) and the other for distributing data (ER - enterprise replication).  And the the Mach 11 features (RSS - remote standalone secondary, and SDS - shared disk secondary) are excellent too, doubly so in 11.50 where you can write to either the primary or secondary of an HDR pair. 
+ ( Full disclosure: I work on Informix softare. ) 
+ 
+ I haven't tried it myself, but you might also want to look into OpenBaseSQL, which seems to have some simple to use replication built-in. 
+ 
+ Another way to go is to run in a virtualized environment.  I thought the data in this blog article was interesting 
+ http://chucksblog.typepad.com/chucks_blog/2008/09/enterprise-apps.html 
+ It's from an EMC executive, so obviously, it's not independent, but the experiment should be reproducible 
+ Here's the data specific for Oracle 
+ http://oraclestorageguy.typepad.com/oraclestorageguy/2008/09/to-rac-or-not-to-rac-reprise.html 
+ Edit: If you run virtualized, then there are ways to make anything replicate 
+ http://chucksblog.typepad.com/chucks_blog/2008/05/vmwares-srm-cha.html 
+ 

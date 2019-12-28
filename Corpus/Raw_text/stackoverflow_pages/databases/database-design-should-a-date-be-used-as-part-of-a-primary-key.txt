@@ -1,0 +1,57 @@
+*** database-design-should-a-date-be-used-as-part-of-a-primary-key ***
+
+ What are the pros/cons for including a date field as a part of a primary key? 
+ 
+ Consider a table of parts inventory -- if you want to store the inventory level at the end of each day then a composite primary key on part_id and date_of_day would be fine. You might choose to make that a unique key and add a synthetic primary key, particularly if you have one or more tables referencing it with a foreign key constraint, but that aside, no problem. 
+ So there's nothing necessarily wrong with it, but like any other method it can be used incorrectly as in Patrick's example. 
+ Edit: Here's another comment to add. 
+ I'm reminded of something I wrote a while ago on the subject of whether date values in databases really were natural or synthetic. The readable representation of a date as "YYYY-MM-DD" is certainly natural, but internally in Oracle this is stored as a numeric that just represents that particular date/time to Oracle. We can choose and change the representation of that internal value at any time (to different readable formats, or to a different calendar system entirely) without the internal value losing its meaning as  that  particular date and time. I think on that basis, a DATE data type lies somewhere between natural and synthetic. 
+ 
+ I am ok with it being part of the key, but would add that you should also have an auto-incrementing sequence number be a part of the PK, and enforce that any date is written to the database as UTC, with the downstream systems than converting to local time. 
+ A system that I worked in decided that it would be a grand idea to have an Oracle trigger write to a database whenever another table was touched, and make the sysdate be part of the primary key with no sequence number.  Only problem is that if you run an update query that hits the row more than once per second, it breaks the primary key on the table that is recording the change. 
+ 
+ if you have already decided to use a 'natural' primary key, then question is: is the date a necessary part of the primary key, or not - pros/cons are irrelevant! 
+ 
+ There are some questions I'd ask about using a date as part of the primary key.  
+ Does the date include the time portion? This makes things tricky because time includes time zones and daylight savings. This doesn't alter the date/time value, but may produce unexpected results in terms of sorting or retrieving values based upon a query.   
+ I'm a big believer in the use of surrogate keys (i.e. use a sequence column as the primary key) rather than natural keys (like using a date).  
+ 
+ A slight con would be that it's not as elegant a handle as some other identifiers 
+ (e.g. saying to a colleague please can you look at record 475663 is a bit easier than saying please can you look at 2008-12-04 19:34:02) 
+ There is also the risk of confusion over different date format in different locales 
+ (e.g. 4th March 2008 - 4/3/2008 in Europe, 3/4/2008 in USA) 
+ (My preference is always to use a seperate key column) 
+ 
+ As always.. It depends. 
+ What is your objective of including a date/time column in a PK?  Is it to provide additional information about a record without having to actually select the row? 
+ The main problem I can foresee here is the obvious ones, i.e. do you use a UTC date or a local date?  Will the date be misinterpreted (will someone think it means local time when it means UTC)?  As some of the others have suggested this might be better used in a surrogate/composite key instead?  It might be better for your performance to use it in a key or index other than the Primary Key. 
+ [Side note] This kind of reminds me of the theory behind a  (1) COMB  (combined GUID) although the idea here was to create a unique ID for a PK which SQL Server better indexed/required less index rebuilding, rather than to add any meaningful date/time value to a row. 
+ (1) [ http://www.informit.com/articles/article.aspx?p=25862&seqNum=7] 
+ 
+ Dates make perfectly good primary keys, provided that they make sense as part of the natural key.  I would use a date in tables like: 
+ 
+ holiday_dates (hol_date date) 
+ employee_salary (employee_id integer, sal_start_date date) 
+ 
+ (What would be the point of adding the surrogate employee_salary_id above?) 
+ For some tables, a date could be used but something else makes more sense as the primary key, e.g.: 
+ 
+ hotel_room_booking (booking_reference) 
+ 
+ We could have used (room_no, booking_from_date) or (room_no, booking_to_date), but a reference is more useful for communicating with the client etc.  We might makes these into UNIQUE constraints, but in fact we need a more complex "no overlap" check for these. 
+ 
+ Date as the sole or first component of a primary key causes performance problems on tables with high insert. (Table will need to be rebalanced frequently).  
+ Often causes an issue if more then one are inserted per Date. 
+ In most situations I consider this a bad smell, and would advise against it. 
+ 
+ Nothing particulary wrong with this but as other posters have noted you could get into problems with time zones and locals. Also you can end up with lots of DATE() functions obfusticating your SQL. 
+ If it is something like inventory at end of day as previously mentioned, you could perhaps consider an eight character text field like "20081202" as the second part of the primary key. This avoids the time zone locale problems and is easy enough to convert into a real date if you need to. 
+ Remember the primary key has two functions to uniquly identify a record and to enforce uniqueness. Surrogate primary keys do niether.   
+ 
+ It might be hard to refer to. I came across _ID + _Date as a composite PK. This composite key was also a reference/FK in another table. 
+ Firstly it was purely confusing as there was _ID that suggested a non-composite key. 
+ Secondly Inserts to the main table were done with SYSDATE and one needed to figure out precise time that was in that SYSDATE.  **You need to be precise about time that is in it when you refer to it.**
+ Otherwise it will not work... 
+ 
+ Using the date as part of the primary key could make joins on the table significantly slower. I would prefer a surrogate key and then a unique index on the date if need be. 
+ 

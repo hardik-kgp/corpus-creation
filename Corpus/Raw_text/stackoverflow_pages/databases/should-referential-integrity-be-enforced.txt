@@ -1,0 +1,48 @@
+*** should-referential-integrity-be-enforced ***
+
+ One of the reasons why referential integrity should not be enforced is performance. Because Db has to validate all updates against relationships, it just makes things slower but what are the other pros and cons of enforcing and not enforcing? 
+ Because relationships are maintained in the business logic layer anyway, it just makes them redundant for db to do it. What are your thoughts on it? 
+ 
+ The database is responsible for data. That's it. Period. 
+ If referential integrity is not done in the database, then it's  not  integrity. It's just trusting people not to do bad things, in which case you probably shouldn't even worry about password-protecting your data either :-) 
+ Who's to say you won't get someone writing their own JDBC-connected client to totally screw up the data, despite your perfectly crafted and bug-free business layer (the fact that it probably  won't  be bug-free is another issue entirely, mandating that the DB should protect itself). 
+ 
+ First of all, it's almost impossible to make it really work correctly. To have any chance of working right, you need to wrap a lot of the cascading modifications as transactions, so you don't have things out of sync while you've changed one part of the database, but are still updating others that depend on the first. This means code that should be simple and aware only of business logic suddenly needs to know about all sorts of concurrency issues. 
+ Second, keeping it working is almost impossible to hope for -- every time anybody touches the business logic, they need to deal with those concurrency issues again. 
+ Third, this makes the referential integrity difficult to understand -- in the future, when somebody wants to learn about your database structure, they'll have to reverse engineer it out of your business logic. With it in the database, it's separate, so what you have to look at  only  deals with referential integrity, not all sorts of unrelated issues. You have (for example) direct chains of logic showing what a modification to a particular field will trigger. At least for quite a few databases, that logic can be automatically extracted and turned into fairly useful documentation (e.g., tree diagrams showing dependencies). Extracting the same kind of information from the BLL is more likely to be a fairly serious project. 
+ There are certainly some points in the other direction, and reasons to craft all of this by hand -- scalability and performance being the most obvious. When/if you go that route, however, you should be aware of what you're giving up to get that performance. In some cases, it's a worthwhile tradeoff -- but in other cases it's not, and you need information to make a reasoned decision. 
+ 
+ Relationships  **may be**
+ maintained in  **a**
+ business logic layer.  Unless you can guarantee 100% beyond any doubt that your BLL is and always will be bug-free, then you don't have data integrity.  And you can't make that guarantee. 
+ Also, if another app will ever touch your database, it isn't required to follow (read: reimplement, maybe in a subtlely wrong way) the rules in your BLL.   It  could corrupt the data, even if you somehow managed to be one of the 3 programmers on Earth to write bug-free code. 
+ The database, meanwhile, enforces the same rules for everybody -- and rules enforced by the database are far less likely to be overlooked when you're updating, since the DB won't allow it. 
+ 
+ Have a  listen  to Dan Pritchett, Technical Fellow at eBay on why certain database constructs such as transactions and referential integrity are not the mandates that textbooks might indicate they should be...  It comes down to the types of data, the volume of queries and business requirements.  Balance those and it will lead you to pragmatic solutions, not dogmatic answers... 
+ However, do  not  assume that keeping relationships in the BLL will protect your data.  You cannot guarantee that future developers won't expose new APIs that bypass the BLL for "performance" reasons, or simple lack of understanding of your architecture... 
+ 
+ The performance assumption on which the question is based is incorrect as a general rule. Usually if you require RI to be enforced then the database is the most efficient place to do it, NOT the application - otherwise the application has to requery more data in order to be able to validate RI outside the database. 
+ Also, RI constraints in the database are useful for the query optimiser for making other queries more efficient. Integrity constraints in the application can't achieve that. 
+ Lastly, the cost of maintaining integrity constraints in every application is generally more expensive and complex than doing it once in one place. 
+ 
+ A lot has already been said about the fact that the DB should be the final place to validate/control your constraints (and I couldn't agree more) 
+ If the data is important, then your application won't be the last to access the database and it won't be the only one.  
+ But there is another very important fact about referential integrity (and other constraints): it documents your datamodel and makes the dependencies between the tables explicit.  
+ As far as performance is concerned, defining FKs (or other constraints) in the database can make things even faster in certain cases, because the DBMS can rely on the constraints and make approriate optimizations.  
+ 
+ But Colonel Ingus, if you've got the customer with an id in the session you've already probed the database! The problem is when you then write your sales order away, but didn't attach it to a product because you didn't prob for a product. One way or another you'll end up with orphaned records, just like the very large company I'm currently working for has. We have customers with no history and history with no customers; customers with outstanding balances who've never bought anything and goods sold to customers who don't exist - interesting business concepts - and it keeps a team of very frustrated support staff in full time employment trying to sort it out. It would be far less expensive to have put RI on everything and bought a bigger box to sort out any perceived performance problems. 
+ 
+ What paxdiablo and dportas said.  And my two cents.  There are two other considerations.  
+ In order to validate referential integrity for a new insert, you have to do a probe into the database to verify that the reference is valid.  You just nullfied the performance gain that led you to want to enforce integrity in the application.  It's actually faster to let the DBMS enforce referential integrity. 
+ Beyond that, consider the case where you have more than one application all reading and writing data in a single database.  If you enforce referential integrity in the business application layer, you have to make sure that all of the applications do things right.  Otherwise,  some aberrant application could store invalid refrences,  and the problem could surface when a different application went to use the data.  That's a real mess.
+Better to have the DBMS enforce the data rules for all the applications.   
+ 
+ It depends on the data, if its highly transactional data such as business transactions and what not where frequent updates are happening then enforcing the business rules in the database is extremely important.. But for everything else the performance impact may not be worth it..  
+ 
+ If you are maintaining the relationships in the business layer, you can guarantee that a few years down the pike you will have bad data in the database. The business layer is the worst possible place to do that.  
+ Further, when you replace the business layer with something else you have to redefine all these things. Datbases often outlast the original application they are written for by many years, put the correct realtionships and constraints in the datbase where they belong.  
+ 
+ What happens when you try to insert a record into the database and it fails referential integrity? You get an error from the database. Then you have to change your code so that it doesn't try to insert invalid data. To avoid ref integrity errors your code MUST know which data is which. Therefore, referential integrity is useless.  
+ Walter Mitty said "In order to validate referential integrity for a new insert, you have to do a probe into the database to verify that the reference is valid." Sigh... this is complete nonsense. If I have a Customer object in the session (that's memory, aka RAM for some of you fellas), I know the Customer's ID and can use it to insert a SalesOrder object. There is no need to look up the Customer.  
+ I am on a system now with tight Referential Integrity and Hibernate wrapped around it with its gross tenticles. It's the slowest system I have ever seen. I did not design it and if I had, it would be many times faster AND easier to maintain. Hibernate sucks. 
+ 

@@ -1,0 +1,60 @@
+*** handling-very-large-data-with-mysql ***
+
+ Sorry for the long post! 
+ I have a database containing ~30 tables (InnoDB engine). Only two of these tables, namely, "transaction" and "shift" are quite large (the first one have 1.5 million rows and shift has 23k rows). Now everything works fine and I don't have problem with the current database size.  
+ However, we will have a similar database (same datatypes, design ,..) but much larger, e.g., the "transaction" table will have about  **1 billion records**
+ (about 2,3 million transaction per day) and we are thinking about how we should deal with such volume of data in MySQL? (it is both read and write intensive). I read a lot of related posts to see if Mysql (and more specifically InnoDB engine) can perform well with billions of records, but still I have some questions. Some of those related posts that I've read are in the following: 
+ 
+ Can MySQL reasonably perform queries on billions of rows? 
+ Is InnoDB (MySQL 5.5.8) the right choice for multi-billion rows? 
+ Best data store for billions of rows 
+ How big can a MySQL database get before performance starts to degrade 
+ Why MySQL could be slow with large tables? 
+ Can Mysql handle tables which will hold about 300 million records? 
+ 
+ What I've understood so far to improve the performance for very large tables: 
+ 
+ (for innoDB tables which is my case) increasing the   (e.g., up to 80% of RAM).
+Also, I found some other MySQL performance tunning settings  here in
+percona blog 
+ having proper indexes on the table (using EXPLAN on queries) 
+ partitioning the table 
+ MySQL Sharding or clustering 
+ 
+ Here are my questions/confusions: 
+ 
+ About partitioning, I have some doubts whether we should use it or not. On one hand many people suggested it to improve performance when table is very large. On the other hand, I've read many posts saying it does not improve query performance and it does not make queries run faster (e.g.,  here  and  here ). Also, I read in  MySQL Reference Manual  that  **InnoDB foreign keys and MySQL partitioning are not compatible**
+ (we have foreign keys).  
+ Regarding indexes, right now they perform well, but as far as I understood, for very large tables indexing is more restrictive (as Kevin Bedell mentioned in his answer  here ). Also, indexes speed up reads while slow down write (insert/update). So, for the new similar project that we will have this large DB, should we first insert/load all the data and then create indexes? (to speed up the insert)  
+ If we cannot use partitioning for our big table ("transaction" table), what is an alternative option to improve the performance? (except MySQl variable settings such as  ). Should we use Mysql clusters? (we have also lots of joins) 
+ 
+ EDIT 
+ This is the   statement for our largest table named "transaction":   
+ 
+ Thanks for your time, 
+ 
+ 
+ Can MySQL reasonably perform queries on billions of rows? -- MySQL can 'handle' billions of rows.  "Reasonably" depends on the queries; let's see them. 
+ Is InnoDB (MySQL 5.5.8) the right choice for multi-billion rows? -- 5.7 has some improvements, but 5.5 is pretty good, in spite of being  nearly 6  8 years old, and on the verge of no longer being supported. 
+ Best data store for billions of rows -- If you mean 'Engine', then InnoDB. 
+ How big can a MySQL database get before performance starts to degrade -- Again, that depends on the queries.  I can show you a 1K row table that will meltdown; I have worked with billion-row tables that hum along. 
+ Why MySQL could be slow with large tables? -- range scans lead to I/O, which is the slow part. 
+ Can Mysql handle tables which will hold about 300 million records? -- again, yes.  The limit is somewhere around a trillion rows. 
+ (for innoDB tables which is my case) increasing the innodb_buffer_pool_size (e.g., up to 80% of RAM). Also, I found some other MySQL performance tunning settings here in percona blog -- yes 
+ having proper indexes on the table (using EXPLAN on queries) -- well, let's see them.  There are lot of mistakes that can be made in this  critical  area. 
+ partitioning the table -- "Partitioning is not a panacea!"  I harp on that in  my blog 
+ MySQL Sharding -- Currently this is DIY 
+ MySQL clustering -- Currently the best answer is some Galera-based option (PXC, MariaDB 10, DIY w/Oracle). Oracle's "Group Replication" is a viable contender. 
+ Partitioning does not support   or "global"  . 
+ UUIDs, at the scale you are talking about, will not just slow down the system, but actually kill it.   Type 1 UUIDs  may be a workaround. 
+ Insert and index-build speed -- There are too many variations to give a single answer.  Let's see your tentative   and how you intend to feed the data in. 
+ Lots of joins -- "Normalize, but don't over-normalize."  In particular, do not normalize datetimes or floats or other "continuous" values. 
+ Do build  summary tables 
+ 2,3 million transaction per day -- If that is 2.3M  inserts  (30/sec), then there is not much of a performance problem.  If more complex, then RAID, SSD, batching, etc, may be necessary. 
+ deal with such volume of data -- If most activity is with the "recent" rows, then the buffer_pool will nicely 'cache' the activity, thereby avoiding I/O.  If the activity is "random", then MySQL (or  anyone  else) will have I/O issues. 
+ Shrinking the datatypes helps in a table like yours.  I doubt if you need 4 bytes to specify  .  There are multiple 1-byte approaches. 
+ 
+ 
+ When collecting billions of rows, it is better (when possible) to consolidate, process, summarize, whatever, the data  before  storing.  Keep the raw data in a file if you think you need to get back to it. 
+ Doing that will eliminate most of your questions and concerns, plus speed up the processing. 
+ 

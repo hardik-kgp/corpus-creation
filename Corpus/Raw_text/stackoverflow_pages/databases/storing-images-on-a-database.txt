@@ -1,0 +1,60 @@
+*** storing-images-on-a-database ***
+
+ 
+ 
+ 
+ 
+ 
+ This question already has answers here :
+                            
+                         
+ 
+ 
+ Closed  6 years ago . 
+ 
+ 
+ 
+ **Possible Duplicate:**
+
+ Storing Images in DB - Yea or Nay?   
+ 
+ For ages I've been told not to store images on the database, or any big BLOB for that matter. While I can understand why the databases aren't/weren't efficient for that I never understood why they couldn't. If I can put a file somewhere and reference it, why couldn't the database engine do the same. I'm glad Damien Katz mentioned it on a recent Stack Overflow podcast and Joel Spolsky and Jeff Atwood, at least silently, agreed. 
+ I've been reading hints that Microsoft SQL Server 2008 should be able to handle BLOBs efficient, is that true? If so, what is there stopping us from just storing images there and getting rid of one problem? One thing I can think of is that while the image can be served by a static web server very quickly if it's a file somewhere, when it's in the database it has to  travel from the database to the web server application (which might be slower than the static web server) and then it's served. Shouldn't caching help/solve that last issue? 
+ 
+ Yes, it's true, SQL Server 2008 just implemented a feature like the one you mention, it's called a filestream. And it's a good argument indeed for storing blobs in a DB, if you are certain you will only want to use SQL Server for your app (or are willing to pay the price in either performance or in developing a similar layer on top of the new DB server). Although I expect similar layers will start to appear if they don't already exist for different DB servers. 
+ As always what would the real benefits be depend on the particular scenario. If you will serve lots of relatively static, big files, then this scenario plus caching will probably be the best option considering a performance/manageability combo. 
+ This white paper  describes the FILESTREAM feature of SQL Server 2008, which allows storage of and efficient access to BLOB data using a combination of SQL Server 2008 and the NTFS file system. It covers choices for BLOB storage, configuring Windows and SQL Server for using FILESTREAM data, considerations for combining FILESTREAM with other features, and implementation details such as partitioning and performance. 
+ 
+ **Just because you can do something doesn't mean you should.**
+  
+ If you care about efficiency you'll still most likely not want to do this for any sufficiently large scale file serving. 
+ **Also**
+ it looks like this topic has been heavily discussed... 
+ 
+ Exact Duplicate:  User Images: Database or filesystem storage? 
+ Exact Duplicate:  Storing images in database: Yea or nay? 
+ Exact Duplicate:  Should I store my images in the database or folders? 
+ Exact Duplicate:  Would you store binary data in database or folders? 
+ Exact Duplicate:  Store pictures as files or or the database for a web app? 
+ Exact Duplicate:  Storing a small number of images: blob or fs? 
+ Exact Duplicate:  store image in filesystem or database? 
+ 
+ 
+ I'll try to decompose your question and address your various parts as best I can.  
+ 
+ **SQL Server 2008 and the Filestream Type**
+ - Vinko's answer above is the best one I've seen so far. The Filestream type is the SQL Server 2008 is what you were looking for. Filestream is in version 1 so there are still some reasons why I wouldn't recommend using if for an enterprise application. As an example, my recollection is that you can't split the storage of the underlying physical files across multiple Windows UNC paths. Sooner or later that will become a pretty serious constraint for an enterprise app. 
+ **Storing Files in the Database**
+ - In the grander scheme of things, Damien Katz's original direction was correct. Most of the big enterprise content management (ECM) players store files on the filesystem and metadata in the RDBMS. If you go even bigger and look at Amazon's S3 service, you're looking at physical files with a non-relational database backend. Unless you're measuring your files under storage in the billions, I wouldn't recommend going this route and rolling your own. 
+ **A Bit More Detail on Files in the Database**
+ - At first glance, a lot of things speak for files in the database. One is simplicity, two is transactional integrity. Since the Windows file system cannot be enlisted in a transaction, writes that need to occur across the database and filesystem need to have transaction compensation logic built in. I didn't really see the other side of the story until I talked to DBAs. They generally don't like commingling business data and blobs (backup becomes painful) so unless you have a separate database dedicated to file storage, this option is generally not as appealing to DBAs. You're right that the database will be faster, all other things being equal. Not knowing the use case for your application, I can't say much about the caching option. Suffice it to say that in many enterprise applications, the cache hit rate on documents is just too darn low to justify caching them. 
+ 
+ Hope this helps. 
+ 
+ One of the classical reasons for caution about storing blobs in databases is that the data will be stored and edited (changed) under transaction control, which means that the DBMS needs to ensure that it can rollback changes, and recover changes after a crash.  This is normally done by some variation on the theme of a transaction log.  If the DBMS is to record the change in a 2 GB blob, then it has to have a way of identifying what has changed.  This might be simple-minded (the before image and the after image) or more sophisticated (some sort of binary delta operation) that is more computationally expensive.  Even so, sometimes the net result will be gigabytes of data to be stored through the logs.  This hurts the system performance.  There are various ways of limiting the impact of the changes - reducing the amount of data flowing through the logs - but there are trade-offs. 
+ The penalty for storing filenames in the database is that the DBMS has no control (in general) over when the files change - and hence again, the reproducibility of the data is compromised; you cannot guarantee that something outside the DBMS has not changed the data.  (There's a very general version of that argument - you can't be sure that someone hasn't tampered with the database storage files in general.  But I'm referring to storing a file name in the database referencing a file not controlled by the DBMS.  Files controlled by the DBMS are protected against casual change by the unprivileged.) 
+ The new SQL Server functionality sounds interesting.  I've not explored what it does, so I can't comment on the extent to which it avoids or limits the problems alluded to above. 
+ 
+ There are options within SQL Server to manage where it stores large blobs of data, these have been in there since at lease SQL2005 so I don't know why you couldn't store large BLOBs of data. MOSS for instance stores all of the documents you upload to it in a SQL database. 
+ There are of course some performance implications, as with just about anything, so you should take care that you don't retreive the blob if you don't need it, and don't include it in indexes etc. 
+ 

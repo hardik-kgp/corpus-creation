@@ -1,0 +1,37 @@
+*** mysql-not-using-index-for-order-by ***
+
+ I've a simple MySQL table named 'test' with two columns: 
+ 
+ Auto incrementing int column called 'id' 
+ Varchar(3000) column called 'textcol' 
+ 
+ I create an index in the table based on the 'textcol' column. However, the ORDER BY query doesn't seem to be using the index i.e. the EXPLAIN statement on a simple query with ORDER BY on textcol shows NULL in the Key column in its output and also uses filesort. 
+ Any pointers to make changes to help use the index for the ORDER by query will be useful to me. 
+ MySQL version as given by "mysql --version' command: 
+ **mysql  Ver 14.14 Distrib 5.1.58, for debian-linux-gnu (x86_64) using readline 6.2**
+
+ 
+ 
+ Since it has to load the entire table to answer the query and sorting 4 elements is cheap, the query optimizer might just be avoiding touching the index.  Does it still happen with larger tables? 
+ Note that a varchar(3000) column can't be a covering index because MySQL won't include more than the first 768 or so bytes of a varchar in an index. 
+ If you want the query to only read the index, the index must have every column you're  ing for in it.  On innodb, that should start working for your two-column table once you make textcol small enough; on MyISAM you'll need to include the primary key column yourself, like  
+ 
+ Some useful articles on ORDER BY optimisation: 
+ http://www.mysqlperformanceblog.com/2006/09/01/order-by-limit-performance-optimization/ 
+ http://opsmonkey.blogspot.co.uk/2009/03/mysql-query-optimization-for-order-by.html 
+ As largely discussed, keep the varchar down to 767 and add a key for the order by: 
+ 
+ To avoid   if adding extra 'WHERE' parameters, extend the 'orderby' index key using a multiple column index: 
+ 
+ Also: 
+ 
+ Extra: 'Using where; Using Index' 
+ 
+ I got the same problem. MySQL is stupid. fyi: I have a table with more than 500,000,000 records. I wanted to to: 
+ 
+ tid is the primary key in the table and is automatically indexed by mysql. 
+ This took a long time and I cancelled the query. then I let mysql "explain" the query and recognized that it won't use the index for the primary key. after reading many docs from mysql i tried to force mysql to use the index via "USE INDEX(...)" and dis also did not work. Then I rocognized that mysql seems to always correlate the where clause with the order by clause. So I tried to extend the where clause with a condition with touches the index. I ended up with: 
+ 
+ where tid is the primary key in the table and is an autoincrement value which starts at 1. 
+ This worked after I let mysql explain the query to me. And behold: the query took only 4 seconds. 
+ 

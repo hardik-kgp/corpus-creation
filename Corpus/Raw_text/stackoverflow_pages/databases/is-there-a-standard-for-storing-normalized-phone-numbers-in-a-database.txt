@@ -1,0 +1,107 @@
+*** is-there-a-standard-for-storing-normalized-phone-numbers-in-a-database ***
+
+ What is a good data structure for storing phone numbers in database fields?  I'm looking for something that is flexible enough to handle international numbers, and also something that allows the various parts of the number to be queried efficiently. 
+ **Edit:**
+ Just to clarify the use case here: I currently store numbers in a single varchar field, and I leave them just as the customer entered them.  Then, when the number is needed by code, I normalize it.  The problem is that if I want to query a few million rows to find matching phone numbers, it involves a function, like 
+ 
+ which is terribly inefficient.  Also queries that are looking for things like the area code become extremely tricky when it's just a single varchar field. 
+ **[Edit]**
+
+ People have made lots of good suggestions here, thanks! As an update, here is what I'm doing now: I still store numbers exactly as they were entered, in a varchar field, but instead of normalizing things at query time, I have a trigger that does all that work as records are inserted or updated. So I have ints or bigints for any parts that I need to query, and those fields are indexed to make queries run faster. 
+ 
+ First, beyond the country code, there is no real standard. About the best you can do is recognize, by the country code, which nation a particular phone number belongs to and deal with the rest of the number according to that nation's format. 
+ Generally, however, phone equipment and such is standardized so you can almost always break a given phone number into the following components 
+ 
+ C Country code 1-10 digits (right now 4 or less, but that may change) 
+ A Area code (Province/state/region) code 0-10 digits  (may actually want a region field and an area field separately, rather than one area code) 
+ E Exchange (prefix, or switch) code 0-10 digits 
+ L Line number 1-10 digits 
+ 
+ With this method you can potentially separate numbers such that you can find, for instance, people that might be close to each other because they have the same country, area, and exchange codes. With cell phones that is no longer something you can count on though. 
+ Further, inside each country there are differing standards. You can always depend on a (AAA) EEE-LLLL in the US, but in another country you may have exchanges in the cities (AAA) EE-LLL, and simply line numbers in the rural areas (AAA) LLLL. You will have to start at the top in a tree of some form, and format them as you have information.  For example, country code 0 has a known format for the rest of the number, but for country code 5432 you might need to examine the area code before you understand the rest of the number. 
+ You may also want to handle   numbers such as  , which requires recognizing that, if it's a US number, there's one too many digits (and you may need to full representation for advertising or other purposes) and that in the US the letters map to the numbers differently than in Germany. 
+ You may also want to store the entire number separately as a text field (with internationalization) so you can go back later and re-parse numbers as things change, or as a backup in case someone submits a bad method to parse a particular country's format and loses information. 
+ 
+ KISS - I'm getting tired of many of the US web sites.  They have some cleverly written code to validate postal codes and phone numbers.  When I type my perfectly valid Norwegian contact info I find that quite often it gets rejected. 
+ Leave it a string, unless you have some specific need for something more advanced. 
+ 
+ The  Wikipedia page on E.164  should tell you everything you need to know. 
+ 
+ Here's my proposed structure, I'd appreciate feedback: 
+ The phone database field should be a varchar(42) with the following format: 
+ CountryCode - Number x Extension 
+ So, for example, in the US, we could have: 
+ 1-2125551234x1234 
+ This would represent a US number (country code 1) with area-code/number (212) 555 1234 and extension 1234. 
+ Separating out the country code with a dash makes the country code clear to someone who is perusing the data. This is not  strictly  necessary because country codes are " prefix codes " (you can read them left to right and you will always be able to unambiguously determine the country). But, since country codes have varying lengths (between 1 and 4 characters at the moment) you can't easily tell at a glance the country code unless you use some sort of separator.  
+ I use an "x" to separate the extension because otherwise it really wouldn't be possible (in many cases) to figure out which was the number and which was the extension. 
+ In this way you can store the entire number, including country code and extension, in a single database field, that you can then use to speed up your queries, instead of joining on a user-defined function as you have been painfully doing so far. 
+ Why did I pick a varchar(42)? Well, first off, international phone numbers will be of varied lengths, hence the "var". I am storing a dash and an "x", so that explains the "char", and anyway, you won't be doing integer arithmetic on the phone numbers (I guess) so it makes little sense to try to use a numeric type. As for the length of 42, I used the maximum possible length of all the fields added up, based on Adam Davis' answer, and added 2 for the dash and the 'x".  
+ 
+ Look up E.164.  Basically, you store the phone number as a code starting with the country prefix and an optional pbx suffix.  Display is then a localization issue.  Validation can also be done, but it's also a localization issue (based on the country prefix). 
+ For example, +12125551212+202 would be formatted in the en_US locale as (212) 555-1212 x202.  It would have a different format in   or  .   
+ There is quite a bit of info out there about ITU-T E.164, but it's pretty cryptic.  
+ 
+ I personally like the idea of storing a normalized varchar phone number (e.g. 9991234567) then, of course, formatting that phone number inline as you display it.  
+ This way all the data in your database is "clean" and free of formatting 
+ 
+ Perhaps storing the phone number sections in different columns, allowing for blank or null entries? 
+ 
+ Ok, so based on the info on this page, here is a start on an international phone number validator: 
+ 
+ Loosely based on a script from this page:  http://www.webcheatsheet.com/javascript/form_validation.php 
+ 
+ The standard for formatting numbers is  e.164 , You should always store numbers in this format.  You should never allow the extension number in the same field with the phone number, those should be stored separately.  As for numeric vs alphanumeric, It depends on what you're going to be doing with that data. 
+ 
+ **Storage**
+
+ Store phones in  RFC 3966  (like  ,  ). The main difference from  E.164  are 
+ 
+ No limit on the length 
+ Support of extensions 
+ 
+ To optimise performance of view operations, store the phone in the National/International format next to the RFC 3966 field. 
+ Don't store the country code in a separate field unless you have a serious reason for that. Why? Because you shouldn't ask for the country code on the UI. 
+ Mostly, people enter the phones as they hear them. E.g. if the local format will start from   or  , it'd be annoying for the user to make the number transformation in the head (like, " OK, don't type '0', choose the country and type the rest of what the person said in this field "). 
+ **Parsing**
+
+ Google has your back and you can validate and parse any phone number with using their  libphonenumber  library. There are ports to almost any language. 
+ So let the user just enter " " or " " or " ". The tool will figure out the rest for you. 
+ See the  official demo , to get a feeling of how much does it help. 
+ 
+ I think free text (maybe varchar(25)) is the most widely used standard.  This will allow for any format, either domestic or international. 
+ I guess the main driving factor may be how exactly you're querying these numbers and what you're doing with them. 
+ 
+ I find most web forms correctly allow for the country code, area code, then the remaining 7 digits but almost always forget to allow entry of an extension. This almost always ends up making me utter angry words, since at work we don't have a receptionist, and my ext.# is needed to reach me. 
+ 
+ 
+ I find most web forms correctly allow for the country code, area code, then the remaining 7 digits but almost always forget to allow entry of an extension. This almost always ends up making me utter angry words, since at work we don't have a receptionist, and my ext.# is needed to reach me. 
+ 
+ I would have to check, but I think our DB schema is similar. We hold a country code (it might default to the US, not sure), area code, 7 digits, and extension. 
+ 
+ What about storing a freetext column that shows a user-friendly version of the telephone number, then a normalised version that removes spaces, brackets and expands '+'. For example: 
+ **User friendly:**
+ +44 (0)181 4642542 
+ **Normalized:**
+ 00441814642542 
+ 
+ I would go for a freetext field and a field that contains a purely numeric version of the phone number. I would leave the representation of the phone number to the user and use the normalized field specifically for phone number comparisons in TAPI-based applications or when trying to find double entries in a phone directory. 
+Of course it does not hurt providing the user with an entry scheme that adds intelligence like separate fields for country code (if necessary), area code, base number and extension. 
+ 
+ Where are you getting the phone numbers from? If you're getting them from part of the phone network, you'll get a string of digits and a number type and plan, eg 
+ 441234567890 type/plan 0x11 (which means international E.164) 
+ In most cases the best thing to do is to store all of these as they are, and normalise for display, though storing normalised numbers can be useful if you want to use them as a unique key or similar.  
+ 
+ 
+ User friendly: +44 (0)181 464 2542 normalised: 00441814642542 
+ 
+ The (0) is not valid in the international format. See the ITU-T E.123 standard. 
+ The "normalised" format would not be useful to US readers as they use 011 for international access. 
+ 
+ I've used 3 different ways to store phone numbers depending on the usage requirements. 
+ 
+ If the number is being stored just for human retrieval and won't be used for searching its stored in a string type field exactly as the user entered it. 
+ If the field is going to be searched on then any extra characters, such as +, spaces and brackets etc are removed and the remaining number stored in a string type field. 
+ Finally, if the phone number is going to be used by a computer/phone application, then in this case it would need to be entered and stored as a valid phone number usable by the system, this option of course, being the hardest to code for. 
+ 
+ 

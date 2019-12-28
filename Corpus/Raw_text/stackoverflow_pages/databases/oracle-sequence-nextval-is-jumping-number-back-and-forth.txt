@@ -1,0 +1,21 @@
+*** oracle-sequence-nextval-is-jumping-number-back-and-forth ***
+
+ I created a new table and a new sequence, I have two C# web services trying to insert records into this table using same query utilizing   (and yes I checked it many times, they both use  ).  
+ The two web services are inserting rows to the table, but the   is returning numbers out of sequence 
+ Here is how the records were created, showing   which gets its value from  
+ 
+ 1 21 22 23 2 3 24 25 4 27 28 5 
+ 
+ So far no duplicates but why is   jumping back and forth? and should I worry about it 
+ **Update:**
+
+The sequence is created with cache_size = 20 
+ 
+ I will wager that your database is running RAC (Real Application Clusters).  Assuming that is the case and that you create the sequence with all the default settings, that's the expected behavior. 
+ The default setting is to cache 20 values.  Each node in the RAC cluster, by default, will have a separate cache.  Assuming that you have a cluster with two nodes A and B, the first time a   is requested on A, A will cache values 1-20 and return a value of 1.  If the next request for a   is made on B, B will cache values 21-40 and return a value of 21.  From there, the value you get will depend on the node that your connection happens to be running on. 
+ Generally, this shouldn't be a problem.  Sequences generate unique numbers.  The numbers generally need not be consecutive.  If you really need values to be returned sequentially because you are doing something like ordering by the sequence-generated value to determine the "first" or "last" row, you can use the   clause when you create the sequence to force values to be returned in order.  That has a negative performance implication in a RAC database, however, because it increases the amount of communication that needs to go on between the nodes to synchronize the values being returned.  If you need to determine the "first" or "last" row, it's generally better to add a   or a   column to the table and order by that rather than assuming that the primary key is generated sequentially. 
+ 
+ From the docs... 
+ Sequence numbers are generated independently of tables, so the same sequence can be used for one or for multiple tables. It is possible that individual sequence numbers will appear to be skipped, because they were generated and used in a transaction that ultimately rolled back. Additionally, a single user may not realize that other users are drawing from the same sequence. 
+ http://docs.oracle.com/cd/B28359_01/server.111/b28286/statements_6015.htm#SQLRF01314 
+ 

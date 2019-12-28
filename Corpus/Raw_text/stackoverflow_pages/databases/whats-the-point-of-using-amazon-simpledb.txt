@@ -1,0 +1,65 @@
+*** whats-the-point-of-using-amazon-simpledb ***
+
+ I thought that I could use SimpleDB to take care of the most challenging area of my application (as far as scaling goes) - twitter-like comments, but with location on top - till the point when I sat down to actually start implementing it with SDB. 
+ First thing, SDB has a 1000 bytes limitation per attribute value, which is not enough even for comments (probably need to break down longer values into multiple attributes).  
+ Then, maximum domain size is 10GB. The promise was that you could scale up without worrying about database sharding etc., since SDB will not degrade with increasing loads of data. But if I understand correctly, with domains I would have exactly the same problem as with sharding, ie. at some point need to implement data records' distribution and queries across domains on application level. 
+ Even for the simplest objects that I have in the whole application, ie. atomic user ratings, SDB is not an option, because it cannot calculate an average within the query (everything is string based). So to calculate average user rating for an object, I would have to load all records - 250 at a time - and calculate it on application level. 
+ Am I missing something about SDB? Is 10GB really that much of a database to get over all SDB limitations? I was honestly enthusiastic about taking advantage of SDB, since I use S3 and EC2 already, but now I simply don't see a use case. 
+ 
+ I use SDB on a couple of large-ish applications.  The 10 GB limit per domain does worry me, but we are gambling on Amazon allowing this to be extended if we need it.  They have a request form on their site if you want more space. 
+ As far as cross domain joins, don't think of SDB as a traditional database.  During the migration of my data to SDB, I had to denormalize some of it so I could manually do the cross domain joins.  
+ The 1000 byte per attribute limitation was tough to work around also.  One of the applications I have is a blog service which stores posts and comments in the database.  While porting it over to SDB, I ran into this limitation.  I ended up storing the posts and comments as files in S3, and read that in my code.  Since this server is on EC2, the traffic to S3 isn't costing anything extra. 
+ Perhaps one of the other problems to watch out for is the eventual consistency model on SDB.  You can't write data and then read it back with any guarantee that the newly written data will be returned to you.  Eventually the data will be updated. 
+ All of this said, I still love SDB.  I don't regret switching to it.  I moved from a SQL 2005 server.  I think I had a lot more control with SQL, but once giving up that control, I have more flexibility.  Not needing to pre-define the schema is awesome.  With a strong and robust caching layer in your code, it's easy to make SDB more flexible. 
+ 
+ I have about 50GB in SimpleDB, sharded across 30 domains. I use this to allow multiple keys on objects stored in S3, and also to reduce my S3 costs. I haven't played with using SimpleDB for full-text search, but I would not attempt it. 
+ SimpleDB works, it's easy, and so on, but it isn't the right set of features for every situation. In your case, if you need aggregation, SimpleDB is not the right solution. It is built around the school of thought that the DB is just a key value store, and aggregation should be handled by an aggregation process that writes the results back to the key value store. This is exactly what is needed  for some applications. 
+ Here is  a description of how I pinch pennies using SimpleDB 
+ 
+ It's worth adding that while having to write your own sharding logic across domains is not ideal, it is in terms of performance. If for example you need to search across 100gb of data, it's better to ask 20 machines holding 5gb each to perform the same search on the portion they're responsible for, rather than one machine having to perform the entire task. If your goal is to end up with a sorted list, you can take the best results returned from the 20 simultaneous queries and collate them on the machine initiating the request. 
+ That said, I would rather like to see this abstracted from normal use and have something like "hints" in the API if you want to get lower-level. So if you happen to store 100gb of data, let Amazon decide if it's partitioned across 20 machines or 10 or 40, and distribute the work. For example, in Google's BigTable design, as a table grows it's continually partitioned into 400mb tablets. Asking for a row from a table is as simple as that, and BigTable does the job of figuring out where in the one tablet or millions of tablets it lives. 
+ Then again, BigTable requires you to write MapReduce calls to perform a query, while SimpleDB indexes itself dynamically for you, so you win some, you lose some. 
+ 
+ If the storage size per attribute is the problem you can use S3 to store larger data, and store the links to the s3 objects in SDB. S3 is not just for files, it's a generic storage solution. 
+ 
+ Amazon is trying to get you to implement a simple object database. This is primarily for speed reasons. Think of the SimpleDB records as being a pointer/key to an element in S3. This way you can run queries (slow against SimpleDB to get results lists or you can directly hit S3 with a key (fast) to pull the object when you need to retrieve or modify records one-at-a-time. 
+ 
+ The limits seem to apply to the current  **Beta**
+ release.  I assume they will allow larger databases in the future, after they figure out how they can serve the demand economically.  Even with the limits, a database of 10GB that supports high scalability and reliability is a useful and cost-effective resource. 
+ Note that scalability refers to the ability to keep a  **steady and shallow performance curve**
+, while the volume of data or the volume of requests grows.  It does not necessarily mean optimal performance, nor does it mean very high capacity data storage. 
+ Amazon SimpleDB also offers a  **free service tier**
+, so you can store up to 1GB, transfer up to 1GB/month, using up to 25 hours of machine time.  While this limit sounds very low, the fact that it's free allows some low-scale customers to use the technology, without investing in a big server farm. 
+ 
+ I'm building a commericial .NET application which will use SimpleDB as its primary data store. I'm not yet in production, but I've also been building out an open-source library that addresses some of the issues with using SimpleDB vs an RDBS. Some of the features on my roadmap are related to the issues you've mentioned: 
+ 
+ Transparent partitioning of data 
+ Pseudo transactionality  
+ Transparent spanning of attributes to
+surpass the 1000 byte limit 
+ 
+ SimpleDB is still under active development and will certainly end up with many features it doesn't have today (some added to the core system and some in the code libraries). 
+ The .NET library is  Simple Savant . 
+ 
+ I do not buy all the hype around SimpleDB and based on the following limitations can not see a reason why it should be used (I understand that now you can build almost anything with almost any technology, but this is not the reason to select one). 
+ So the limitations I have seen: 
+ 
+ can be run only on amazon AWS, you should also  pay for a whole bunch of staff   
+ maximum size of domain (table) is 10 GB 
+ attribute value length (size of field) is 1024 bytes 
+ maximum items in select response - 2500 
+ maximum response size for Select (the maximum amount of data that can return you) - 1Mb, actually you can check all the  limitations here 
+ has drivers only for  a few languages  (java, php, python, ruby, .net) 
+ does not allow case insensitive search. You have to introduce additional lowercase field/application logic. 
+ sorting can be done only  on one field 
+ because of 5s timelimit  count in can behave strange . If 5 seconds passed and the query has not finished, you end up with a partial number and a token which allows you to continue query. Application logic is responsible for collecting all this data an summing up. 
+ everything is a UTF-8 string , which makes it a pain in the ass to work with non string values (like numbers, dates). 
+ sorting behaves strange for numbers (due to the fact that everything is a string). So now you have to do a  shamanic dance with padding 
+ both do not have transactions and joins 
+ no compound, geostatic, multiple column indices, no foreign keys 
+ 
+ If this is not enough, then you also have to forget about the basic things like  ,    ,   as well as data manipulation. In whole the query language is pretty rudimentary and reminds a small subset of what SQL can do. 
+ So the functionality is not really way richer than Redis/Memcached, but I highly doubt that it performs as good as these two dbs for their use cases. 
+ SimpleDB position itself as a schema-less document-base nosql database but the query syntax of MongoDB/CounchDB is way more expressive and their limitations are way more reasonable. 
+ And at last - do not forget about  vendor locking . If in a couple of years Azure (or something else that would appear) will provide a cloud hosting 5 times cheaper than AWS, it would be really hard to switch. 
+ 

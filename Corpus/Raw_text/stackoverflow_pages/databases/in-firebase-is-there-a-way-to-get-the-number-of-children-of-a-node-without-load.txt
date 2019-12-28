@@ -1,0 +1,65 @@
+*** in-firebase-is-there-a-way-to-get-the-number-of-children-of-a-node-without-load ***
+
+ You can get the child count via 
+ 
+ But I believe this fetches the entire sub-tree of that node from the server. For huge lists, that seems RAM and latency intensive. Is there a way of getting the count (and/or a list of child names) without fetching the whole thing? 
+ 
+ The code snippet you gave does indeed load the entire set of data and then counts it client-side, which can be very slow for large amounts of data. 
+ Firebase doesn't currently have a way to count children without loading data, but we do plan to add it. 
+ For now, one solution would be to maintain a counter of the number of children and update it every time you add a new child. You could use a transaction to count items, like in this code tracking upvodes: 
+ 
+ For more info, see  https://www.firebase.com/docs/transactions.html 
+ **UPDATE:**
+
+Firebase recently released Cloud Functions. With Cloud Functions, you don't need to create your own Server. You can simply write JavaScript functions and upload it to Firebase. Firebase will be responsible for triggering functions whenever an event occurs. 
+ If you want to count upvotes for example, you should create a structure similar to this one: 
+ 
+ And then write a javascript function to increase the   when there is a new write to the   node. 
+ 
+ You can read the  Documentation  to know how to  Get Started with Cloud Functions . 
+ Also, another example of counting posts is here:
+ https://github.com/firebase/functions-samples/blob/master/child-count/functions/index.js 
+ **Update January 2018**
+
+ The  firebase docs  have changed so instead of   we now have   and  . 
+ The given example throws an error complaining that   is undefined. This pattern seems to work better: 
+ 
+ ``` 
+ 
+ This is a little late in the game as several others have already answered nicely, but I'll share how I might implement it. 
+ This hinges on the fact that the  Firebase REST API  offers a   parameter.  
+ Assume you have a   object and each one can have a number of  : 
+ 
+ You obviously don't want to fetch all of the comments, just the number of comments. 
+ Assuming you have the key for a post, you can send a   request to
+ . 
+ This will return an object of key-value pairs, where each key is the key of a comment and its value is  : 
+ 
+ The size of this response is much smaller than requesting the equivalent data, and now you can calculate the number of keys in the response to find your value (e.g. commentCount =  ). 
+ This may not completely solve your problem, as you are still calculating the number of keys returned, and you can't necessarily subscribe to the value as it changes, but it does greatly reduce the size of the returned data without requiring any changes to your schema. 
+ 
+ Save the count as you go - and use validation to enforce it. I hacked this together - for keeping a count of unique votes and counts which keeps coming up!. But this time I have tested my suggestion! (notwithstanding cut/paste errors!). 
+ The 'trick' here is to use the node  priority  to as the vote count... 
+ The data is: 
+ vote/$issueBeingVotedOn/user/$uniqueIdOfVoter = thisVotesCount, priority=thisVotesCount
+vote/$issueBeingVotedOn/count = 'user/'+$idOfLastVoter, priority=CountofLastVote 
+ 
+ user can only vote once && count must be one higher than current count && data value must be same as priority. 
+ 
+ count (last voter really) - vote must exist and its count equal newcount, && newcount (priority) can only go up by one. 
+ 
+ Test script to add 10 votes by different users (for this example, id's faked, should user auth.uid in production). Count down by (i--) 10 to see validation fail. 
+ 
+ The 'risk' here is that a vote is cast, but the count not updated (haking or script failure). This is why the votes have a unique 'priority' - the script should really start by ensuring that there is no vote with priority higher than the current count, if there is it should complete that transaction before doing its own - get your clients to clean up for you :) 
+ The count needs to be initialised with a priority before you start - forge doesn't let you do this, so a stub script is needed (before the validation is active!). 
+ 
+ write a cloud function to and update the node count. 
+ 
+ Refer : https://firebase.google.com/docs/functions/database-events 
+ root--|
+      |-users  ( this node contains all users list) 
+      | 
+      |-count
+          |-userscount : 
+(this node added dynamically by cloud function with the user count) 
+ 

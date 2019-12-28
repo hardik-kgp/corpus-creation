@@ -1,0 +1,211 @@
+*** are-stored-procedures-more-efficient-in-general-than-inline-statements-on-mode ***
+
+ 
+ 
+ 
+ 
+ 
+ This question already has answers here :
+                            
+                         
+ 
+ 
+ 
+ Which is better: Ad hoc queries or stored procedures? [closed] 
+ 
+                                    (22 answers)
+                                 
+ 
+ Closed  6 years ago . 
+ 
+ 
+ Conventional wisdom states that stored procedures are always faster. So, since they're always faster, use them  **ALL THE TIME**
+. 
+ I am pretty sure this is grounded in some historical context where this was once the case. Now, I'm not advocating that Stored Procs are not needed, but I want to know in what cases stored procedures are necessary in modern databases such as MySQL, SQL Server, Oracle, or < Insert_your_DB_here >. Is it overkill to have ALL access through stored procedures? 
+ 
+ 
+ **NOTE**
+ that this is a general look at stored procedures not regulated to a specific
+  DBMS. Some DBMS (and even, different
+  versions of the same DBMS!) may operate
+  contrary to this, so you'll want to
+  double-check with your target DBMS
+  before assuming all of this still holds. 
+ I've been a Sybase ASE, MySQL, and SQL Server DBA on-and off since for almost a decade (along with application development in C, PHP, PL/SQL, C#.NET, and Ruby). So, I have no particular axe to grind in this (sometimes) holy war. 
+ 
+ The historical performance benefit of stored procs have generally been from the following (in no particular order): 
+ 
+ Pre-parsed SQL 
+ Pre-generated query execution plan 
+ Reduced network latency 
+ Potential cache benefits 
+ 
+ **Pre-parsed SQL**
+ -- similar benefits to compiled vs. interpreted code, except on a very micro level.  
+ Still an advantage?  
+Not very noticeable at all on the modern CPU, but if you are sending a single SQL statement that is VERY large eleventy-billion times a second, the parsing overhead can add up. 
+ **Pre-generated query execution plan**
+. 
+If you have many JOINs the permutations can grow quite unmanageable (modern optimizers have limits and cut-offs for performance reasons). It is not unknown for very complicated SQL to have distinct, measurable (I've seen a complicated query take 10+ seconds just to generate a plan, before we tweaked the DBMS) latencies due to the optimizer trying to figure out the "near best" execution plan. Stored procedures will, generally, store this in memory so you can avoid this overhead. 
+ Still an advantage?  
+Most DBMS' (the latest editions) will cache the query plans for INDIVIDUAL SQL statements, greatly reducing the performance differential between stored procs and ad hoc SQL. There are some caveats and cases in which this isn't the case, so you'll need to test on your target DBMS. 
+ Also, more and more DBMS allow you to provide optimizer path plans (abstract query plans) to significantly reduce optimization time (for both ad hoc and stored procedure SQL!!). 
+ 
+ **WARNING**
+ Cached query plans are not a performance panacea. Occasionally the query plan that is generated is sub-optimal.
+  For example, if you send  , the DBMS may select a
+  full-table scan instead of an index
+  scan because you're grabbing every row
+  in the table (so sayeth the
+  statistics). If this is the cached
+  version, then you can get poor
+  performance when you later send
+   . The reasoning behind this is
+  outside the scope of this posting, but
+  for further reading see:
+   http://www.microsoft.com/technet/prodtechnol/sql/2005/frcqupln.mspx 
+  and
+   http://msdn.microsoft.com/en-us/library/ms181055.aspx 
+  and  http://www.simple-talk.com/sql/performance/execution-plan-basics/ 
+ "In summary, they determined that
+  supplying anything other than the
+  common values when a compile or
+  recompile was performed resulted in
+  the optimizer compiling and caching
+  the query plan for that particular
+  value. Yet, when that query plan was
+  reused for subsequent executions of
+  the same query for the common values
+  (‘M’, ‘R’, or ‘T’), it resulted in
+  sub-optimal performance. This
+  sub-optimal performance problem
+  existed until the query was
+  recompiled. At that point, based on
+  the @P1 parameter value supplied, the
+  query might or might not have a
+  performance problem." 
+ 
+ **Reduced network latency**
+
+A) If you are running the same SQL over and over -- and the SQL adds up to many KB of code -- replacing that with a simple "exec foobar" can really add up.
+B) Stored procs can be used to move procedural code into the DBMS. This saves shuffling large amounts of data off to the client only to have it send a trickle of info back (or none at all!). Analogous to doing a JOIN in the DBMS vs. in your code (everyone's favorite WTF!) 
+ Still an advantage? 
+A) Modern 1Gb (and 10Gb and up!) Ethernet really make this negligible. 
+B) Depends on how saturated your network is -- why shove several megabytes of data back and forth for no good reason? 
+ **Potential cache benefits**
+
+Performing server-side transforms of data can potentially be faster if you have sufficient memory on the DBMS and the data you need is in memory of the server. 
+ Still an advantage? 
+Unless your app has shared memory access to DBMS data, the edge will always be to stored procs. 
+ Of course, no discussion of Stored Procedure optimization would be complete without a discussion of parameterized and ad hoc SQL. 
+ **Parameterized / Prepared SQL**
+
+Kind of a cross between stored procedures and ad hoc SQL, they are embedded SQL statements in a host language that uses "parameters" for query values, e.g.: 
+ 
+ These provide a more generalized version of a query that modern-day optimizers can use to cache (and re-use) the query execution plan, resulting in much of the performance benefit of stored procedures. 
+ **Ad Hoc SQL**
+
+Just open a console window to your DBMS and type in a SQL statement. In the past, these were the "worst" performers (on average) since the DBMS had no way of pre-optimizing the queries as in the parameterized/stored proc method. 
+ Still a disadvantage? 
+Not necessarily. Most DBMS have the ability to "abstract" ad hoc SQL into parameterized versions -- thus more or less negating the difference between the two. Some do this implicitly or must be enabled with a command setting (SQL server:  http://msdn.microsoft.com/en-us/library/ms175037.aspx  , Oracle:  http://www.praetoriate.com/oracle_tips_cursor_sharing.htm ). 
+ **Lessons learned?**
+
+Moore's law continues to march on and DBMS optimizers, with every release, get more sophisticated. Sure, you can place every single silly teeny SQL statement inside a stored proc, but just know that the programmers working on optimizers are very smart and are continually looking for ways to improve performance. Eventually (if it's not here already) ad hoc SQL performance will become indistinguishable (on average!) from stored procedure performance, so any sort of  massive  stored procedure use ** solely for "performance reasons"** sure sounds like premature optimization to me. 
+ Anyway, I think if you avoid the edge cases and have fairly vanilla SQL, you won't notice a difference between ad hoc and stored procedures. 
+ 
+ Reasons for using stored procedures: 
+ 
+ **Reduce network traffic**
+ -- you have to send the SQL statement across the network. With sprocs, you can execute SQL in batches, which is also more efficient. 
+ **Caching query plan**
+ -- the first time the sproc is executed, SQL Server creates an execution plan, which is cached for reuse. This is particularly performant for small queries run frequently. 
+ **Ability to use output parameters**
+ -- if you send inline SQL that returns one row, you can only get back a recordset. With sprocs you can get them back as output parameters, which is considerably faster. 
+ **Permissions**
+ -- when you send inline SQL, you have to grant permissions on the table(s) to the user, which is granting much more access than merely granting permission to execute a sproc 
+ **Separation of logic**
+ -- remove the SQL-generating code and segregate it in the database. 
+ **Ability to edit without recompiling**
+ -- this can be controversial. You can edit the SQL in a sproc without having to recompile the application. 
+ **Find where a table is used**
+ -- with sprocs, if you want to find all SQL statements referencing a particular table, you can export the sproc code and search it. This is much easier than trying to find it in code. 
+ **Optimization**
+ -- It's easier for a DBA to optimize the SQL and tune the database when sprocs are used. It's easier to find missing indexes and such. 
+ **SQL injection attacks**
+ -- properly written inline SQL can defend against attacks, but sprocs are better for this protection. 
+ 
+ 
+ In many cases, stored procedures are actually slower because they're more genaralized. While stored procedures can be highly tuned, in my experience there's enough development and institutional friction that they're left in place once they work, so stored procedures often tend to return a lot of columns "just in case" - because you don't want to deploy a new stored procedure every time you change your application. An OR/M, on the other hand, only requests the columns the application is using, which cuts down on network traffic, unnecessary joins, etc. 
+ 
+ It's a debate that rages on and on (for instance,  here ). 
+ It's as easy to write bad stored procedures as it is to write bad data access logic in your app. 
+ My preference is for Stored Procs, but that's because I'm typically working with very large and complex apps in an enterprise environment where there are dedicated DBAs who are responsible for keeping the database servers running sweetly. 
+ In other situations, I'm happy enough for data access technologies such as LINQ to take care of the optimisation. 
+ Pure performance isn't the only consideration, though. Aspects such as security and configuration management are typically at least as important. 
+ Edit: While Frans Bouma's article is indeed verbose, it misses the point with regard to security by a mile. The fact that it's 5 years old doesn't help its relevance, either. 
+ 
+ There is no noticeable speed difference for stored procedures vs parameterized or prepared queries on most modern databases, because the database will also cache execution plans for those queries.   
+ Note that a parameterized query is not the same as ad hoc sql. 
+ The main reason imo to still favor stored procedures today has more to do with security.  If you use stored procedures  exclusively , you can disable INSERT, SELECT, UPDATE, DELETE, ALTER, DROP, and CREATE etc permissions for your application's user, only leaving it with EXECUTE.   
+ This provides a little extra protection against  2nd order  sql injection.  Parameterized queries only protect against  1st order  injection. 
+ 
+ The one topic that no one has yet mentioned as a benefit of stored procedures is security.  If you build the application exclusively with data access via stored procedures, you can lockdown the database so the ONLY access is via those stored procedures.  Therefor, even if someone gets a database ID and password, they will be limited in what they can see or do against that database. 
+ 
+ Obviously, actual performance ought to be measured in individual cases, not assumed.  But even in cases where performance is  hampered  by a stored procedure, there are good reasons to use them: 
+ 
+ Application developers aren't always the best SQL coders.  Stored procedures hides SQL from the application. 
+ Stored procedures automatically use bind variables.  Application developers often avoid bind variables because they seem like unneeded code and show little benefit in small test systems.  Later on, the failure to use bind variables can throttle RDBMS performance. 
+ Stored procedures create a layer of indirection that might be useful later on.  It's possible to change implementation details (including table structure) on the database side without touching application code. 
+ The exercise of creating stored procedures can be useful for documenting all database interactions for a system.  And it's easier to update the documentation when things change. 
+ 
+ That said, I usually stick raw SQL in my applications so that I can control it myself.  It depends on your development team and philosophy. 
+ 
+ In 2007 I was on a project, where we used MS SQL Server via an ORM. We had 2 big, growing tables which took up to 7-8 seconds of load time on the SQL Server. After making 2 large, stored SQL procedures, and optimizing them from the query planner, each DB load time got down to less than 20 milliseconds, so clearly there are still efficiency reasons to use stored SQL procedures. 
+ Having said that, we found out that the most important benefit of stored procedures was the added maintaince-ease, security, data-integrity, and decoupling business-logic from the middleware-logic, benefitting all middleware-logic from reuse of the 2 procedures. 
+ Our ORM vendor made the usual claim that firing off many small SQL queries were going to be more efficient than fetching large, joined data sets. Our experience (to our surprise) showed something else. 
+ This may of course vary between machines, networks, operating systems, SQL servers, application frameworks, ORM frameworks, and language implementations, so measure any benefit, you THINK you may get from doing something else. 
+ It wasn't until we benchmarked that we discovered the problem was between the ORM and the database taking all the load. 
+ 
+ I prefer to use SP's when it makes sense to use them.  In SQL Server anyway there is no performance advantage to SP's over a parametrized query. 
+ However, at my current job my boss mentioned that we are forced to use SP's because our customer's require them.  They feel that they are more secure.  I have not been here long enough to see if we are implementing role based security but I have a feeling we do. 
+ So the customer's feelings trump all other arguments in this case. 
+ 
+ To me one advantage of stored procedures is to be host language agnostic: you can switch from a C, Python, PHP or whatever application to another programming language without rewriting your code. In addition, some features like bulk operations improve really performance and are not easily available (not at all?) in host languages. 
+ 
+ Read Frans Bouma's  excellent post  (if a bit biased) on that. 
+ 
+ All I can speak to is SQL server. In that platform, stored procedures are lovely because the server stores the execution plan, which in most cases speeds up performance a good bit. I say "in most cases", because if the SP has widely varying paths of execution you might get suboptimal performance. However, even in those cases, some enlightened refactoring of the SPs can speed things up. 
+ 
+ Using stored procedures for CRUD operations is probably overkill, but it will depend on the tools be used and your own preferences (or requirements).  I prefer inline SQL, but I make sure to use parameterized queries to prevent SQL injection attacks.  I keep a print out of this  xkcd comic  as a reminder of what can go wrong if you are not careful. 
+ Stored procedures can have real performance benefits when you are working with multiple sets of data to return a single set of data.  It's usually more efficient to process sets of data in the stored procedure than sending them over the wire to be processed at the client end. 
+ 
+ Realising this is a bit off-topic to the question, but if you are using a lot of stored procedures, make sure there is a consistent way to put them under some sort of source control (e.g., subversion or git) and be able to migrate updates from your development system to the test system to the production system. 
+ When this is done by hand, with no way to easily audit what code is where, this quickly becomes a nightmare. 
+ 
+ I don't know that they are faster. I like using ORM for data access (to not re-invent the wheel) but I realize that's not always a viable option.  
+ Frans Bouma has a good article on this subject :  http://weblogs.asp.net/fbouma/archive/2003/11/18/38178.aspx 
+ 
+ Stored procs are great for cases where the SQL code is run frequently because the database stores it tokenized in memory.  If you repeatedly ran the same code outside of a stored proc, you will likey incur a performance hit from the database reparsing the same code over and over. 
+ I typically frequently called code as a stored proc or as a SqlCommand (.NET) object and execute as many times as needed. 
+ 
+ Yes, they are faster most of time. SQL composition is a huge performance tuning area too. If I am doing a back office type app I may skip them but anything production facing I use them for sure for all the reasons others spoke too...namely security.  
+ 
+ IMHO... 
+ Restricting "C_UD" operations to stored procedures can keep the data integrity logic in one place. This can also be done by restricting"C_UD" operations to a single middle ware layer. 
+ Read operations can be provided to the application so they can join only the tables / columns they need. 
+ 
+ Stored procedures can also be used instead of parameterized queries (or ad-hoc queries) for some other advantages too : 
+ 
+ If you need to correct something (a sort order etc.) you don't need to recompile your app 
+ You could deny access to all tables for that user account, grant access only to stored procedures and route all access through stored procedures. This way you can have custom validation of all input much more flexible than table constraints. 
+ 
+ 
+ Reduced network traffic -- SP are generally worse then Dynamic SQL.  Because people don't create a new SP for every select, if you need just one column you are told use the SP that has the columns they need and ignore the rest.  Get an extra column and any less network usage you had just went away.  Also you tend to have a lot of client filtering when SP are used. 
+ caching -- MS-SQL does not treat them any differently, not since MS-SQL 2000 may of been 7 but I don't remember. 
+ permissions -- Not a problem since almost everything I do is web or have some middle application tier that does all the database access.  The only software I work with that have direct client to database access are 3rd party products that are designed for users to have direct access and are based around giving users permissions.  And yes MS-SQL permission security model SUCKS!!! (have not spent time on 2008 yet)  As a final part to this would like to see a survey of how many people are still doing direct client/server programming vs web and middle application server programming; and if they are doing large projects why no ORM. 
+ Separation -- people would question why you are putting business logic outside of middle tier. Also if you are looking to separate data handling code there are ways of doing that without putting it in the database. 
+ Ability to edit -- What you have no testing and version control you have to worry about?  Also only a problem with client/server, in the web world not problem. 
+ Find the table -- Only if you can identify the SP that use it, will stick with the tools of the version control system, agent ransack or visual studio to find. 
+ Optimization -- Your DBA should be using the tools of the database to find the queries that need optimization. Database can tell the DBA what statements are talking up the most time and resources and they can fix from there. For complex SQL statements the programmers should be told to talk to the DBA if simple selects don't worry about it. 
+ SQL injection attacks -- SP offer no better protection.  The only thing they get the nod is that most of them teach using parameters vs dynamic SQL most examples ignore parameters. 
+ 

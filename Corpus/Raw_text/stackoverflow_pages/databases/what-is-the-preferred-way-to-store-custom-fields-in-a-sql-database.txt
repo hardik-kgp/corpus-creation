@@ -1,0 +1,70 @@
+*** what-is-the-preferred-way-to-store-custom-fields-in-a-sql-database ***
+
+ My friend is building a product to be used by different independent medical units. 
+ The database stores a vast collection of measurements taken at different times, like the temperature, blood pressure, etc... 
+ Let us assume these are held in a table called   with columns  ,  , etc... (as well as  ,   and  ). Most of the measurements are stored as floats, but some are of other types (strings, integers...) 
+ While many of these measurements are handled by their product, it needs to allow the different medical units to record and process other custom measurements. A very nifty UI allows the administrator to edit these customs fields, specify their name, type, possible range of values, etc... 
+ He is unsure as to how to store these custom fields. 
+ He is leaning towards a separate table (say a table   with fields like  ,  ,  ,  , ...) 
+ I worry that this will make searching both more difficult to achieve and less efficient. 
+ I am leaning towards modifying the exam table directly (while avoiding conflicts on column names with some scheme like prefixing all custom fields with an underscore or naming them custom_1, ...) 
+ He worries about modifying the database dynamically and having different schemas for each medical unit. 
+ Hopefully some people which more experience can weigh in on this issue. 
+ **Notes:**
+
+ 
+ he is using Ruby on Rails but I think this question is pretty much framework agnostic, except from the fact that he is only looking for solutions in SQL databases only.  
+ I simplified the problem a bit since the custom fields need to be available for more than one table, but I believe this doesn`t really impact the direction to take. 
+ (added) A very generic reporting module will need to search, sort, generate stats, etc.. of this data, so it is required that this data be stored in the columns of the appropriate type 
+ (added) User inputs will be filtered, for the standard fields as well as for the custom fields. For example, numbers will be checked within a given range (can't have a temperature of -12 or +444), etc... Thus, conversion to the appropriate SQL type is not a problem. 
+ 
+ 
+ I've had to deal with this situation many times over the years, and I agree with your initial idea of modifying the DB tables directly, and using dynamic SQL to generate statements. 
+ Creating string UserAttribute or Key/Value columns sounds appealing at first, but it leads to the  inner-platform effect  where you end up having to re-implement foreign keys, data types, constraints, transactions, validation, sorting, grouping, calculations, et al. inside your RDBMS. You may as well just use flat files and not SQL at all. 
+ SQL Server provides   tables that let you create, query, and modify table schemas at runtime. This has full type checking, constraints, transactions, calculations, and everything you need already built-in, don't reinvent it. 
+ 
+ It's strange that so many people come up with ad-hoc solutions for this when there's a well-documented pattern for it: 
+ Entity-Attribute-Value (EAV) Model 
+ Two alternatives are XML and Nested Sets.  XML is easier to manage but generally slow.  Nested Sets usually require some type of proprietary database extension to do without making a mess, like CLR types in SQL Server 2005+.  They violate first-normal form, but are nevertheless the fastest-performing solution. 
+ 
+ Microsoft Dynamics CRM achieves this by altering the database design each time a change is made. Nasty, I think. 
+ I would say a better option would be to consider an attribute table. Even though these are often frowned upon, it gives you the flexibility you need, and you can always create views using dynamic SQL to pivot the data out again. Just make sure you always use LEFT JOINs and FKs when creating these views, so that the Query Optimizer can do its job better. 
+ 
+ I have seen a use of your friend's idea in a commercial accounting package. The table was split into two, first contained fields solely defined by the system, second contained fields like USER_STRING1, USER_STRING2, USER_FLOAT1 etc. The tables were linked by identity value (when a record is inserted into the main table, a record with same identity is inserted into the second one). Each table that needed user fields was split like that. 
+ 
+ Well, whenever I need to store some unknown type in a database field, I usually store it as String, serializing it as needed, and also store the type of the data. 
+ This way, you can have any kind of data, working with any type of database. 
+ 
+ I would be inclined to store the measurement in the database as a string (varchar) with another column identifying the measurement type. My reasoning is that it will presumably, come from the UI as a string and casting to any other datatype may introduce a corruption before the user input get's stored. 
+ The downside is that when you go to filter result-sets by some measurement metric you will still have to perform a casting but at least the storage and persistence mechanism is not introducing corruption. 
+ 
+ I can't tell you the best way but I can tell you how Drupal achieves a sort of schemaless structure while still using the standard RDBMSs available today.  
+ The general idea is that there's a schema table with a list of fields. Each row really only has two columns, the 'table':String column and the 'column':String column. For each of these columns it actually defines a whole table with just an id and the actual data for that column.  
+ The trick really is that when you are working with the data it's never more than one join away from the bundle table that lists all the possible columns so you end up not losing as much speed as you might otherwise think. This will also allow you to expand much farther than just a few medical companies unlike the custom_ prefix you were proposing.  
+ MySQL is very fast at returning row data for short rows with few columns. In this way this scheme ends up fairly quick while allowing you lots of flexibility.  
+ As to search, my suggestion would be to index the page content instead of the database content. Use Solr to parse through rendered pages and hold links to the actual page instead of trying to search through the database using clever SQL.  
+ 
+ Define two new tables:   and  . 
+  has an   column, plus an additional column for every custom attribute. 
+  would have a  row  to describe how to interpret each of the  columns  of the   table. It would have columns like  ,  ,  ,  , etc. 
+ So, for example, to create a custom field to track the number of fingers a person has, you would add   to   and then add a column named   to the   table. 
+ Someone might say it's bad to change the database schema at run time, but I'd argue that configuring these custom fields is part of set up and won't happen too often. Still, this method lets you handle changes at any time and doesn't risk messing around with your core table schemas. 
+ 
+ I would store those custom fields in a table where each record (  dataType, dataValue, dataUnit ) would use in one row. So there would be a relation oneToMany from one sample to the data. You can also create a table to record all the kind of cutsom types you would use. For example: 
+ 
+ 
+ lets say that your friend's database has to store data values from multiple sources such as demogrphic values, diagnosis, interventions, physionomic values, physiologic exam values, hospitalisation values etc.   
+ He might have as well to define choices, lets say his database is missing the race and the unit staff need the race of the patient (different races are more unlikely to get some diseases), they might want to use a drop down with several choices.   
+ I would propose to use an other table that would have these choices or would you just use a "Custom_field_choices" table, which at some point is exactly the same but with a different name.   
+ Considering that the database :  
+- needs to be flexible  
+- that data from multiple tables can be added and be customized  
+- that you might want to keep the integrity of the main structure of your database for distribution and uniformity purpose  
+- that data MUST have a limit and alarms and warnings 
+- that data must have units ( 10 kg or 10 pounds) ? 
+- that data can have a selection of choices 
+- that data can be with different rights (from simple user to admin) 
+- that these data might be needed to generate reports without modifying the code (automation) 
+- that these data might be needed to make cross reference analysis within the system without modifying the code 
+ the custom table would be my solution, modifying each table would end up being too risky. 
+ 

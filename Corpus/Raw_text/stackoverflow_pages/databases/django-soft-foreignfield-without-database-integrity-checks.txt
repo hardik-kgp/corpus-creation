@@ -1,0 +1,66 @@
+*** django-soft-foreignfield-without-database-integrity-checks ***
+
+ I have a Django project that has multiple django "apps". One of them has models to represent data coming from an external source (I do not control this data). 
+ I want my other apps to be able to have references to this "external app" but I want to avoid all the fuzz of the database integrity checks. I don't want the db to have any constraints on these "soft foreign keys". 
+ Do you know how I can code a custom field that will emulate a real Django ForeignKey without creating a hard constraint on the database? 
+ Maybe this already exists, but I didn't have any luck on Google. 
+ Thanks in advance for the help :-) 
+ NB: I'm aware of the  generic relations  system with the content_types. But I don't want generic relations. I want specific relations to identified models only without hard integrity constraints. 
+ EDIT: 
+ I found related links: 
+ 
+ Django ForeignKey which does not require referential integrity? 
+ Understanding / mySQL aka tricking ForeignKey relationships in Django 
+ 
+ But I didn't find a proper answer to my question. :( 
+ EDIT 2012, june 4: 
+ I've looked deep into django's code to find what needs to be done, but I think that simply subclassing ForeignKey will not be enough. Could you give me some directions on how to do this? 
+ NB: I use South for managing my database schema, so I figure I'll need to do something about that too. But it may be out of the subject here :) 
+ 
+ If you just want to disable the ForeignKey constraint check on a field, then just add   to that field. 
+ 
+ See also:
+ Django - How to prevent database foreign key constraint creation 
+ 
+ Piggybacking off of marianobianchi's comment, one of the options for ForeignKey.on_delete is 
+ 
+ DO_NOTHING: Take no action. If your database backend enforces referential integrity, this will cause an IntegrityError unless you manually add a SQL ON DELETE constraint to the database field (perhaps using initial sql). 
+ 
+ This combined with disabling foreign key constraints at the db level should do the trick. From what I can tell, there are two ways of doing this.  You could disable fk constraints entirely like this: 
+ 
+ It looks like the django db backends offer a constraint_checks_disabled context manager, too, so you could wrap the relevant db accesses in code like this to avoid disabling the checks throughout: 
+ 
+ 
+ Yo guys, 
+ I managed to make what I wanted. 
+ First, I created a new field: 
+ 
+ Since I use South to manage my database schema, I had to add this: 
+ 
+ Then, I had to monkey patch south so that it takes the   parameter into account. There were two functions involved in the creation of FK constraints:  
+ 
+ And: 
+ 
+ This is really ugly but I didn't find another way.  
+ Now you can use the SoftForeignKey field exactly like a normal ForeignKey except that you won't have any referencial integrity enforcement. 
+ See here for the complete monkey-patch :  http://eve-corp-management.org/projects/ecm/repository/entry/ecm/lib/softfk.py 
+ 
+ I tried something similar to Izz ad-Din Ruhulessin's suggestion but it didn't work because I have columns other than the "fake FK" column. The code I tried was: 
+ 
+ and the errors I got were: 
+ 
+ However I did come up with a working solution by using a proxy model. I did still have to hack around some Django validation that prevents fields from being included in proxy models: 
+ 
+ 
+ You could try using an unmanaged model: 
+ 
+ **Specifying **
+** in a Model Meta class will not create a db table for it. However, it will behave exactly like other models.**
+
+ 
+ I solved this by using a GenericForeignKey: 
+ 
+ On the plus side, it's out-of-the-box Django 
+ On the negative side, you have three additional attributes in your model. 
+ Additionally, reverse relations don't automatically work, but in my case, I'm okay with that. 
+ 

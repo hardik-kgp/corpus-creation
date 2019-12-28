@@ -1,0 +1,27 @@
+*** what-does-reverting-automatic-migration-mean ***
+
+ After changing branches in source control, running Update-Database to roll back to a previous migration, EF will sometimes display the text "Reverting automatic migration", like below: 
+ 
+ How did Entity Framework determine that the migration should be automatic and what does it do differently? 
+ Here's how to reproduce it, assuming you have a project with code-first migrations already setup: 
+ 
+ Switch to a new branch in source control 
+ Make a change to the model, mappers, and add a migration 
+ Update-Database 
+ Switch back to default branch 
+ Update-Database -TargetMigration:0 -Force 
+ See "Reverting automatic migration" in results from Update-Database command 
+ 
+ This is what I THINK is happening, please correct me if I'm wrong. 
+ 
+ Update-Database enumerates the migrations in __MigrationHistory 
+ It finds the corresponding migration files in the project and calls the Down() method 
+ If a corresponding migration file does not exist, then it performs a best-guess about how to roll back the migration based on the snapshot in __MigrationHistory 
+ 
+ 
+ When you scaffold a migration, Entity Framework will perform a diff between the last model recorded in __MigrationsHistory and the current model and create a migrations class containing that diff. You are free to edit both the Up and Down methods of that scaffolded migration. 
+ Automatic migrations let you skip the scaffolding. If they're enabled and you call Update-Database, it will perform a diff of your current model and the last model recorded in __MigartionsHistory and apply that diff using an "automatic" migration. The automatic migration still gets a record in __MigrationHistory, but there will be no migration class added to your project. The steps of the diff are the same that would have been scaffolded in the Up method, but there is never an opportunity for you to customize it. 
+ When you revert one of these automatic migrations, it performs a diff of the model it has recorded and the model of the previous migration. These steps are the same that would have been in the scaffolded Down method. 
+ If Entity Framework can't find the migrations class for a migration, it assumes it is an automatic migration. So, if you customized the Down method, none of those customizations will be applied while reverting. 
+ Hopefully this makes things a bit clearer. 
+ 

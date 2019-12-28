@@ -1,0 +1,71 @@
+*** whats-your-opinion-on-using-uuids-as-database-row-identifiers-particularly-in ***
+
+ I've always preferred to use long integers as primary keys in databases, for simplicity and (assumed) speed. But when using a  REST  or Rails-like URL scheme for object instances, I'd then end up with URLs like this: 
+ 
+ And then the assumption is that there are also users with IDs of 782, 781, ..., 2, and 1. Assuming that the web app in question is secure enough to prevent people entering other numbers to view other users without authorization, a simple sequentially-assigned surrogate key also "leaks" the total number of instances (older than this one), in this case users, which might be privileged information. (For instance, I am user #726 in stackoverflow.) 
+ Would a  UUID /GUID be a better solution? Then I could set up URLs like this: 
+ 
+ Not exactly succinct, but there's less implied information about users on display. Sure, it smacks of "security through obscurity" which is no substitute for proper security, but it seems at least a little more secure. 
+ Is that benefit worth the cost and complexity of implementing UUIDs for web-addressable object instances? I think that I'd still want to use integer columns as database PKs just to speed up joins. 
+ There's also the question of in-database representation of UUIDs. I know MySQL stores them as 36-character strings. Postgres seems to have a more efficient internal representation (128 bits?) but I haven't tried it myself. Anyone have any experience with this? 
+ 
+ Update: for those who asked about just using the user name in the URL (e.g.,  http://example.com/user/yukondude ), that works fine for object instances with names that are unique, but what about the zillions of web app objects that can really only be identified by number? Orders, transactions, invoices, duplicate image names, stackoverflow questions, ... 
+ 
+ I can't say about the web side of your question. But uuids are great for n-tier applications. PK generation can be decentralized: each client generates it's own pk without risk of collision. 
+And the speed difference is generally small. 
+ Make sure your database supports an efficient storage datatype (16 bytes, 128 bits).
+At the very least you can encode the uuid string in base64 and use char(22). 
+ I've used them extensively with Firebird and do recommend. 
+ 
+ For what it's worth, I've seen a long running stored procedure (9+ seconds) drop to just a few hundred milliseconds of run time simply by switching from GUID primary keys to integers. That's not to say  displaying  a GUID is a bad idea, but as others have pointed out, joining on them, and indexing them, by definition, is not going to be anywhere near as fast as with integers. 
+ 
+ I can answer you that in SQL server if you use a uniqueidentifier (GUID) datatype and use the NEWID() function to create values you will get horrible fragmentation because of page splits. The reason is that when using NEWID() the value generated is not sequential. SQL 2005 added the NEWSEQUANTIAL() function to remedy that 
+ One way to still use GUID and int is to have a guid and an int in a table so that the guid maps to the int. the guid is used externally but the int internally in the DB 
+ for example 
+ 
+ 1 and 2 will be used in joins and the guids in the web app. This table will be pretty narrow and should be pretty fast to query 
+ 
+ Why couple your primary key with your URI? 
+ Why not have your URI key be human readable (or unguessable, depending on your needs), and your primary index integer based, that way you get the best of both worlds.  A lot of blog software does that, where the exposed id of the entry is identified by a 'slug', and the numeric id is hidden away inside of the system. 
+ The added benefit here is that you now have a really nice URL structure, which is good for SEO.  Obviously for a transaction this is not a good thing, but for something like stackoverflow, it is important (see URL up top...).  Getting uniqueness isn't that difficult.  If you are really concerned, store a hash of the slug inside a table somewhere, and do a lookup before insertion. 
+ **edit:**
+ Stackoverflow doesn't quite use the system I describe, see Guy's comment below. 
+ 
+ Rather than URLs like this: 
+ 
+ Why not have: 
+ 
+ Which is friendlier to humans and doesn't leak that tiny bit of information? 
+ 
+ You could use an integer which is related to the row number but is not sequential. For example, you could take the 32 bits of the sequential ID and rearrange them with a fixed scheme (for example, bit 1 becomes bit 6, bit 2 becomes bit 15, etc..). 
+This will be a bidirectional encryption, and you will be sure that two different IDs will always have different encryptions. 
+It would obviously be easy to decode, if one takes the time to generate enough IDs and get the schema, but, if I understand correctly your problem, you just want to not give away information too easily. 
+ 
+ We use GUIDs as primary keys for all our tables as it doubles as the RowGUID for MS SQL Server Replication. Makes it very easy when the client suddenly opens an office in another part of the world... 
+ 
+ I don't think a GUID gives you many benefits. Users hate long, incomprehensible URLs. 
+ Create a shorter ID that you can map to the URL, or enforce a unique user name convention ( http://example.com/user/brianly ). The guys at  37Signals  would probably mock you for worrying about something like this when it comes to a web app. 
+ Incidentally you can force your database to start creating integer IDs from a base value. 
+ 
+ It also depends on what you care about for your application.  For n-tier apps GUIDs/UUIDs are simpler to implement and are easier to port between different databases.  To produce Integer keys some database support a sequence object natively and some require custom construction of a sequence table. 
+ Integer keys probably (I don't have numbers) provide an advantage for query and indexing performance as well as space usage.  Direct DB querying is also much easier using numeric keys, less copy/paste as they are easier to remember. 
+ 
+ I work with a student management system which uses UUID's in the form of an integer. They have a table which hold the next unique ID. 
+ Although this is probably a good idea for an architectural point of view, it makes working with on a daily basis difficult. Sometimes there is a need to do bulk inserts and having a UUID makes this very difficult, usually requiring writing a cursor instead of a simple SELECT INTO statement. 
+ 
+ I've tried both in real web apps. 
+ My opinion is that it is preferable to use integers and have short, comprehensible urls. 
+ As a developer, it feels a little bit awful seeing sequential integers and knowing that some information about total record count is leaking out, but honestly - most people probably don't care, and that information has never really been critical to my businesses. 
+ Having long ugly UUID urls seems to me like much more of a turn off to normal users. 
+ 
+ I think that this is one of these issues that cause quasi-religious debates, and its almost futile to talk about. I would just say use what you prefer. In 99% of systems it will no matter which type of key you use, so the benefits (stated in the other posts) of using one sort over the other will never be an issue.  
+ 
+ I think using a GUID would be the better choice in your situation.  It takes up more space but it's more secure. 
+ 
+ Youtube uses 11 characters with base64 encoding which offers 11^64 posibilities, and they are usually pretty manageable to write. I wonder if that would offer better performance than a full on UUID. UUID converted to base 64 would be double the size I believe. 
+ More information can be found here:  https://www.youtube.com/watch?v=gocwRvLhDf8 
+ 
+ As long as you use a DB system with efficient storage, HDD is cheap these days anyway... 
+ I know GUID's can be a b*tch to work with some times and come with some query overhead however from a security perspective they are a savior.  
+ Thinking security by obscurity they fit well when forming obscure URI's and building normalised DB's with Table, Record and Column defined security you cant go wrong with GUID's, try doing that with integer based id's. 
+ 

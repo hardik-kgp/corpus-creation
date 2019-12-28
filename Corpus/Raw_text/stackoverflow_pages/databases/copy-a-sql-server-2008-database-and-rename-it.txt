@@ -1,0 +1,84 @@
+*** copy-a-sql-server-2008-database-and-rename-it ***
+
+ I have a SQL Server 2008 database that I want to copy and create a new database (with the a different name) on the server with. I am not concerned with maintaining data, the new database can be created with no data for starters. What I am looking to do is the following: 
+ 
+ Create the new database maintaining structure of old database 
+ Set the name of the new database 
+ Change all varchar and char datatypes to nvarchar and nchar 
+ Change all text datatypes to nvarchar(MAX) 
+ 
+ As an aside, I have 2 more questions which are not part of my task but would like to consider the following: 
+ 
+ How can I upgrade the sql server database to sql server 2012 
+ Is there any preparatory work I need to carry out on the database to ensure I can easily upgrade it? 
+ 
+ 
+ This really is a combination of multiple questions. 
+ 
+ QUESTIONS 1 AND 2 
+ 
+ 
+ Create the new database maintaining structure of old database 
+ Set the name of the new database 
+ 
+ 
+ The simplest backup command would be: 
+ 
+ Now to restore this as a different database, you need to know the file names because it will try to put the same files in the same place. So if you run the following: 
+ 
+ You should see output that contains the names and paths of the data and log files. When you construct your restore, you'll need to use these, but replace the paths with the name of the new database, e.g.: 
+ 
+ You'll have to replace   and   with your actual database names, and also   and   with your actual paths. I can't get more specific in my answer unless I know what those are. 
+ 
+ Here is a full repro: 
+ 
+ Partial results: 
+ 
+ Now I run the backup: 
+ 
+ Of course if the clone target (in this case  ) already exists, you'll want to drop it: 
+ 
+ Now this restore will run successfully, giving you a copy of DB-A renamed as DB-B: 
+ 
+ 
+ QUESTIONS 3 AND 4 
+ 
+ 
+ Change all varchar and char datatypes to nvarchar and nchar 
+ Change all text datatypes to nvarchar(MAX) 
+ 
+ 
+ 
+ Refactoring is a major pain, especially if some of these columns participate in constraints. You can build a very basic script this way, but you will need something much more industrial strength to deal with all of these variables. This assumes all the columns are nullable and don't participate in constraints. 
+ 
+ You can use the PRINT output to verify the first 8K of the script, and when you think it looks good, uncomment the  . 
+ You'll want to rebuild all of your indexes once you're done. 
+ That said, scripting the database as Tony suggested (or using a tool like  Red Gate's SQL Compare  - or  one of its many alternatives  - against an empty database) is probably going to much easier, particularly if some of these columns participate in constraints - which may need to be dropped and re-created in order to change the types. 
+ 
+ QUESTIONS 5 AND 6 
+ 
+ 
+ How can I upgrade the sql server database to sql server 2012 
+ Is there any preparatory work I need to carry out on the database to ensure I can easily upgrade it? 
+ 
+ 
+ You can't upgrade just a single database on a 2008 instance. You either upgrade in place or you set up a new instance (as Tony described) and then migrate your database (preferably using backup / restore - many folks will tell you to detach / attach but that is far less safe). Preparatory work you should do include: 
+ 
+ running the  SQL Server 2012 Upgrade Advisor 
+ ensuring none of your databases have compatibility level 80 or less 
+ 
+ And after the upgrade you'll want to: 
+ 
+ set the compatibility level to 110 
+ update all statistics 
+ 
+ 
+ Source for the  script that copies a database . 
+ 
+ 
+ Hmmm use sql server to script out the database structure, and then do a search and replace for the changes. Install 2012 and execute the script. 
+ I'm not aware of anything in 2008 that won't work in 2012. If your 2008 db was set up to be still 2000 compatible, then there are a few issues, but scripting out on 2008 should get round them straight off. 
+ As for upgrading, I've never had a lot of time for inplace upgrading, aside from anything else it's destructive so anyone vaguely sensible would do a full backup of the server anyway. Don't listen to anyone who says it's unlikely to go wrong, in my experience that means you are likely to be the unlucky person who it did go wrong for, because youdidn't crossyour fingers tight enough.. 
+ Personally I'd install 2012 (preferably on another machine) and the simply restore a backup of the 2008 data. Then set the compatitibility levels, fix user/logins and such. 
+ If you do go for inplace, you can't change bitness. ie 32bit 2008 to 64 bit 2012. To do the you'd first have to switch to 2008 64 bit, which is another reason to prefer my first suggestion. 
+ 

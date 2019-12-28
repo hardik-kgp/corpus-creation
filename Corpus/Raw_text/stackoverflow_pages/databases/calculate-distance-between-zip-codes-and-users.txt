@@ -1,0 +1,96 @@
+*** calculate-distance-between-zip-codes-and-users ***
+
+ **This is more of a challenge question than something I urgently need, so don't spend all day on it guys.**
+
+ I built a dating site (long gone) back in 2000 or so, and one of the challenges was calculating the distance between users so we could present your "matches" within an X mile radius.  To just state the problem, given the following database schema (roughly): 
+ USER TABLE
+UserId
+UserName
+ZipCode 
+ ZIPCODE TABLE
+ZipCode
+Latitude
+Longitude 
+ With USER and ZIPCODE being joined on USER.ZipCode = ZIPCODE.ZipCode. 
+ What approach would you take to answer the following question:  What other users live in Zip Codes that are within X miles of a given user's Zip Code. 
+ We used the  2000 census data , which has tables for zip codes and their approximate lattitude and longitude. 
+ We also used the  Haversine Formula  to calculate distances between any two points on a sphere... pretty simple math really. 
+ The question, at least for us, being the 19 year old college students we were, really became how to efficiently calculate and/store distances from all members to all other members.  One approach (the one we used) would be to import all the data and calculate the distance FROM every zip code TO every other zip code.  Then you'd store and index the results.  Something like: 
+ 
+ The problem, of course, is that the ZipDistance table is going to have a LOT of rows in it.  It isn't completely unworkable, but it is really big.  Also it requires complete pre-work on the whole data set, which is also not unmanageable, but not necessarily desireable. 
+ Anyway, I was wondering what approach some of you gurus might take on something like this.  Also, I think this is a common issue programmers have to tackle from time to time, especially if you consider problems that are just algorithmically similar.  I'm interested in a thorough solution that includes at least HINTS on all the pieces to do this really quickly end efficiently.  Thanks! 
+ 
+ Ok, for starters, you don't really need to use the Haversine formula here. For large distances where a less accurate formula produces a larger error, your users don't care if the match is plus or minus a few miles, and for closer distances, the error is very small. There are easier (to calculate) formulas listed on the  Geographical Distance  Wikipedia article. 
+ Since zip codes are nothing like evenly spaced, any process that partitions them evenly is going to suffer mightily in areas where they are clustered tightly (east coast near DC being a good example). If you want a visual comparison, check out  http://benfry.com/zipdecode  and compare the zipcode prefix 89 with 07. 
+ A far better way to deal with indexing this space is to use a data structure like a  Quadtree  or an  R-tree . This structure allows you to do spatial and distance searches over data which is not evenly spaced. 
+ Here's what an Quadtree looks like: 
+ 
+ To search over it, you drill down through each larger cell using the index of smaller cells that are within it. Wikipedia explains it more thoroughly. 
+ Of course, since this is a fairly common thing to do, someone else has already done the hard part for you. Since you haven't specified what database you're using, the PostgreSQL extension  PostGIS  will serve as an example. PostGIS includes the ability to do R-tree spatial indexes which allow you to do efficient spatial querying. 
+ Once you've imported your data and built the spatial index, querying for distance is a query like: 
+ 
+ I'll let you work through the rest of the tutorial yourself. 
+ 
+ http://unserializableone.blogspot.com/2007/02/using-postgis-to-find-points-of.html 
+ 
+ Here are some other references to get you started. 
+ 
+ http://www.bostongis.com/PrinterFriendly.aspx?content_name=postgis_tut02 
+ http://www.manning.com/obe/PostGIS_MEAPCH01.pdf 
+ http://postgis.refractions.net/docs/ch04.html 
+ 
+ 
+ I'd simply just create a zip_code_distances table and pre-compute the distances between all 42K zipcodes in the US which are within a 20-25 mile radius of each other.  
+ 
+ Only including zipcodes within a 20-25 miles radius of each other reduces the number of rows you need to store in the distance table from it's maximum of 1.7 billion (42K ^ 2) - 42K to a much more manageable 4 million or so. 
+ I downloaded a zipcode datafile from the web which contained the longitudes and latitudes of all the official US zipcodes in csv format: 
+ 
+ I wrote a quick and dirty C# program to read the file and compute the distances between every zipcode but only output zipcodes that fall within a 25 mile radius: 
+ 
+ The resultant output file looks as follows: 
+ 
+ I would then just load this distance data into my zip_code_distances table using load data infile and then use it to limit the search space of my application. 
+ For example if you have a user whose zipcode is 91210 and they want to find people who are within a 10 mile radius of them then you can now simply do the following: 
+ 
+ Hope this helps 
+ EDIT: extended radius to 100 miles which increased the number of zipcode distances to 32.5 million rows. 
+ quick performance check for zipcode 91210 runtime 0.009 seconds. 
+ 
+ 
+ You could shortcut the calculation by just assuming a box instead of a circular radius. Then when searching you simply calculate the lower/upper bound of lat/lon for a given point+"radius", and as long as you have an index on the lat/lon columns you could pull back all records that fall within the box pretty easily. 
+ 
+ You could divide your space into regions of roughly equal size -- for instance, approximate the earth as a buckyball or icosahedron.  The regions could even overlap a bit, if that's easier (e.g. make them circular).  Record which region(s) each ZIP code is in.  Then you can precalculate the maximum distance possible between every region pair, which has the same  **O(n^2)**
+ problem as calculating all the ZIP code pairs, but for smaller  **n**
+. 
+ Now, for any given ZIP code, you can get a list of regions that are definitely within your given range, and a list of regions that cross the border.  For the former, just grab all the ZIP codes.  For the latter, drill down into each border region and calculate against individual ZIP codes. 
+ It's certainly more complex mathematically, and in particular the number of regions would have to be chosen for a good balance between the size of the table vs. the time spent calculating on the fly, but it reduces the size of the precalculated table by a good margin. 
+ 
+ I would use latitude and longitude. For example, if you have a latitude of 45 and a longitude of 45 and were asked to find matches within 50 miles, then you could do it by moving 50/69 ths up in latitude and 50/69 ths down in latitude (1 deg latitude ~ 69 miles). Select zip codes with latitudes in this range. Longitudes are a little different, because they get smaller as you move closer to the poles. 
+ But at 45 deg, 1 longitude ~ 49 miles, so you could move 50/49ths left in latitude and 50/49ths right in latitude, and select all zip codes from the latitude set with this longitude. This gives you all zip codes within a square with lengths of a hundred miles. If you wanted to be really precise, you could then use the Haversine formula witch you mentioned to weed out zips in the corners of the box, to give you a sphere. 
+ 
+ Not every possible pair of zip codes are going to be used. I would build zipdistance as a 'cache' table. For each request calculate the distance for that pair and save it in the cache. When a request for a distance pair comes, first look in the cache, then compute if it's not available. 
+ I do not know the intricacies of distance calculations, so I would also check whether computing on the fly is cheaper than looking up (also taking into consideration how often you have to compute). 
+ 
+ I know that this post is TOO old, but making some research for a client I've found some useful functionality of Google Maps API and is so simple to implement, you just need to pass to the url the origin and destination ZIP codes, and it calculates the distance even with the traffic, you can use it with any language: 
+ 
+ http://maps.googleapis.com/maps/api/distancematrix/json?origins=90210&destinations=93030&mode=driving&language=en-EN&sensor=false%22 
+ following the link you can see that it returns a json. Remember that you need an API key to use this on your own hosting. 
+ source:
+ http://stanhub.com/find-distance-between-two-postcodes-zipcodes-driving-time-in-current-traffic-using-google-maps-api/ 
+ 
+ I have the problem running great, and pretty much everyone's answer got used.  I was thinking about this in terms of the old solution instead of just "starting over."  Babtek gets the nod for stating in in simplest terms. 
+ I'll skip the code because I'll provide references to derive the needed formulas, and there is too much to cleanly post here. 
+ 1) Consider Point A on a sphere, represented by latitude and longitude.   Figure out North, South, East, and West edges of a box 2X miles across with Point A at the center . 
+ 2) Select all point within the box from the ZipCode table.  This includes a simple WHERE clause with two Between statements limiting by Lat and Long. 
+ 3) Use the haversine formula to determine the spherical distance between Point A and every point B returned in step 2. 
+ 4) Discard all points B where distance A -> B > X. 
+ 5) Select users where ZipCode is in the remaining set of points B. 
+ This is pretty fast for > 100 miles.  Longest result was ~ 0.014 seconds to calculate the match, and trivial to run the select statement. 
+ Also, as a side note, it was necessary to implement the math in a couple of functions and call them in SQL.  Once I got past a certain distance the matching number of ZipCodes was too large to pass back to SQL and use as an IN statement, so I had to use a temp table and join the resulting ZipCodes to User on the ZipCode column. 
+ I suspect that using a ZipDistance table will not provide a long-term performance gain.  The number of rows just gets really big.  If you calculate the distance from every zip to to every other zip code (eventually) then the resultant row count from 40,000 zip codes would be ~ 1.6B.  Whoah! 
+ Alternately, I am interested in using SQL's built in geography type to see if that will make this easier, but good old int/float types served fine for this sample. 
+ So... final list of online resources I used, for your easy reference: 
+ 1)  Maximum Difference, Latitude and Longitude . 
+ 2)  The Haversine Formula . 
+ 3)  Lengthy but complete discussion of the whole process , which I found from Googling stuff in your answers. 
+ 

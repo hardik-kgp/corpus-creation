@@ -1,0 +1,39 @@
+*** what-is-the-recommended-equivalent-of-cascaded-delete-in-mongodb-for-nm-relatio ***
+
+ Assuming the following "schema/relationship" design what is the recommended practice for handling deletion with cascade delete like operation? 
+ Relational Schema: 
+ 
+  +---------+                                    +--------+
+  | Student |-*--------1-[Enrollment]-1--------*-| Course |
+  +---------+                                    +--------+
+ 
+ MongoDB: 
+ 
+  +---------+                    +--------+
+  | Student |-*----------------*-| Course |
+  +---------+                    +--------+
+ 
+ Given this classic design of enrollment of students to courses, having a collection of courses in students and vice versa seems to be an appropriate data model when using MongoDB (that is nothing for the relationship/enrollment table). But coming from a relational world how should I handle the semantics of deleting a course? That is, when a course is deleted, all the "enrollment" records should be deleted too. That is, I should delete the course from the collection of each student record. It looks like I have to fire 2 queries: one for deleting the course and then to delete it from each student's collection. Is there a way to have a single query to perform this "cascade delete" like semantic without the additional query? Does the data model need to change? 
+ NOTE: For all other use cases the above data model works just fine: 
+ 
+ Deleting a student   just delete that student and associated collection of courses deleted along with it. 
+ Student willing to drop a course   just delete it from the student collection of courses 
+ Add student/course   just add it to corresponding 'table' in essence. 
+ 
+ The only tricky thing is handling the deletion of a course. How should I handle this scenario in MongoDB, since I hail from a relational background and am unable to figure this one out. 
+ 
+ What you are doing is the best and most optimal way of doing it in Mongo. I am in a similar situation and after going all possible implementations of the N:M design pattern, have also arrived to this same solution. 
+ Apparently, This is not a mongodb thing, but more of a concept of NoSQL, wherein, the less changing data (Courses) can be kept separately. And since deleting a Course is not going to be a very frequent operation, its feasible enough to go through all the records to remove it. 
+ On the other hand, you could let it be as it is.
+In your application logic, just ignore the values of Courses in the Student document that don't have a reference_id in the Course document at all. But in that case, you must make sure that old deleted Course_id's are not being reused. 
+ OR just use the deleted flags on the Course document and handle everything else in your application logic. 
+ 
+ I'm going to answer based on Mongo team recommendations. I also came from the relational database and I had some issues at the beginning understanding the concepts. Mongo team recommends to design with the idea of "Application-Driven" schema, so you have to figure out first what pieces of data go together. Remember there's not such a transaction concept in any possible way in Mongo, even if we invent a driver that handles transactions we should implement our own solution for this. It means if I have two business objects that requires to be updated at the same time always and I cannot tolerate a failure in this operation, I have to join them into a single document (atomic). 
+ In your case you have two documents, Student and Courses, and a relation between then (A student enrolls to N courses). I assume courses are not required to be altered all the time, so they can be stored in a different collection.
+But the point is the relation between them, in this case you need to atomically delete a Student and all the courses he enrolled in.
+So the best suitable solution for this is to embed the relation into Student, and keep a separated Course collection. When you delete the student, the relation is dropped at the same time: 
+ Student Json: 
+ 
+ Courses can be a separated collection between them. 
+This is the way to handle it in Mongo. Atomic operations must be embedded into a single document. I assumed Courses is a list of courses that don't change so much, in case they're designed by Student we could change a bit the solution. 
+ 

@@ -1,0 +1,44 @@
+*** how-do-i-test-database-related-code-with-nunit ***
+
+ I want to write unit tests with NUnit that hit the database. I'd like to have the database in a consistent state for each test. I thought transactions would allow me to "undo" each test so I searched around and found several articles from 2004-05 on the topic: 
+ 
+ http://weblogs.asp.net/rosherove/archive/2004/07/12/180189.aspx 
+ http://weblogs.asp.net/rosherove/archive/2004/10/05/238201.aspx 
+ http://davidhayden.com/blog/dave/archive/2004/07/12/365.aspx 
+ http://haacked.com/archive/2005/12/28/11377.aspx 
+ 
+ These seem to resolve around implementing a custom attribute for NUnit which builds in the ability to rollback DB operations after each test executes. 
+ That's great but...  
+ 
+ Does this functionality exists somewhere in NUnit natively? 
+ Has this technique been improved upon in the last 4 years?  
+ Is this still the best way to test database-related code? 
+ 
+ 
+ Edit: it's not that I want to test my DAL specifically, it's more that I want to test pieces of my code that interact with the database. For these tests to be "no-touch" and repeatable, it'd be awesome if I could reset the database after each one. 
+ Further, I want to ease this into an existing project that has no testing place at the moment. For that reason, I can't practically script up a database and data from scratch for each test. 
+ 
+ NUnit now has a [Rollback] attribute, but I prefer to do it a different way. I use the  TransactionScope  class. There are a couple of ways to use it. 
+ 
+ Since you didn't tell the TransactionScope to commit it will rollback automatically. It works even if an assertion fails or some other exception is thrown. 
+ The other way is to use the [SetUp] to create the TransactionScope and [TearDown] to call Dispose on it. It cuts out some code duplication, but accomplishes the same thing. 
+ 
+ This is as safe as the using statement in an individual test because NUnit will guarantee that TearDown is called. 
+ Having said all that I do think that tests that hit the database are not really unit tests. I still write them, but I think of them as integration tests. I still see them as providing value. One place I use them often is in testing LINQ to SQL code. I don't use the designer. I hand write the DTO's and attributes. I've been known to get it wrong. The integration tests help catch my mistake. 
+ 
+ I just went to a .NET user group and the presenter said he used SQLlite in test setup and teardown and used the in memory option.  He had to fudge the connection a little and explicit destroy the connection, but it would give a clean DB every time. 
+ http://houseofbilz.com/archive/2008/11/14/update-for-the-activerecord-quotmockquot-framework.aspx 
+ 
+ I would call these integration tests, but no matter.  What I have done for such tests is have my setup methods in the test class clear all the tables of interest before each test.  I generally hand write the SQL to do this so that I'm not using the classes under test. 
+ Generally, I rely on an ORM for my datalayer and thus I don't write unit tests for much there.  I don't feel a need to unit test code that I don't write.  For code that I add in the layer, I generally use dependency injection to abstract out the actual connection to the database so that when I test my code, it doesn't touch the actual database.  Do this in conjunction with a mocking framework for best results. 
+ 
+ For this sort of testing, I experimented with NDbUnit (working in concert with NUnit).  If memory serves, it was a port of DbUnit from the Java platform.  It had a lot of slick commands for just the sort of thing you're trying to do.  The project appears to have moved here: 
+ http://code.google.com/p/ndbunit/ 
+ (it used to be at  http://ndbunit.org ). 
+ The source appears to be available via this link:
+ http://ndbunit.googlecode.com/svn/trunk/ 
+ 
+ Consider creating a database script so that you can run it automatically from NUnit as well as manually for other types of testing.  For example, if using Oracle then kick off SqlPlus from within NUnit and run the scripts.  These scripts are usually faster to write and easier to read.  Also, very importantly, running SQL from Toad or equivalent is more illuminating than running SQL from code or going through an ORM from code.  Generally I'll create both a setup and teardown script and put them in setup and teardown methods. 
+ Whether you should be going through the DB at all from unit tests is another discussion.  I believe it often does make sense to do so.  For many apps the database is the absolute center of action, the logic is highly set based, and all the other technologies and languages and techniques are passing ghosts.  And with the rise of functional languages we are starting to realize that SQL, like JavaScript, is actually a great language that was right there under our noses all these years. 
+ Just as an aside, Linq to SQL (which I like in concept though have never used) almost seems to me like a way to do raw SQL from within code without admitting what we are doing.  Some people like SQL and know they like it, others like it and don't know they like it. :) 
+ 

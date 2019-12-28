@@ -1,0 +1,31 @@
+*** rebase-rails-migrations-in-a-long-running-project ***
+
+ In which I mean "rebasing" in the dictionary, rather than git definition... 
+ I have a large, long running Rails project that has about 250 migrations, it's getting a touch unwieldy to manage all of these. 
+ That said, I do need a base from which to purge and rebuild my database when running tests. So the data contained in these is important. 
+ Does any one have any strategies for say, dumping the schema at a set point - archiving off all the old migrations and starting afresh with new migrations. 
+ Obviously I can use rake schema:dump - but really I need a way that db:migrate will load the schema first and then start running the rest of the migrations. 
+ I would like to keep using migrations as they're very useful in development, however, there's no way I'm going back and editing a migration from 2007 so it seems silly to keep it. 
+ 
+ In general, you don't need to clean up old migrations. If you're running db:migrate from scratch (no existing db), Rails uses db/schema.rb to create the tables instead of running every migration. Otherwise, it only runs the migrations required to upgrade from the current schema to the latest. 
+ If you still want to combine migrations up to a given point into a single one, you could try to: 
+ 
+ migrate from scratch up to the targeted schema using  
+ dump the schema using  
+ remove the migrations from the beginning up to version xxx and create a single new migration using the contents of db/schema.rb (put create_table and add_index statements into the self.up method of the new migration). 
+ 
+ Make sure to choose one of the old migration version numbers for your aggregated new migration; otherwise, Rails would try to apply that migration on your production server (which would wipe your existing data, since the create_table statements use :force⇒true). 
+ Anyway, I wouldn't recommend to do this since Rails usually handles migrations well itself. But if you still want to, make sure to double check everything and try locally first before you risk data loss on your production server. 
+ 
+ To automate the merging (or squashing) of migrations, you could use the  Squasher gem 
+ Simply install 
+ 
+ And run with a date, and migrations before that date will be merged: 
+ 
+ More details  in the README 
+ 
+ In addition to the answer provided (which well indicates how to consolidate your volume of migrations), you indicate a concern to purge data (which I assume is manually added after fixtures populate your tables); which infers you're depending on refreshing an initial data state. Some projects indeed require intensive refinement of base data, reconstruction, and re-population of tables. Ours heavily depends on repetitive execution of these operations, and I've found that if you can reduce your schema entirely to SQL execute statements, your tables will rebuild far faster than they will from Ruby syntax.  
+ A trivial further help in rebuilding your tables is to dedicate a separate terminal window to a single combined command statement: 
+ rake db:drop db:create db:schema:load db:fixtures:load 
+ Each time you need to rebuild and re-populate your tables, an up-arrow and return keypress will get that routine job done. If there's no conflict in SQL execute statements, and if you don't have further migrations to run while you're project is in development state, the SQL statements will execute perhaps better than twice as fast as the Ruby syntax. Our tables rebuild and re-populate in 20 seconds this way for example, whereas the Ruby syntax increases the process to well over 50 seconds. If you're waiting on that data to refresh to perform further work (especially many times), this makes a huge difference in workflow. 
+ 

@@ -1,0 +1,29 @@
+*** handling-race-condition-in-model-save ***
+
+ How should one handle a possible race condition in a model's   method? 
+ For example, the following example implements a model with an ordered list of related items. When creating a new Item the current list size is used as its position.  
+ From what I can tell, this can go wrong if multiple Items are created concurrently. 
+ 
+ I've come across  @transactions  but that seems to apply only to views. Even if it did apply to model methods, I still wouldn't know how to properly handle a failed transaction. 
+ I am currenly handling it like so, but it feels more like a hack than a solution 
+ 
+ Any suggestions? 
+ **Update:**
+
+ Another problem with the above solution is that the   loop will never end if   is caused by a   conflict (or any other unique field for that matter).  
+ For the record, here's what I have so far which seems to do what I need: 
+ 
+ 
+ It may  feel  like a hack to you, but to me it looks like a legitimate, reasonable implementation of the "optimistic concurrency" approach -- try doing whatever, detect conflicts  caused by race conditions, if one occurs, retry a bit later.  Some databases systematically uses that instead of locking, and it can lead to much better performance except under systems under a  lot  of write-load (which are quite rare in real life). 
+ I like it a lot because I see it as a general case of the Hopper Principle: "it's easy to ask forgiveness than permission", which applies widely in programming (especially but not exclusively in Python -- the language Hopper is usually credited for is, after all, Cobol;-). 
+ One improvement I'd recommend is to wait a  random  amount of time -- avoid a "meta-race condition" where two processes try at the same time, both find conflicts, and both retry  again  at the same time, leading to "starvation".    or the like should suffice. 
+ A more refined improvement is to lengthen the expected wait if more conflicts are met -- this is what is known as "exponential backoff" in TCP/IP (you wouldn't have to lengthen things exponentially, i.e. by a constant multiplier > 1 each time, of course, but that approach has nice mathematical properties).  It's only warranted to limit problems for  very  write-loaded systems (where multiple conflicts during attempted writes happen quite often) and it may likely not be worth it in your specific case. 
+ 
+ Add optional FOR UPDATE clause to QuerySets   http://code.djangoproject.com/ticket/2705 
+ 
+ I use Shawn Chin's solution and it proves very useful. The only change I did was to replace the  
+ 
+ with 
+ 
+ just to make sure I am dealing with the latest position number (which in my case might not be item_count because of some reserved unused positions) 
+ 

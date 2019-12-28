@@ -1,0 +1,29 @@
+*** sql-server-sys-databases-log-reuse-wait-question ***
+
+ I was investigating the rapid growth of a SQL Server 2005 transaction log when I found that transaction logs will only truncate correctly - if the sys.databases "log_reuse_wait" column is set to 0 - meaning that nothing is keeping the transaction log from reusing existing space.     
+ One day when I was intending to backup/truncate a log file, I found that this column had a 4, or ACTIVE_TRANSACTION going on in the tempdb. I then checked for any open transactions using DBCC OPENTRAN('tempdb'), and the open_tran column from sysprocesses. The result was that I could find no active transactions anywhere in the system. 
+ Are the settings in the log_reuse_wait column accurate? Are there transactions going on that are not detectable using the methods I described above? Am I just missing something obvious? 
+ 
+ I still don't know why I was seeing the ACTIVE_TRANSACTION in the sys.databases log_reuse_wait_desc column - when there were no transactions running, but my subsequent experience indicates that the log_reuse_wait column for the tempdb changes for reasons that are not very clear, and for my purposes, not very relevant. Also, I found that running DBCC OPENTRAN, or the "select open_tran from sysprocess" code, is a lot less informative than using the below statements when looking for transaction information: 
+ 
+ 
+ Here  there are explanations how log_reuse_wait_desc is working: 
+ 
+ We also need to understand how the log_reuse_wait_desc reporting mechanism works. It gives the reason why log truncation couldn’t happen the last time log truncation was attempted. This can be confusing – for instance if you see ACTIVE_BACKUP_OR_RESTORE and you know there isn’t a backup or restore operation running, this just means that there was one running the last time log truncation was attempted. 
+ 
+ So in your case there is no ACTIVE TRANSACTION right now, but it was when log truncation was attempted last time. 
+ 
+ There are a couple of links to additional tools/references you can use to help troubleshoot this problem on the References link for this video: 
+ Managing SQL Server 2005 and 2008 Log Files 
+ That said, the information in log_reuse_wait should be accurate. You likely just had a stalled or orphaned transaction that you weren't somehow able to spot.  
+ 
+ My answer  from  The Log File for Database is Full : 
+ As soon as you take a full backup of the database, and the database is not using the Simple recovery model, SQL Server keeps a complete record of all transactions ever performed on the database. It does this so that in the event of a catastrophic failure where you lose the data file, you can restore to the point of failure by backing up the log and, once you have restored an old data backup, restore the log to replay the lost transactions. 
+ To prevent this building up, you must back up the transaction log. Or, you can break the chain at the current point using the   or   options of BACKUP LOG. 
+ If you don't need this feature, set the recovery model to Simple. 
+ 
+ The data is probably accurate. What you need to do is have a regular transaction log backup. Contrary to other advice you should NOT use the NO_TRUNCATE option on 2005 as it clears the log of transactions committed but it doesn't back them up. 
+ What you should be doing is performing a tail-log backup by using the BACKUP LOG statement with NO_TRUNCATE option. You should be applying regular transaction logs throughout the day as well. This should help keep the size fairly manageable. 
+ 
+ Hm, tricky. Could it be that the question it self to sys.databases is causing the ACTIVE_TRANSACTION? In that case though, it should be in the MASTER and not the TEMPDB. 
+ 

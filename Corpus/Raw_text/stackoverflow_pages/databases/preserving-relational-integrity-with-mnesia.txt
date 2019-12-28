@@ -1,0 +1,29 @@
+*** preserving-relational-integrity-with-mnesia ***
+
+ I've been diving into Erlang recently, and I decided to use Mnesia to do my database work given it can store any kind of Erlang data structure without a problem, scale with ease, be used with list comprehensions, etc. 
+ Coming from standard SQL databases, most rows can and should be identified by a primary key, usually an auto-incrementing integer. By default Mnesia considers the first field of a row to be its key. It also gives no way to have an auto-incrementing integer key as far as I know. 
+ Given I have these fictional records representing my tables: 
+ 
+ I figure using the username may be good enough for some purposes, as with the entry title, in order to identify the resource, but how do I go about maintaining integrity? 
+ Say the user changes its name, or that the entry's title changes after an edit. How do I make sure my data is still correctly related? Updating every table using the username when it changes sounds like a terrible idea no matter how it's put.  
+ What would be the best way to implement some kind of primary key system in Mnesia?  
+ Also, how would an intermediary table like 'user_entry' do if the first field is usually the key? Otherwise, what would a better way be to represent a many-to-many relationship in Mnesia? 
+ 
+ I prefer using GUIDs instead of auto-incrementing ints as artificial foreign keys. There is an  Erlang uuid module  available at 
+GitHub, or you can use  , given that   doc says: "It is also guaranteed that subsequent calls to this BIF returns continuously increasing values." 
+ Using something that can change as the primary key seems to me to be a bad idea independent of the database system. 
+ Don't forget that you don't need to normalise data in Mnesia even to first normal form; in your example, I would consider the following structure: 
+ 
+ where   and   are lists of ids. Of course, this depends on the queries you want. 
+ EDIT: fixed to be many-to-many instead of many-to-one. 
+ 
+ Mnesia does support sequences (auto-incrementing integers) in the form of  . To use it you need a table with two attributes Key and Count. Despite the name, dirty_update_counter is atomic even though it doesn't run inside a transaction. 
+ Ulf Wiger did some work on providing typical RDBMS features on top of mnesia in his  rdbms package . His code provides foreign key constraints, parametized indices, field value constraints and so on. Unfortunately this code has not been updated in two years and will probably be difficult to get running without quite a bit of Erlang experience. 
+ When designing for and using mnesia you should remember that mnesia is not a relational database. It is a transactional Key/Value store and is much easier to use when you don't normalise. 
+ If your usernames are unique, you could use the schema: 
+ 
+ Where   is the erlang:now() time when the article is uploaded.   might need a secondary index if you often need to retreive a list of all articles for a user. As this data is split over two tables, you will have to enforce any integrity constraints in your application code (for instance, not accepting entries without a valid user_name). 
+ Each field value in mnesia can be any erlang term, so if you're at a loss for a unique key on any one particular field, you can often combine some fields to give you a value that will always be unique - perhaps {Username, DatePosted, TimePosted}. Mnesia allows you to search partial keys via  . MatchSpecs are quite difficult to write by hand, so remember that   can convert a psuedo erlang function into a matchspec for you. 
+ In this example, fun2ms generates us a matchspec for searching a blog entry table   where key is   - the username of the author and the date and time the article was posted. The example below retrieves the titles of all the blog posts by   during December 2008. 
+ 
+ 

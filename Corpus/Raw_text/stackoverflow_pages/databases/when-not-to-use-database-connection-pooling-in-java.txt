@@ -1,0 +1,80 @@
+*** when-not-to-use-database-connection-pooling-in-java ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  3 years ago . 
+ 
+ 
+ 
+ I can find a lot of questions about how to use connection pooling and why it's a good idea, but I'm wondering if I actually need it. 
+ I'm creating a server application and although it is multi-threaded, I've been careful that only a single thread ever accesses my database connection. 
+ So is there any point in using a connection pool?   
+ Can't I just open a connection to my database at the start of the life-cycle and use that one connection forever, or will it time-out if inactive for too long?   
+ Do I absolutely  **have to**
+ call   on my connection after I do something with it, or is it enough call   on the   and/or  ? 
+ 
+ What is a "database connection", really? It is a session with your database, and as such: 
+ 
+ There is a client side and server side session state 
+ There is a transaction associated with that session 
+ 
+ Now, since your client application is multi-threaded, I suspect there is only an extremely limited number of cases where your setup makes sense, namely: 
+ 
+ You don't use the session state, not even inadvertently (and that may be vendor specific) 
+ You don't use transactions and always auto-commit 
+ Even with auto-committing, there may be race conditions, so you make sure those don't happen 
+ You're  **very**
+ sure that each statement only takes  very little  time, freeing resources immediately 
+ 
+ In all other cases, you want one connection per client thread, or in a reactive/async environment, you at least want one connection per isolated database interaction. And because it's expensive to create new connections (i.e. initialise server side session state, etc.) people simply use connection pools. In fact, a connection pool can have only one connection inside of it (as per your requirement), and it is still a good abstraction for you to use. So why write your own connection pool, instead? 
+ Regarding your specific questions: 
+ 
+ So is there any point in using a connection pool? 
+ 
+ Except for very trivial cases (see above), it is usually good to have a connection pool. 
+ 
+ Can't I just open a connection to my database at the start of the life-cycle and use that one connection forever, or will it time-out if inactive for too long? 
+ 
+ You could, of course. There's usually a setting in JDBC drivers or other client libraries to prevent these time outs, or to reconnect. 
+ The perfect use-case for such an approach is a migration script, or a batch script, or a simple test script, or a simple Swing application, etc. All of these don't need a connection pool. 
+ 
+ Do I absolutely have to call close() on my connection after I do something with it, or is it enough call  close() on the ResultSet and/or Statement? 
+ 
+ You  should  call   on connections obtained from   (e.g. when the connection pool implements  ). 
+ You  don't have to  call   on connections whose lifecycle you manage on your own. 
+ 
+ Database connections are expensive to create, so connection pools come into play when you have a large number of requests that generally take a short amount of time.  You reuse a prior database connection, in a new context to avoid the cost of setting up a new database connection for each request. 
+ The primary reason to avoid using database connections is that you're application's approach to solving problems isn't structured to accommodate a database connection pool.  With pools, certain optimizations that make sense in making a single shared connection act with high performance might have to be undone and reverified to be correct to adopt a pool and use the pool effectively. 
+ In addition, while many people worry about the latency of the connection, and a pool reduces that by having a group of connections at the ready; the fact that your database is now a host to multiple connections means that the "resting" state of your application will use more resources.  Generally this is not enough to make a large difference in most environments. 
+ Pooled connections sometimes enable more reordering of queries and commits, and code that was not written defensively to handle database state as the database changes might require additional rework and verification.  Keep in mind that this is not a weakness of the connection pool, but more so latent bugs in the database handling logic of a database (as all databases should have been considered shared resources and have had these kinds of logic checks in place). 
+ 
+ 
+ Can't I just open a connection to my database at the start of the
+  life-cycle and use that one connection forever, or will it time-out if
+  inactive for too long? 
+ 
+ Connections sometimes get stale, disconnect, fail. 
+Many connection pools are able to automatically check connections' state, close stale/failed connections and reopen new ones if needed. 
+Consider a case when the network breaks for a moment or someone restarts a database server. 
+The connection pool automatically restores connections to the database after a failure - you don't have to restart your application afterward. 
+You can implement such a feature in your dao class ... but the pool already has this, it's easier to just use it. 
+You can configure a poll with just 1 single connection if you don't want more. 
+ 

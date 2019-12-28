@@ -1,0 +1,33 @@
+*** is-update-deletemarked-as-insert ***
+
+ This is SQL Server question but I would appreciate the answers form other DBMS contexts properly identified.   
+ The answer by Seth Lynch to my question in MSDN forum:   
+ 
+ Is a half-written values reading prevented WITH (NOLOCK) hint?   
+ 
+ tells:     
+ 
+ "When data is updated it is not over written - the original row is marked as deleted and a new row is inserted"  
+ 
+ Is it correct statement? Can you give references supporting this in docs? 
+How can it be verified?   
+ Related discussions:   
+ 
+ In SQL, is UPDATE always faster than DELETE+INSERT?   
+ 
+ Update:  Not long time ago I believed that dirty reads permitted in READ UNCOMMITTED transaction isolation level (or, what is the same in SQL Server, through WITH(NOLOCK) hint) permitted reading (from other transactions) uncommitted (or committed, if not yet changed) values but not partly-changed (partly updated, partly deleted or partly inserted.    
+ RESUME': putting it short, that phrase is generally and for most cases incorrect (while it states categorically about rather uncommon cases in SQL Server)  
+ 
+ According to Kalen Delaney, in her book  Inside Microsoft SQL Server 2005: The Storage Engine , SQL Server 2005 (and now 2008) can update a row by either using an insert/delete or in place, by just changing one column's value.  Here's a quick summary of what she says on p. 306-311 of the book.  
+ The normal behavior in SQL Server 2005/2008 is to update a row in place.  The row stays in the same location on the page and only the affected bytes are changed. An example of this would be updating the value in an integer column that's not part of the culstered index. 
+ A row may updated with an insert/delete when it's size changes and it no longer fits on the original page. This could happen when you change the value in a varchar column and make it longer. It also happens when the clustered index column is changing and the row needs to move because of its position in the index (because rows are ordered by the clustered key). An example of this would be changing someone's last name from "Smith" to "Jones" in a table with a clustered index on last name.  
+ 
+ This depends on the implementation. 
+ In general, when multiversion consurrency control (MVCC) is used, the original row is kept. It is either marked as deleted by the transaction that deleted it and a replacement row is created, or a delta is stored elsewhere in the transaction context, until the transaction commits and the delta is applied to the existing row. 
+ In lock based concurrency control, the row can be changed in situ as only a single transaction can read and write the row. 
+ The details are implementation dependent. Some systems will use a delta until commit, and some will change the row but keep a copy of the original to use in case of rollback. 
+ 
+ In Oracle, an UPDATE always changes the original row. The old values of the row are written to the UNDO log and remain there for some time as part of the implementation of multiversion concurrency control (MVCC). 
+ As long as the new values are not committed, all other transactions will get the old values from the UNDO log. The same happens if your query started before the COMMIT of the new values or with certain transaction isolation modes. 
+ If the new values are bigger and the row doesn't fit into the same page anymore, the row is migrated to a new page and the space on the old page is freed. 
+ 

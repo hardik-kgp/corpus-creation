@@ -1,0 +1,55 @@
+*** necessity-of-explicit-cursor-close ***
+
+ From time to time, I'm executing raw queries using   instead of using ORM (since it is definitely not a silver bullet). 
+ I've noticed that in several places I don't call explicit   after I'm done with database. So far, this hasn't result into any errors, or performance issues. I'm wondering what kind of problems could I possibly have without closing the cursor explicitly, what can go wrong? 
+ As far as I understand,   and   in Django follow "Python Database API Specification v2.0" ( PEP-249 ). And, according to it,   would be automatically closed whenever   method is called. I guess the question could be also: Is there a use case when it is not called? 
+ FYI, I'm using Python 2.7 and Django 1.6.5. 
+ 
+ **/**
+**:**
+
+ 
+  is not guaranteed to be called 
+ some databases don't call cursor.close() in their   (bad practice, but true) 
+ some databases don't actually create connections in the connection function, but in the cursor function instead (e.g. for 2&3: pyhive's presto [maybe they've since patched it]) 
+ 
+ **On server connections in general**
+
+ Most servers have an idle timeout configuration property (let's call that T). If a connection is idle for more than T seconds, the server will remove the connection. Most servers also have properties to set the size of the worker thread pool (W). If you already have W connections to your server, it will likely hang when a new connection is attempted. For a second imagine that you don't have the option to explicitly close connections. In that situation, you have to set the timeout to be small enough that your worker pool is never completely used, which is a function of how many concurrent connections you have. 
+ However, if you do close your cursors/connections (even when not equivalent by [3] above, they behave in a similar way), then you don't have to manage these server configuration properties and your thread pool simply needs to be large enough to manage all concurrent connections (with the option for an occasional wait for new resources). I've seen some servers (e.g. Titan on Cassandra) unable to recover from running out of workers in the thread pool, so the whole server goes down until restarted. 
+ **TL/DR**
+
+If you're using very well-developed libraries, like the ones   mentions, you won't have an issue. If you're using less pristine libraries, you may end up blocking on the server acquiring a worker thread if you don't call  , depending on your server config and access rates. 
+ 
+ Django's   class is just a wrapper around the underlying DB's  , so the effect of leaving the   open is basically tied to the underlying DB driver.  
+ According to psycopg2's (psycopg2 is DB driver Django uses for PostgreSQL DB's)  FAQ , their cursors are lightweight, but will cache the data being returned from queries you made using the cursor object, which could potentially waste memory: 
+ 
+ Cursors are lightweight objects and creating lots of them should not
+  pose any kind of problem. But note that cursors used to fetch result
+  sets will cache the data and use memory in proportion to the result
+  set size. Our suggestion is to almost always create a new cursor and
+  dispose old ones as soon as the data is not required anymore (call
+  close() on them.) The only exception are tight loops where one usually
+  use the same cursor for a whole bunch of INSERTs or UPDATEs. 
+ 
+ Django uses   as the backend for MySQL, which has several different types of cursors, including some that actually store their result-sets on the server-side. The   documentation for   make a point to note that it's very important to close the server-side cursor's when you're done with them: 
+ 
+ If you are using server-side cursors, it is very important to close
+  the cursor when you are done with it and before creating a new one. 
+ 
+ However, this isn't relevant for Django, because it uses the default   class provided by  , which stores results on the client-side. Leaving a used cursor open just risks wasting the memory used by the stored result-set, just like  . The   method  on the cursor just deletes the internal reference to the db connection and exhausts the stored result set: 
+ 
+ As best as I can tell from looking at their source, all the remaining backends used by Django ( cx_oracle ,  sqlite3 / pysqlite2 ) all follow the same pattern; free memory by deleting/resetting stored results/object references. The  sqlite3 docs  don't even mention that the   class  has  a close method, and it's only used sporadically in the included example code. 
+ You are right that a   will be closed when   is called on the   object, so the need to explicitly close is only an issue if you're keeping a long-living reference to the  ; e.g. a   object that you're keeping as an instance method of a class. 
+ 
+ While the operating system can normally be relied upon to release resources, it's always good hygiene to close things like database connections to ensure resources are released when no longer required, the really important thing from a database point of view is to ensure that any changes are  ed.  
+ 
+ The explicit calling of   might be because of two reasons: 
+ 
+  is not guaranteed to be called and has some issues you can read  here  and  here 
+ Explicit is better than implicit ( Zen of Python ) 
+ 
+ 
+ I'm a bit late to this question. Maybe a close-on-exit-scope is what you want.  
+ 
+ 

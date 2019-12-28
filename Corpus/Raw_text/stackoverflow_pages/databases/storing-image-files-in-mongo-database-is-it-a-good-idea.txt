@@ -1,0 +1,37 @@
+*** storing-image-files-in-mongo-database-is-it-a-good-idea ***
+
+ When working with mysql, it is a bad idea to store images as BLOB in the database, as it makes the database quite large which is harmful for normal usage of the database. Then, it is better to save image files on disk and save link to them within the database. 
+ However, I think this is different for MongoDB, as increasing the database file size has a negligible influence on performance (this is the reason that MongoDB can successfully handle billions of records). 
+ Do you think it is better to save image files on MongoDB (as GridFS) to reduce number of files stored on the server; or still it is better to keep the database as small as possible? 
+ 
+ The problem isn't so much that the database gets big, databases can handle that (although MongoDB isn't as good as many other in that respect). The problem is that to send the data to the client it first has to be moved into RAM by the database, then copied over to the application's memory, then handed off to the kernel to be sent through the socket. It's wasting lots of RAM and CPU cycles. The reason it's better to have large files in the filesystem is that it's easier to get around copying it, you can ask the kernel to stream the file from disk to the socket directly.  
+ The downside of storing large files in the filesystem is that it's much harder to distribute. Using a database, and something like Mongo's GridFS makes it possible to scale out. You just have to make sure you don't copy the whole file into the application's memory at once, but a chunk at a time. Most web app frameworks have some support for sending chunked HTTP responses nowadays.  
+ 
+ The answer is yes.  Back in the old cave-man days, servers had mutable file systems you could change.  This was great till we tried to scale things. 
+ Cave-people nowadays build apps with  immutable deployments .   Heroku  and  Dokku  are examples of this.  Because the web app server has no state, they can be created, upgraded, scaled, and destroyed easily. 
+ Since we still have files, we need to put them somewhere.  There are several solutions:  nfs, our database, someone elses database. 
+ 
+ nfs is a 'network file system' which let's you do file i/o on network resources.  If you're dealing with the network anyways, IMHO it doesn't add much value unless it's what you know already. 
+ Our database - For  MongoDB there are two options :  (file > 16mb) ? GridFS : BinData  
+ Someone elses database - Some are basic like  Amazon S3  and some offer extra services like Cloudinary or Dropbox. 
+ 
+ If you're on an big-budget enterprise team and someone spends 40 hrs a week taking care of servers then sure - use the file system.  If you're building web apps that scale, putting files in the DB makes sense. 
+ If you're concerned about performance: 
+ 1) Using a proxy (e.g. nginx) or a CDN to host your content for clients.  Your server should just be serving cache misses. 
+ 2) Use streaming IO  Nodeschool has a cool tutorial for Node.js . 
+ 
+ MongoDB's GridFS is designed for this sort of storage and is quite handy for storing image files across many different servers in a way that all servers can use them. 
+ 
+ Storing images is not a good idea in any DB, because: 
+ 
+ 
+ read/write to a DB is always slower than a filesystem 
+ your DB backups grow to be huge and more time consuming 
+ access to the files now requires going through your app and DB layers 
+ 
+ The last two are the real killers. 
+ 
+ Source:  Three things you should never put in your database . 
+ So if you can make your application crafty, then better not to upload your pictures to  MongoDB . 
+ However, if you are close to deadline... and the database will be so small that it will not grow up a lot and its size will never exceed the available RAM on the machine running your application, then I think (as opposed to the author of the cited article), you may consider storing the images in  MongoDB . It's simply, convenient, quick to implement and gives you some flexibility. 
+ 

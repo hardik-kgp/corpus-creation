@@ -1,0 +1,54 @@
+*** using-sql-server-as-a-db-queue-with-multiple-clients ***
+
+ Given a table that is acting as a queue, how can I best configure the table/queries so that multiple clients process from the queue concurrently? 
+ For example, the table below indicates a command that a worker must process. When the worker is done, it will set the processed value to true. 
+ 
+ The clients might obtain one command to work on like so: 
+ 
+ However, if there are multiple workers, each tries to get the row with ID=2. Only the first will get the pessimistic lock, the rest will wait. Then one of them will get row 3, etc. 
+ What query/configuration would allow each worker client to get a different row each and work on them concurrently? 
+ EDIT: 
+ Several answers suggest variations on using the table itself to record an in-process state. I thought that this would not be possible within a single transaction. (i.e., what's the point of updating the state if no other worker will see it until the txn is committed?) Perhaps the suggestion is: 
+ 
+ Is this the way people usually approach this problem? It seems to me that the problem would be better handled by the DB, if possible. 
+ 
+ I recommend you go over  Using tables as Queues .
+Properly implemented queues can handle thousands of concurrent users and service as high as 1/2 Million enqueue/dequeue operations per minute. Until SQL Server 2005 the solution was cumbersome and involved a mixing a   and an   in a single transaction and give just the right mix of lock hints, as in the article linked by gbn. Luckly since SQL Server 2005 with the advent of the OUTPUT clause, a much more elegant solution is available, and now MSDN recommends using the  OUTPUT clause : 
+ 
+ You can use OUTPUT in applications
+  that use tables as queues, or to hold
+  intermediate result sets. That is, the
+  application is constantly adding or
+  removing rows from the table 
+ 
+ Basically there are 3 parts of the puzzle you need to get right in order for this to work in a highly concurrent manner: 
+ 1) You need to dequeue atomically. You have to find the row, skipp any locked rows, and mark it as 'dequeued' in a single, atomic operation, and this is where the   clause comes into play: 
+ 
+ 2) You  **must**
+ structure your table with the leftmost clustered index key on the   column. If the   was used a primary key, then move it as the second column in the clustered key. The debate whether to keep a non-clustered key on the   column is open, but I strongly favor  not  having any secondary non-clustered indexes over queues: 
+ 
+ 3) You must not query this table by any other means but by Dequeue. Trying to do Peek operations or trying to use the table both as a Queue  and  as a store will  very likely  lead to deadlocks and will slow down throughput dramatically. 
+ The combination of atomic dequeue, READPAST hint at searching elements to dequeue and leftmost key on the clustered index based on the processing bit ensure a very high throughput under a highly concurrent load. 
+ 
+ My answer here shows you how to use tables as queues...  SQL Server Process Queue Race Condition 
+ You basically need "ROWLOCK, READPAST, UPDLOCK" hints 
+ 
+ If you want to serialize your operations for multiple clients, you can simply use application locks. 
+ 
+ 
+ Rather than using a boolean value for Processed you could use an int to define the state of the command: 
+ 
+ Each worker would then get the next row with Processed = 1, update Processed to 2 then begin work.  When work in complete Processed is updated to 3.  This approach would also allow for extension of other Processed outcomes, for example rather than just defining that a worker is complet you may add new statuses for 'Completed Succesfully' and 'Completed with Errors' 
+ 
+ Probably the better option will be use a trisSate processed column along with a version/timestamp column.  The three values in the processed column will then indicate  indicates if the row is under processing, processed or unprocessed. 
+ For example 
+ 
+ You grab the top 1 unprocessed row, set the status to underprocessing and set the status back to processed when things are done. Base your update status on the Version and the primary key columns. If the update fails then someone has already been there. 
+ You might want to add a client identifier as well, so that if the client dies while processing it up, it can restart, look at the last row and then start from where it was.   
+ 
+ I would stay away from messing with locks in a table. Just create two extra columns like IsProcessing (bit/boolean) and ProcessingStarted (datetime). When a worker crashes or doesn't update his row after a timeout you can have another worker try to process the data. 
+ 
+ One way is to mark the row with a single update statement.  If you read the status in the   clause and change it in the   clause, no other process can come in between, because the row will be locked.  For example: 
+ 
+ This uses   to update one row at most.  If no row was found,   will be  . 
+ 

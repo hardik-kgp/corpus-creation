@@ -1,0 +1,35 @@
+*** how-to-use-flyway-when-working-with-feature-branches ***
+
+ We have recently moved to using feature branches for each story we work on.  These are as independent as possible, and our project manager then decides which stories will make up a release.  This means that we do know the exact order in which stories will go into production initially. 
+ Is there a standard way of dealing with this in Flyway?  I have read the FAQ which discusses how the change to the production database will be linear, which is correct.  However I'm not sure how team members would decide what version numbers to give their migrations while they are working on their feature branch.  Also we would need to manually renames the migration files when we merge to our integration branch and master before the release. 
+ 
+ You cannot have migration scrtipts with the same version number as you will get: 
+ 
+ Found more than one migration with version 'x.y.z' (Offenders: SQL ...) 
+ 
+ Here is a workaround I suggest: multiple developers are working on the same version, say   but on different features. I guess you are using some issue tracker that adds ids to each issue, like  . When a developer works on that issue, the migration script is called  . This way (assuming each feature/branch has its own issue) there are no collisions. 
+ Also I am assuming that database migration scripts are independnt and non-overlapping, but if this is not the case you'll have problems while merging everything to a stable release. 
+ So in a stable release you have several migration scripts with gaps, e.g:  ,  ,   (if  ,   and   were chosen) - Flyway won't care. All the features that didn't make it to a stable release   (e.g.  ) should be renamed to target next major release (e.g.  ). 
+ 
+ The best way that I have seen to overcome the versioning issues between branches to enable outOfOrder and use a timestamp as the version number 
+ By default, most migration frameworks choose to prefix the individual migrations with an integer, as in the example below.  When the framework encounters migrations not yet applied to the current database, it starts with the first migration whose prefix isn’t present in the database and begins applying them in ascending order. 
+ 
+ 1.0.0.1__add_customers_table.sql 
+ 1.0.0.2__add_email_address_column_to_customers_table.sql 
+ 1.0.0.3__add_orders_table_with_reference_to_customer_table.sql 
+ 
+ This works great when everyone is on the same branch of code.  However, once members of the team begin working on their own branches, the likelihood of a prefix collision increases dramatically. 
+ But, if you choose to prefix your migrations using timestamps rather than integers, then the likelihood of a collision virtually disappears, even across branches.  For example, using a pattern such as  **yyyyMMddHHmmssSSS**
+ the migrations above now look like… 
+ 
+ 1.0.0.20130704144750766__add_customers_table.sql 
+ 1.0.0.20130706132142244__add_email_address_column_to_customers_table.sql 
+ 1.0.0.20130706151409978__add_orders_table_with_reference_to_customer_table.sql 
+ 
+ The timestamp pattern above is precise down to the millisecond.  While a highly precise timestamp can lead to hard to read prefixes, the more precise your prefix then the less likely a collision will be. 
+ For best results, you’ll want to automate the creation of this timestamp so all members of your team are using a consistent format 
+ In addition, note that Flyway also treats timestamp prefixes as integers.  This means that if you originally began working with Flyway using integers then you can still switch to timestamps at any point.  Since the timestamps are just very large integers, the first timestamp prefixed migration will simply be applied after the last integer prefixed migration. 
+ Taken from here and slightly modified:  http://www.jeremyjarrell.com/using-flyway-db-with-distributed-version-control/ 
+ 
+ Using a timestamp as a version seems to be a good idea. Only problem that I see is when the team is spread across the globe. In that case we might have to choose one timezone as a standard. 
+ 

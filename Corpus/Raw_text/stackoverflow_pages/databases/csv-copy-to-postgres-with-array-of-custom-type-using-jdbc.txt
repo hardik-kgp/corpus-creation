@@ -1,0 +1,102 @@
+*** csv-copy-to-postgres-with-array-of-custom-type-using-jdbc ***
+
+ I have a custom type defined in my database as 
+ 
+ And a table that uses this type in an array: 
+ 
+ I have a sample CSV file with the following contents 
+ 
+ And I use the following code snippet to perform my COPY: 
+ 
+ Executing this program produces the following exception: 
+ 
+ I have tried with different combinations of the parentheses in the input but cannot seem to get the COPY working. Any ideas where I might be going wrong? 
+ 
+ See  https://git.mikael.io/mikaelhg/pg-object-csv-copy-poc/  for a project with a JUnit test that does what you want. 
+ Basically, you want to be able to use commas for two things: to separate array items, and to separate type fields, but you DON'T want the CSV parsing to interpret commas as field delineators.  
+ So  
+ 
+ you want to tell the CSV parser to consider the whole row to be one string, one field, which you can do by enclosing it in single quotes and telling the CSV parser about this, and  
+ you want the PG field parser to consider each array item type instance to be enclosed in a double quote. 
+ 
+ Code: 
+ 
+ DML example 1: 
+ 
+ CSV example 1: 
+ 
+ DML example 2, escaping the double quotes: 
+ 
+ CSV example 2, escaping the double quotes: 
+ 
+ Full JUnit test class: 
+ 
+ Test output: 
+ 
+ 
+ In  CSV  format, when you specify a seperator, you can not use it as a character in your data, unless you escape it!  
+example of a csv file using comma as a separator 
+ a correct record:  
+  parse results:  
+ an incorrect one:   parse results:  
+ finally you do not need to load your file as a csv, but as a simple file, so replace your method   by 
+ 
+ Do not forget to add this dependency in your pom file 
+ 
+ Or to download the JAR from  commons.apache.org 
+ 
+ 1NF 
+ First of all, I think your table design is wrong because it isn't  1NF  compliant. Every field should only contain atomic attributes, but that's not the case. Why not a table like: 
+ 
+ Where   is the number of your line in the source file and  /  one of the adresses in this line?
+Sample data: 
+ 
+ Hence, you will be able to query your database on single address (find all the associated adresses, return true if two adresses are on the same line, whatever else you might want...). 
+ Load the data 
+ But let's assume you know what you are doing. The main issue here is that your input data file is in a special format. It might be one single column CSV file, but it would be a very degenerated CSV file. Anyway, you have to transform the lines before you insert them into the database. You have two options: 
+ 
+ you read each line of the input file and you make an   (this may take a while); 
+ you convert the input file into a text file with the expected format and use  . 
+ 
+ **Insert one by one**
+
+ The first options seems easy: for the first row of the csv file,  , you have to run the query: 
+ 
+ To do so, you just have to create a new string: 
+ 
+ And execute the query for every line of the input file (or for a better security, use a  prepared statement ). 
+ **Insert with **
+
+ I will elaborate on the second option. You have to use in Java code: 
+ 
+ Where copy query is a   statement and   is a reader. The statement will be: 
+ 
+ To feed the copy manager, you need data like (note the quotes):  
+ 
+ **With a temporary file**
+
+ The simpler way to get the data in the right format is to create a temporary file. You read each line of the input file and replace   by   and   by  . Write this processed line into a temporary file. Then pass a reader on this file to the copy manager. 
+ **On the fly**
+
+ **With two threads**
+
+You can use two threads: 
+ 
+ thread 1 reads the input file, processes the lines one by one and writes them into a  . 
+ thread 2 passes a   connected to the previous   to the copy manager. 
+ 
+ The main difficulty is to sychronize the threads in such a way that thread 2 starts to read the   before thread 1 starts to write data into the  . See  this project of mine  for an example. 
+ **With a custom reader**
+
+The   reader could be an instance of something like (naive version): 
+ 
+ (This is a naive version because the right way to do it would be to override only  . But you should then process the   to add the quotes and store the extra chars pushed to the right: this is a bit tedious).
+Now, if   is the reader for the file: 
+ 
+ Just use: 
+ 
+ On bulk loading 
+ If you are loading a huge amount of data, don't forget  the basic tips : disable autocommit, remove indexes and constraints, and use   and   as follows: 
+ 
+ This will speed up the loading. 
+ 

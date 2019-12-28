@@ -1,0 +1,53 @@
+*** is-it-possible-to-check-that-a-particular-query-opens-how-many-files-in-mysql ***
+
+ I have large number of open files limit in MySQL. 
+ I have set  **open_files_limit**
+ to  **150000**
+ but still MySQL uses almost  **80%**
+ of it. 
+ Also I have low traffic and max concurrent connections around 30 and no query has more than 4 joins.  
+ 
+ The files opened by the server are visible in the performance_schema. 
+ See table performance_schema.file_instances. 
+ http://dev.mysql.com/doc/refman/5.5/en/file-instances-table.html 
+ As for tracing which query opens which file, it does not work that way, due to caching in the server itself (table cache, table definition cache). 
+ 
+ This would only be possible by adjusting the source code and add logging on that level.  
+ ALternative: Run a test using this scenario: 
+ You will have to setup an automated test to make this possible:  
+ 
+ Log your queries;  
+ Create a script which preloads your heap with a normal dataset (else you are testing against empty memory), take a snapshot of the number of open tables;  
+ Run every query and take snapshot of open tables; (In retrospect) I think you could do this without restarting MySQL every time, so then just every query and record the results. Debugging is tedious work: Not impossible, just really tedious.  
+ 
+ Personally I would start different:  
+ 
+ Install cacti and percona cacti plugin 
+ Register a week of normal workload 
+ Then hunt down high load queries (slow log > 0.1 second, run through a script to find repeating queries).  
+ Another week monitoring 
+ Then hunt down additional queries with a high repeat count: This is often inefficient code firing a high number of queries where less could be used (like retrieving the keys and then all the values for every key per key (one by one: Happens a lot when programmers use ORM). 
+ 
+ 
+ MySQL shouldn't open that many files, unless you have set a ludicrously large value for the   parameter (the default is 64, the maximum is 512K). 
+ You can reduce the number of open files by issuing the   command. 
+ Otherwise, the appropriate value of   can be roughly estimated (in Linux) by running   against all MySQLd threads. You get something like: 
+ 
+ ...and see whether there's a reasonable difference in impact in open() and close() calls; those are the calls which   affects, and that influence how many open files there are at any given point. 
+ If the impact of   is negligible, then by all means  **reduce **
+. It is mostly needed on slow IOSS'es, and there aren't many of those left around. 
+ If you're running on Windows, you'll have to try and use  ProcMon by SysInternals, or some similar tool . 
+ Once you have   to manageable levels, your query that now opens too many files will simply close and re-open many of those same files. You'll perhaps notice an impact on performances, that in all likelihood will be negligible. Chances are that a smaller table cache might actually get you results  faster , as fetching an item from a modern, fast IOSS cache may well be faster than searching for it in a really large cache. 
+ If you're into optimizing your server, you may want to look at  this article  too. The take-away is that as caches go,  **larger is not always better**
+ (it also applies to indexing). 
+ **Inspecting a specific query on Linux**
+
+ On Linux you can use  strace  (see above) and verify what files are opened and how: 
+ 
+ Meanwhile from a different terminal I run a query, and: 
+ 
+ ...these are the files that the query used (*be sure to run the query on a "cold-started" MySQL to prevent caching), and I see that the highest file handle assigned was 39, thus at no point were there more than 40 open files. 
+ The same files can be checked from /proc/$PID/fd or from MySQL: 
+ 
+ but the count from MySQL is slightly shorter, it does not take into account socket descriptors, log files, and temporary files. 
+ 

@@ -1,0 +1,65 @@
+*** db-consistency-with-microservices ***
+
+ What is the best way to achieve DB consistency in microservice-based systems? 
+ At the  GOTO in Berlin , Martin Fowler was talking about microservices and one "rule" he mentioned was to keep "per-service" databases, which means that services cannot directly connect to a DB "owned" by another service. 
+ This is super-nice and elegant but in practice it becomes a bit tricky. Suppose that you have a few services: 
+ 
+ a frontend 
+ an order-management service 
+ a loyalty-program service 
+ 
+ Now, a customer make a purchase on your frontend, which will call the order management service, which will save everything in the DB -- no problem. At this point, there will also be a call to the loyalty-program service so that it credits / debits points from your account. 
+ Now, when everything is on the same DB / DB server it all becomes easy since you can run everything in one transaction: if the loyalty program service fails to write to the DB we can roll the whole thing back. 
+ When we do DB operations throughout multiple services this isn't possible, as we don't rely on one connection / take advantage of running a single transaction.
+What are the best patterns to keep things consistent and live a happy life? 
+ I'm quite eager to hear your suggestions!..and thanks in advance! 
+ 
+ 
+ This is super-nice and elegant but in practice it becomes a bit tricky 
+ 
+ What it means "in practice" is that you need to design your microservices in such a way that the necessary business consistency is fulfilled when following the rule: 
+ 
+ that services cannot directly connect to a DB "owned" by another service. 
+ 
+ In other words - don't make any assumptions about their responsibilities and change the boundaries as needed until you can find a way to make that work. 
+ Now, to your question: 
+ 
+ What are the best patterns to keep things consistent and live a happy life? 
+ 
+ For things that don't require immediate consistency, and updating loyalty points seems to fall in that category, you could use a reliable pub/sub pattern to dispatch events from one microservice to be processed by others. The reliable bit is that you'd want good retries, rollback, and idempotence (or transactionality) for the event processing stuff. 
+ If you're running on .NET some examples of infrastructure that support this kind of reliability include  NServiceBus  and  MassTransit . Full disclosure - I'm the founder of NServiceBus. 
+ **Update:**
+ Following comments regarding concerns about the loyalty points: "if balance updates are processed with delay, a customer may actually be able to order more items than they have points for".  
+ Many people struggle with these kinds of requirements for strong consistency. The thing is that these kinds of scenarios can usually be dealt with by introducing additional rules, like if a user ends up with negative loyalty points notify them. If T goes by without the loyalty points being sorted out, notify the user that they will be charged M based on some conversion rate. This policy should be visible to customers when they use points to purchase stuff. 
+ 
+ I don’t usually deal with microservices, and this might not be a good way of doing things, but here’s an idea: 
+ To restate the problem, the system consists of three independent-but-communicating parts: the frontend, the order-management backend, and the loyalty-program backend. The frontend wants to make sure some state is saved in both the order-management backend and the loyalty-program backend. 
+ One possible solution would be to implement some type of  two-phase commit : 
+ 
+ First, the frontend places a record in its own database with all the data. Call this the  frontend record . 
+ The frontend asks the order-management backend for a transaction ID, and passes it whatever data it would need to complete the action. The order-management backend stores this data in a staging area, associating with it a fresh transaction ID and returning that to the frontend. 
+ The order-management transaction ID is stored as part of the frontend record. 
+ The frontend asks the loyalty-program backend for a transaction ID, and passes it whatever data it would need to complete the action. The loyalty-program backend stores this data in a staging area, associating with it a fresh transaction ID and returning that to the frontend. 
+ The loyalty-program transaction ID is stored as part of the frontend record. 
+ The frontend tells the order-management backend to finalize the transaction associated with the transaction ID the frontend stored. 
+ The frontend tells the loyalty-program backend to finalize the transaction associated with the transaction ID the frontend stored. 
+ The frontend deletes its frontend record. 
+ 
+ If this is implemented, the changes will not necessarily be  atomic , but it will be  eventually consistent . Let’s think of the places it could fail: 
+ 
+ If it fails in the first step, no data will change. 
+ If it fails in the second, third, fourth, or fifth, when the system comes back online it can scan through all frontend records, looking for records without an associated transaction ID (of either type). If it comes across any such record, it can replay beginning at step 2. (If there is a failure in step 3 or 5, there will be some abandoned records left in the backends, but it is never moved out of the staging area so it is OK.) 
+ If it fails in the sixth, seventh, or eighth step, when the system comes back online it can look for all frontend records with both transaction IDs filled in. It can then query the backends to see the state of these transactions—committed or uncommitted. Depending on which have been committed, it can resume from the appropriate step. 
+ 
+ 
+ I agree with what @Udi Dahan said.  Just want to add to his answer.   
+ I think you need to persist the request to the loyalty program so that if it fails it can be done at some other point.  There are various ways to word/do this. 
+ 1)  Make the loyalty program API failure recoverable.  That is to say it can persist requests so that they do not get lost and can be recovered (re-executed) at some later point.   
+ 2)  Execute the loyalty program requests asynchronously.  That is to say, persist the request somewhere first then allow the service to read it from this persisted store.  Only remove from the persisted store when successfully executed.   
+ 3)  Do what Udi said, and place it on a good queue (pub/sub pattern to be exact).  This usually requires that the subscriber do one of two things... either persist the request before removing from the queue (goto 1) --OR-- first borrow the request from the queue, then after successfully processing the request, have the request removed from the queue (this is my preference).  
+ All three accomplish the same thing.  They move the request to a persisted place where it can be worked on till successful completion.  The request is never lost, and retried if necessary till a satisfactory state is reached. 
+ I like to use the example of a relay race.  Each service or piece of code must take hold and ownership of the request before allowing the previous piece of code to let go of it.  Once it's handed off, the current owner must not lose the request till it gets processed or handed off to some other piece of code. 
+ 
+ Even for distributed transactions you can get into "transaction in doubt status" if one of the participants crashes in the midst of the transaction. If you design the services as idempotent operation then life becomes a bit easier. One can write programs to fulfill business conditions without XA. Pat Helland has written excellent paper on this called "Life Beyond XA". Basically the approach is to make as minimum assumptions about remote entities as possible. He also illustrated an approach called Open Nested Transactions ( http://www.cidrdb.org/cidr2013/Papers/CIDR13_Paper142.pdf ) to model business processes. In this specific case, Purchase transaction would be top level flow and loyalty and order management will be next level flows. The trick is to crate granular services as idempotent services with compensation logic. So if any thing fails anywhere in the flow, individual services can compensate for it. So e.g. if order fails for some reason, loyalty can deduct the accrued point for that purchase. 
+ Other approach is to model using eventual consistency using CALM or CRDTs. I've written a blog to highlight using CALM in real life -  http://shripad-agashe.github.io/2015/08/Art-Of-Disorderly-Programming  May be it will help you. 
+ 

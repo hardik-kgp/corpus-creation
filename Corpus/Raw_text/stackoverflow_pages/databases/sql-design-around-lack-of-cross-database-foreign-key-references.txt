@@ -1,0 +1,42 @@
+*** sql-design-around-lack-of-cross-database-foreign-key-references ***
+
+ For better or worse, we have a solution that relies on multiple databases that all reference a common administration database.  Databases ship as part of modules, and not all modules are required for an installation (probably why we have multiple databases in the first place).  The admin database is required, however ... so it will always be there.  
+ I would like to bring some referential integrity and order to the chaos, but am stymied by SQL server's inability to do cross-database foreign keys.  There is NOT a lot of churn in the database, but information will be inserted/updated by (ahem) non-technical users.   
+ My choices as I see them are: 
+ a) Impose pseudo foreign key using triggers (ok, but a bit of work) 
+ b) Use triggers to replicate from admin to other databases (a clear recipe for disaster) 
+ c) Impose psuedo foreign key in code / DAL (does not play well with ORM) 
+ d) Don't worry about it at DB level, use good UI design to make sure no one does anything stupid and restrict access/hold breath on direct SQL access. 
+ Frankly, I'm inclined to go with "D", but figured I'd go out for opinions smarter than me ...  
+ 
+ We have the exact same problem and quite frankly, it sucks.  Our only solution we found effective was option D and using the business layer to try and keep things in sync (encasing in transactions etc.) 
+ 
+ Assuming each module is set up so that it's linked with the administration database, you might be able to simplify thing by setting up views for the administration tables within each module database. 
+ 
+ We have such a modularity in our products, but our database requirements are merged together during installtion. For example our admin package and product A may be the initial purchase by a client where they install the two modules into database X. If they later buy product B the database component is layered right on top of database X adding in the DRI where necessary. 
+ The only case where I have seen the need for separate databases from a design perspective is when you are drawing a hard line between business units (such as a corporation) at which point the issue is really a type of partitioning. Great Plains Dynamics does this where they have a single administrative database, and multiple corporation databases. However each module in GP for a given corporation resides in that single database. 
+ Of course if you are stuck with separate databases, I would agree that D is the best option. 
+ 
+ Depending on your database implementation, often you will be able to link tables from another database (the AdminDB) and have them appear in your various module databases. 
+ In Microsoft Access you can link tables by right clicking, and then choosing an ODBC data source. In  Oracle they call it a database link .  I'm willing to bet  SQLServer has some form of this implementation  short of implementing custom replication on a single table. 
+ Once you link in your foreign admin tables to your module databases (or vice versa), then you should be able to define constraints as if the tables were within the same schema. 
+ A second option may be even simpler. What if you used the same schema for all modules and admin database?  You know the admin database is present, so simply run the table creation script against that schema.  As long as there is no table / view / stored procedure naming conflicts, then it should all work just by changing the dblogin in all modules to match. 
+ 
+ I guess it depends on the criticality of your application. Do you wish to continue, in a possibly limited fashion, to operate if that admin database goes down. If you say, no way, if admin is down, the whole app should be halted immediately than everything that's been said so far is fine. 
+ If you say, "gee, there's plenty of work that could still be done without the admin db." then I'd ask, why do you believe that uni-direction replication is so wildly exotic that it's a clear recipe for disaster? 
+ Making a copy of a table isn't rocket science at all. In fact it utterly as simple as duplicating your house key. Every peak and valley in the master, is transmitted to a cutting wheel that shapes a blank. Where there is some magic is in multi-master replication, if you start to allow changes at the remote databases to the data that comes from the admin data, then you've opened up a serious design consideration.  
+ I'm not saying that this is THE way to go, you have to first answer my initial question. After that, if you do want to continue operations... don't discount the viability of replication. 
+ 
+ You should implement a Service Oriented Architecture. Where the different services in the system are running with their on database schema.
+Then let you applications run independently from any databases but let them run against the services. 
+ 
+ You can address this in a number of ways architecturally in order to funnel all changes through a central service so that they are not able to make inconsistencies, but regardless of how much effort you are willing to put into that (and creating a bottleneck or single point of failure may violate some other requirements you have) you will not be able to rely on the database engine itself to enforce it with a guarantee like you can with a FK constraint. 
+ I often had to deal with this in cross-departmental database situations where things could get out of sync because disparate systems were not fully integrated yet, or security concerns required them to have separate administrators. 
+ In these cases, I usually rely on exception reports generated hourly, which check on the status of things and only report if there is a problem.  The SQL Server Agent jobs have powerful scheduling capabilities.  I always used log tables and SQLAnswersMail to generate nice little HTML emails (where URL links in the emails could even take you to administration pages to correct the problems) to the various system administrators, but there are tons of ways to skin this cat. 
+ 
+ I wonder if SQL Server has a feature like Oracle's materialized views?  This is an object that you define with a query like a view, but the results of the query get stored as a table.  There are then various mechanisms for automatically refreshing. 
+ If there is such a feature, I would suggest making a materialized view of the core table(s) in each satellite database.  Then you can reference that in your foreign keys.  The main issue would be whether it can be refreshed frequently enough for your needs. 
+ 
+ I think that the funny thing.. is that you could make a small MS Access copy of your database, enforce RI in Access.. and then upsize, and Microsoft Access gives you the option to choose between using Triggers or DRI.. and I'm pretty certain that Microsoft Access will write the core parts of the triggers for you. 
+ While we're on the topic, I hate MS Access.. but the one thing that is superior with Access, is that you can enforce RI against a QUERY (sql select, aka view).. I really wish that MS SQL Server had that same functionality. 
+ 

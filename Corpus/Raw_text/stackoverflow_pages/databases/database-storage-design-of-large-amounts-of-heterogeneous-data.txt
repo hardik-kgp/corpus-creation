@@ -1,0 +1,74 @@
+*** database-storage-design-of-large-amounts-of-heterogeneous-data ***
+
+ Here is something I've wondered for quite some time, and have not seen a real (good) solution for yet. It's a problem I imagine many games having, and that I can't easily think of how to solve (well). Ideas are welcome, but since this is not a concrete problem, don't bother asking for more details - just make them up! (and explain what you made up). 
+ Ok, so, many games have the concept of (inventory) items, and often, there are hundreds of different kinds of items, all with often very varying data structures - some items are very simple ("a rock"), others can have insane complexity or data behind them ("a book", "a programmed computer chip", "a container with more items"), etc. 
+ Now, programming something like that is easy - just have everything implement an interface, or maybe extend an abstract root item. Since objects in the programming world don't have to look the same on the inside as on the outside, there is really no issue with how much and what kind of private fields any type of item has. 
+ But when it comes to database serialization (binary serialization is of course no problem), you are facing a dilemma: how would you represent that in, say, a typical SQL database ? 
+ Some attempts at a solution that I have seen, none of which I find satisfying: 
+ 
+ Binary serialization of the items, the database just holds an ID and a blob. 
+ 
+ Pro's: takes like 10 seconds to implement. 
+ Con's: Basically sacrifices every database feature, hard to maintain, near impossible to refactor. 
+ 
+ A table per item type. 
+ 
+ Pro's: Clean, flexible. 
+ Con's: With a wide variety come hundreds of tables, and every search for an item has to query them all since SQL doesn't have the concept of table/type 'reference'. 
+ 
+ One table with a lot of fields that aren't used by every item. 
+ 
+ Pro's: takes like 10 seconds to implement, still searchable. 
+ Con's: Waste of space, performance, confusing from the database to tell what fields are in use. 
+ 
+ A few tables with a few 'base profiles' for storage where similar items get thrown together and use the same fields for different data. 
+ 
+ Pro's: I've got nothing. 
+ Con's: Waste of space, performance, confusing from the database to tell what fields are in use. 
+ 
+ 
+ What ideas do you have? Have you seen another design that works better or worse? 
+ 
+ It depends if you need to sort, filter, count, or analyze those attribute. 
+ If you use EAV, then you will screw yourself nicely. Try doing reports on an EAV schema. 
+ The best option is to use Table Inheritance: 
+ 
+ For attributes that you don't need to search/sort/analyze, then use a blob or xml 
+ 
+ I have two alternatives for you: 
+ 
+ One table for the base type and supplemental tables for each “class” of specialized types. 
+ In this schema, properties common to all “objects” are stored in one table, so you have a unique record for every object in the game.  For special types like books, containers, usable items, etc, you have another table for each unique set of properties or relationships those items need. Every special type will therefore be represented by two records: the base object record and the supplemental record in a particular special type table. 
+ PROS: You can use column-based features of your database like custom domains, checks, and xml processing; you can have simpler triggers on certain types; your queries differ exactly at the point of diverging concerns. 
+ CONS: You need two inserts for many objects. 
+ Use a “kind” enum field and a JSONB-like field for the special type data. 
+ This is kind of like your #1 or #3, except with some database help. Postgres added JSONB, giving you an improvement over the old EAV pattern.  Other databases have a similar complex field type. In this strategy you roll your own mini schema that you stash in the JSONB field. The kind field declares what you expect to find in that JSONB field. 
+ PROS: You can extract special type data in your queries; can add check constraints and have a simple schema to deal with; you can benefit from indexing even though your data is heterogenous; your queries and inserts are simple. 
+ CONS: Your data types within JSONB-like fields are pretty limited and you have to roll your own validation. 
+ 
+ 
+ Yes, it is a pain to design database formats like this. I'm designing a notification system and reached the same problem. My notification system is however less complex than yours - the data it holds is at most ids and usernames. My current solution is a mix of 1 and 3 - I serialize data that is different from every notification, and use a column for the 2 usernames (some may have 2 or 1). I shy away from method 2 because I hate that design, but it's probably just me. 
+ However, if you can afford it, I would suggest thinking outside the realm of RDBMS - it sounds like Non-RDBMS (especially key/value storage ones) may be a better fit to store these data, especially if item 1 and item 2 differ from each item a lot. 
+ 
+ I'm sure this has been asked here a million times before, but in addition to the options which you have discussed in your question, you can look at EAV schema which is very flexible, but which has its own sets of cons. 
+ Another alternative is database systems which are not relational.  There are object databases as well as various key/value stores and document databases. 
+ Typically all these things break down to some extent when you need to query against the flexible attributes.  This is kind of an intrinsic problem, however.  Conceptually, what does it really mean to query things accurately which are unstructured? 
+ 
+ First of all, do you actually  need  the concurrency, scalability and ACID transactions of a real database? Unless you are building a MMO, your game structures will likely fit in memory anyway, so you can search and otherwise manipulate them there directly. In a scenario like this, the "database" is just a store for serialized objects, and you can replace it with the file system. 
+ 
+ If you conclude that you do (need a database), then the key is in figuring out what  "atomicity"  means  **from the perspective of the data management**
+. 
+ For example, if a game item has a bunch of attributes, but none of these attributes are manipulated individually at the database level (even though they could well be at the application level), then it can be considered as "atomic" from the data management perspective. OTOH, if the item needs to be searched on some of these attributes, then you'll need a good way to index them in the database, which typically means they'll have to be separate fields. 
+ Once you have identified attributes that should be "visible" versus the attributes that should be "invisible" from the database perspective, serialize the latter to BLOBs (or whatever), then forget about them and concentrate on structuring the former. 
+ That's where the fun starts and you'll probably need to use "all of the above" strategy for reasonable results. 
+ BTW, some databases support "deep" indexes that can go into heterogeneous data structures. For example, take a look at Oracle's  XMLIndex , though I doubt you'll use Oracle for a game. 
+ 
+ You seem to be trying to solve this for a gaming context, so maybe you could consider a  **component-based**
+ approach.
+I have to say that I personally haven't tried this yet, but I've been looking into it for a while and it seems to me something similar could be applied. 
+ The idea would be that all the entities in your game would basically be a bag of components. These components can be  ,   or for your inventory case,  , for example. Then, for this   component you can add custom fields such as category, numItems, etc. 
+ When you're going to render the inventory, you can simply query your entity system for items that have the   component. 
+ How can you save this into a DB? You can define the components independently in their own table and then for the entities (each in their own table as well) you would add a  "Components" column which would hold an array of IDs referencing these components. These IDs would effectively be like foreign keys, though I'm aware that this is not exactly how you can model things in relational databases, but you get the idea. 
+ Then, when you load the entities and their components at runtime, based on the component being loaded you can set the corresponding flag in their bag of components so that you know which components this entity has, and they'll then become queryable. 
+ Here 's an interesting read about component-based entity systems. 
+ 

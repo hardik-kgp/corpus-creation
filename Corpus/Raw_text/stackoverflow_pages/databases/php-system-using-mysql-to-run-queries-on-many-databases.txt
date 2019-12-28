@@ -1,0 +1,92 @@
+*** php-system-using-mysql-to-run-queries-on-many-databases ***
+
+ I have a script below that goes through 380 MySQL innodb databases and runs various create table, inserts, updates...etc to migrate schema. It runs from a web server that connects to a cloud database server. I am leaving the migration script out of this question as I don't think it is relevant. 
+ I ran into an issue and I am trying to find a workaround.  
+ I have a 4gb ram cloud database server running MySQL 5.6. I migrated 380 database with 40 tables to 59 tables. About 70% of the way through I got The errors below. It died in the middle of one migration and the server went down. I was watching memory usage and it ran out of memory. It is a database as a service so I don't have root access to server so I don't know all details. 
+ Running queries on phppoint_smg 
+ 
+ 
+ Running queries on phppoint_soulofhalloween 
+ 
+ 
+ Running queries on phppoint_srvais 
+ 
+ 
+ Here is a simplified version of the PHP script. 
+ 
+ My questions: 
+ Is there any way to avoid memory usage going up as I do migration? I am doing it one database at a time. Or is the addition of tables and data the reason it goes up? 
+ I was able to use the server afterwords and removed 80 databases and finished the migration. It has 800 mb free; and I expect it to go down to 600mb. Before the migration it was at 500mb 
+ 
+ Your PHP sample doesn't use much memory, and it's not running on the Database server, which is the one that went down, right? So the problem is in your configured MySQL parameters. 
+ Based on your  Gist , and using a simple  MySQL memory calculator , we can see that your MySQL service can use up to 3817MB of memory. If the server only had 4GB when the error happened, it's pretty probable that this was the cause (you need to have some additional memory for the OS and running applications). Increasing the memory or finetuning the server would resolve it. Take a look at the  MySQL documentation page on server variables  to best understand each value. 
+ However, this may not be the only cause for disconnects/timeouts (but it does seem to be your case, since increasing memory resolved the problem). Another common problem is to underestimate the   value (16MB in your configuration), because such scripts can easily have queries beyond this value (for example, if you have several values for a single  ). 
+ Consider that   should be bigger than the biggest command you issue to your database (it's not the SQL file, but each command within it, the block between  ). 
+ But please, do consider a more careful tuning, since a bad configured server may suddenly crash, or become unresponsive —while it could perfectly run without adding more memory. I suggest running performance tuning scripts like  MySQLTuner-perl  that will analyze your data, index usage, slow queries and even propose the adjustments you need to optimize your server. 
+ 
+ It's pretty obvious that your migration SQL queries kill the server. Seems that the database simply have to low free RAM for such actions. 
+Depending on the database filesize and queries it can for sure boost up your RAM usage.
+Without knowing exact server specs, the data in the database and the queries you fire there is no exact answer that can help you here. 
+ 
+ Instead of spawning lots of processes, generate one file, then run it.  Generate the file something like 
+ 
+ Then, either manually or programatically, do 
+ 
+ It might be safer to do it manually so that PHP is out of the way. 
+ 
+ One thing you should try to relieve your RAM, as your server is obviously extremely low on RAM, is to force garbage collection after unsetting big arrays once the loop is complete. 
+ I was facing a similar problem with PTHREADS under PHP7 (and 512Go of RAM) that was handling 1024 async connections to MariaDB and Postgresql on a massive server. 
+ Try this for each loop. 
+ 
+ Also, set a control to constantly monitor the RAM usage under load to see if this happens on a particular $database. In case your RAM goes too low , set the control to chunk your $database and do multi inserts batches and unset them as they are done. This will purge more RAM and avoid too big array copies before sub inserts loop. This is especially the case if you are using classes with construct. With 4Go, I would tend to set batches of 400 to 500 async inserts max, depends on your insert global length. 
+ 
+ If your database server is crashing (or being killed by the oom killer) then the reason is that it has been configured to use more memory than is available on the device. 
+ You forgot to tell us what OS is running on the database nodes. 
+ If you don't have root access to the server then this is the fault of whoever configured it. Memory overcommit should be  disabled  (requires root access). A tool like  mysqltuner  will show you how much memory the DBMS is configured to use (requires admin privilege). See also  this percona post 
+ 
+ I think they are right about ram, but it is worth noting the tools you use is important.  
+ Have you tried  http://www.mysqldumper.net/  
+if you use it (php script) check the settings for php memory limit and let it auto detect.  
+ I used to use  http://www.ozerov.de/bigdump/ 
+but its so slow that I dont anymore. 
+ The mysqldumper on the otherhand, is both fast at backups and restores, doesnt crash (if you set memory limit)  
+ I have found this tool to be exceptional. 
+ 
+ Updated: 
+ Your comments completely changes the situation. 
+Here is my updated answer: 
+ Since you have no access to MySQL server, you need to do some alternative approach. 
+ **Mandatory remove all special "things"**
+ from import file such enclosing transactions, insert delayed / ignored and so on. 
+ **Mandatory do SQL's with single statement**
+ -
+I do not know how inserts look like, but do it single statement - single insert - do not bundle many rows in single statement,  
+ e.g. 
+ instead of  
+ 
+ do 
+ 
+ Then try these: 
+ 
+ You might try to "upload"   with big buffers and so on. It is possible the provider of MySQL server to give you more RAM then. It is service after all :) 
+ You might try to generate file with schema and files with data. Then import schema, then began to import table by table and see where it crashes and resume crashed file. 
+ You might import everything with   tables. Then you can convert these in  .  . However, doing so will lost all referential integrity and you will need to enforce it later. 
+ You might import everything with   tables. Then instead of convert those, you can do 
+ 
+ something like this for each table: 
+ 
+ I believe there is single table that breaks the process. If you find it, you can proceed with it manually. For example import 10000 rows at a time or something. 
+ Alternative approach 
+ If your server is in Amazon AWS or similar service, you can try "scale-out" ("enlarge") the server for the import, and to "scale-down" ("shrink") after import is done. 
+ Old answer 
+ 
+ why do you use php script? try create or generate via php a shell script. then run shell script. 
+ also is very important to create huge swap file on the system. here is
+  one way to do it. It might not work on older systems: 
+ 
+ Then execute the php or shell script. 
+ Once is done, you can swapoff and remove the file or make it permanent
+  in fstab. 
+ Let me know if i need to clarify anything. 
+ 
+ 

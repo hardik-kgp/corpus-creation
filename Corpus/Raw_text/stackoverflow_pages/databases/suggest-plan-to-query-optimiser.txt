@@ -1,0 +1,77 @@
+*** suggest-plan-to-query-optimiser ***
+
+ There are times I can use force index option to use particular index on a query to make the query faster.  
+ Then after some times the data in that table may change. And the force index which I used may not be the right index search for that query. 
+ My questions are 
+ 
+ Is there anyway to suggest the Query Optimiser to use a force index as a possible option during its plan generation. If it is a slow plan on using the forced index then it can use normal query planning.  
+ Or Else Is there anyway to edit the Code of MySql/PSQL to suggest the Optimiser to use a force index as a possible option during its plan generation. 
+ 
+ **Additional Info:**
+ I wanted to add my plan to the optimiser plan list( that Optimiser already created many plan for a query). So that while choosing the best plan for a query I wanted the optimiser to consider my plan also. If this way is possible then the optimiser need not consider force index every time. It can keep the force index as a possible option to the plan generation 
+ I tried to make the question clear as of my knowledge. If anyone couldn't understand comment your queries. 
+ 
+ The only way is to remove   from your query. 
+ You can override the optimizer's plan, or else you let the optimizer choose the plan. 
+ The optimizer can't tell if using the index will be slow. It tries to make its best guess at choosing a plan that will be fast. 
+ The only way the optimizer could be more accurate is to run both queries, and compare the performance difference, and then run the fast query. That's obviously not practical, so the optimizer is meant to estimate the cost of the query, based on some statistical model. Most of the time this is accurate enough that the optimizer's choice is best. 
+ 
+ The general concept with which you are dealing is "internal database statistics" (not an official term).  That is, the information the database engine uses to make the query plan.  The statistics store details like the key distribution within the indexes, table row sizes, counts, percentage of null rows, distinctness of data, and so on. 
+ For historical (and relevant) performance reasons, the internal database statistics are not updated on-the-fly, but are typically updated periodically at the the DBA's behest.  In Postgres land, this information is succinctly available via the   table.  Unfortunately, MySQL does not make this information readily available, but you can see what you can glean from the INFORMATION_SCHEMA and SHOW INDEXES. 
+ To your problem at hand -- the fleeting usefulness of query plan hints -- is that the DB's statistics are not representative of the table data.  The general response then is: update the DB's statistics of the tables in question, and you won't need to provide optimizer hints in your queries: 
+ 
+ There are some caveats of which to be aware: 
+ 
+ Without extra measures, this analysis by the DB engine is ephemeral: it will not persist across a database restart/reboot.  The options are to reanalyze tables upon DB start, or to look in to  statistics persistence . 
+ This generates statistics by  sampling  the data -- looking at a subset of random table rows.  By nature, a  random  sampling means that the statistics gathered might, on any particular run, not be a good representation of the actual data, leading to poor query plans.  You can increase the number of sample pages via  
+  is not  , and your tables might also need optimization.    is an expensive operation, requiring a lock on the table, but can be hugely beneficial under certain conditions. 
+  is table specific, and cannot make up for poor table layout.  For example, I was recently tasked with speeding up a slow running set of report queries.  The culprit?  The schema was storing time and date columns as strings, rather than as native data types.  This had huge implications as the queries first had to cast the strings to dates (including with errors in the data) before comparison, resulting in multiple entire table scans.  Very bad. 
+  cannot make up for poor queries.  For example, as with the previous bullet point, something like   means that the query planner likely cannot utilize the indexes as each row must first execute the FUNCTION to get the condition result.  Not always the case, but often found in naive SQL queries. 
+  cannot make up for poor normalization.  Not withstanding the potentially large algorithmic constants, you will get far bigger big-O algorithmic wins by having proper normalization. 
+  does  **not**
+ create indexes.  If a query accesses columns that have high-cardinality but no indexes, too bad.  Knowing on which columns to put indexes per the known or expected queries is up to the DBA. 
+ 
+ And as usual in cases like these, take all of StackOverflow advices with grains of salt: you are in charge of the data or programs and have the actual running product in front of you.  You can test, you can measure, you can poke around.  We can't. 
+ 
+  may be good today, but bad tomorrow.  This is because the data distribution changes and/or the constants in the query change. 
+ There are a few of patterns that often lead to picking the "wrong" index: 
+ 
+ and it is unclear whether to optimize for the   or for the  . 
+ 
+ and it is not obvious whether to filter on   or   first.  (It cannot filter on both at the same time.) 
+ If you provide your particular query, we may be able to provide specific hints. 
+ Sometimes, the query can be reformulated to trick the Optimizer into taking one path versus the other.  Version 8.0 has a number of "hints", but that's not necessarily better than  .    is another flavor of hint. 
+ Reformulating the query may involve turning part of it into a subquery.  But again, you are risking "good today, bad tomorrow". 
+ If you have "over-normalized" (such as normalizing a datetime, then using  ), the solution may involve denormalizing. 
+ Are you using 'composite' indexes?  Is the 'range' part of the   last in the index?  (And a lot of other questions -- let's see the specific query.) 
+ 
+ Q: Is there anyway to suggest the Query Optimiser to use a force index as a possible option during its plan generation. If it is a slow plan on using the forced index then it can use normal query planning. 
+ A: No. The optimizer does what it does with what its given. The optimizer doesn't ignore hints. Any hints included in the SQL text have an influence. 
+ This is why hints are a "last resort". Our preference is to have the optimizer choose an appropriate plan. And the best way to make that happen is to carefully write SQL to avoid constructs that prevent appropriate indexes from being used (for example, wrapping a column in function), to have suitable indexes available, and to make sure statistics are accurate and up to date. 
+ Q: Is there anyway to edit the Code of MySql/PSQL to suggest the Optimiser to use a force index as a possible option during its plan generation? 
+ A: The optimizer will consider all of the indexes, and choose to use an  particular index if the candidate access plan has the lowest cost estimate. This doesn't require a FORCE INDEX hint; MySQL will be considering the index. 
+ 
+ Using hints in the SQL text is a last resort. Before we consider using hints (FORCE INDEX or otherwise), we  should  
+ 
+ use SQL constructs that allow (don't prevent) usage of appropriate index. for example, with a DATETIME column  ,  MySQL can use range scan operation for this   but not for this  .  Sometimes query performance issues can be addressed with some simple tweaks to the SQL text. Sometimes a more extensive re-design and re-write. 
+ have suitable indexes available (for example, consider composite indexes with appropriate leading columns, and remove redundant indexes on singleton column) 
+ ensure statistics are up-to-date and are representative of the table (Note that InnoDB gathers statistics using a small sample of pages. If the pages that get sampled aren't representative of the table, we can get statistics that are skewed. 
+ 
+ 
+ As far as I know, 
+ Mysql is not good enough to support your requirement as lack of some kind of statistics and mechanism, for example, histogram, dynamic sampling and etc. 
+ So if data changes, although collect statistics in time, lack of necessary things described previous, the optimizer may not behaviour as you expect. 
+ Your two questions may be good practice, but is hard for final users. 
+ Or you could advice for oracle or maria db team? 
+ 
+ My Question is, have you ever experienced slow execution because of force index? 
+ **If not,**
+
+go with optimizer's choice. It skips force index in bad situations
+ 
+  ex:  
+in above query, it skips force index  
+ **If yes,**
+
+ You can override the optimizer's plan based on your observations.  
+ 

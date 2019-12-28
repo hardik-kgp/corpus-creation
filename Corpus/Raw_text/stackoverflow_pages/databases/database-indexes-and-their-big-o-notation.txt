@@ -1,0 +1,44 @@
+*** database-indexes-and-their-big-o-notation ***
+
+ I'm trying to understand the performance of database indexes in terms of Big-O notation. Without knowing much about it, I would guess that: 
+ 
+ Querying on a primary key or unique index will give you a O(1) lookup time. 
+ Querying on a non-unique index will also give a O(1) time, albeit maybe the '1' is slower than for the unique index (?) 
+ Querying on a column without an index will give a O(N) lookup time (full table scan). 
+ 
+ Is this generally correct ? Will querying on a primary key ever give worse performance than O(1) ?  My specific concern is for SQLite, but I'd be interested in knowing to what extent this varies between different databases too.  
+ 
+ Most relational databases structure indices as B-trees. 
+ If a table has a clustering index, the data pages are stored as the leaf nodes of the B-tree. Essentially, the clustering index becomes the table. 
+ For tables w/o a clustering index, the data pages of the table are stored in a heap. Any non-clustered indices are B-trees where the leaf node of the B-tree identifies a particular page in the heap. 
+ The worst case height of a B-tree is O(log n), and since a search is dependent on height,  B-tree lookups run in something like (on the average) 
+ O(log t  n) 
+ where t is the minimization factor ( each node must have at least  t -1 keys and at most 2*t* -1 keys (e.g., 2*t* children). 
+ That's the way I understand it. 
+ And different database systems, of course, may well use different data structures under the hood. 
+ And if the query does not use an index, of course, then the search is an iteration over the heap or B-tree containing the data pages. 
+ Searches are a little cheaper if the index used can satisfy the query; otherwise, a lookaside to fetch the corresponding datapage in memory is required. 
+ 
+ The indexed queries (unique or not) are more typically O(log n).  Very simplistically, you can think of it as being similar to a binary search in a sorted array.  More accurately, it depends on the index type.  But a b-tree search, for example, is still O(log n). 
+ If there is no index, then, yes, it is O(N). 
+ 
+ If you SELECT the same columns you search for then  
+ 
+ Primary or Unqiue will be O(log n): it's a b-tree search 
+ non-unique index is also O(log n) + a bit: it's a b-tree search 
+ no index = O(N) 
+ 
+ If you require information from another "source" (index intersection, bookmark/key lookup etc) because the index is non-covering, then you could have O(n + log n) or O(log n + log n + log n) because of multiple index hits + intermediate sorting. 
+ If statistics show that you require a high % of rows (eg not very selective index) then the index may be ignored and become a scan = O(n) 
+ 
+ Other answers give a good starting point; but I would just add that to get O(1), primary index itself would need to be hash-based (which is typically not the default choice); so more commonly it is logarithmic (B-tree). 
+ You are correct in that secondary indexes typically have same complexity, but worse actual performance -- this because index and data are not clustered, so the constant (number of disk seeks) is bigger. 
+ 
+ It depends on what your query is. 
+ 
+ A condition of the form   allows the use of a hash-based index, which has O(1) lookup time.  However,  many databases, including SQLite, do not support them . 
+ A condition using relational operators ( ,  ,  ,  ) can make use of an ordered index, typically implemented with a binary tree, which has O(log n) lookup time. 
+ More complicated expressions which cannot use an index require O(n) time. 
+ 
+ Since you're primarily interested in SQLite, you might want to read its  Query Optimizer Overview  which explains in more detail how indexes are selected. 
+ 

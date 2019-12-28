@@ -1,0 +1,69 @@
+*** log-to-database-instead-of-log-files ***
+
+ I'm interested in sending all Rails application logging to a database (MySQL or MongoDB) either in addition to or instead of to a log file. There are a few reasons, most of which are concerned about log file analysis. We already use Google Analytics, but there are a variety of things we want to do that aren't as workable in Analytics.   
+ Furthermore, I'd like to do "real time" investigation of issues by looking at logs. Sifting through a log file is a tedious way to do that, and I'd like to do better searching and filtering than a log file (easily) allows for.  
+ Finally, I often want to examine something closer to site visitor behavior: tracing the path through the site for example, so that I can see what the last page was that a user was looking at before an error occurred.  Given we have multiple app servers, the separate log files make this a real pain. If all the data were in a database, I could then easily see the proper sequence of pages for a given visitor. I know that Syslog would be one way to solve this particular thing (single log file/repository), but I want to combine that with better searching abilities that I associate with database searches. 
+ I'm wondering what folks recommend to solve this. Do you directly log to a database, or do you dump log files into a DB (but what's your approach for that so that it's essentially realtime/as up to date as the logfile itself)?   
+ I am currently determining at what level I'd like this logging, because another thing I looked at is writing a small Rack filter that would log all requests. This would miss all the extra output that the normal Rails logging dumps out (all the SQL and output on cache hits and misses, etc.), but it would achieve a big part of my goal, and seems to have the advantage of not disturbing anything else in the system. 
+ Anyway, I am not looking for one right answer, more of a discussion and information on what anyone else might be doing in this same light. 
+ 
+ My company have been logging some structured traffic info straight into a MySQL log database.  This database is replicated downstream to another database.  All analytics run off the final database replication. Our site sustain quite a bit of traffic.  So far, it doesn't seem to have any major problems.  However, our IT department have some growing concerns regarding to the scalability of the current setup and is suggesting that we offload the log info onto "proper" log-files.  The log-files will then be reinserted back into the same downstream database tables. Which brings me to this question.  :)   
+ Here are some of pros and cons that I see regarding to the subject of log-files vs log-db (relational): 
+ 
+ log-files are fast, reliable, and scalable (At least I have heard Yahoo! makes heavy uses of log files for their click tracking analytics).    
+ log-files are easy for sys-admin to maintain. 
+ log-files can be very flexible since you can write almost anything to it.   
+ log-files requires heavy parsing and potentially a map-reduced type of setup for data-extraction. 
+ log-db structures are a lot closer to your application, making some feature's turn around time a lot shorter. This can be a blessing or a curse.  Probably a curse in the long run since you'll most likely end up with a highly coupled application and analytic code base. 
+ log-db can reduce logging noises and redundancies since log-files are insert only where as log-db gives you the ability to do update and associated-insert (normalization if you dare). 
+ log-db can be fast and scalable too if you go with database partitioning and/or multi-log databases (rejoin data via downstream replications) 
+ 
+ I think some stress tests on the log database are needed in my situation.  This way at least I know how much headroom I have.   
+ Recently, I've been looking into some key-value / document-based databases like Redis, Tokyo Cabinet, and MongoDB.  These fast inserting databases can potentially be the sweet spot since they provide persistence, high (write) throughputs, and querying capabilities to varying degrees.  They can make the data-extraction process much simpler than parsing and map-reducing through gigs of log files.   
+ In the long run, I believe it is crucial to have a robust analytics data warehouse.  Freeing application data from analytic data and vice versa can be a big WIN.  
+ 
+ Lastly, I would just like to point out there are many similar / closely related questions here on StackOverflow in case you want to broaden your discussion. 
+ 
+ Storage of many log files 
+ Is writing server log files to a database a good idea? 
+ Using a SQL Server for application logging. Pros/Cons? 
+ Fast Search in Logs 
+ Separate production database for logging 
+ You Log to Your DB, Where Do You Log When Your DB is Down? 
+ 
+ 
+ Edit: 
+ rsyslog  looks very interesting.  It gives you the ability to write directly to MySQL. If you are using Ruby, you should have a look at the logging gem.  It provides multi-target logging capabilities.  It's really nice.  
+ 
+ If you want to change the default logging behavior, simply create a custom logger object that respond to all the Rails logger method: 
+ 
+ add 
+ debug, warn, error, info, fatal, unknown 
+ 
+ http://github.com/rails/rails/blob/9d7aae710384fb5f04129c35b86c5ea5fb9d83a9/activesupport/lib/active_support/buffered_logger.rb 
+ Because it's  your  logger, you can decide to implement your personal logic.
+You can write to the database, to the standard output of whenever you want. 
+ Then, replace the default logger for every base class you want to customize. 
+ 
+ You can easily create an initializer file called logger.rb and write there all your custom configurations. In this way, the logger will be immediately replaced on Rails startup. 
+ 
+ I use the rails  "exception logger" , to log all problems to my database while my site is in production mode. It will give you a nice interface where you can check for problems. If you want to see what your visitors are doing in realtime then take a look at  woopra 
+ 
+ Chris, 
+ I think Dima's comment is important here.  Are you satisfied with (1) having an access log in a DB (in real time), or (2) are you more interested in Rails/app-specific logging?   
+ For (1), with Apache (at least), you can log to a database using piped logging. 
+ http://httpd.apache.org/docs/1.3/logs.html#piped 
+ I wrote a program that runs in the background waiting for input, which it parses and logs to a Postgres DB.  My httpd.conf file pipes to this program with a CustomLog directive. 
+ This is relatively simple to set up, and gives you all the obvious advantages of being able to analyze your logs in a DB.  It works very well for me, especially for tracing what a user was doing just before an error.  However, you have to protect against sql injection, buffer overflows, and other security issues in the logging program. 
+ For (2), I am not a Rails developer so I can only talk about general approaches.  If you want to log environment vars, or application data, or very selective bits of information, you could consider writing a web server module.  Depending on your exact needs, you could also get by with some combination of conditional logging directives and filtering in the logging program. 
+ It really comes down to whether you need a Rails-specific solution or a more general web-server-wide solution. 
+ 
+ as no answer was accepted until now, i will give my contribution 
+ i did develop a plugin to rsylog to save the logs not in files but at mongodb 
+ the whole source code, from rsyslog + plugin is here  https://github.com/vpereira/rsyslogd-mongo 
+ to compile it, you should just run ./configure --help and see the available options. 
+ 
+ Having made the mistake of logging to a database recently myself, I feel I can offer one extremely good reason why you should not do this: Transactions. Let's say you start a transaction, log a bunch of stuff during the course of the transaction, and ultimate you end up with an error condition. You log the error condition, and oh hey.  . Suddenly, everything you just logged is gone and you have no idea what happened or why. 
+ And particularly in the context of Rails, where really useful libraries like AASM will wrap a whole bunch of stuff in a transaction, you can end up with transactions in places you didn't think you would, which also makes the problem very hard to debug. 
+ In my case, the reason I logged things to the database was that I needed context-sensitive logs. Essentially I needed to be able to look up all log entries related to a specific database model. However, the right answer is to put those logs in some separate location that's a better fit for log data (and which, in my case, happens to be query-able). 
+ 

@@ -1,0 +1,48 @@
+*** django-deployment-handling-data-in-database ***
+
+ Right now I am using git for Django deployment which seems satisfying to me. My only problem is still how to handle the data in the database properly. Eg. I need often to edit data coming from the prodution site locally and put the data back on the production site (please note I'm talking about data changes and not schema migrations!).
+I think the workflow should be somehow like the following: Dump data on production site > download data > load data in db > make changes locally > dump data > make diff for data > upload diff & apply changes on production site.  
+ Important to me would be that this also works for changes to existing database rows, deletions etc...   
+ So if I start experimenting with that on my own:
+1. Will this work with any of the data dump formats offers?
+2. Anybody else working like that, maybe having some (fabric) script solutions for that ready already? 
+ 
+ The tables I want to dump/change/restore are quite small and they are read-only via public interface. The following approach is used: 
+ 
+ The data is dumped with ./manage.py dumpdata command on server. 
+ Then result file is commited to VCS on server. 
+ I pull changes and execute ./manage.py loaddata. 
+ After changes are made ./manage dumpdata is executed locally. 
+ The result file is commited to VCS and pushed back to server 
+ ./manage loaddata command is executed on server 
+ 
+ This can be automated with Fabric, e.g 
+ 1 + 2 + 3 =   , 4+5+6 =  
+ Diffs are produced internally by VCS. This approach won't work for everything but I found it useful for simple cases. 
+ 
+ 1) I understand that you are not talking about schema migration. There is however such a thing as a  data migration . I have used  South  to do make the kind of changes to production data that you described. It might be worth your while to investigate it. 
+ 2) IMHO applying a diff is not the best way to go about modifying  database dumps . Diff and merge are more applicable to source code/text than they are to database dumps. That said I am curious to know if anyone has successfully done diff/patch/merge on database dumps.  
+ 
+ If you download > modify > upload whole dump you have to be ready for data loss. Any data that is created/modified on production while you downloading, modifying or uploading modified data  **will be lost**
+. 
+ Best practices to avoid that  **if you can modify data on production database**
+ would be: 
+ 
+ create SQL script based on local modifications and execute it on production database, 
+ create view handling data changes and execute it on production webserver 
+ 
+ or, if you can't modify data on production database: 
+ 
+ create dump, download and load it locally, 
+ modify data locally, 
+ create local dump, 
+ **compare**
+ remote dump with local dump and  **create dump containing only modified/added records**
+, 
+ upload it and load 
+ 
+ upload and load part in this case would be much faster but you'd have to handle  **deletions**
+ other way. 
+ 
+ If your database backend is SQL Server, Red-Gate has a data compare tool that you could use. Not sure what tools are avaiobale outside the SQl Server world though. 
+ 

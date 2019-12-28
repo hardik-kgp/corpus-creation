@@ -1,0 +1,182 @@
+*** implement-find-find-next-algorithm ***
+
+ I have a database table (mysql/pgsql) with the following format: 
+ 
+ I need to select the line that contains nth match of a word: 
+ eg: "Select the 3rd match for the word cat, that is the number 2 entry."
+Results: the 2nd row from the result where the 3rd word is cat  
+ The only solution I could find is to search for all entries that have the text cat, load them in memory and find the match by counting them. But this is not efficient for a big number of matches(>1 million). 
+ How would you handle this in an efficient way? Is there anything you can do directly in the database? Maybe using other technologies like lucene? 
+ Update: having 1 million strings in memory might not be a big issue but the expectation of the application is to have between 1k-50k active users that might do this operation concurrently. 
+ 
+ Consider creating another table with the below structure  
+ 
+ Do one time indexing process as below: 
+ Iterate over each entry in your original table split the text into words and for each word lookup in the new table for existence if not present insert a new entry with occurrence set as 1. If exists insert a new entry with occurrence = existing occurrence +1 
+ Once you have done this one off indexing your selects become pretty simple. 
+For example for cat with 3rd match will be 
+ 
+ 
+ You do not need Lucene for this job. Furthermore, if you have a large number of positive matches, the effort to pump all required data out of your DB will well exceed the computational cost. 
+ Here's a simple solution: 
+ **Index**
+: we require two properties: 
+ 
+ efficiently access the words for each id 
+ efficiently access all IDs in ascending order 
+ 
+ as follows: 
+ 
+ **Query**
+: find the ID associated with the  th match with the following query: 
+ 
+ Executes in  **2ms**
+ on 1 million rows.  
+ 
+ Here's the full PostgreSQL setup if you'd rather try for yourself than take my word for it: 
+ 
+ 
+ Note that I'm still unsure what exactly " Select the 3rd match for the word cat, that is the number 2 entry " is supposed to mean.  
+ Possible meanings:  
+ 
+ the 2nd row from the result where the 3rd word is cat  
+ the 3rd row where the 2nd word is "cat" 
+ from all rows where "cat" appears at least 3 times, take the second row 
+ from all rows where "cat" appears at least 2 times, take the third row 
+ 
+ 
+ If it's 1 or 2, I think this could be done in an acceptable speed by using a trigram index to reduce the possible number of matching lines. A trigram index (supplied by the  module pg_trgm ) will allow Postgres to make use of an index when doing a e.g.  .  
+ Assuming that only a small number of rows will satisfy that condition, the resulting lines can then be split into arrays and checked for the nth word.  
+ Something like this: 
+ 
+ Note that a trigram index  does  have disadvantages as well. Maintaining such an index is much more expensive (=slower) than maintaining a regular b-tree index. So if your table is heavily updated, this might not be a good solution - but you need to test that for yourself.  
+ Also if the condition `like '%cat%' doesn't really reduce the number of rows substantially, this is probably not going to perform well either. 
+ Some more information on trigram indexes: 
+ 
+ http://www.depesz.com/index.php/2011/02/19/waiting-for-9-1-faster-likeilike/ 
+ http://www.postgresonline.com/journal/archives/212-PostgreSQL-9.1-Trigrams-teaching-LIKE-and-ILIKE-new-tricks.html 
+ 
+ Another option would be to filter out the "relevant" rows using Postgres' full text search instead of a plain   condition.  
+ 
+ Whatever algorithm you come up with for the database as-it-is is likely to be slow for this kind of data. You do need an efficient text-based search, lucene-based solutions like solr or elasticsearch will do nicely here. It would be the best option here, though finding a match against a 3rd token in a string is not something I know how to build without further googling. 
+ You can also write a job in your db which will let you build a reverse map, string->id. like this: 
+ 
+ to 
+ 
+ If you can order by ID you don't need rownum. You should also call the column something else instead of rownum, I leave it like that for clarity 
+ Now you can search for 1st ID where the word   is a 2nd word like this by searching 
+ 
+ Provided you created an ( ,  ) or ( ,  ) index, your searches should be pretty quick. 
+ If you can fit all that data into memory, then you can use a simple   to do your search.   would be, more or less   with proper equals and hashCode (and/or Comparable, if you use TreeMap) implementations. 
+ 
+ (Thanks to Daniel Grosskopf for pointing out that I initially misinterpreted the question.) 
+ This query will give you what you want with just SQL. It gets a running total of the counts of the occurrences of a word (e.g. 'cat') within the text, and then it returns the first row that hits the threshold that you want (e.g. 3). 
+ 
+ See it in action in  SQL Fiddle 
+ 
+ 
+ How would you handle this in an efficient way? Is there any trick you
+  can do directly in the database?   
+ 
+ You are not specifying what other restrictions/requirements you may have or what is your definition of    
+ 
+ a big number of matches. 
+ 
+ As a general answer I would say that doing string manipulation in the database is  **not**
+ an efficient approach. 
+It is too slow and imposes much work on your DB which is usually a shared resource. 
+IMO you should do this programmatically. 
+A way to do this could be to keep metadata in another table i.e. indexes of rows that contain the text cat and where in the sentence. 
+You can query this meta-table in order to figure the rows to query from your main table. 
+This extra table is more efficient than searching your defined table because queries with   on suffixes can not use an index and you will end up with serial scans which would result in very slow performance 
+ 
+ Solution for the Postgres database: 
+ Add a new column to your table: 
+ 
+ This column will contain the sentence spliced into words: 
+ 
+ Populate this column with values from current records: 
+ 
+ (and don't forget to set it's value to   when inserting new records) 
+ Create a  gin  index on it: 
+ 
+ Then all you need is run a fast query as simple as this: 
+ 
+ It took 11ms to search over ~2,400,000 records in tests I did in my machine. 
+ Explain: 
+ 
+ 
+ 
+ A  "directly in the database"  solution seems preferable from an efficiency standpoint as most types of abstraction layer or loading/processing elsewhere are likely to incur additional overheads. 
+ If the source text can be massaged such that only spaces separate the words   ( as mentioned in the comments  - perhaps by pre-processing to suitably replace all non-alphabetical characters?) , the following (My)SQL-only solution will work: 
+ 
+ **Explanation**
+
+ All instances of   on each line are replaced with a word that is one letter shorter. The difference in length is then calculated to find out the number of instances. Finally, the single possibilities of   and   appearing a the start and end of the line are respectively catered for. Having done this, a cumulative total of   is maintained for each line. This is bundled up into a subquery from which the  nth  match can be picked by finding the row where the number of cumulative number of matches is no greater than n but the previous total is less than n. 
+ **Further potential improvements**
+
+ 
+ The above could of course be slightly simplified by making the source text lower case  (which seems sensible if it is being pre-processed)  and removing all calls to  . 
+ The subquery calculates a cumulative total number of matches. If it is likely that the same search terms will be reused, it might conceivably be possible to cache these results in another table and use triggers to maintain this whenever records are updated, inserted or deleted - however this would greatly add to the complexity and data storage requirements. 
+ 
+ 
+ I would search for all rows with "cat" but limit the rows by  **n**
+.  This should give you a reasonably sized subset of your data that is guaranteed to contain the row you are looking for.  The SQL would look similar to this: 
+ 
+ I would then implement your solution as a pl/pgsql function to get the id that contains the nth occurrence of your word: 
+ 
+ All this function does is loop through the subset of rows potentially containing the desired word, counts the number of times it occurs in each row, and then returns the Id when it finds the row with the nth occurrence of the word. 
+ 
+ Solution one:
+Keep the rows in memory but centralized. All clients loop over the same list. Probably fast enough en reasonably memory friendly. 
+ Solution two:
+Use the streaming ResultSet technique from the JDBC driver; e.g. 
+ 
+ As explained in  http://dev.mysql.com/doc/connector-j/en/connector-j-reference-implementation-notes.html , scroll down to Resultset. This should be memory friendly. 
+ Now simply count on the result rows until satisfied and close the result. 
+ 
+ I am having trouble understanding your statement: 
+ 
+ eg: "Select the 3rd match for the word cat, that is the number 2
+  entry." Results: the 2nd row from the result where the 3rd word is cat 
+ 
+ I will assume that you mean, you want to search for entries where the 3rd word of the text is "cat", and from those entries you want to second entry. 
+ Since you mentioned that your problem lies with the concurrent access and the speed, you will need to somehow build an index which is optimized for your query. You could use anything for this, database, lucene, etc. My suggestion would be to build the index in-memory. Just think of it as a warm up for your service before it could start serving request. 
+ In your case, you would want some kind of map with the word and word position as the key. This key will then map to a list of row numbers which is matching the key. So in the end, you will just have to do a lookup twice, first is to get a list of row numbers where it matches, then the row number which you want. So the performance you will need in the end will be a simple map lookup + array list lookup (constant). 
+ I've provided a very simple example below. It's untested code, but it should roughly give you an idea. 
+ You could also save the index into a file after it's been built if you want. After you have been the index and load them into memory, this will be very very fast. 
+ 
+ 
+ In mysql
+We need one function where we can count number of occurence of given substring in a field. 
+ Create the Function (This function will count occurence of substring in given column)  
+ 
+ This function should be able to find how many times 'cat' was present in text. 
+Please bear with me for syntax of code as it may not be fully functional(correct as required). 
+ I will break this problem into 3 parts and we can do with the help of stored procedure. 
+ 
+ Select all the rows containing the string 'cat' (or any other input).This should select maximum of n rows( n= no of occurences), so we will use limit in our query. 
+ With cursor, iterate matched rows in while roop. 
+ Increment occurence matches per row in count variable and exit once number of matches found.(Should be able to find match within 1 to n loops) 
+ 
+ create stored procedure. 
+Assuming proper index ,this should be fast.  
+ 
+ 
+ I tested this on a table with 1.2 million rows and it returns data in less than a second. I am using a split function (which is a modified form of Jeff Modem's splitter function) from here: ' http://sqlperformance.com/2012/08/t-sql-queries/splitting-strings-follow-up '.` 
+ 
+ Step 2. Create a split function 
+ 
+ Step 3. Create a sql script to return the required data 
+ 
+ Assumptions: 
+ 
+ SQL Fiddle demo here:  http://sqlfiddle.com/#!3/0a1d0/1 
+ 
+ 
+ I would simply count the number of words in each line and then do a cumulative sum.  I'm not sure what the most efficient way is to count words, but a difference of lengths might win: 
+ 
+ You would simply replace "3" and "cat" with the appropriate strings. 
+ This method requires scanning the strings a handful of times in each row (once for each of the lengths and once for the replace).  My guess is that this is faster than various array operations, regular expressions, or text.  If you have more complicated definitions of what a word is, then you probably need to use regular expression replace:  
+ Doing the work in the database is usually a big win.  However, if you are looking for the 6th match out of one million rows, it might be faster to read back the values from the subquery and do the accumulation in the application.  I don't think there is a way to short-circuit the database calculation to stop just on the "6th" row. 
+ 

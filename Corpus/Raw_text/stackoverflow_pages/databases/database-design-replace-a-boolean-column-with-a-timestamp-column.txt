@@ -1,0 +1,116 @@
+*** database-design-replace-a-boolean-column-with-a-timestamp-column ***
+
+ Earlier I have created tables this way: 
+ 
+ Column is_finished indicates whether the workflow finished or not. Column date_finished is when the workflow was finished. 
+ Then I had the idea "I don't need is_finished as I can just say: where data_finished is not null", and I designed without is_finished column: 
+ 
+ (We use Oracle 10) 
+ Is it a good or bad idea? I've heard you can not have an index on a column with NULL values, so   will be very slow on big tables. 
+ 
+ There is a  right  way to index null values, and it doesn't use a FBI. Oracle  will  index null values, but it will NOT index null LEAF values in the tree. So, you  could  eliminate the column   and create the index like this. 
+ 
+ Then, if you check the explain plan on this query: 
+ 
+ You might see the index being used (if the optimizer is happy). 
+ Back to the original question: looking at the variety of answers here, I think there is no  right  answer. I may have a personal preference to eliminate a column if it is unnecessary, but I also don't like overloading the meaning of columns either. There are two concepts here: 
+ 
+ The record has finished.  
+ The record finished on a particular date.  
+ 
+ Maybe you need to keep these separate, maybe you don't. When I think about eliminating the   column, it bothers me. Down the road, the situation may arise where the record finished, but you don't know precisely when. Perhaps you have to import data from another source and the date is unknown. Sure, that's not in the business requirements now, but things change. What do you do then? Well, you have to put some dummy value in the   column, and now you've compromised the data a bit. Not horribly, but there is a rub there. The little voice in my head is shouting  YOU'RE DOING IT WRONG  when I do things like that. 
+ My advice, keep it separate. You're talking about a tiny column and a very skinny index. Storage should not be an issue here. 
+ 
+ Rule of Representation: Fold knowledge
+  into data so program logic can be
+  stupid and robust. 
+ -Eric S. Raymond 
+ 
+ 
+ 
+ Is it a good or bad idea?  
+ 
+ Good idea. 
+ You've eliminated space taken by a redundant column; the DATE column serves double duty--you know the work was finished, and  when . 
+ 
+ I've heard like you can't have an index on a column with NULL values, so "where data_finished is not null" will be very slow on big tables. 
+ 
+ That's incorrect.  Oracle indexes ignore NULL values. 
+ You can create a function based index in order to get around the NULL values not being indexed , but most DBAs I've encountered  really  don't like them so be prepared for a fight. 
+ 
+ 
+ Is it a good or bad idea? I've heard like you can't have an index on a column with NULL values, so "where data_finished is not null" will be very slow on big tables. 
+ 
+ Oracle does index  nullable fields , but does not index   values 
+ This means that you can create an index on a field marked  , but the records holding   in this field won't make it into the index. 
+ This, on its turn, means that if you make  , the index will be  **less in size**
+, as the   values won't be stored in the index. 
+ So the queries involving equality of range searches on   will in fact perform better. 
+ The downside of this solution, of course, is that the queries involving the   values of   will have to revert to full table scan. 
+ You can work around this by creating two indexes: 
+ 
+ and use this query to find unfinished work: 
+ 
+ This will behave like partitioned index: the complete works will be indexed by the first index; the incomplete ones will be indexed by the second. 
+ If you don't need to search for complete or incomplete works, you can always get rid of the appropriate indexes. 
+ 
+ To all those who said the column is a waste of space: 
+ Double Duty isn't a good thing in a database. Your primary goal should be clarity. Lots of systems, tools, people will use your data. If you disguise values by burying meaning inside of other columns you're BEGGING for another system or user to get it wrong.  
+ And anyone who thinks it saves space is utterly wrong. 
+ You'll need two indexes on that date column... one will be Function Based as OMG suggests. It will look like this: 
+ NVL(Date_finished, TO_DATE('01-JAN-9999')) 
+ So to find unfinished jobs you'll have to make sure to write the where clause correctly 
+ It will look like this: 
+ WHERE
+NVL(Date_finished, TO_DATE('01-JAN-9999')) = TO_DATE('01-JAN-9999') 
+ Yep. That's so clear. It's completely better than 
+ WHERE
+IS_Unfinished = 'YES' 
+ The reason you'll want to have a second index on the same column is for EVERY OTHER query on that date... you won't want to use that index for finding jobs by date. 
+ So let's see what you've accomplish with OMG's suggestion et al. 
+ You've used more space, you've obfuscated the meaning of the data, you've made errors more likely... WINNER! 
+ Sometime it seems programmers are still living in the 70's when a MB of hard drive space was a down payment on a house. 
+ You can be space efficient about this without giving up a lot of clarity. Make the Is_unfinished either Y or NULL...  IF  you will only use that column to find 'work to do'. This will keep that index compact. It will only be as big as rows which are unfinished (in this way you exploit the unindexed nulls instead of being screwed by it). You put a little bit of space in your table, but over all it's less than the FBI. You need 1 byte for the column and you'll only index the unfinished rows so that' a small fraction of job and probably stays pretty constant. The FBI will need 7 bytes for EVERY ROW whether you're trying to find them or not. That index will keep pace with the size of the table, not just the size of the unfinished jobs. 
+ **Reply to the comment by OMG**
+
+ In his/her comment he/she states that to find unfinished jobs you'd just use 
+ 
+ But in his answer he says 
+ 
+ You can create a function based index in order to get around the NULL values not being indexed 
+ 
+ If you follow the link he points you toward, using NVL to replace null values with some other arbitrary value then I'm not sure what else there is to explain. 
+ 
+ In terms of table design, I think it's good that you removed the   column as you said that it isn't necessary (it's redundant). There's no need to store extra data if it isn't necessary, it just wastes space. In terms of performance, I don't see this being a problem for NULL values. They should be ignored. 
+ 
+ I would use nulls as indexes work, as already mentioned in other answers, for all queries apart from "WHERE date_finished IS NULL" (so it depends if you need to use that query). I definitely wouldn't use outliers like year 9999 as suggested by the answer: 
+ 
+ you could also use a "dummy" value (such as 31 December 9999) as the date_finished value for unfinished workflows 
+ 
+ Outliers like year 9999 affect performance, because (from  http://richardfoote.wordpress.com/2007/12/13/outlier-values-an-enemy-of-the-index/ ): 
+ 
+ The selectivity of a range scan is basically calculated by the CBO to be the  **number of values in the range of interest**
+ divided by the  **full range of possible values**
+ (IE. the max value minus the min value) 
+ 
+ If you use a value like 9999 then the DB will think the range of values being stored in the field is e.g. 2008-9999 rather than the actual 2008-2010; so any range query (e.g. "between 2008 and 2009") will appear to be covering a tiny % of the range of possible values, vs. actually covering about half the range. It uses this statistic to say, if the % of the ths possible values covered is high, probably a lot of rows will match, and then a full table scan will be faster than an index scan. It won't do this correctly if there are outliers in the data. 
+ 
+ good idea to remove the deriveable value column as others have said. 
+ one more thought is that by removing the column, you will avoid paradoxical conditions that you will need to code around, such as what happens when the is_finished = No and the finished_date = yesterday... etc. 
+ 
+ To resolve the indexed / non-indexed columns, wouldn't it be easier to simply JOIN two tables, like this: 
+ 
+ Thus, if a record exists in workflow_finished, this workflow's completed, else it isn't. It seems to me this is rather simple. 
+ When querying for unfinished workflows, the query becomes: 
+ 
+ Maybe you want the original query? With a flag and the date? Query like this then: 
+ 
+ For consumers of the data, views can and should be created for their needs. 
+ 
+ As an alternative to a function-based index, you could also use a "dummy" value (such as 31 December 9999, or alternatively one day before the earliest expected date_finished value) as the date_finished value for unfinished workflows. 
+ EDIT: Alternative dummy date value, following comments. 
+ 
+ I prefer the single-column solution.   
+ However, in the databases I use most often NULLs are included in indexes, so your common case of searching for open workflows will be fast whereas in your case it will be slower.  Because the case of searching for open workflows is likely to be one of the most common things you do, you may need the redundant column simply to support that search. 
+ Test for performance to see if you can use the better solution performance-wise, then fall back to the less-good solution if necessary. 
+ 

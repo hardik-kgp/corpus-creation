@@ -1,0 +1,77 @@
+*** should-i-commit-or-rollback-a-read-transaction ***
+
+ I have a read query that I execute within a transaction so that I can specify the isolation level.  Once the query is complete, what should I do? 
+ 
+ Commit the transaction  
+ Rollback the transaction 
+ Do nothing (which will cause the transaction to be rolled back at the end of the using block) 
+ 
+ What are the implications of doing each? 
+ 
+ EDIT: The question is not if a transaction should be used or if there are other ways to set the transaction level.  The question is if it makes any difference that a transaction that does not modify anything is committed or rolled back.  Is there a performance difference?  Does it affect other connections?  Any other differences? 
+ 
+ You commit. Period. There's no other sensible alternative. If you started a transaction, you should close it. Committing releases any locks you may have had, and is equally sensible with ReadUncommitted or Serializable isolation levels. Relying on implicit rollback - while perhaps technically equivalent - is just poor form. 
+ If that hasn't convinced you, just imagine the next guy who inserts an update statement in the middle of your code, and has to track down the implicit rollback that occurs and removes his data. 
+ 
+ If you haven't changed anything, then you can use either a COMMIT or a ROLLBACK. Either one will release any read locks you have acquired and since you haven't made any other changes, they will be equivalent. 
+ 
+ If you begin a transaction, then best practice is always to commit it.  If an exception is thrown inside your use(transaction) block the transaction will be automatically rolled-back. 
+ 
+ IMHO it can make sense to wrap read only queries in transactions as (especially in Java) you can tell the transaction to be "read-only" which in turn the JDBC driver can consider optimizing the query (but does not have to, so nobody will prevent you from issuing an   nevertheless). E.g. the Oracle driver will completely avoid table locks on queries in a transaction marked read-only, which gains a lot of performance on heavily read-driven applications. 
+ 
+ Consider  **nested transactions**
+. 
+ Most RDBMSes do not support nested transactions, or try to emulate them in a very limited way. 
+ For example, in MS SQL Server, a rollback in an inner transaction (which is not a real transaction, MS SQL Server just counts transaction levels!) will rollback the everything which has happened in the  **outmost**
+ transaction (which is the real transaction). 
+ Some database wrappers might consider a rollback in an inner transaction as an sign that an error has occured and rollback everything in the outmost transaction, regardless whether the outmost transaction commited or rolled back. 
+ So a COMMIT is the safe way, when you cannot rule out that your component is used by some software module. 
+ Please note that this is a general answer to the question. The code example cleverly works around the issue with an outer transaction by opening a new database connection. 
+ Regarding performance: depending on the isolation level, SELECTs may require a varying degree of LOCKs and temporary data (snapshots). This is cleaned up when the transaction is closed. It does not matter whether this is done via COMMIT or ROLLBACK. There might be a insignificant difference in CPU time spent - a COMMIT is probably faster to parse than a ROLLBACK (two characters less) and other minor differences. Obviously, this is only true for read-only operations! 
+ Totally not asked for: another programmer who might get to read the code might assume that a ROLLBACK implies an error condition. 
+ 
+ Just a side note, but you can also write that code like this: 
+ 
+ And if you re-structure things just a little bit you might be able to move the using block for the IDataReader up to the top as well. 
+ 
+ If you put the SQL into a stored procedure and add this above the query: 
+ 
+ then you don't have to jump through any hoops in the C# code.  Setting the transaction isolation level in a stored procedure does not cause the setting to apply to all future uses of that connection (which is something you have to worry about with other settings since the connections are pooled).  At the end of the stored procedure it just goes back to whatever the connection was initialized with. 
+ 
+ ROLLBACK is mostly used in case of an error or exceptional circumstances, and COMMIT in the case of successful completion. 
+ We should close transactions with COMMIT (for success) and ROLLBACK (for failure), even in the case of read-only transactions where it doesn't seem to matter.  In fact it does matter, for consistency and future-proofing. 
+ A read-only transaction can logically "fail" in many ways, for example: 
+ 
+ a query does not return exactly one row as expected 
+ a stored procedure raises an exception 
+ data fetched is found to be inconsistent 
+ user aborts the transaction because it's taking too long 
+ deadlock or timeout 
+ 
+ If COMMIT and ROLLBACK are used properly for a read-only transaction, it will continue to work as expected if DB write code is added at some point, e.g. for caching, auditing or statistics. 
+ Implicit ROLLBACK should only be used for "fatal error" situations, when the application crashes or exits with an unrecoverable error, network failure, power failure, etc. 
+ 
+ Given that a READ does not change state, I would do nothing.  Performing a commit will do nothing, except waste a cycle to send the request to the database.  You haven't performed an operation that has changed state.  Likewise for the rollback. 
+ You should however, be sure to clean up your objects and close your connections to the database.  Not closing your connections can lead to issues if this code gets called repeatedly. 
+ 
+ If you set AutoCommit false, then YES. 
+ In an experiment with JDBC(Postgresql driver), I found that if select query breaks(because of timeout), then you can not initiate new select query unless you rollback. 
+ 
+ In your code sample, where you have  
+ 
+ // Do something useful 
+ Are you executing a SQL Statement that changes data ? 
+ 
+ If not, there's no such thing as a "Read" Transaction...  Only changes from an Insert, Update and Delete Statements (statements that can change data) are in a Transaction... What you are talking about is the locks that SQL Server puts on the data you are reading, because of OTHER transactions that affect that data.  The level of these locks is dependant on the SQL Server Isolation Level.   
+ But you cannot Commit, or ROll Back anything, if your SQL statement has not changed anything.   
+ If you are changing data, then you can change the isolation level without explicitly starting a transation... Every individual SQL Statement is implicitly in a transaction.  explicitly starting a  Transaction is only necessary to ensure that 2 or more statements are within the same transaction.   
+ If all you want to do is set the transaction isolation level, then just set a command's CommandText to "Set Transaction Isolation level Repeatable Read" (or whatever level you want), set the CommandType to CommandType.Text,  and execute the command. (you can use Command.ExecuteNonQuery()  )   
+ NOTE:  If you are doing MULTIPLE read statements, and want them all to "see" the same state of the database as the first one, then you need to set the isolation Level top Repeatable Read or Serializable...   
+ 
+ Do you need to block others from reading the same data? Why use a transaction? 
+ @Joel - My question would be better phrased as "Why use a transaction on a read query?" 
+ @Stefan - If you are going to use AdHoc SQL and not a stored proc, then just add the WITH (NOLOCK) after the tables in the query. This way you dont incur the overhead (albeit minimal) in the application and the database for a transaction.  
+ 
+ EDIT @ Comment 3: Since you had "sqlserver" in the question tags, I had assumed MSSQLServer was the target product. Now that that point has been clarified, I have edited the tags to remove the specific product reference.  
+ I am still not sure of why you want to make a transaction on a read op in the first place.  
+ 

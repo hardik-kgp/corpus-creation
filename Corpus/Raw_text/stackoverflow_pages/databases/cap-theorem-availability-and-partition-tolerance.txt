@@ -1,0 +1,131 @@
+*** cap-theorem-availability-and-partition-tolerance ***
+
+ While I try to understand the "Availability" (A) and "Partition tolerance" (P) in CAP, I found it difficult to understand the explanations from various articles.  
+ I get a feeling that A and P can go together (I know this is not the case, and that's why I fail to understand!). 
+ Explaining in simple terms, what are A and P and the difference between them?  
+ 
+ Consistency means that data is the same across the cluster, so you can read or write from/to any node and get the same data. 
+ Availability means the ability to access the cluster even if a node in the cluster goes down. 
+ Partition tolerance means that the cluster continues to function even if there is a "partition" (communication break) between two nodes (both nodes are up, but can't communicate). 
+ In order to get both availability and partition tolerance, you have to give up consistency. Consider if you have two nodes, X and Y, in a master-master setup. Now, there is a break between network communication between X and Y, so they can't sync updates. At this point you can either: 
+ A) Allow the nodes to get out of sync (giving up consistency), or 
+ B) Consider the cluster to be "down" (giving up availability) 
+ All the combinations available are: 
+ 
+ **CA**
+ - data is consistent between all nodes - as long as all nodes are online - and you can read/write from any node and be sure that the data is the same, but if you ever develop a partition between nodes, the data will be out of sync (and won't re-sync once the partition is resolved). 
+ **CP**
+ - data is consistent between all nodes, and maintains partition tolerance (preventing data desync) by becoming unavailable when a node goes down. 
+ **AP**
+ - nodes remain online even if they can't communicate with each other and will resync data once the partition is resolved, but you aren't guaranteed that all nodes will have the same data (either during or after the partition) 
+ 
+ You should note that  CA systems don't practically exist  (even if some systems claim to be so). 
+ 
+ Considering P in equal terms with C and A is a bit of a mistake, rather '2 out of 3' notion among C,A,P is misleading. The succinct way I would explain CAP theorem is, "In a distributed data store, at the time of network partition you have to chose either Consistency or Availability and cannot get both". Newer NoSQL systems are trying to focus on Availability while traditional ACID databases had a higher focus on Consistency.  
+ You really cannot choose CA, network partition is not something anyone would like to have, it is just an undesirable reality of a distributed system, networks can fail. Question is what trade off do you pick for your application when that happens. This  article  from the man who first formulated that term seems to explain this very clearly. 
+ 
+ Here is how I'm discussing CAP, regarding P particularly. 
+ CA is only possible if you are OK with a monolithic, single server database (maybe with replication but all data on one "failure block" - servers are not considered to partially fail). 
+ If your problem requires scale out, distributed, and multi-server --- network partitions can happen. You're already requiring P. Few problems I approach are amenable to single-server-always paradigms (or, as Stonebraker said, "distributed is table stakes"). If you can find a CA problem, solutions like a traditional non-scale-out RDBMS provides a lot of benefits.  
+ For me, rare: so we move on to discussing AP vs CP. 
+ You only choose between AP and CP operation when you have a partition. If the network & hardware is operating correctly, you get your cake and eat it too. 
+ Let's discuss the AP / CP distinction. 
+ AP - when there is a network partition, let the independent parts operate freely. 
+ CP - when there is a network partition, shut down nodes or disallow reads and writes so there are deterministic failures. 
+ I like architectures that can do both, because some problems are AP and some are CP - and some databases can do both. Among the CP and AP solutions, there are subtleties as well. 
+ For example, in an AP dataset, you have the possibility of both inconsistent reads, and generating write conflicts - these are two different possible AP modes. Can your system be configured for AP with high read availability but disallows write conflicts? Or can your AP system accept write conflicts, with a strong and flexible resolution system? Will you need both eventually, or can you pick a system that only does one? 
+ In a CP system, how much unavailability do you get with small partitions (single server), if any? Greater replication can increase unavailability in a CP system, how does the system handle those tradeoffs? 
+ These are all questions to ask with CP vs AP. 
+ A great read in this area right now is Brewer's "12 years later" post. I believe this moves forward the CAP debate with clarity, and recommend it highly. 
+ http://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed 
+ 
+ 
+ **Consistency:**
+
+ A read is guaranteed to  **return the most recent write(like ACID)**
+ for a given client. If  **any request comes during that time it has to be waited till data sync completed**
+ across/in node(s). 
+ 
+ **Availability:**
+
+ every node (if not failed) always executes queries and should always respond to requests. It does not matter whether it return latest copy or not. 
+ 
+ **Partition-tolerance:**
+
+ The system will continue to function when network partitions occur. 
+ 
+ 
+ Regarding  **AP**
+, Availability(always accessible) can exist with( **Cassendra**
+) or
+  without( **RDBMS**
+) partition tolerance 
+ 
+ pic source 
+ 
+ In simple CAP theorem states that its impossible for a distributed system to simultaneously provide all three guarantees: 
+ 
+ **Consistency**
+
+ Every node contains same data at the same time 
+ **Availability**
+
+ At least one node must be available to serve data every time 
+ **Partition tolerance**
+
+ Failure of the system is very rare 
+ Mostly every system can only guarantee minimum two features either  **CA, AP, or CP**
+. 
+ 
+ I feel partition tolerance is not explained well in any of the answers so just to explain things in some more detail CAP theorem means: 
+ **C**
+: (Linearizability or strong consistency) roughly means 
+ 
+ If operation B started after operation A successfully completed, then
+  operation B must see the system in the same state as it was on
+  completion of operation A, or a newer state (but never old state). 
+ 
+ **A**
+: 
+ 
+ “every request received by a non-failing [database] node in the system
+  must result in a [non-error] response”. It’s not sufficient for some
+  node to be able to handle the request: any non-failing node needs to
+  be able to handle it. Many so-called “highly available” (i.e. low
+  downtime) systems actually do not meet this definition of
+  availability. 
+ 
+ **P**
+: 
+ 
+ Partition Tolerance (terribly misnamed) basically means that you’re
+  communicating over an asynchronous network that may delay or drop
+  messages. The internet and all our data centres have this property, so
+  you don’t really have any choice in this matter. 
+ 
+ Source: Awesome Martin kleppmann's  work 
+ Just to take some example: 
+Cassandra can at max be AP system. But if you configure it to read or write based on Quorum then it does not remain CAP-available (available as per definition of the CAP theorem) and is only P system. 
+ 
+ Consistency – When we are sending the read request, if it is returning result, it should return the most recent write given by client request.
+Availability – Your request for read/write should always succeed.
+Partition tolerance – When there is network partition (problem for some machines to talk with each other) occurs, system should still work. 
+ In a distributed there are chances that network partition will occur and we cannot avoid “P” of CAP. So we choose between “Consistency” and “Availability”. 
+ http://bigdatadose.com/understanding-cap-theorem/ 
+ 
+ Simple way to understand CAP theorem: 
+ 
+ In case of network partition, one needs to choose between perfect
+  availability and perfect consistency. 
+ **Picking consistency**
+ means not being able to answer a client's query as
+  the system cannot guarantee to return the most recent write. This
+  sacrifices availability. 
+ **Picking availability**
+ means being able to respond to a client's request
+  but the system cannot guarantee consistency, i.e., the most recent
+  value written. Available systems provide the best possible answer
+  under the given circumstance. 
+ 
+ This explanation is from  this excellent article . Hope it will help. 
+ 

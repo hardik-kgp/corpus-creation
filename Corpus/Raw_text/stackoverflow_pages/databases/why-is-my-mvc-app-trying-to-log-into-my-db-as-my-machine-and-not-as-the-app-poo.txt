@@ -1,0 +1,92 @@
+*** why-is-my-mvc-app-trying-to-log-into-my-db-as-my-machine-and-not-as-the-app-poo ***
+
+ When I try and access my newly deployed (to lcoal IIS 7.5) MVC4 app, I get the error: 
+ 
+ Login failed for user 'DOMAIN\MACHINE-NAME$' 
+ 
+ where the '$' is appended and not part of the machine name. 
+ The connection string in web.config looks like this: 
+ 
+ 
+ This is what's going on: 
+ In your connection string you have the following setting:  **integrated security=True**
+
+What this means is that the SQL Server connection will be authenticated with the credentials of the  **process**
+ which initiates the connection. Since you are running under IIS and IIS uses application pools, the connection will be authenticated with the Windows user which runs the application pool. By default this is a user with almost no permissions called NetworkService. NetworkService (or maybe in IIS7.5 it's a different one) will never have access rights to your database. 
+The nuances of your particular scenario might be a bit different because there is a bunch of different security inheritances in IIS and a bunch of different users your process may end up, however, the basic problem is that you have  **integrated security=True**
+ and the user the IIS process is running with is a standard user with almost no rights. 
+ To fix you have a few options: 
+ 
+ Change integrated security=True to username\password authentication. This will solve it 100%, but you may not want to store your password clear text in the web.config file. 
+ In your IIS virtual directory settings, configure the anonymous user to be a meaningful one which has access rights to your db. This will help eventually, but you will have to play with different settings to get it right. 
+ 
+ If you need more help with #2, you have to provide the following information: 
+ 
+ The identity of the AppPool 
+ The identity of the Virtual Directory and all the authentication settings of the virtual directory. 
+ 
+ 
+ There is plenty of good information in this question:  Login failed for user 'DOMAIN\MACHINENAME$' . 
+ 
+ If you see a failure like Login failed for user 'DOMAIN\MACHINENAME$' it means that a process running as NETWORK SERVICE or as LocalSystem has accessed a remote resource, has authenticated itself as the machine account and was denied authorization. 
+ 
+ What seems odd here is that you are still trying to access a local database, yet a username of   implies that it is accessing a non-local database.  
+ Are you certain the connection string you posted is in fact the one that is used? 
+ The other thing you could look at doing is creating a specific user account for the application pool your site is running in - it would most likely need read and write permissions. 
+ The type of user account will depend on your environment: if you are running within a domain, you could create a domain user and continue to use   in your connection string, or if not you could investigate using SQL authentication. 
+ **Edit:**
+
+ I had this exact error once, doing almost exactly the same thing. In my case the database was on a separate server (i.e., not the same machine as it appears to be in your case), but the solution was this: 
+ 
+ Create a domain account. 
+ Add it to Security\Logins and Security\Users in SQL Management Studio. 
+ Provide it with   and   role membership in SQL Management Studio. 
+ On the web server, run  
+ Set this account to be the one used for anonymous access. 
+ Create a new application pool for this web application. 
+ Set the identity of the application pool to be this account. 
+ 
+ Note that this was for IIS 6, so if you are in IIS 7+ you may not need steps 4, 5 and 6. 
+ 
+ One thing to note is that   is the syntax used to represent the machine's credentials on the domain. Similar to how you have a user account, there is also a machine account that is nearly identical (except the permissions are significantly different). 
+ Since you are getting   you don't have an impersonation problem. The first thing to do is to look at the application pool to see what identity it is running as. 
+ You can do this by opening IIS Manager and selecting Application Pools. Next select the application pool and click "View Applications" to the right, this allows you to verify everything is setup correctly. 
+ If it is configured correctly then click "Advanced Settings...", under the "Process Model" header there is an "Identity" field, it should be one of the following: 
+ 
+ ApplicationPoolIdentity 
+ LocalService 
+ LocalSystem 
+ NetworkService 
+ DOMAIN\Account 
+ 
+ If it is ApplicationPoolIdentity it is set as you expect, if it is a non-custom one otherwise, you will likely get   as you are experiencing. It is doubtful a custom account since that would show up as that account. 
+ If it is ApplicationPoolIdentity and the SQL machine is not on the same machine (or potentially if you use a host name or IP address) you may get   since that is the network credentials of ApplicationPoolIdentity. ApplicationPoolIdentity uses   for local access, but   for remote access, since the former is only available locally. 
+ Also make sure you are actually using that exact connection string, for the reasons I detailed above about access method being important. 
+ If this doesn't resolve it, it would help if you detailed what Identity you have set, and whether ASP.Net impersonation is enabled. 
+ 
+ Are you sure that this bit needs to have the &quot? 
+ 
+ Should it not be just a quote mark like in the rest of the string? 
+ There is also one at the end of the string. 
+ 
+ That's the local user account that the App Pool identity manifests itself as when connecting to SQL Server. Try either changing the App Pool to use Network Service and giving Network Service permission to your database, or give   permission to the database. As you're working locally, it might be easier to make Network Service db_owner of your local database. Obviously there are security issues with doing this in production! 
+ 
+ Check the identity that the AppPool for your app is running under in IIS Manager. It will probably be AppPoolIdentity. Then check that you have created a login in SQL Server for that identity, that it is mapped to your database and that it has the necessary role memberships / permissions needed by the application. The identity name will be "IIS AppPool\[AppPoolName]". (See  http://www.iis.net/learn/manage/configuring-security/application-pool-identities  for further info). 
+ If that doesn't work, please explain the way you have your application database connection configured, including whether or not impersonation is enabled. 
+ 
+ I will review the following. 
+ Instead of "data source=(local)" use the computer name where the database resides.  Check DNS resolution to be sure the name is correct. 
+ Be sure that the user that the application pool is running under has permission to connect to the database server. 
+ 
+ You need to add the app pool identity to sql server as a login.
+read this:
+ http://www.iis.net/learn/manage/configuring-security/application-pool-identities-and-sql-server-express 
+ 
+ Just go to IIS and create a new application pool or change the current application pool.
+Go to Advanced settings of the application pool. Under process Model change the identity to the user that you want to use, the default value is  .
+Then go to your website setting in IIS, chose basic settings and change to the new created applicationpool if created.  
+ 
+ Application Pools=>Advanced settings=>Change Identity 
+ Sites=>Default Web Site=>your site=>basic settings=> Change application pool if not same 
+ 
+ 

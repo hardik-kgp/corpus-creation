@@ -1,0 +1,42 @@
+*** storing-votes-in-a-database ***
+
+ I'm writing what will be an intranet application, and one of its features is roughly analogous to content voting - not unlike what SO, Amazon, and many other sites do. 
+ Assuming each votable piece of content has a unique ID, and each user (they're authenticated) has a unique ID, the easiest way would seem to be to have a "votes" table... 
+ 
+ But this creates one row per vote - with millions of pieces of content and tens of thousands of users, that table's gonna be huge huge huge. Is this the best way to do it? I mean, if an int takes 4 bytes, each row takes 12 bytes. If a million pieces of content get a hundred votes, that's 400MB+ in storage, yeah? Seems... like a lot :). Even if the VoteValue is a tinyint (which is probably fine) and only 1 byte, that's still a couple hundred megabytes in the table. I mean sheesh. 
+ Is there a smarter way? Should I store this "votes" table in a separate database (ignoring potential data integrity issues) to partition it from the "main" data in terms of storage and performance? 
+ (I do realize that in today's world 400MB ain't a ton - but it seems like a LOT just to store votes, yeah?) 
+ 
+ Personally as long as you have good indexes in place, you are going about it the right way.  Depending on your usage, for performance you might try to avoid hitting the votes table by storing secondary count information, but overall if you must track WHO has voted something, you need to do it in the way you have listed. 
+ I wouldn't bother moving to another database, if you are REALLY concerned in SQL Server you could create a separate filegroup to hold it.....but most likely not necessary. 
+ 
+ Well, yes but you need to look at the bigger picture. With a million pieces of CONTENT: 
+ (Size of Content) >> (Size of Votes) : where ">>" means "much greater." 
+ If you have a million pieces of content then that might be a terabyte of data where as the votes are 400MB. Big deal right? 
+ I would also add, if you are worried about scalability, check out this blog: 
+ http://highscalability.com/ 
+ 
+ If you need to track whether a user has voted for a particular item, and if there are different values of vote (so 1 star to 5 stars, for example), then this is about as compact as it gets. 
+ Don't forget that for sensible access speeds, you'll need to index the data (two indexes, probably - one with ContentID as the leading column, one with userID as the leading column). 
+ You'll need to decide whether there is a reason not to store the table separately from other tables.  What this means depends on the DBMS you use - with Informix, the table would be in the same database but stored in a different  dbspace , and you might have the indexes stored in two other different dbspaces. 
+ 
+ You will probably also want the ID of the author of the content in the table, for easier detection of voting abuse.  (Yes, this is presumably redundant information.  An alternative is regularly building a summary table to see who is voting on whom.) 
+ For what it's worth, the perlmonks vote table looks like this: 
+ 
+ (vote_id is the content id, ip is an IP address.) 
+ 
+ I'd say you need to figure out how these votes will be used and design specific queries for your data model first. This is not necessarily SQL model. If you're coming from SQL world, passing through official MongoDB tutorial helps to clear the mind for the start. 
+ For example, if you only need to store and display votes for a single issue page, it may be convenient to store votes in a single string field of the issue, which will look like  . Assuming all ids are of the same length, there are some interesting properties: 
+ 
+ Count all votes for the issue: 
+ 
+ Find I voted on the issue 
+ 
+ Find all issues you voted on: 
+ 
+ Find the most voted issues 
+ 
+ 
+ This architecture allows to avoid expensive calculations on read in these specific cases, but updating   on vote might be more expensive than adding a row in a table. In this case 100 votes with 4 bytes per id + separator is 500 bytes string. In your proposed variant 100 votes are 800 bytes. 
+ Disclaimer: I never implemented anything like this, it is just an idea. 
+ 

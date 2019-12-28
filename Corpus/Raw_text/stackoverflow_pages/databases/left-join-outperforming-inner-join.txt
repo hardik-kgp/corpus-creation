@@ -1,0 +1,59 @@
+*** left-join-outperforming-inner-join ***
+
+ I've been profiling some queries in an application I'm working on, and I came across a query that was retrieving more rows than necessary, the result set being trimmed down in the application code. 
+ Changing a LEFT JOIN to an INNER JOIN trimmed the result set to just what was needed, and presumably would also be more performant (since less rows are selected). In reality, the LEFT JOIN'ed query was outperforming the INNER JOIN'ed, taking half the time to complete. 
+ LEFT JOIN: (127 total rows, Query took 0.0011 sec) 
+ INNER JOIN: (10 total rows, Query took 0.0024 sec) 
+ (I ran the queries multiple times and those are averages). 
+ Running EXPLAIN on both reveals nothing that explains the performance differences: 
+ For the INNER JOIN: 
+ 
+ For the LEFT JOIN: 
+ 
+ And the query itself: 
+ 
+ (The clause that I'm talking about is the last INNER JOIN on the 'users' table) 
+ The query runs on a MySQL 5.1 database, if it makes a difference. 
+ Does anyone has a clue on why the LEFT JOIN'ed query outperforms the INNER JOIN'ed on in this case? 
+ **UPDATE:**
+ Due to Tomalak's suggestion that the small tables I'm using were making the INNER JOIN more complex, I'd created a test database with some mock data. The 'users' table is 5000 rows, and the contacts table is ~500,000 rows. The results are the same (also the timings haven't changed which is surprising when you consider that the tables are much bigger now). 
+ I also ran ANALYZE and OPTIMIZE on the contacts table. Didn't make any discernible difference. 
+ 
+ If you think that the implementation of LEFT JOIN is INNER JOIN + more work, then this result is confusing.  What if the implementation of INNER JOIN is (LEFT JOIN + filtering)?  Ah, it is clear now. 
+ In the query plans, the only difference is this:  users... extra: using where  .  This means filtering.  There's an  **extra filtering step**
+ in the query with the inner join. 
+ 
+ This is a different kind of filtering than is typically used in a where clause.  It is simple to create an index on A to support this filtering action. 
+ 
+ Consider this query: 
+ 
+ This query is equivalent to inner join.  There is no index on B that will help that filtering action.  The reason is that the where clause is stating a condition on the result of the join, instead of a condition on B. 
+ 
+ It's probably due to the INNER JOIN having to check each row in both tables to see if the column values (email in your case) match.  The LEFT JOIN will return all from one table regardless.  If it's indexed then it will know what to do faster too. 
+ 
+ Table cardinality has an influence on the query optimizer. I guess small tables as you have make the inner join the more complex operation. As soon as you have more records than the DB server is willing to keep in memory, the inner join will probably begin to outperform the left join. 
+ 
+ imo you are falling into the pitfall known as premature optimization.  Query optimizers are insanely fickle things.  My suggestion, is to move on until you can identify for sure that the a particular join is problematic. 
+ 
+ Try this: 
+ 
+ That should give you an extra performance because: 
+ 
+ You put all the inner joins before any "left" or "right" join appears. This filters out some records before applying the subsequent outer joins 
+ The short-circuit of the "AND" operators (order of the "AND" matters). If the comparition between the columns and the literals is false, it won't execute the required table scan for the comparition between the tables PKs and FKs 
+ 
+ If you don't find any performance improvement, then replace all the columnset for a "COUNT(*)" and do your left/inner tests. This way, regardless of the query, you will retrieve only 1 single row with 1 single column (the count), so you can discard that the number of returned bytes is the cause of the slowness of your query: 
+ 
+ Good luck 
+ 
+ LEFT JOIN is returning more rows than INNER JOIN because these 2 are different. 
+If LEFT JOIN does not find related entry in the table it is looking for, it will return NULLs for the table. 
+But if INNER JOIN does not find related entry, it will not return the  **whole**
+ row at all. 
+ But to your question, do you have query_cache enabled?
+Try running the query with  
+ 
+ Other than that, I'd populate the tables with more data, ran  
+ 
+ And see what happens. 
+ 

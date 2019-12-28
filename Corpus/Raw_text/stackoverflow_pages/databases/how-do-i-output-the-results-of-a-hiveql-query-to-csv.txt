@@ -1,0 +1,104 @@
+*** how-do-i-output-the-results-of-a-hiveql-query-to-csv ***
+
+ we would like to put the results of a Hive query to a CSV file. I thought the command should look like this: 
+ 
+ When I run it, it says it completeld successfully but I can never find the file. How do I find this file or should I be extracting the data in a different way? 
+ Thanks! 
+ 
+ Although it is possible to use   to get data out of Hive, it might not be the best method for your particular case. First let me explain what   does, then I'll describe the method I use to get tsv files from Hive tables. 
+ According to  the manual , your query will store the data in a directory in HDFS. The format will not be csv. 
+ 
+ Data written to the filesystem is serialized as text with columns separated by ^A and rows separated by newlines. If any of the columns are not of primitive type, then those columns are serialized to JSON format. 
+ 
+ A slight modification (adding the   keyword) will store the data in a local directory. 
+ 
+ When I run a similar query, here's what the output looks like. 
+ 
+ Personally, I usually run my query directly through Hive on the command line for this kind of thing, and pipe it into the local file like so: 
+ 
+ That gives me a tab-separated file that I can use. Hope that is useful for you as well. 
+ Based on  this patch-3682 , I suspect a better solution is available when using Hive 0.11, but I am unable to test this myself. The new syntax should allow the following. 
+ 
+ Hope that helps. 
+ 
+ If you want a CSV file then you can modify Lukas' solutions as follows (assuming you are on a linux box): 
+ 
+ 
+ You should use CREATE TABLE AS SELECT (CTAS) statement to create a directory in HDFS with the files containing the results of the query. After that you will have to export those files from HDFS to your regular disk and merge them into a single file. 
+ You also might have to do some trickery to convert the files from '\001' - delimited to CSV. You could use a custom CSV SerDe or postprocess the extracted file. 
+ 
+ You can use   …   …, as in this example: 
+ 
+  and   have the same interpretations as before and paths are interpreted following the usual rules. One or more files will be written to  , depending on the number of reducers invoked. 
+ 
+ If you are using HUE this is fairly simple as well. Simply go to the Hive editor in HUE, execute your hive query, then save the result file locally as XLS or CSV, or you can save the result file to HDFS. 
+ 
+ I was looking for a similar solution, but the ones mentioned here would not work. My data had all variations of whitespace (space, newline, tab) chars and commas.  
+ To make the column data tsv safe, I replaced all \t chars in the column data with a space, and executed python code on the commandline to generate a csv file, as shown below: 
+ 
+ This created a perfectly valid csv. Hope this helps those who come looking for this solution. 
+ 
+ You can use hive string function  
+ for ex: 
+ 
+ 
+ I had a similar issue and this is how I was able to address it. 
+ **Step 1**
+ - Loaded the data from Hive table into another table as follows 
+ 
+ **Step 2**
+ - Copied the blob from Hive warehouse to the new location with appropriate extension 
+ 
+ 
+ The default separator is " ". In python language, it is " ". 
+ When I want to change the delimiter, I use SQL like: 
+ 
+ Then, regard delimiter+" " as a new delimiter. 
+ 
+ Similar to Ray's answer above, Hive View 2.0 in Hortonworks Data Platform also allows you to run a Hive query and then save the output as csv. 
+ 
+ In case you are doing it from Windows you can use Python script  hivehoney  to extract table data to local CSV file. 
+ It will: 
+ 
+ Login to bastion host.  
+ pbrun.  
+ kinit.  
+ beeline (with your query).  
+ Save echo from beeline to a file on Windows. 
+ 
+ Execute it like this: 
+ 
+ 
+ I tried various options, but this would be one of the simplest solution for    : 
+ 
+ You can also use   to convert "|" to "," 
+ 
+ Just to cover more following steps after kicking off the query:
+ 
+ In my case, the generated data under temp folder is in   format, 
+and it looks like this: 
+ 
+ Here's the command to unzip the deflate files and put everything into one csv file: 
+ 
+ 
+ 
+ or 
+ 
+ For tsv, just change csv to tsv in the above queries and run your queries 
+ 
+ I may be late to this one, but would help with the answer: 
+ echo "COL_NAME1|COL_NAME2|COL_NAME3|COL_NAME4" > SAMPLE_Data.csv
+hive -e '
+select distinct concat(COL_1, "|",
+COL_2, "|",
+COL_3, "|",
+COL_4)
+from table_Name where clause if required;' >> SAMPLE_Data.csv 
+ 
+ This shell command prints the output format in csv to   without the column headers.  
+ 
+ 
+ This is most csv friendly way I found to output the results of HiveQL. 
+You don't need any grep or sed commands to format the data, instead hive supports it, just need to add extra tag of outputformat. 
+ 
+ 

@@ -1,0 +1,61 @@
+*** best-pattern-for-storing-product-attributes-in-sql-server ***
+
+ We are starting a new project where we need to store product and many product attributes in a database.  The technology stack is MS SQL 2008 and Entity Framework 4.0 / LINQ for data access. 
+ The products (and Products Table) are pretty straightforward (a SKU, manufacturer, price, etc..).  However there are also many attributes to store with each product (think industrial widgets).  These may range from color to certification(s) to pipe size.  Every product may have different attributes, and some may have multiples of the same attribute (Ex: Certifications). 
+ The current proposal is that we will basically have a name/value pair table with a FK back to the product ID in each row. 
+ An example of the attributes Table may look like this: 
+ 
+ Note: Attribute name would likely come from a lookup table or enum. 
+ So the main question here is: Is this the best pattern for doing something like this?  How will the performance be?  Queries will be based on a JOIN of the product and attributes table, and generally need many WHEREs to filter on specific attributes - the most common search will be to find a product based on a set of known/desired attributes. 
+ If anyone has any suggestions or a better pattern for this type of data, please let me know. 
+ Thanks!
+-Ed 
+ 
+ You are about to re-invent the dreaded EAV model, Entity-Attribute-Value. This is notorious for having problems in real-life, for various reasons, many covered by Dave's answer. 
+ Luckly the SQL Customer Advisory Team (SQLCAT) has a whitepaper on the topic, 
+ Best Practices for Semantic Data Modeling for Performance and Scalability . I highly recommend this paper. Unfortunately, it does not offer a panacea, a cookie cutter solution, since the problem has no solution. Instead, you'll learn how to find the balance between a fixed queryable schema and a flexible EAV structure, a balance that works for your specific case: 
+ 
+ Semantic data models can be very
+  complex and until semantic databases
+  are commonly available, the challenge
+  remains to find the optimal balance
+  between the pure object model and the
+  pure relational model for each
+  application. The key to success is to
+  understand the issues, make the
+  necessary mitigations for those
+  issues, and then test, test, and test.
+  Scalability testing is a critical
+  success factor if you are going to
+  find that optimal design. 
+ 
+ 
+ This is going to be problematic for a couple of reasons: 
+ 
+ Your entity queries will be much harder to write.  Transforming the results of those queries into something resembling a ViewModel when it comes time for presentation is going to be painful because it will involve a pivot for each product. 
+ Understanding what your datatypes will be is going to be tough when it comes time to read certain types of data.  Are you planning on storing this as strings?  For example, DateTimes hold more data than the default .ToString() implementation writes to the string.  You're also going to have issues if you try to store floating-point values. 
+ Your objects' data integrity is at risk.  There will be a temptation to put properties which should be just attributes of your main product tables in this "bucket o' data".  Maybe the design will be semi-sane to begin with, but I guarantee you that after a certain amount of time, folks will start to just throw properties in the bag.  It'll then be very tough to keep your objects' integrity with such a loosely defined structure. 
+ Your indexes will most likely be suboptimal.  Again think of a property which should be on your product table.  Instead of being able to index on just one column, you will now be forced to make a potentially very large composite index on your "type" table.   
+ Since you're apparently planning to throw out proper datatypes and use strings, the performance of range queries for numeric data will likely be poor. 
+ Your table will get big, slowing backups and queries.  Instead of an integer being 4 bytes, you're going to have to store far more for an integer of any size. 
+ 
+ Better to normalize the table in a more "traditional" way using "IS-A" relationships.  For example, you might have Pipes, which are a type of Product, but have a couple more attributes.  You might have Stoves, which are a type of product, but have a couple more attributes still.   
+ If you really have a generic database and all sorts of other properties which aren't going to be subject to data integrity rules, you very well may want to consider storing data in an XML column.  It's hard to tell you what the correct design choice is unless I know a lot more about your business. 
+ IMO this is a design antipattern.  The siren song of this idea has lured many a developer onto the rocks of of an unmaintainable application. 
+ 
+ I know it is an old one - however there might be other readers... 
+ I have seen the balance EAV to attribute modeled approach. Well - it is still EAV. "EAV's are like drugs" is pretty much true. So what about thinking it through once more - and let's be aggressive really:
+I still liked the supertype apporach, where a lot of tables use the same primary key from a key generator. Let's reuse this one. So what about creating a new table for each set of attributes - all having the primary from the same key generator? Eg. you would have a table with the fields "color,pipe", another table "fittingsize,pipe", and so on. The requirement "volatility of attributes" screams for a carefully(automatically) maintained data dictionary anyway. 
+ This approach is fully normalized and can be fully automated. You can support checks if specific attribute sets materialized already as table by hashing attribute name clusters, eg. crc32(lower('color~fittingsize~pipe')) where the atribute names need to be sorted alphabetically. Of course this requires to have the hash in the data dictionary. Based on the data dictionary each object can be searched (using 'UNION'), especially if the data dictionary itself is a table. Having the data dictionary as table also allows you to use its primary (surrogate) key as basis for unique tablenames, to end up with tables like 'attributes1','attributes2',... Most databases nowadays support some billion tables - so we are sort of save on that end as well. You could even have a product catalouge with very common attributes, that reference the extended attribute tables. 
+ An open issue are 1:n data sets. I am afraid you need to sort them out in separate tables. However this very much depends on your data presentation and querying strategy. Should they always be presented as comma seperated string attached to the product or do you want to eg. be able to query for all products of a certain Certification? 
+ Before you flame this approach please consider this: It is meant for use cases where you have a very high volatility of attributes - in quantity and quality - only. Also it was preset, that you cannot know most of the attributes at the point in time when the solution is created. So do not discuss this in a context where you can model your attributes upfront which would enable you to balance trade offs much better. 
+ 
+ In short, you cannot go all one route. If you use an EAV like your example you will have a myriad of problems like those outlined by the other posters not the least of which will be performance and data integrity. Let me reiterate, that using an EAV as the core of your solution  **will fail**
+ when you get to reporting and analysis. However, as you have also stated, you might have hundreds of attributes that change regularly.  
+ The solution, IMO, is a hybrid. For common attributes, use columns/standard schema. For additional, arbitrary attributes, use an EAV. However, the rule with the EAV data is that you can never, ever, under any circumstances, write a query that includes a sort or filter on an attribute. I.e., you can never write  . The EAV portion of the schema represents a bag of data that is merely there for tracking purposes. In fact, I have seen many people implement this solution by using Xml for the EAV portion. The moment someone does want to search, filter, sort or place an EAV value in a specific spot on a report, that attribute must be elevated to a top level column in the products table.  
+ The key to this hybrid approach is discipline. It will seem simple enough to add a filter, sort or put an attribute in a specific spot somewhere on a report especially when you get pressure from management. You must resist this temptation. Once you go down the dark path... If you do not think that you can maintain that level of discipline in your development team, then I would not use an EAV. As I've mentioned before, EAV's are like drugs: in small quantities and used under the right circumstances they can be beneficial. Too much will kill you. 
+ 
+ Rather than have a name-value table, create the usual Product table structure containing all the common attributes, and add an XML column for the attributes that vary by product. 
+ I have used this structure before and it worked quite well. 
+ As @Dave Markle mentions, the name-value approach can lead to a world of pain. 
+ 

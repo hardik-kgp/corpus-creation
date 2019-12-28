@@ -1,0 +1,51 @@
+*** ef-code-first-one-to-one-relationship-multiplicity-is-not-valid-in-role-in-re ***
+
+ I'm attempting to do the following: 
+ 
+ However every time I try to migrate my database I get the following error: 
+ 
+ Class1_Class2_Target: : Multiplicity is not valid in Role
+  'Class2_Class1_Target' in relationship 'Class2_Class1'. Because the
+  Dependent Role properties are not the key properties, the upper bound
+  of the multiplicity of the Dependent Role must be '*'. 
+ 
+ What could be the issue here? 
+ 
+ Your model is not a 1:1 association. You can still have  many    objects referring to the same  one    object. Also, your model doesn't guarantee that a   referring to a   is also referred back by this   object —   can refer to any   object. 
+ **How to configure 1:1?**
+
+ The common way to guarantee (sort of) a 1:1 association in SQL is to have a table for the  principal  entity and one for the  dependent  entity where the primary key in the dependent table also is a foreign key to the principal: 
+ 
+ (Here   is the principal) 
+ Now in a relational database, this still doesn't guarantee a 1:1 association (that's why I said 'sort of'). It's a  **1:0..1**
+ association. There can be a   without a  . The truth is, genuine 1:1 associations are impossible in SQL, because there is no language construct that inserts two rows in different tables synchronously. 1:0..1 is the closest we get. 
+ **Fluent Mapping**
+
+ To model this association in EF you can use the fluent API. Here's the standard way to do it: 
+ 
+ And in the context: 
+ 
+ And this is left of your classes: 
+ 
+ There is no way to configure alternate foreign key properties in the model, because the only FK involved  has to be  the dependent's primary key. 
+ The strange thing about this model is that EF doesn't stop you from creating (and saving) a   object  without  a  . I think EF should be capable of validating this requirement before saving changes, but, apparently, it doesn't. Likewise, there are ways to delete a   object without deleting its   parent. So this   -   pair is not as stringent as it looks (and should be). 
+ **Data annotations**
+
+ The only way to get this right  in code  is by data annotations. (Of course the database model will still not be able to enforce 1:1) 
+ 
+ The   annotation tells EF that   is the principal entity. 
+ Data annotations play a role in many APIs, which can be a curse, because each API chooses its own subset to implement, but here it comes in handy, because now EF not only uses them to  design  the data model, but also to  validate  entities. Now if you try to save a   object without a   you'll get a validation error. 
+ 
+ I had the exact same problem.
+What I wanted is the DB schema to have 2 tables that cross reference each other with [foreign key] --> [primary key].
+Finally I found the way:
+Let's say we have 2 classes: Books and Authors. 
+The Book class should have a foreign key to the author who authored it and the Author class should have a foreign key to the last book he wrote.
+The way to have EF understand this using code first is:
+(Note that this is done using a mixture of data annotations and fluent API) 
+ 
+ This works and creates the exact DB schema I wanted. In SQL it would create tables and foreign keys corresponding to the following code: 
+ 
+ 
+ One of the two classes must be created before the other and hence requires the [Required] annotation. If Class2 is dependent on Class1, then specify [Required, ForeignKey("Class1")]. You can also use fluent API to configure this in your context class as well. 
+ 

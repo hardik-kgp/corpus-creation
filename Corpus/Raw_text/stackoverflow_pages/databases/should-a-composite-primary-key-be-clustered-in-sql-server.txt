@@ -1,0 +1,36 @@
+*** should-a-composite-primary-key-be-clustered-in-sql-server ***
+
+ Consider this example table (assuming SQL Server 2005): 
+ 
+ I'm considering a composite primary key containing the two product_id columns (I'll definitely want a unique constraint) as opposed to a separate unique ID column.  Question is, from a performance point of view, should that primary key be clustered? 
+ Should I also create an index on each ID column so that lookups for the foreign keys are faster?  I believe this table is going to get hit much more on reads than writes. 
+ 
+ As has already been said by several others, it depends on how you will access the table. Keep in mind though, that any RDBMS out there should be able to use the clustered index for searching by a single column as long as that column appears first. For example, if your clustered index is on (parent_id, child_id) you don't need another separate index on (parent_id). 
+ Your best bet may be a clustered index on (parent_id, child_id), which also happens to be the primary key, with a separate non-clustered index on (child_id). 
+ Ultimately, indexing should be addressed after you've got an idea of how the database will be accessed. Come up with some standard performance stress tests if you can and then analyze the behavior using a profiling tool (SQL Profiler for SQL Server) and performance tune from there. If you don't have the expertise or knowledge to do that ahead of time, then try for a (hopefully limited) release of the application, collect the performance metrics, and see where you need to improve performance and figure out what indexes will help. 
+ If you do things right, you should be able to capture the "typical" profile of how the database is accessed and you can then rerun that over and over again on a test server as you try various indexing approaches. 
+ In your case I would probably just put a clustered PK on (parent_id, child_id) to start with and then add the non-clustered index only if I saw a performance problem that would be helped by it. 
+ 
+ "What you query on most often" is not necessarily the best reason to choose an index for clustering. What matters most is what you query on to obtain multiple rows. Clustering is the strategy appropriate for making it efficient to obtain multiple rows in the fewest number of disk reads. 
+ The best example is sales history for a customer. 
+ Say you have two indexes on the Sales table, one on Customer (and maybe date, but the point applies either way). If you query the table most often on CustomerID, then you'll want all the customer's Sales records together to give you one or two disk reads for all the records. 
+ The primary key, OTOH, might be a surrogate key, or SalesId, - but a unique value in any case. If this were clustered, it would be of no benefit compared to a normal unique index. 
+ EDIT: Let's take this particular table for discussion - it will reveal yet more subtleties. 
+ The "natural" primary key is in all likelihood parentid + childid. But in what sequence? Parentid + childid is no more unique than childid + parentid. For clustering purposes, which ordering is more appropriate? One would assume it must be parentid + childid, since we will want to ask: "For a given item, what are its constituents"? But is not that unlikely to want to go the other way, and ask "For a given constuent, of what items is it a component?".  
+ Add in the consideration of "covering indexes", which contain, within the index, all the information needed to satisfy the query. If that's true, then you never need to read the rest of the record; so clustering is of no benefit; just reading the index is sufficient. (BTW, that means two indexes on the same pair of fields, in opposite order; which may be the proper thing to do in cases like this. Or at least a composite index on one, and a single-field index on the other.) 
+ But that still doesn't dictate which should be clustered; which would finally probably be determined by which queries will, in fact, need to grab the record for the Quantity field. 
+ Even for such a clear example, in principle it's best to leave decidintg about other indexes until you can test them with realistic data (obviously before production); but asking here for speculation is pointless. Testing always will give you the proper answer. 
+ Forget worrying about slowing down inserts until you have a problem (which in most cases will never happen), and can test to make sure giving up useful indexes for a measurable benefit. 
+ Things still aren't certain, though, because junction tables like this one are also frequently involved in lots of other types of queries. So I'd just pick one and test as needed as the application gels, and data volume for testing becomes available. 
+ BTW, I'd expect it to end up with a PK on parentid + childid; a non-unique index on childid; and the first clustered. If you prefer a surrogate PK, then you'll still want a unique index on parentid + childid, clustered. Clustering the surrogate key is very unlikely to be optimal. 
+ 
+ The real question here is what will you be querying on the most?  If you will be looking for both values all the time, then the clustered should be on the pair.  If you are going to query more heavily on one or the other you would want the clustered on that specific one. 
+ 
+ Since you say "I'm considering a composite primary key" - there still might be time to change your mind.  I've used many composite keys and I keep finding reasons to wish I hadn't.  Maybe others will disagree with me. 
+ I agree with Mitchel's answer, the cluster goes on whatever you will query on most often.  
+ 
+ I'd like to zero-in on your last statement.  "I believe this table is going to get hit much more on reads than writes."  If this is the case then you may want to go index-heavy.  The reason we don't go index-heavy on everything is you pay performance penalties for updates & inserts to the table.  When we have tables that are serving more reading than writing then pay the price for the indexes.   
+ As for what to cluster you should think of how the table will be best used.  If your table is subject to a lot of range queries (WHERE col1 IS BETWEEN a AND b) then cluster the table so that the range queries will already be set up in order on the disk.  In SQL Server sometimes we get the cluster for free with the PKs and we forget about what's best to cluster to begin with.   
+ As for the FK constraints on the table, since you said more reads than writes this may be acceptable.  If this were a table with a lot of inserts each FK constraint requires validation against the parent table and that might not give you the performance you desire.   
+ Great question.   
+ 

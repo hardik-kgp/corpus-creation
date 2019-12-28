@@ -1,0 +1,101 @@
+*** adding-a-new-value-to-an-existing-enum-type ***
+
+ I have a table column that uses an   type. I wish to update that   type to have an additional possible value. I don't want to delete any existing values, just add the new value. What is the simplest way to do this? 
+ 
+ **NOTE**
+ if you're using PostgreSQL 9.1 or later, and you are ok with making changes outside of a transaction, see  this answer  for a simpler approach. 
+ 
+ I had the same problem few days ago and found this post. So my answer can be helpful for someone who is looking for solution :)  
+ If you have only one or two columns which use the enum type you want to change, you can try this. Also you can change the order of values in the new type. 
+ 
+ 3-6 should be repeated if there is more than 1 column. 
+ 
+ PostgreSQL  **9.1**
+ introduces ability to  ALTER  Enum types: 
+ 
+ 
+ A possible solution is the following;  precondition is, that there are not conflicts in the used enum values. (e.g. when removing an enum value, be sure that this value is not used anymore.) 
+ 
+ Also in this way the column order will not be changed. 
+ 
+ If you fall into situation when you should add   values in transaction, f.e. execute it in flyway migration on   statement you will be get error   (see  flyway issue #350 ) you could add such values into   directly as workaround (  is name of target  ): 
+ 
+ 
+ Complementing @Dariusz  1 
+ For Rails 4.2.1, there's this doc section: 
+ == Transactional Migrations 
+ If the database adapter supports DDL transactions, all migrations will
+    automatically be wrapped in a transaction. There are queries that you
+    can't execute inside a transaction though, and for these situations
+    you can turn the automatic transactions off. 
+ 
+ 
+ From Postgres 9.1  Documentation : 
+ 
+ Example: 
+ 
+ 
+ **Disclaimer:**
+ I haven't tried this solution, so it might not work ;-) 
+ You should be looking at  . If you only want to change the label of an existing ENUM, a simple UPDATE will do it. 
+ To add a new ENUM values: 
+ 
+ First insert the new value into  . If the new value has to be the last, you're done. 
+ If not (you need to a new ENUM value in between existing ones), you'll have to update each distinct value in your table, going from the uppermost to the lowest... 
+ Then you'll just have to rename them in   in the opposite order. 
+ 
+ **Illustration**
+
+You have the following set of labels: 
+ 
+ and you want to obtain: 
+ 
+ then: 
+ 
+ then: 
+ 
+ And so on... 
+ 
+ I can't seem to post a comment, so I'll just say that updating pg_enum works in Postgres 8.4 .  For the way our enums are set up, I've added new values to existing enum types via: 
+ 
+ It's a little scary, but it makes sense given the way Postgres actually stores its data. 
+ 
+ Updating pg_enum works, as does the intermediary column trick highlighted above. One can also use USING magic to change the column's type directly: 
+ 
+ As long as you've no functions that explicitly require or return that enum, you're good. (pgsql will complain when you drop the type if there are.) 
+ Also, note that PG9.1 is introducing an ALTER TYPE statement, which will work on enums: 
+ http://developer.postgresql.org/pgdocs/postgres/release-9-1-alpha.html 
+ 
+ Can't add a comment to the appropriate place, but   with a default on the column failed.  I had to: 
+ ; 
+ and then it worked. 
+ 
+ Simplest: get rid of enums. They are not easily modifiable, and thus should  **very**
+ rarely be used. 
+ 
+ Here is a more general but a rather fast-working solution, which apart from changing the type itself updates all columns in the database using it. The method can be applied even if a new version of ENUM is different by more than one label or misses some of the original ones. The code below replaces   with  : 
+ 
+ The whole process will run fairly quickly, because if the order of labels persists, no actual change of data will happen. I applied the method on 5 tables using   and having 50,000−70,000 rows in each, and the whole process took just 10 seconds. 
+ Of course, the function will return an exception in case if labels that are missing in the new version of the ENUM are used somewhere in the data, but in such situation something should be done beforehand anyway. 
+ 
+ For those looking for an in-transaction solution, the following seems to work. 
+ Instead of an  , a   shall be used on type   with a constraint checking that the value is within the specified list of allowed values (as suggested by some comments). The only problem is that no constraint can be added (and thus neither modified) to a domain if it is used by any composite type (the docs merely says this "should eventually be improved"). Such a restriction may be worked around, however, using a constraint calling a function, as follows. 
+ 
+ Previously, I used a solution similar to the accepted answer, but it is far from being good once views or functions or composite types (and especially views using other views using the modified ENUMs...) are considered. The solution proposed in this answer seems to work under any conditions. 
+ The only disadvantage is that no checks are performed on existing data when some allowed values are removed (which might be acceptable, especially for this question). (A call to   ends up with the same error as adding a new constraint to the domain used by a composite type, unfortunately.) 
+ Note that a slight modification such as  , where   function returned the list of allowed values, would not work - which is quite strange, so I hope the solution proposed above works reliably (it does for me, so far...).  (it works, actually - it was my error) 
+ 
+ As discussed above,   command cannot be written inside a transaction. The suggested way is to insert into the pg_enum table directly, by   and  ; 
+ Following is the code that I use. (Checks if duplicate value exists before inserting (constraint between enumtypid and enumlabel name) 
+ 
+ Note that your type name is prepended with an underscore in the pg_type table. Also, the typname needs to be all lowercase in the where clause. 
+ Now this can be written safely into your db migrate script. 
+ 
+ just in case, if you are using Rails and you have several statements you will need to execute one by one, like: 
+ 
+ 
+ I don't know if have other option but we can drop the value using: 
+ 
+ 
+ When using Navicat you can go to types (under view -> others -> types) - get the design view of the type - and click the "add label" button.  
+ 

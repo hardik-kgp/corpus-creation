@@ -1,0 +1,103 @@
+*** key-value-pairs-in-relational-database ***
+
+ Does someone have experience with storing key-value pairs in a database? 
+ I've been using this type of table: 
+ 
+ Then for example the following rows could exist: 
+ 
+ The trouble with this scheme is the SQL syntax required to extract data is quite complex.
+Would it be better to just create a series of key/value columns? 
+ 
+ This will be easier and faster to query but lacks the extensibility of the first approach.
+Any advice? 
+ 
+ Before you continue on your approach, I would humbly suggest you step back and consider if you really want to store this data in a "Key-Value Pair"table.  I don't know your application but my experience has shown that every time I have done what you are doing, later on I wish I had created a color table, a fabric table and a size table. 
+ Think about referential integrity constraints, if you take the key-value pair approach, the database can't tell you when you are trying to store a color id in a size field 
+ Think about the performance benefits of joining on a table with 10 values versus a generic value that may have thousands of values across multiple domains.  How useful is an index on Key Value really going to be? 
+ Usually the reasoning behind doing what you are doing is because the domains need to be "user definable".  If that is the case then even I am not going to push you towards creating tables on the fly (although that is a feasible approach). 
+ However, if your reasoning is because you think it will be easier to manage than multiple tables, or because you are envisioning a maintenance user interface that is generic for all domains, then stop and think really hard before you continue. 
+ 
+ There is another solution that falls somewhere between the two. You can use an xml type column for the keys and values. So you keep the itemid field, then have an xml field that contains the xml defined for some key value pairs like  
+Then when you extract your data fro the database you can process the xml in a number of different ways. Depending on your usage. This is an extend able solution.  
+ 
+ In most cases that you would use the first method, it's because you haven't really sat down and thought out your model. "Well, we don't know what the keys will be yet". Generally, this is pretty poor design. It's going to be slower than actually having your keys as columns, which they should be. 
+ I'd also question why your id is a varchar. 
+ In the rare case that you really must implement a key/value table, the first solution is fine, although, I'd generally want to have the keys in a separate table so you aren't storing varchars as the keys in your key/value table. 
+ eg, 
+ 
+ You can then even go nuts and add a "TYPE" to the keys, allowing some type checking. 
+ 
+ I once used key-value pairs in a database for the purpose of creating a spreadsheet (used for data entry) in which a teller would summarize his activity from working a cash drawer.  Each k/v pair represented a named cell into which the user entered a monetary amount.  The primary reason for this approach is that the spreadsheet was highly subject to change.  New products and services were added routinely (thus new cells appeared).  Also, certain cells were not needed in certain situations and could be dropped. 
+ The app I wrote was a rewrite of an application that did break the teller sheet into separate sections each represented in a different table.  The trouble here was that as products and services were added, schema modifications were required.  As with all design choices there are pros and cons to taking a certain direction as compared to another.  My redesign certainly performed slower and more quickly consumed disk space; however, it was highly agile and allowed for new products and services to be added in minutes.  The only issue of note, however, was disk consumption; there were no other headaches I can recall. 
+ As already mentioned, the reason I usually consider a key-value pair approach is when users—this could be a the business owner—want to create their own types having a user-specific set of attributes.  In such situations I have come to the following determination. 
+ If there is either no need to retrieve data by these attributes or searching can be deferred to the application once a chunk of data has been retrieved, I recommend storing all the attributes in a single text field (using JSON, YAML, XML, etc.).  If there is a strong need to retrieve data by these attributes, it gets messy. 
+ You can create a single "attributes" table (id, item_id, key, value, data_type, sort_value) where the sort column coverts the actual value into a string-sortable representation.  (e.g. date: “2010-12-25 12:00:00”, number: “0000000001”)  Or you can create separate attribute tables by data-type (e.g. string_attributes, date_attributes, number_attributes).  Among numerous pros and cons to both approaches: the first is simpler, the second is faster.  Both will cause you to write ugly, complex queries. 
+ 
+ From experience, i have found that certain keys will be more widely used or queried more often. We have usually then slightly de-normalized the design to include a specific field back in the main "item" table. 
+ eg. if every Item has a Colour, you might add the Colour column to your item table. Fabric and Size may be used less often and can be kept separate in the key-value pair table. You may even keep the colour in the key-value pair table, but duplicate the data in the item table to get the performance benefits. 
+ Obviously this varies depending on the data and how flexible you need the key-value pairs to be. It can also result in your attribute data not being located consistantly. However, de-normalizing does greatly simplify the queries and improves their performance as well.  
+ I would usually only consider de-normalizing when performance becomes and issue, not just to simplify a query. 
+ 
+ PostgreSQL 8.4 supports hstore data type for storing sets of (key,value) pairs within a single PostgreSQL data field.
+Please refer  http://www.postgresql.org/docs/8.4/static/hstore.html  for its usage information. Though it's very old question but thought to pass on this info thinking it might help someone. 
+ 
+ I don't understand why the SQL to extract data should be complex for your first design. Surely to get all values for an item, you just do this: 
+ 
+ or if you just want one particular key for that item: 
+ 
+ The first design also gives you the flexibility to easily add new keys whenever you like. 
+ 
+ I think the best way to design such tables is as follows: 
+ 
+ Make the frequently used fields as columns in the database. 
+ Provide a Misc column which contains a dictionary(in JSON/XML/other string formeat) which will contain the fields as key-value pairs.  
+ 
+ Salient points: 
+ 
+ You can write your normal SQL queries to query for SQL in most situations. 
+ You can do a FullTextSearch on the key-value pairs. MySQL has a full text search engine, else you can use "like" queries which are a little slower. While full text search is bad, we assume that such queries are fewer, so that should not cause too many issues. 
+ If your key-value pairs are simple boolean flags, this technique has the same power as having a separate column for the key. Any more complex operation on the key value pairs should be done outside the database. 
+ Looking at the frequency of queries over a period of time will give tell you which key-value pairs need to be converted in columns. 
+ This technique also makes it easy to force integrity constraints on the database. 
+ It provides a more natural path for developers to re-factor their schema and code. 
+ 
+ 
+ the first method is quite ok. you can create a UDF that extracts the desired data and just call that. 
+ 
+ If you have very few possible keys, then I would just store them as columns. But if the set of possible keys is large then your first approach is good (and the second approach would be impossible). 
+ Or is it so that each item can only have a finite number of keys, but the keys could be something from a large set? 
+ You could also consider using an Object Relational Mapper to make querying easier. 
+ 
+ The first method is a lot more flexible at the cost you mention.  
+ And the second approach is never viable as you showed. Instead you'd do (as per your first example)  
+ 
+ of course this will only work when the amount of data is known and doesn't change a lot. 
+ As a general rule any application that demands changing DDL of tables to do normal work should be given a second and third thoughts. 
+ 
+ Violating normalization rules is fine as long as the business requirement can still be fulfilled. Having   can be OK, right up until the point that you need  . 
+ My solution has been a table of data for shared attributes and XML for unique attributes. That means I use both. If everything (or most things) have a size, then size is a column in the table. If only object A have attribute Z, then Z is stored as XML similar Peter Marshall's answer already given. 
+ 
+ The second table is badly de-normalised. I would stick with the first approach. 
+ 
+ I think you're doing the right thing, as long as the keys/values for a given type of item change frequently. 
+If they are rather static, then simply making the item table wider makes more sense.   
+ We use a similar (but rather more complex) approach, with a lot of logic around the keys/values, as well as tables for the types of values permitted for each key. 
+This allows us to define items as just another instance of a key, and our central table maps arbitrary key types to other arbitrary key types.  It can rapidly tie your brain in knots, but once you've written and encapsulated the logic to handle it all, you have a lot of flexibility.   
+ I can write more details of what we do if required. 
+ 
+ If the keys are dynamic, or there are loads of them, then use the mapping table that you have as your first example. In addition this is the most general solution, it scales best in the future as you add more keys, it is easy to code the SQL to get the data out, and the database will be able to optimise the query better than you would imagine (i.e., I wouldn't put effort into prematurely optimising this case unless it was proven to be a bottleneck in testing later on, in which case you could consider the next two options below). 
+ If the keys are a known set, and there aren't many of them (<10, maybe <5), then I don't see the problem in having them as value columns on the item. 
+ If there are a medium number of known fixed keys (10 - 30) then maybe have another table to hold the item_details. 
+ However I don't ever see a need to use your second example structure, it looks cumbersome. 
+ 
+ If you go the route of a KVP table, and I have to say that I do not like that technique at all myself as it is indeed difficult to query, then you should consider clustering the values for a single item id together using an appropriate technique for whatever platform you're on. 
+ RDBMS's have a tendency to scatter rows around to avoid block contention on inserts and if you have 8 rowes to retrieve you could easily find yourself accessing 8 blocks of the table to read them. On Oracle you'd do well to consider a hash cluster for storing these, which would vastly improve performance on accessing the values for a given item id. 
+ 
+ Your example  is not a very good example of the use of key value pairs. A better example would be the use of something like a Fee table a Customer table and a Customer_Fee table in a billing application. The Fee table would consist of fields like:
+    fee_id, fee_name, fee_description 
+The Customer_Fee table would consist of fields like:
+    customer_id, fee_id, fee_value 
+ 
+ Times have changed. Now you have other database types you can use beside relational databases. NOSQL choices now include, Column Stores, Document Stores, Graph, and Multi-model (See:  http://en.wikipedia.org/wiki/NoSQL ). 
+ For Key-Value databases, your choices include (but not limited to) CouchDb, Redis, and MongoDB. 
+ 

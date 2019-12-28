@@ -1,0 +1,67 @@
+*** whats-the-best-practice-to-ensure-atomic-read-of-a-database-table-using-jdbc ***
+
+ I have an java application reading from a database table for jobs to process, and I may have multiple instances of this application running on different servers as each job is independent. Once a job is picked up for processing, its status will be update to "running". What I want to make sure is the retrieval of to be processed jobs from each instance to be atomic, how can I achieve this using JDBC? 
+ 
+ One approach that would be completely generic * , though perhaps slightly inefficient, would be to use a server-specific identifier to "claim" a job by first updating its status to that identifier, then retrieve the job based on that value. For example, if you were working with Windows servers on the same network then their server name would uniquely identify them. If your table looked like 
+ 
+ where unclaimed jobs have a Status of   then your application running on SERVER1 could claim a job by doing   followed by 
+ 
+ If   returns 0 then there are no jobs pending. If it returns 1 then you can get the row with 
+ 
+ and then update its Status to 'Running' with a parameterized query like 
+ 
+ where you supply the JobID you retrieved from the previous SELECT. 
+ * (i.e., not relying on any specific SQL extensions, explicit locking, or transaction handling) 
+ 
+ Lock the table using whatever mechanism is supported by your database server. 
+ For example, in Postgres it would be: 
+ 
+ And it's your table for the duration of the transaction. 
+ Other databases will have something similar. 
+ 
+ Use  ResultSet  that has CONCUR_READ_ONLY and TYPE_FORWARD_ONLY. If your database jdbc driver supports it, it will only return atomic read of your select time.  
+ According to this  documentation , (Table Summary of Visibility of Internal and External Changes) 
+ forward-only cursor will only show your read time results. CONCUR_READ_ONLY will prevent your internal updates.  
+ 
+ When using databases of a transactional nature, one popular practice is to perform  ROW-LEVEL LOCKING . Row-level locks prevent multiple transactions from modifying the same row.  SELECT for UPDATE  is an easy way to achieve this effect. Assuming you have a processes table: 
+ 
+ When done processing, issue 
+ 
+ Issue 
+ 
+ to release the lock. 
+ Here's  an actual example 
+ **Disclaimer**
+: SELECT FOR UPDATE is a form of pessimistic locking and has its  caveats as explained by Burleson . However, it might be a viable solution if the client is not web-based and extremely concurrent. 
+ 
+ Problem 
+ Take jobs ready to process and make their status   atomically. 
+ Solution 
+ No need for additional locks. Since an   operation is already atomic by itself in terms of the same query (see the excerpt from the docs below), update the   table, setting the status   to those that are ready to be processed and get the result of this update - it will be the jobs you took for processing. 
+ Examples: 
+ **Postgres**
+
+ 
+ In terms of  **JDBC**
+ you can go similar to this: 
+ 
+ **SQL Server**
+
+ 
+ Excerpt from the Postgres  documentation  that shows how 2 transactions behave when doing UPDATE on the same table with the same query: 
+ 
+ UPDATE will only find target rows that were committed as of the command start
+  time. However, such a target row might have already been updated (or
+  deleted or locked) by another concurrent transaction by the time it is
+  found. In this case,  **the would-be updater will wait**
+ for the first
+  updating transaction to commit or roll back (if it is still in
+  progress). 
+ 
+ 
+ if you want to ensure proper work in concurrent environment in your specific example you can use the server name. 
+ The table will look like: 
+ 
+ if you have multiple instances on the same host add the process id too: 
+ 
+ 

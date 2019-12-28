@@ -1,0 +1,26 @@
+*** variable-transaction-isolation-levels-by-request ***
+
+ I am writing a little auction app, and it is very important that my bids are recorded with certainty. After all, the last couple seconds of the auction are critical moments for the buyers, and I can't risk them simultaneously bidding and having a race condition. 
+ And of course, that's what transaction isolation is for. I can set my isolation level to serializeable, and we're all set. 
+ But what about all the other requests? If people are viewing profiles, or sending messages, these requests don't need anywhere near that kind of transaction isolation. A read committed isolation level is perfectly acceptable for those requests. 
+ I'm setting my transaction level as part of my hibernate property  , but I'd really like to be able to do something like   per request. 
+ 
+ 
+ 
+ If you're using Spring you can use something like this: 
+ 
+ and  it works for the JpaTransactionManager . If you are using JtaTransactionManager the request-scope transaction isolation is not propagated, as this is the default JTA behavior. 
+ Because JTA doesn’t support transaction-scoped isolation levels, Spring offers the  IsolationLevelDataSourceRouter  to overcome this shortcoming when using application server JTA DataSources. 
+ Because most DataSource implementations can only take a default transaction isolation level, we can have multiple such DataSources, each one serving connections for a specific transaction isolation level. 
+ The logical transaction (e.g. @Transactional) isolation level setting is introspected by the  IsolationLevelDataSourceRouter  and the connection acquire request is therefore delegated to a specific DataSource implementation that can serve a JDBC Connection with the same transaction isolation level setting. 
+ So, even in JTA environments, the transaction isolation router can offer a vendor-independent solution for overriding the default database isolation level on a per transaction basis. 
+ Java EE doesn't support method-level transaction isolation configuration. 
+ The  SERIALIZABLE  isolation level will protect you against non-repeatable reads and phantom reads, and even SERIALIZABLE doesn't protect you  against lost updates across multiple-request logical transactions . 
+ Optimistic locking  scales better when using the detached entities (as of they were loaded when the logical transaction has started). 
+ 
+ For this case, i will use  Optimistic lock  in your bids objects... the race condition will still occurs, but it will be detected when the transaction tries to commit the changes at your domain objects (throwing an exception if the version readed was updated by another thread). 
+ So any change on any bid object, will be almost serializable (i say "almost" because in order to be serializable, the failed transactions will need to be catched and retried somehow). 
+ 
+ if setting isolation level per transaction fails, you can always serialize specific operation manually in your code (synchronized, semaphores etc).
+however keep it mind it's not scalable (single jvm, single operation, easy to be accidentally by-passed from other parts of code) 
+ 

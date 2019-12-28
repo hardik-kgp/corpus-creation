@@ -1,0 +1,69 @@
+*** one-or-two-primary-keys-in-many-to-many-table ***
+
+ I have the following tables in my database that have a many-to-many relationship, which is expressed by a connecting table that has foreign keys to the primary keys of each of the main tables: 
+ 
+ Widget: WidgetID (PK), Title, Price   
+ User: UserID (PK), FirstName, LastName 
+ 
+ Assume that each User-Widget combination is unique. I can see two options for how to structure the connecting table that defines the data relationship: 
+ 
+ UserWidgets1: UserWidgetID (PK), WidgetID (FK), UserID (FK)   
+ UserWidgets2: WidgetID (PK, FK), UserID (PK, FK) 
+ 
+ Option 1 has a single column for the Primary Key. However, this seems unnecessary since the only data being stored in the table is the relationship between the two primary tables, and this relationship itself can form a unique key. Thus leading to option 2, which has a two-column primary key, but loses the one-column unique identifier that option 1 has. I could also optionally add a two-column unique index (WidgetID, UserID) to the first table. 
+ Is there any real difference between the two performance-wise, or any reason to prefer one approach over the other for structuring the UserWidgets many-to-many table? 
+ 
+ You only have one primary key in either case. The second one is what's called a compound key. There's no good reason for introducing a new column. In practise, you will have to keep a unique index on all candidate keys. Adding a new column buys you nothing but maintenance overhead. 
+ Go with option 2. 
+ 
+ Personally, I  would  have the synthetic/surrogate key column in many-to-many tables for the following reasons: 
+ 
+ If you've used numeric synthetic keys in your entity tables then having the same on the relationship tables maintains consistency in design and naming convention. 
+ It may be the case in the future that the many-to-many table itself becomes a parent entity to a subordinate entity that needs a unique reference to an individual row. 
+ It's not really going to use that much additional disk space. 
+ 
+ The synthetic key is not a replacement to the natural/compound key nor becomes the   for that table just because it's the first column in the table, so I partially agree with the Josh Berkus article.  However, I don't agree that natural keys are always good candidates for   and certainly should not be used if they are to be used as foreign keys in other tables. 
+ 
+ Option 2 uses a simple compund key, option 1 uses a  surrogate key .  Option 2 is preferred in most scenarios and is close to the lreational model in that it is a good candidate key. 
+ There are situations where you may want to use a surrogate key (Option 1) 
+ 
+ You are not that the compound key is a good candidate key over time.  Particularly with temporal data (data that changes over time).  What if you wanted to add another row to the UserWidget table with the same UserId and WidgetId?  Think of Employment(EmployeeId,EmployeeId) - it would work in most cases except if someone went back to work for the same employer at a later date 
+ If you are creating messages/business transactions or something similar that require an easier key to use for integration.  Replication maybe? 
+ If you want to create your own auditing mechanisms (or similar) and don't want keys to get too long. 
+ 
+ As a rule of thumb, when modeling data you will find that most associative entities (many to many) are the result of an event.  Person takes up employment, item is added to basket etc.  Most events have a temporal dependency on the event, where the date or time is relevant - in which case a surrogate key may be the best alternative. 
+ So, take option 2, but make sure that you have the complete model. 
+ 
+ I agree with the previous answers but I have one remark to add.
+If you want to add more information to the relation and allow more relations between the same two entities you need option one.  
+ For example if you want to track all the times user 1 has used widget 664 in the userwidget table the userid and widgetid isn't unique anymore. 
+ 
+ What is the benefit of a primary key in this scenario? Consider the option of no primary key:
+  UserWidgets3: WidgetID (FK), UserID (FK) 
+ If you want uniqueness then use either the compound key (UserWidgets2) or a uniqueness constraint. 
+ The usual performance advantage of having a primary key is that you often query the table by the primary key, which is fast. In the case of many-to-many tables you don't usually query by the primary key so there is no performance benefit. Many-to-many tables are queried by their foreign keys, so you should consider adding indexes on WidgetID and UserID. 
+ 
+ Option 2 is the correct answer, unless you have a really good reason to add a surrogate numeric key (which you have done in option 1). 
+ Surrogate numeric key columns are not 'primary keys'. Primary keys are technically one of the combination of columns that uniquely identify a record within a table.  
+ Anyone building a database should read this article  http://it.toolbox.com/blogs/database-soup/primary-keyvil-part-i-7327  by Josh Berkus to understand the difference between surrogate numeric key columns and primary keys. 
+ In my experience the only real reason to add a surrogate numeric key to your table is if your primary key is a compound key and needs to be used as a foreign key reference in another table. Only then should you even think to add an extra column to the table. 
+ Whenever I see a database structure where every table has an 'id' column the chances are it has been designed by someone who doesn't appreciate the relational model and it will invariably display one or more of the problems identified in Josh's article. 
+ 
+ I would go with both. 
+ Hear me out: 
+ The compound key is obviously the nice, correct way to go in so far as reflecting the meaning of your data goes. No question. 
+ However: I have had all sorts of trouble making hibernate work properly unless you use a single generated primary key - a surrogate key. 
+ So I would use a logical and physical data  model . The logical one has the compound key. The physical model - which implements the logical model - has the surrogate key and foreign keys. 
+ 
+ Since each User-Widget combination is unique, you should represent that in your table by making the combination unique. In other words, go with option 2. Otherwise you may have two entries with the same widget and user IDs but different user-widget IDs. 
+ 
+ The userwidgetid in the first table is not needed, as like you said the uniqueness comes from the combination of the widgetid and the userid. 
+ I would use the second table, keep the foriegn keys and add a unique index on widgetid and userid. 
+ So:  
+ 
+userwidgets( widgetid(fk), userid(fk),
+             unique_index(widgetid, userid)
+)
+ 
+ There is some preformance gain in not having the extra primary key, as the database would not need to calculate the index for the key. In the above model though this index (through the unique_index) is still calculated, but I believe that this is easier to understand. 
+ 

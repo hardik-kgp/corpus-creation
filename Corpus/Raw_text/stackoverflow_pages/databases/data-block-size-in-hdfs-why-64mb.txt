@@ -1,0 +1,68 @@
+*** data-block-size-in-hdfs-why-64mb ***
+
+ The default data block size of HDFS/hadoop is 64MB.
+The block size in disk is generally 4KB.
+What does 64MB block size mean? ->Does it mean that the smallest unit of read from disk is 64MB? 
+ If yes, what is the advantage of doing that?-> easy for continuous access of large file in HDFS? 
+ Can we do the same by using the original 4KB block size in disk? 
+ 
+ 
+ The block size is the smallest unit of data that a file system can store.  If you store a file that's 1k or 60Mb, it'll take up one block.  Once you cross the 64Mb boundry, you need a second block. 
+ 
+ HDFS is meant to handle large files.  Lets say you have a 1000Mb file.  With a 4k block size, you'd have to make 256,000 requests to get that file (1 request per block).  In HDFS, those requests go across a network and come with a lot of overhead.  Each request has to be processed by the Name Node to figure out where that block can be found.  That's a lot of traffic!  If you use 64Mb blocks, the number of requests goes down to 16, greatly reducing the cost of overhead and load on the Name Node.   
+ 
+ HDFS's design was originally inspired by the design of the Google File System (GFS). Here are the two reasons for large block sizes as stated in the original GFS paper (note 1 on GFS terminology vs HDFS terminology: chunk = block, chunkserver = datanode, master = namenode; note 2: bold formatting is mine): 
+ 
+ A large chunk size offers several important advantages.  **First**
+, it reduces clients’ need to interact with the master because reads and writes on the same chunk require only one initial request to the master for chunk location information. The reduction is especially significant for our workloads because applications mostly read and write large files sequentially. [...]  **Second**
+, since on a large chunk, a client is more likely to perform many operations on a given chunk, it can reduce network overhead by keeping a persistent TCP connection to the chunkserver over an extended period of time. Third, it reduces the size of the metadata stored on the master. This allows us to keep the metadata
+  in memory, which in turn brings other advantages that we will discuss in Section 2.6.1. 
+ 
+ Finally, I should point out that the  current default size in Apache Hadoop  is is 128 MB. 
+ 
+ In HDFS the block size controls the level of replication declustering. The lower the block size your blocks are more evenly distributed across the DataNodes. The higher the block size your data are potentially less equally distributed in your cluster.  
+ So what's the point then choosing a higher block size instead of some low value? While in theory equal distribution of data is a good thing, having a too low blocksize has some significant drawbacks. NameNode's capacity is limited, so having 4KB blocksize instead of 128MB means also having 32768 times more information to store. MapReduce could also profit from equally distributed data by launching more map tasks on more NodeManager and more CPU cores, but in practice theoretical benefits will be lost on not being able to perform sequential, buffered reads and because of the latency of each map task. 
+ 
+ In normal OS block size is 4K and in hadoop it is 64 Mb.
+Because for easy  maintaining of the metadata in Namenode. 
+ Suppose we have only 4K of block size in hadoop and we are trying to load 100 MB of data into this 4K then here we need more and more number of 4K blocks required. And namenode need to maintain all these 4K blocks of metadata. 
+ If we use 64MB of block size then data will be load into only two blocks(64MB and 36MB).Hence the size of metadata is decreased. 
+ Conclusion:
+To reduce the burden on namenode HDFS prefer 64MB or 128MB of block size. The default size of the block is 64MB in Hadoop 1.0 and it is 128MB in Hadoop 2.0. 
+ 
+ It has more to do with disk seeks of the HDD (Hard Disk Drives). Over time the disk seek time had not been progressing much when compared to the disk throughput. So, when the block size is small (which leads to too many blocks) there will be too many disk seeks which is not very efficient. As we make progress from HDD to SDD, the disk seek time doesn't make much sense as they are moving parts in SSD. 
+ Also, if there are too many blocks it will strain the Name Node. Note that the Name Node has to store the entire meta data (data about blocks) in the memory. In the Apache Hadoop the default block size is 64 MB and in the Cloudera Hadoop the default is 128 MB. 
+ 
+ 
+ If block size was set to less than 64, there would be a huge number of blocks throughout  the cluster, which causes NameNode to manage an enormous amount of metadata. 
+ Since we need a Mapper for each block, there would be a lot of Mappers, each processing a piece bit of data, which isn't efficient.  
+ 
+ 
+ The reason Hadoop chose 64MB was because Google chose 64MB.  The reason Google chose 64MB was due to a Goldilocks argument. 
+ Having a much smaller block size would cause seek overhead to increase. 
+ Having a moderately smaller block size makes map tasks run fast enough that the cost of scheduling them becomes comparable to the cost of running them. 
+ Having a significantly larger block size begins to decrease the available read parallelism available and may ultimately make it hard to schedule tasks local to the tasks. 
+ See Google Research Publication: MapReduce
+ http://research.google.com/archive/mapreduce.html 
+ 
+ Below is what the book "Hadoop: The Definitive Guide", 3rd edition explains(p45). 
+ 
+ Why Is a Block in HDFS So Large? 
+ HDFS blocks are large compared to disk blocks, and the reason is to
+  minimize the cost of seeks. By making a block large enough, the time
+  to transfer the data from the disk can be significantly longer than
+  the time to seek to the start of the block. Thus the time to transfer
+  a large file made of multiple blocks operates at the disk transfer
+  rate. 
+ A quick calculation shows that if the seek time is around 10 ms and
+  the transfer rate is 100 MB/s, to make the seek time 1% of the
+  transfer time, we need to make the block size around 100 MB. The
+  default is actually 64 MB, although many HDFS installations use 128 MB
+  blocks. This figure will continue to be revised upward as transfer
+  speeds grow with new generations of disk drives. 
+ This argument shouldn’t be taken too far, however. Map tasks in
+  MapReduce normally operate on one block at a time, so if you have too
+  few tasks (fewer than nodes in the cluster), your jobs will run slower
+  than they could otherwise. 
+ 
+ 

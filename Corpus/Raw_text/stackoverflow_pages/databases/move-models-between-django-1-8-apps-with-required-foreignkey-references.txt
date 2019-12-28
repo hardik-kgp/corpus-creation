@@ -1,0 +1,133 @@
+*** move-models-between-django-1-8-apps-with-required-foreignkey-references ***
+
+ This is an extension to this question:  How to move a model between two Django apps (Django 1.7) 
+ I need to move a bunch of models from   to  . The best answer seems to be  Ozan's , but with required foreign key references, things are bit trickier. @halfnibble presents a solution in the comments to Ozan's answer, but I'm still having trouble with the precise order of steps (e.g. when do I copy the models over to  , when do I delete the models from  , which migrations will sit in   vs.  , etc.)  
+ Any help is much appreciated!  
+ 
+ **Migrating a model between apps.**
+
+ The short answer is,  don't do it!! 
+ But that answer rarely works in the real world of living projects and production databases. Therefore, I have created a  sample GitHub repo  to demonstrate this rather complicated process. 
+ I am using MySQL.  (No, those aren't my real credentials). 
+ **The Problem**
+
+ The example I'm using is a factory project with a  **cars**
+ app that initially has a   model and a   model.  
+ 
+ The   model has a ForeignKey relationship with  . (As in, you specify the tires via the car model).  
+ However, we soon realize that   is going to be a large model with its own views, etc., and therefore we want it in its own app. The desired structure is therefore: 
+ 
+ And we need to keep the ForeignKey relationship between   and   because too much depends on preserving the data. 
+ **The Solution**
+
+ **Step 1.**
+ Setup initial app with bad design. 
+ Browse through the code of  step 1. 
+ **Step 2.**
+ Create an admin interface and add a bunch of data containing ForeignKey relationships.  
+ View  step 2. 
+ **Step 3.**
+ Decide to move the   model to its own app. Meticulously cut and paste code into the new tires app. Make sure you update the   model to point to the new   model. 
+ Then run   and backup the database somewhere (just in case this fails horribly). 
+ Finally, run   and see the error message of doom, 
+ **django.db.utils.IntegrityError: (1217, 'Cannot delete or update a parent row: a foreign key constraint fails')**
+
+ View code and migrations so far in  step 3. 
+ **Step 4.**
+ The tricky part. The auto-generated migration fails to see that you've merely copied a model to a different app. So, we have to do some things to remedy this. 
+ You can follow along and view the final migrations with comments in  step 4.  I did test this to verify it works.  
+ First, we are going to work on  . You have to make a new, empty migration. This migration actually needs to run before the most recently created migration (the one that failed to execute). Therefore, I renumbered the migration I created and changed the dependencies to run my custom migration first and then the last auto-generated migration for the   app. 
+ You can create an empty migration with: 
+ 
+ **Step 4.a.**
+ Make custom  old_app  migration. 
+ In this first custom migration, I'm only going to perform a "database_operations" migration. Django gives you the option to split "state" and "database" operations. You can see how this is done by viewing the  code here . 
+ My goal in this first step is to rename the database tables from   to   without messing with Django's state. You have to figure out what Django would have named your database table based on the app name and model name.  
+ Now you are ready to modify the initial   migration. 
+ **Step 4.b.**
+ Modify  new_app  initial migration 
+ The operations are fine, but we only want to modify the "state" and not the database. Why? Because we are keeping the database tables from the   app. Also, you need to make sure that the previously made custom migration is a dependency of this migration. See the tires  migration file . 
+ So, now we have renamed   to   in the database, and changed the Django state to recognize the   table.  
+ **Step 4.c.**
+ Modify  old_app  last auto-generated migration. 
+ Going  back  to cars, we need to modify that last auto-generated migration. It should require our first custom cars migration, and the initial tires migration (that we just modified).  
+ Here we should leave the   operations because the   model  is pointing  to a different model (even though it has the same data). However, we need to remove the lines of migration concerning   because the   model no longer exists. It has fully converted into  . View  this migration . 
+ **Step 4.d.**
+ Clean up stale model in  old_app . 
+ Last but not least, you need to make a final custom migration in the cars app. Here, we will do a "state" operation only to delete the   model. It is state-only because the database table for   has already been renamed. This  last migration  cleans up the remaining Django state. 
+ 
+ Just now moved two models from   to  , but the FK references were in some models from   and  , instead of models from  . 
+ In this case, follow the steps provided by Nostalg.io like this: 
+ 
+ Move the models from   to  , then update the   statements across the code base. 
+ . 
+ Follow Step 4.a. But use   for all moved models. Two for me. 
+ Follow Step 4.b. as is. 
+ Follow Step 4.c. But also, for each app that has a newly generated migration file, manually edit them, so you migrate the   instead. 
+ Follow Step 4.d But use   for all moved models. 
+ 
+ Notes: 
+ 
+ All the edited auto-generated migration files from other apps have a dependency on the custom migration file from   where   is used to rename the table(s). (created in Step 4.a.) 
+ In my case, I had to remove the auto-generated migration file from   because I didn't have any   operations, only   and   operations. Or keep it with empty  
+ To avoid migration exceptions when creating the test DB from scratch, make sure the custom migration from   created at Step 4.a. has all previous migration dependencies from other apps. 
+ 
+ 
+ BTW: There is an open ticket about this:  https://code.djangoproject.com/ticket/24686 
+ 
+ In case you need to move the model and you don't have access to the app anymore (or you don't want the access), you can create a new Operation and consider to create a new model only if the migrated model does not exist. 
+ In this example I am passing 'MyModel' from old_app to myapp.  
+ 
+ 
+ After work was done I tried to make new migration. But I facing with following error:
+ 
+ If your Django model using   field don't forget add additinal models/tables while following @Nostalg.io answer. 
+ Add following item to   at the first step (4.a): 
+ 
+ and add additional Delete into   at the last step (4.d): 
+ 
+ 
+ This worked for me but I'm sure I'll hear why it's a terrible idea. Add this function and an operation that calls it to your old_app migration: 
+ 
+ Step 1: backup your database! 
+Make sure your new_app migration is run first, and/or a requirement of the old_app migration. Decline deleting the stale content type until you've completed the old_app migration. 
+ after Django 1.9 you may want to step thru a bit more carefully: 
+Migration1: Create new table 
+Migration2: Populate table 
+Migration3: Alter fields on other tables 
+Migration4: Delete old table 
+ 
+ Nostalg.io's way worked in forwards (auto-generating all other apps FKs referencing it). But i needed also backwards. For this, the backward AlterTable has to happen before any FKs are backwarded (in original it would happen after that).  So for this, i split the AlterTable in to 2 separate AlterTableF and AlterTableR, each working only in one direction, then using forward one instead of the original in first custom migration, and reverse one in the last cars migration (both happen in cars app). Something like this: 
+ 
+ 
+ I've built a management command to do just that - move a model from one Django app to another - based on nostalgic.io's suggestions at  https://stackoverflow.com/a/30613732/1639699 
+ You can find it on GitHub at  alexei/django-move-model 
+ 
+ Coming back to this after a couple of months (after successfully implementing Lucianovici's approach), It seems to me that it becomes  much  simpler if you take care to point   to the old table (if you only care about the code organisation and don't mind outdated names in the database). 
+ 
+ You won't need AlterModelTable migrations, so there's no need for the custom first step. 
+ You still need to change the models and relations without touching the database. 
+ 
+ So what I did was just take the automatic migrations from Django and wrap them into migrations.SeparateDatabaseAndState. 
+ Note (again) that this only could work if you took care to point db_table to the  old  table for each model. 
+ I'm not sure if something is wrong with this that I don't see yet, but it seemed to have worked on my devel system (which I took care to backup, of course). All data looks intact. I'll take a closer look to check if any problems come up... 
+ Maybe it's also possible to later rename the database tables as well in a separate step, making this whole process less complicated. 
+ 
+ Coming this is one a little late but if you want the  **easiest path**
+ AND don't care too much about preserving your migration history. The simple solution is just to wipe migrations and refresh.  
+ I had a rather complicated app and after trying the above solutions without success for hours, I realized that I could just do. 
+ 
+ Presto! The migration history is still in Git if I need it. And since this is essentially a no-op, rolling back wasn't a concern.  
+ 
+ You can do this relatively straightforwardly, but you need to follow these steps, which are summarized from a question in the  Django Users' Group . 
+ 
+ Before moving your model to the new app, which we will call  , add the   option to the current model's   class. We will call the model that you want to move  . But you can do multiple models at once if you want to. 
+ 
+ Run  . This generates a new migration file that will rename the table in the database from   to  . We will refer to this migration file as   later on. 
+ Now move the models to your   app. Remove the reference to   because Django will automatically put it in the table called  . 
+ Make the new migrations. Run  . This will generate  **two**
+ new migrations files in our example. The first one will be in the   app. Verify that in the dependencies property, Django has listed   from the previous migrations file. The second one will be in the   app. Now wrap the operations list in both migrations files in a call to   to be like so: 
+ 
+ Run  . You are done. The time to do this is relatively fast because unlike some answers, you're not copying records from one table to the other. You are just renaming tables, which is a fast operation by itself. 
+ 
+ 

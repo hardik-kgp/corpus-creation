@@ -1,0 +1,73 @@
+*** in-oracle-is-it-possible-to-insert-a-column-into-a-table ***
+
+ When adding a column to an existing table, Oracle always puts the column at the end of the table. Is it possible to tell Oracle where it should appear in the table? If so, how? 
+ 
+ The location of the column in the table should be unimportant (unless there are "page sizes" to consider, or whatever Oracle uses to actually store the data). What is more important to the consumer is how the results are called, i.e. the Select statement. 
+ 
+ rename YOUR_ORIGINAL_TABLE as YOUR_NEW_TABLE; 
+ create table YOUR_ORIGINAL_TABLE nologging /* or unrecoverable */
+as
+select Column1, Column2, NEW_COLUMN, Column3
+  from YOUR_NEW_TABLE; 
+ Drop table YOUR_NEW_TABLE; 
+ Select * From YOUR_ORIGINAL_TABLE;  <<<<< now you will see the new column in the middle of the table. 
+ But why would you want to do it? It's seems illogical. You should never assume column ordering and just use named column list if column order is important. 
+ 
+ Why does the order of the columns matter?  You can always alter it in your select statement? 
+ There's an advantage to adding new columns at the end of the table.  If there's code that naively does a "SELECT *" and then parses the fields in order, you won't be breaking old code by adding new columns at the end.  If you add new columns in the middle of the table, then old code may be broken. 
+ At one job, I had a DBA who was super-anal about "Never do 'SELECT *'".  He insisted that you always write out the specific fields. 
+ 
+ What I normally do is: 
+ 
+ Rename the old table. 
+ Create the new table with columns in the right order. 
+ Create the constraints for that new table. 
+ Populate with data:Insert into new_table select * from renamed table. 
+ 
+ 
+ I don't think that this can be done without saving the data to a temporary table, dropping the table, and recreating it.  On the other hand, it really shouldn't matter where the column is. As long as you specify the columns you are retrieving in your select statement, you can order them however you want. 
+ 
+ Bear in mind that, under the tables, all the data in the table records are glued together. Adding a column to the end of a table [if it is nullable or (in later versions) not null with a default] just means a change to the table's metadata.
+Adding a column in the middle would require re-writing every record in that table to add the appropriate value (or markers) for that column. In some cases, that might mean the records take up more room on the blocks and some records need to be migrated.
+In short, it's a VAST amount of IO effort for a table of any real size. 
+ You can always create a view over the table that has the columns in the preferred order and use that view in a DML statement just as you would the table 
+ 
+ I don't believe so - SQL Server doesn't allow these either. The method I always have to use is: 
+ 
+ Create new table that looks right (including additional column 
+ Begin transaction 
+ select all data from old table into new one 
+ Drop old table 
+ Rename new table 
+ Commit transaction. 
+ 
+ Not exactly pretty, but gets the job done. 
+ 
+ No, its not possible via an "ALTER TABLE" statement.  However, you could create a new table with the same definition as your current one, albeit with a different name, with the columns in the correct order in the way you want them.  Copy the data into the new table. Drop the old table.  Rename the new table to match the old table name. 
+ Tom Kyte has an article on this on AskTom
+ link text 
+ 
+ 1) Ok so you can't do it directly. We don't need post after post saying the same thing, do we? 
+ 2) Ok so the order of columns in a table doesn't technically matter. But that's not the point, the original question simply asked if you could or couldn't be done. Don't presume that you know everybody else's requirements. Maybe they have a table with 100 columns that is currently being queried using "SELECT * ..." inside some monstrously hacked together query that they would just prefer not to try to untangle, let alone replace "*" with 100 column names. Or maybe they are just anal about the order of things and like to have related fields next to each other when browsing schema with, say SQL Developer. Maybe they are dealing with non-technical staff that won't know to look at the end of a list of 100 columns when, logically, it should be somewhere near the beginning. 
+ Nothing is more irritating than asking an honest question and getting an answer that says: "you shouldn't be doing that". It's MY job, not YOURS! Please don't tell me how to do my job. Just help if you can. Thanks! 
+ Ok... sorry for the rant. Now...at www.orafaq.com it suggests this workaround. 
+ First suppose you have already run: 
+ CREATE TABLE tab1 ( col1 NUMBER ); 
+ Now say you want to add a column named "col2", but you want them ordered "col2", "col1" when doing a "SELECT * FROM tbl1;" 
+ The suggestion is to run: 
+ ALTER TABLE tab1 ADD (col2 DATE);
+RENAME tab1 TO tab1_old;
+CREATE TABLE tab1 AS SELECT 0 AS col1, col1 AS col2 FROM tab1_old; 
+ I found this to be incredibly misleading. First of all, you're filling "col1" with zero's so, if you had any data, then you are losing it by doing this. Secondly, it's actually renaming "col1" to "col2" and fails to mention this. So, here's my example, hopefully it's a little clearer: 
+ Suppose you have a table that was created with the following statement: 
+ CREATE TABLE users (first_name varchar(25), last_name varchar(25)); 
+ Now say you want to insert middle_name in between first_name and last_name. Here's one way: 
+ ALTER TABLE users ADD middle_name varchar(25);
+RENAME users TO users_tmp;
+CREATE TABLE users AS SELECT first_name, middle_name, last_name FROM users_tmp;
+/* and for good measure... */
+DROP TABLE testusers_tmp; 
+ Note that middle_name will default to NULL (implied by the ALTER TABLE statement). You can alternatively set a different default value in the CREATE TABLE statement like so: 
+ CREATE TABLE users AS SELECT first_name, 'some default value' AS middle_name, last_name FROM users_tmp; 
+ This trick could come in handy if you're adding a date field with a default of sysdate, but you want all of the existing records to have some other (e.g. earlier) date value. 
+ 

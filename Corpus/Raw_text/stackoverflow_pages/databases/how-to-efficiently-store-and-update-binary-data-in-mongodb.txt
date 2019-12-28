@@ -1,0 +1,17 @@
+*** how-to-efficiently-store-and-update-binary-data-in-mongodb ***
+
+ I am storing a large binary array within a document.  I wish to continually add bytes to this array and sometimes change the value of existing bytes. 
+ I was looking for some $append_bytes and $replace_bytes type of modifiers but it appears that the best I can do is $push for arrays.  It seems like this would be doable by performing seek-write type operations if I had access somehow to the underlying bson on disk, but it does not appear to me that there is anyway to do this in mongodb (and probably for good reason). 
+ If I were instead to just query this binary array, edit or add to it, and then update the document by rewriting the entire field, how costly will this be?  Each binary array will be on the order of 1-2MB, and updates occur once every 5 minutes and across 1000s of documents.  Worse, yet there is no easy way to spread these out (in time) and they will usually be happening close to one another on the 5 minute intervals.  Does anyone have a good feel for how disastrous this will be?  Seems like it would be problematic. 
+ An alternative would be to store this binary data as separate files on disk, implement a thread pool to efficiently manipulate the files on disk, and reference the filename from my mongodb document. (I'm using python and pymongo so I was looking at pytables).  I'd prefer to avoid this though if possible. 
+ Is there any other alternative that I am overlooking here? 
+ Thanks in advnace.  
+ EDIT 
+ After some work writing some tests for my use cases I have decided to use a separate filesystem for the binary data objects (specifically hdf5 using either pytables or h5py).  I will still use mongo for everything except the persistence of these binary data objects.  In this manner I can decouple the performance related to append and update type operations away from my base mongo performance. 
+ One of the mongo developers did point out that I can set internal array elements using dot notation and $set (see ref in comment below), but there is no way at this time to do a range of sets in an array atomically. 
+ Moreover - if I have 1,000s of 2MB binary data fields within my mongo documents and I am updating and growing them often (as in at least once every 5 minutes) - my gut tells me that mongo is going to have to manage a lot of allocation/growth issues within its file(s) on disk - and that ultimately this will lead to performance problems.  I would rather off load that to a separate filesystem at the OS level to handle. 
+ Finally - I will be manipulating and performing computation on my data using numpy - both the pytables and the h5py modules allow nice integration between numpy behavior and the store.      
+ 
+ As you have mentioned that, you are frequently editing your binary data, in fact very frequently. GridFS is another option I would be suggesting. 
+ When to use GridFS  might be useful to you 
+ 

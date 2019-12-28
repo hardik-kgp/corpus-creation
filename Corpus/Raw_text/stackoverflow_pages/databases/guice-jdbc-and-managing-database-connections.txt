@@ -1,0 +1,67 @@
+*** guice-jdbc-and-managing-database-connections ***
+
+ I'm looking to create a sample project while learning Guice which uses JDBC to read/write to a SQL database.  However, after years of using Spring and letting it abstract away connection handling and transactions I'm struggling to work it our conceptually. 
+ I'd like to have a service which starts and stops a transaction and calls numerous repositories which reuse the same connection and participate in the same transaction. My questions are: 
+ 
+ Where do I create my Datasource? 
+ How do I give the repositories access to the connection? (ThreadLocal?) 
+ Best way to manage the transaction (Creating an Interceptor for an annotation?) 
+ 
+ The code below shows how I would do this in Spring.  The JdbcOperations injected into each repository would have access to the connection associated with the active transaction. 
+ I haven't been able to find many tutorials which cover this, beyond ones which show creating interceptors for transactions. 
+ I am happy with continuing to use Spring as it is working very well in my projects, but I'd like to know how to do this in pure Guice and JBBC (No JPA/Hibernate/Warp/Reusing Spring) 
+ 
+ 
+ If your database change infrequently, you could use the data source that comes with the database's JDBC driver and isolate the calls to the 3rd party library in a provider (My example uses the one provided by the H2 dataabse, but all JDBC providers should have one).  If you change to a different implementation of the DataSource (e.g. c3PO, Apache DBCP, or one provided by app server container) you can simply write a new Provider implementation to get the datasource from the appropriate place.  Here I've use singleton scope to allow the DataSource instance to be shared amongst those classes that depend on it (necessary for pooling). 
+ 
+ To handle transactions a Transaction Aware data source should be used.  I wouldn't recommend implementing this manually.  Using something like warp-persist or a container supplied transaction management, however it would look something like this: 
+ 
+ 
+ I would use something like c3po to create datasources directly. If you use ComboPooledDataSource you only need instance (pooling is done under the covers), which you can bind directly or through a provider. 
+ Then I'd create an interceptor on top of that, one that e.g. picks up @Transactional, manages a connection and commit/ rollback. You could make Connection injectable as well, but you need to make sure you close the connections somewhere to allow them to be checked into the pool again. 
+ 
+ 
+ To inject a data source, you probably don't need to be bound to a single data source instance since the database you are connecting to features in the url. Using Guice, it is possible to force programmers to provide a binding to a DataSource implementation ( link ) . This data source can be injected into a ConnectionProvider to return a data source. 
+ The connection has to be in a thread local scope. You can even implement your  thread local scope  but all thread local connections must be closed & removed from ThreadLocal object after commit or rollback operations to prevent memory leakage. After hacking around, I have found that you need to have a hook to the Injector object to remove ThreadLocal elements. An injector can easily be injected into your Guice AOP interceptor, some thing like this: 
+ 
+ 
+    protected  void visitThreadLocalScope(Injector injector, 
+                        DefaultBindingScopingVisitor visitor) {
+        if (injector == null) {
+            return;
+        }
+
+        for (Map.Entry, Binding> entry : 
+                injector.getBindings().entrySet()) {
+            final Binding binding = entry.getValue();
+            // Not interested in the return value as yet.
+            binding.acceptScopingVisitor(visitor);
+        }        
+    }
+
+    /**
+     * Default implementation that exits the thread local scope. This is 
+     * essential to clean up and prevent any memory leakage.
+     * 
+     *  The scope is only visited iff the scope is an sub class of or is an
+     * instance of {@link ThreadLocalScope}.
+     */
+    private static final class ExitingThreadLocalScopeVisitor 
+            extends DefaultBindingScopingVisitor {
+        @Override
+        public Void visitScope(Scope scope) {
+                        // ThreadLocalScope is the custom scope.
+            if (ThreadLocalScope.class.isAssignableFrom(scope.getClass())) {
+                ThreadLocalScope threadLocalScope = (ThreadLocalScope) scope;
+                threadLocalScope.exit();
+            }
+            return null;
+        }
+
+    }
+ 
+ Make sure you call this after the method has been invoked and closing the connection. Try this to see if this works. 
+ 
+ Please check the solution I provided:  Transactions with Guice and JDBC - Solution discussion 
+ it is just a very basic version and simple approach. but it works just fine to handle transactions with Guice and JDBC. 
+ 

@@ -1,0 +1,34 @@
+*** how-much-does-wrapping-inserts-in-a-transaction-help-performance-on-sql-server ***
+
+ Ok so say I have 100 rows to insert and each row has about 150 columns (I know that sounds like a lot of columns, but I need to store this data in a single table). The inserts will occur at random, (ie whenever a set of users decide to upload a file containing the data), about a 20 times a month.  However the database will be under continuous load processing other functions of a large enterprise application. The columns are varchars, ints, as well as a variety of other types.  
+ Is the performance gain of wrapping these inserts in a transaction (as opposed to running them one at a time) going to be huge, minimal, or somewhere in between? 
+ Why? 
+ EDIT:
+This is for Sql Server 2005, but I'd be interested in 2000/2008 if there is something different to be said.  Also I should mention that I understand the point about transactions being primarily for data-consistency, but I want to focus on performance effects. 
+ 
+ It can be an impact actually. The point of transactions is not about how many you do, it's about keeping the data update consistent. If you have rows that need to be inserted together and are dependent on each other, those are the records you wrap in a transaction. 
+ Transactions are about keeping your data consistent. This should be the first thing you think about when using transactions. For example, if you have a debit (withdrawl) from your checking account, you want to make sure the credit (deposit) is also done. If either of those don't succeed, the whole "transaction" should be rolled back. Therefore, both actions MUST be wrapped in a transaction. 
+ When doing batch inserts, break them up in to 3000 or 5000 records and cycle through the set. 3000-5000 has been a sweet number range for me for inserts; don't go above that unless you've tested that the server can handle it. Also, I will put GOs in the batch at about every 3000 or 5000 records for inserts. Updates and deletes I'll put a GO at about 1000, because they require more resources to commit. 
+ If your doing this from C# code, then in my opinion, you should build a batch import routine instead of doing millions of inserts one at a time through coding. 
+ 
+ While transactions are a mechanism for keeping data consistent they actually have a massive impact on performance if they are used incorrectly or overused. I've just finished a  blog post  on the impact on performance of explicitly specifying transactions as opposed to letting them occur naturally. 
+ If you are inserting multiple rows and each insert occurs in its own transaction there is a lot of overhead on locking and unlocking data. By encapsulating all inserts in a single transactions you can dramatically improve performance. 
+ Conversely if you have many queries running against your database and have large transactions also occurring they can block each other and cause performance issues. 
+ Transactions are definitively linked with performance, regardless of their underlying intent. 
+ 
+ As others have said, transactions have nothing to do with performance, but instead have to do with the integrity of your data. 
+ That being said, worrying about the performance one way or the other when you're only talking about inserting 100 rows of data about 20 times a month (meaning 2000 records per month) is silly. Premature optimization is a waste of time; unless you have repeatedly tested the performance impact of these inserts (as small as they are, and as infrequent) and found them to be a major issue, don't worry about the performance. It's negligible compared to the other things you mentioned as being server load. 
+ 
+ It depends on what you call huge, but it will help (it really depends on the overall number of inserts you are doing).  It will force SQL Server to not do a commit after every insert, which in time adds up.  With 100 inserts, you probably won't notice too much an increase depending on how often and what else is going on with the database. 
+ 
+ Transactions are not for performance but for data-integrity. Depending on the implementation there will be real no gain/loss of performance for only 100 rows (they just will be logged additionally, so they can all be rolled back). 
+ Things to consider about the performance issues: 
+ 
+ TAs will interact with other queries
+ writing TAs will lock tuples/pages/files 
+ commits just might be (depending on lock protocol) update of a timestamp 
+ more logs might be written for TAs (one should be able to roll TAs back, but the DB might log extensively already, sequential logging is cheap) 
+ the degree of isolation (I know that one can switch this level in some DBs - and that nearly nobody uses level 3)
+ 
+ All in all: use TAs for ensuring the integrity. 
+ 

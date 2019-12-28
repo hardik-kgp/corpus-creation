@@ -1,0 +1,51 @@
+*** designing-archive-in-database-some-patterns-maybe ***
+
+ We are currently doing an web application which one of the functionality is to create Events by the user. Those events can be later on deleted by the user or administrator. However the client requires that the event is not really physically deleted from database, but just marked as deleted. User should only see non-deleted events, but administrators should be able to browse also through deleted ones. That's all really the functionality there is. 
+ Now I suggested that we should simply add one more extra column called "status", which would have couple of valid values: ACTIVE and DELETED. This way we can distinguish between normal(active) and deleted events and create really simple queries (SELECT * FROM EVENTS WHERE STATUS = 'ACTIVE'). 
+My colleague however disagreed. He pointed out that regardless of the fact that right now active events and deleted events share same information (thus they can be stored in the same table) in a future requirements my change and client for example  will need to store some additional information about deleted Event (like date of deletion, who deleted it, why he did it - sort of comment). He said that to fulfil those requirements in a future we would have to add additional columns in EVENTS table that would hold data specific for the deleted Events and not for active events. He proposed a solution, where additional table is created (like DELETED_EVENTS) with same schema as EVENTS table. Every deleted event would be physical deleted from EVENTS table and be moved to DELETED_EVENTS table. 
+ I strongly disagreed with his idea. Not only would it make SQL query more complex and less efficient but also this totally is against YAGNI. I also disagreed with him that my idea would made us to create additional (not nullable) columns in EVENTS table, if the requirements changed in a future. In my scenario I would simply create new table like DELETED_EVENTS_DATA (that would hold those additional, archive data) and would add reference key in the EVENTS table to maintain one to one relationship between EVETNS and DELETED_EVENTS_DATA tables. 
+ Nevertheless I was struggled by the fact that two developers who commonly share similar view on software and database design could have so radically different opinions about how this requirements should be designed in a database level.  I thought that we maybe both going in a wrong direction and there is another (third) solution? Or are there more then  just one alternative?
+How do you design this sort of requirements? Are there any patterns or guidelines on how to do it properly? Any help will be deeply appreciated  
+ 
+ OK the way we handle it is as follows. 
+ We have an extra column on every table called 'Deleted' this is a bit field. Then as you rightly have said your queries are quite simple as its just a where clause to filter them out or leave them in. Only thing you need to make sure is that any reporting or stats that you generate filter out the deleted records. 
+ Then for the extra info that you are talking about wanting to capture, just this extra info s would go in a separate 'audit' like table. In our case we have made this extra table quite generic and it can hold this audit info for any table... see below how it works... 
+ 
+ Now if you have other entities you want to capture (like Location - where Location is a table) as well it would look like this... 
+ 
+ Then when you want to get out the extra audit data you are talking about its quite simple. The query would look something like this 
+ 
+ Also this audit table can capture other events and not just deletes... This is done via using the ActionTypeId column. At the moment it just has 1 (which is delete), but you could have others as well. 
+ Hope this helps 
+ EDIT: 
+ On top of this if we have strong Audit requirements we do the following... None of the above changes but we create a second database called 'xyz_Audit' which captures the pre and post for every action that happens within the database. This second database has the same schema as the first database (without the Audit table) except that every table has 2 extra columns.  
+ The first extra column is a PrePostFlag and the second column is the AuditId. Hence the primary key now goes across 3 columns, 'xyzId', 'PrePostFlag' and 'AuditId'.  
+ By doing this we can give the admins full power to know who did what when, the data that changed and how it changed and to undelete a record we just need to change the deleted flag in the primary database.  
+ Also by having this data in a different database it allows us to have different optimization, storage and management plans to the main transnational database.  
+ 
+ Don't use a status column.   
+ At minimum you should have a datedeleted and a deletedby columns.  Just knowing something was removed isn't helpful, even if the client isn't asking for it right now the very first time they go to look at the deleted events they will want to know who in order to discern why. 
+ If the events table is likely to grow pretty large in size it is common to move the deleted / archived data into a different table entirely.  Usually you will allocate those tables to a different database file.  That file usually lives on a different drive in order to keep performance up.  I'm not saying a whole new database, just a different database file.   
+ If you keep it in the same table, all of your queries should have a where clause on (DateDeleted is null).  Obviously you don't have that requirement if the information is moved to a different table.. Which is why I recommend that way of doing things. 
+ 
+ I found that taking snapshots of an object with every event (creation, update, etc.) and storing those snapshots (along with dates and user info) in another table allows you to meet all kinds of historical tracking needs in the lifetime of an application.  You can then present the snapshots to the user, present chronological changes to the user, deduce the state of an object on a given date, etc.. 
+ I'm sure there are official design patterns out there - this is just one that I've refined over time and it works well.  It's not efficient with disk space however. 
+ EDIT: Also, when user deleted an object, I would flag the record as deleted and take a final snapshot for the history table.  You could hide the object from the interface indefinitely or you could choose to show it - depends on usage needs. 
+ 
+ I would add the flag field for now, and only bother to plan the rest when you actively know what you will have to do, and the system has also accumulated real-world data and user experiences, so you have some data to base your performance/complexity design decisions on. 
+ 
+ It's often a judgement call in situations like this.  Not knowing any more than you told me, I would tend to go with your solution though, which is to just have a virtual delete.  I believe your application of YAGNI is good.  If the user does in the future give requirements for logging stages in the  events  life, it's likely that at this time you guys will not correctly guess exactly what those requirements will be.  This is especially true if the logic for dealing with events in the DB is well encapsulated (easy to change later). 
+ However, if you know this client well, and you know of similar types of historical-type requirements they have had, and the functionality won't be well encapsulated, maybe your colleague is making a good guess.  The key here is that whichever one of you is correct, it's  **not by much**
+.  Both sides have merit. 
+ By the way, it will be better to have a boolean (yes/no) IsDeleted column, with an index beginning with that column.  That will be quicker, though it perhaps would not make a big enough difference to matter. 
+ 
+ Alot of this depends onthe size of the tables and whether you really need additonal information about the deletion.  
+ In most cases, the deleted flag field is all you need. Then you create a view that selects the records where the record has not been deleted. Use the view for all queries for the users instead of directly accessing the tables.  
+ If you have auditing, you already know who marked the record as deleted and when. 
+ If not, you should add those fields to your table. 
+ Periodically, I might remove deleted records to an archive table in order to imporve query performance on the main table. Say move all deleted records that have been deleted more than 6 months. Then have anothe view that combines both the normal table and the archive table for the admins to query on. 
+ This combination of both approaches in conjuncction with using views gets you the best of both worlds, your table stays realtively small for querying, everyone can see just the records they need to see and it is relatively easy to undelete something deleted by accident, archiving old records can happen at a low usage period of the day rather than when the records are marked for deletion. 
+ 
+ When a user creates, modifies or deletes an event, create a new   object. Store everything about the change in event in the transaction, and add it to a table, with a reference to the event. That way you have an audit log of everything the user has done. This adds minimal complexity but also allows for extension. You could even add an undo feature later on with minimal, if any, change to your data model. 
+ So if the user is viewing the logs, you can retrieve every log without a DELETE transaction associated with it, though administrators would be able to see everything. 
+ 

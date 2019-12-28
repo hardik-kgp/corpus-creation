@@ -1,0 +1,86 @@
+*** sqlite-count-slow-on-big-tables ***
+
+ I'm having a performance problem in SQLite with a SELECT COUNT(*) on a large tables. 
+ As I didn't yet receive a usable answer and I did some further testing, I edited my question to incorporate my new findings. 
+ I have 2 tables: 
+ 
+ Table1 has around 8 million records and Table2 has around 51 million records, and the databasefile is over 5GB. 
+ Table1 has 2 more indexes: 
+ 
+ "Status" is required field, but has only 6 distinct values, "Selection" is not required and has only around 1.5 million values different from null and only around 600k distinct values. 
+ I did some tests on both tables, you can see the timings below, and I added the "explain query plan" for each request (QP). I placed the database file on an USB-memorystick so i could remove it after each test and get reliable results without interference of the disk cache. Some requests are faster on USB (I suppose due to lack of seektime), but some are slower (table scans). 
+ 
+ As you can see the counts are very slow, but normal selects are fast (except for the 2nd one, which took 16 seconds). 
+ The same goes for Table2: 
+ 
+ Why is SQLite not using the automatically created index on the primary key on Table1 ?
+And why, when he uses the auto-index on Table2, it still takes a lot of time ? 
+ I created the same tables with the same content and indexes on SQL Server 2008 R2 and there the counts are nearly instantaneous. 
+ One of the comments below suggested executing ANALYZE on the database. I did and it took 11 minutes to complete.
+After that, I ran some of the tests again: 
+ 
+ As you can see, the queries took the same time (except the query plan is now showing the real number of rows), only the slower select is now also fast. 
+ Next, I create dan extra index on the Key field of Table1, which should correspond to the auto-index. I did this on the original database, without the ANALYZE data. It took over 23 minutes to create this index (remember, this is on an USB-stick). 
+ 
+ Then I ran the tests again: 
+ 
+ As you can see, the index helped with the count(*), but not with the count(Key). 
+ Finaly, I created the table using a column constraint instead of a table constraint: 
+ 
+ Then I ran the tests again: 
+ 
+ Although the query plans are the same, the times are a lot better. Why is this ? 
+ The problem is that ALTER TABLE does not permit to convert an existing table and I have a lot of existing databases which i can not convert to this form. Besides, using a column contraint instead of table constraint won't work for Table2. 
+ Has anyone any idea what I am doing wrong and how to solve this problem ? 
+ I used System.Data.SQLite version 1.0.74.0 to create the tables and to run the tests I used SQLiteSpy 1.9.1. 
+ Thanks, 
+ Marc 
+ 
+ If you haven't  d any records, doing: 
+ 
+ Will avoid the full-table scan. Note that   is a SQLite identifier . 
+ 
+ From  http://old.nabble.com/count(*)-slow-td869876.html 
+ SQLite always does a full table scan for count(*).  It
+does not keep meta information on tables to speed this
+process up. 
+ Not keeping meta information is a deliberate design
+decision.  If each table stored a count (or better, each
+node of the B-tree stored a count) then much more updating
+would have to occur on every INSERT or DELETE.  This
+would slow down INSERT and DELETE, even in the common
+case where count(*) speed is unimportant. 
+ If you really need a fast COUNT, then you can create
+a trigger on INSERT and DELETE that updates a running
+count in a separate table then query that separate
+table to find the latest count. 
+ Of course, it's not worth keeping a FULL row count if you
+need COUNTs dependent on WHERE clauses (i.e. WHERE field1 > 0 and field2 < 1000000000). 
+ 
+ Do not count the stars, count the records! Or in other language, never issue 
+ SELECT COUNT(*) FROM tablename;  
+ use  
+ SELECT COUNT(ROWID) FROM tablename; 
+ Call EXPLAIN QUERY PLAN for both to see the difference. Make sure you have an index in place containing all columns mentioned in the WHERE clause. 
+ 
+ This may not help much, but you can run the  ANALYZE  command to rebuild statistics about your database. Try running " " to rebuild statistics about the entire database, then run your query again and see if it is any faster. 
+ 
+ On the matter of the column constraint, SQLite maps columns that are declared to be   to the internal row id (which in turn admits a number of internal optimizations). Theoretically, it could do the same for a separately-declared primary key constraint, but it appears not to do so in practice, at least with the version of SQLite in use. (System.Data.SQLite 1.0.74.0 corresponds to core SQLite 3.7.7.1. You might want to try re-checking your figures with 1.0.79.0; you shouldn't need to change your database to do that, just the library.) 
+ 
+ The output for the fast queries all start with the text "QP: SEARCH".  Whilst those for the slow queries start with text "QP: SCAN", which suggests that sqlite is performing a scan of the entire table in order to generate the count. 
+ Googling for "sqlite table scan count" finds  the following , which suggests that using a full table scan to retrieve a count is just the way sqlite works, and is therefore probably unavoidable. 
+ As a workaround, and given that status has only eight values, I wondered if you could get a count quickly using a query like the following? 
+ select 1 where status=1
+union
+select 1 where status=2
+... 
+ then count the rows in the result.  This is clearly ugly, but it might work if it persuades sqlite to run the query as a search rather than a scan.  The idea of returning "1" each time is to avoid the overhead of returning real data. 
+ 
+ Here's a potential workaround to improve the query performance. From the context, it sounds like your query takes about a minute and a half to run. 
+ Assuming you have a date_created column (or can add one), run a query in the background each day at midnight (say at 00:05am) and persist the value somewhere along with the last_updated date it was calculated (I'll come back to that in a bit). 
+ Then, running against your date_created column (with an index), you can avoid a full table scan by doing a query like SELECT COUNT(*) FROM TABLE WHERE date_updated > "[TODAY] 00:00:05".  
+ Add the count value from that query to your persisted value, and you have a reasonably fast count that's generally accurate.  
+ The only catch is that from 12:05am to 12:07am (the duration during which your total count query is running) you have a race condition which you can check the last_updated value of your full table scan count(). If it's > 24 hours old, then your incremental count query needs to pull a full day's count plus time elapsed today. If it's < 24 hours old, then your incremental count query needs to pull a partial day's count (just time elapsed today). 
+ 
+ I had the same problem, in my situation VACUUM command helped. After its execution on database COUNT(*) speed increased near 100 times. However, command itself needs some minutes in my database (20 millions records). I solved this problem by running VACUUM when my software exits after main window destruction, so the delay doesn't make problems to user. 
+ 

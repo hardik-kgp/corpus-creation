@@ -1,0 +1,61 @@
+*** how-to-update-all-columns-with-insert-on-conflict ***
+
+ I have a table with a single primary key. When I attempt to do an insert there may be a conflict caused by trying to insert a row with an existing key. I want to allow the insert to update all columns? Is there any easy syntax for this? I am trying to let it "upsert" all columns. 
+ I am using PostgreSQL 9.5.5. 
+ 
+ The   syntax   requires  to explicitly name target columns.
+Possible reasons to avoid that: 
+ 
+ You have many columns and just want to shorten the syntax. 
+ You do not  know  column names except for the unique column(s). 
+ 
+  has to mean  "all columns of the target table"  (or at least  "leading columns of the table" ) in matching order and matching data type. Else you'd have to provide a list of target column names anyway. 
+ Test table: 
+ 
+ **1. **
+** & **
+** in single query instead**
+
+ **Without knowing any column names except **
+**.**
+
+ Only works for  "all columns of the target table" . While the syntax even works for a leading subset, excess columns in the target table would be reset to NULL with   and  . 
+ UPSERT ( ) is needed to avoid concurrency / locking issues under concurrent write load, and only because there is no general way to lock not-yet-existing rows in Postgres ( value locking ). 
+ Your special requirement only affects the   part. Possible complications do not apply where  existing  rows are affected. Those are locked properly. Simplifying some more, you can reduce your case to   and  : 
+ 
+ In the Postgres MVCC model, an   is largely the same as   and   anyway (except for some corner cases with concurrency, HOT updates, and big column values stored out of line). Since you want to replace all rows anyway, just remove conflicting rows before the  . Deleted rows remain locked until the transaction is committed. The   might only find conflicting rows for previously non-existing key values if a concurrent transaction happens to insert them concurrently (after the  , but before the  ). 
+ You would lose additional column values for affected rows in this special case. No exception raised. But if competing queries have equal priority, that's hardly a problem: the other query won for  some  rows. Also, if the other query is a similar UPSERT, its alternative is to wait for this transaction to commit and then updates right away. "Winning" could be a Pyrrhic victory. 
+ About "empty updates": 
+ 
+ How do I (or can I) SELECT DISTINCT on multiple columns? 
+ 
+ **No, my query must win!**
+
+ OK, you asked for it: 
+ 
+ How? 
+ 
+ The 1st CTE   just provides data. Could be a table instead. 
+ The 2nd CTE  : UPSERT. Rows with conflicting   are not changed, but also  **locked**
+. 
+ The 3rd CTE   deletes conflicting rows. They remain locked. 
+ The 4th CTE   inserts  whole rows . Only allowed for the same transaction 
+ The final SELECT is only for the demo to show what happened. 
+ 
+ To check for empty updates test (before and after) with: 
+ 
+ **2. Dynamic SQL**
+
+ This works for a subset of leading columns too, preserving existing values. 
+ The trick is to let Postgres build the query string with column names from the system catalogs dynamically, and then execute it. 
+ See related answers for code: 
+ 
+ Update multiple columns in a trigger function in plpgsql 
+ Bulk update of all columns 
+ SQL update fields of one table from fields of another one 
+ 
+ 
+ As I lack the reputation to comment: Erwin Brandstetter's answer seems to fail when the id column is not the first column. 
+ The following uses a snippet from one of his other  answers  to reproduce the 'return ins/ups' functionality in my case: 
+ 
+ 

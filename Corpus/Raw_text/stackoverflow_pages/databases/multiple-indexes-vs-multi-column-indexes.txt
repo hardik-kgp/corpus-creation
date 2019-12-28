@@ -1,0 +1,48 @@
+*** multiple-indexes-vs-multi-column-indexes ***
+
+ I've just been adding an Index to a table in SQL Server 2005 and it got me thinking. What is the difference between creating 1 index and defining multiple columns over having 1 index per column you want to index. 
+ Are there certain reasons why one should be used over the other? 
+ For example 
+ 
+ Versus 
+ 
+ 
+ I agree with  Cade Roux . 
+ This article should get you on the right track: 
+ 
+ Indexes in SQL Server 2005/2008 – Best Practices, Part 1 
+ Indexes in SQL Server 2005/2008 – Part 2 – Internals   
+ 
+ One thing to note, clustered indexes should have a unique key (an identity column I would recommend) as the first column. 
+Basically it helps your data insert at the end of the index and not cause lots of disk IO and Page splits. 
+ Secondly, if you are creating other indexes on your data and they are constructed cleverly they will be reused.  
+ e.g. imagine you search a table on three columns 
+ state, county, zip.  
+ 
+ you sometimes search by state only.  
+ you sometimes search by state and county. 
+ you frequently search by state, county, zip.  
+ 
+ Then an index with state, county, zip. will be used in all three of these searches. 
+ If you search by zip alone quite a lot then the above index will not be used (by SQL Server anyway) as zip is the third part of that index and the query optimiser will not see that index as helpful.  
+ You could then create an index on Zip alone that would be used in this instance. 
+ By the way  We can take advantage of the fact that with Multi-Column indexing the first index column is always usable for searching  and when you search only by 'state' it is efficient but yet not as efficient as Single-Column index on 'state' 
+ I guess the answer you are looking for is that it depends on your where clauses of your frequently used queries and also your group by's. 
+ The article will help a lot. :-) 
+ 
+ Yes.  I recommend you check out  Kimberly Tripp's articles on indexing . 
+ If an index is "covering", then there is no need to use anything but the index.  In SQL Server 2005, you can also add additional columns to the index that are not part of the key which can eliminate trips to the rest of the row. 
+ Having multiple indexes, each on a single column may mean that only one index gets used at all - you will have to refer to the execution plan to see what effects different indexing schemes offer. 
+ You can also use the tuning wizard to help determine what indexes would make a given query or workload perform the best. 
+ 
+ The multi-column index can be used for queries referencing  all  the columns: 
+ 
+ This can be looked up directly using the multi-column index. On the other hand, at most one of the single-column index can be used (it would have to look up all records having Column1=1, and then check Column2 and Column3 in each of those). 
+ 
+ One item that seems to have been missed is star transformations.   Index Intersection  operators resolve the predicate by calculating the set of rows hit by each of the predicates before any I/O is done on the fact table.  On a star schema you would index each individual dimension key and the query optimiser can resolve which rows to select by the index intersection computation.  The indexes on individual columns give the best flexibility for this. 
+ 
+ If you have queries that will be frequently using a relatively static set of columns, creating a single covering index that includes them all will improve performance dramatically.   
+ By putting multiple columns in your index, the optimizer will only have to access the table directly if a column is not in the index.  I use these a lot in data warehousing.  The downside is that doing this can cost a lot of overhead, especially if the data is very volatile. 
+ Creating indexes on single columns is useful for lookup operations frequently found in OLTP systems. 
+ You should ask yourself why you're indexing the columns and how they'll be used.  Run some query plans and see when they are being accessed.  Index tuning is as much instinct as science. 
+ 

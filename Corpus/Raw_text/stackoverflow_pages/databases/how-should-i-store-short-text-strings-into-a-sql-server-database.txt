@@ -1,0 +1,59 @@
+*** how-should-i-store-short-text-strings-into-a-sql-server-database ***
+
+ varchar(255), varchar(256), nvarchar(255), nvarchar(256), nvarchar(max), etc? 
+ 256 seems like a nice, round, space-efficient number.  But I've seen 255 used a lot.  Why? 
+ What's the difference between varchar and nvarchar? 
+ 
+ VARCHAR(255).  It won't use all 255 characters of storage, just the storage you need.  It's 255 and not 256 because then you have space for 255 plus the null-terminator (or size byte). 
+ The "N" is for Unicode.  Use if you expect non-ASCII characters. 
+ 
+ In MS SQL Server (7.0 and up), varchar data is represented internally with up to three values: 
+ 
+ The actual string of characters, which will be from 0 to something over 8000 bytes (it’s based on page size, the other columns stored for the row, and a few other factors) 
+ Two bytes used to indicate how long the data string is (which produces a value from 0 to 8000+) 
+ If the column is nullable, one bit in the row’s null bitmask (so the null status of up to eight nullable columns can be represented in one byte) 
+ 
+ The important part is that two-byte data length indicator. If it was one byte, you could only properly record strings of length 0 to 255; with two bytes, you can record strings of length 0 to something over 64000+ (specifically, 2^16 -1). However, the SQL Server page length is 8k, which is where that 8000+ character limit comes from.  (There's data overflow stuff in SQL 2005, but if your strings are going to be that long you should just go with varchar(max).) 
+ So, no matter how long you declare your varchar datatype column to be (15, 127, 511), what you will actually be storing for each and every row is: 
+ 
+ 2 bytes to indicate how long the string is 
+ The actual string, i.e. the number of characters in that string 
+ 
+ Which gets me to my point: a number of older systems used only 1 byte to store the string length, and that limited you to a maximum length of 255 characters, which isn’t all that long. With 2 bytes, you have no such arbitrary limit... and so I recommend picking a number that makes sense to the (presumed non-technically oriented) user. , I like 50, 100, 250, 500, even 1000. Given that base of 8000+ bytes of storage, 255 or 256 is just as efficient as 200 or 250, and  less  efficient when it comes time to explain things to the end users. 
+ This applies to single byte data (i.e. ansii, SQL _ Latin1*_*General_CP1, et. al.). If you have to store data for multiple code pages or languages using different alphabets, you’ll need to work with the nvarchar data type (which I think works the same, two bytes for number of charactesr, but each actual character of data requires two bytes of storage). If you have strings likely to go over 8000, or over 4000 in nvarchar, you will need to use the [n]varchar(max) datatypes. 
+ And if you want to know why it is so very important to take up space with extra bytes just to track how long the data is, check out  http://www.joelonsoftware.com/articles/fog0000000319.html 
+ Philip 
+ 
+ There are a couple of other points to consider when defining char/varchar and the N variations. 
+ First, there is some overhead to storing variable length strings in the database. A good general rule of thumb is to use CHAR for strings less than 10 chars long, since N/VARCHAR stores both the string and the length and the difference between storing  short  strings in N/CHAR vs. N/VARCHAR under 10 isn't worth the overhead of the string length. 
+ Second, a table in SQL server is stored on 8KB pages, so the max size of the row of data is 8060 bytes (the other 192 are used for overhead by SQL). That's why SQL allows a max defined column of VARCHAR(8000) and NVARCHAR(4000). Now, you  can  use VARCHAR(MAX) and the unicode version. But there can be extra overhead associated with that.  
+ If I'm not mistaken, SQL server will try to store the data on the same page as the rest of the row but, if you attempt to put too much data into a VARCHAR(Max) column, it will treat it as binary and store it on another page. 
+ Another big difference between CHAR and VARCHAR has to do with page splits. Given that SQL Server stores data in 8KB pages, you could have any number of rows of data stored on a page. If you  UPDATE  a VARCHAR column with a value that is large enough that the row will no longer fit on the page, the server will  split  that page, moving off some number of records. If the database has no available pages and the database is set to auto grow, the server will first grow the database to allocate blank pages to it, then allocate blank pages to the table and finally split the single page into two.  
+ 
+ If you will be supporting languages other than English, you will want to use nvarchar. 
+ HTML should be okay as long as it contains standard ASCII characters. I've used nvarchar mainly in databases that were multi-lingual support.  
+ 
+ Because there are  **8-bits in 1 byte**
+ and so in 1 byte you can store up to 256 distinct values which is 
+ 
+ Note the first number is 0 so that's a total of  **256**
+ numbers. 
+ So if you use nvarchar(255) It'll use  **1 byte to store the length**
+ of the string but if you tip over by 1 and use nvarchar(256) then you're wasting 1 more byte  just  for that extra 1 item off from 255 (since you need  **2 bytes to store the number 256**
+). 
+ That might not be the actual implementation of SQL server but I believe that is the typical reasoning for limiting things at 255 over 256 items. 
+ and  **nvarchar**
+ is for Unicode, which use 2+ bytes per character and 
+ **varchar**
+ is for normal ASCII text which only use 1 byte 
+ 
+ IIRC, 255 is the max size of a varchar in MySQL before you had to switch to the text datatype, or was at some point (actually, I think it's higher now).  So keeping it to 255 might buy you some compatibility there.  You'll want to look this up before acting on it, though. 
+ varchar vs nvarchar is kinda like ascii vs unicode.  varchar is limited to one byte per character, nvarchar can use two.  That's why you can have a varchar(8000) but only an nvarchar(4000) 
+ 
+ Both varchar and nvarchar auto-size to the content, but the number you define when declaring the column type is a maximum. 
+ Values in "nvarchar" take up twice the disk/memory space as "varchar" because unicode is two-byte, but when you declare the column type you are declaring the number of characters, not bytes. 
+ So when you define a column type, you should determine the maximum number of characters that the column will ever need to hold and have that as the varchar (or nvarchar) size. 
+ A good rule of thumb is to estimate the maximum sting length the column needs to hold, then add support for about 10% more characters to it to avoid problems with unexpectedly long data in the future. 
+ 
+ varchar(255) was also the maximum length in SQL Server 7.0 and earlier. 
+ 

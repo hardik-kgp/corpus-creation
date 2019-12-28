@@ -1,0 +1,127 @@
+*** database-design-for-a-recursive-relationship ***
+
+ Consider this case where I'm trying to model a database for a company: 
+ 
+ Entities:  ,  ,  . 
+ An   works in only 1   while a   may have many   working in it. 
+ A   may manage only 1   and similarly a   may have only 1  . 
+ A   supervises many  , but an   is only supervised by one  . 
+ 
+ **Now I have 2 ways to model this:**
+
+ **First solution:**
+
+ I'll consider that the   entity inherits from the   entity considering that I'll keep data that is unique to the Managers (e.g. Bonus & Status). 
+   
+ 
+ Since the relation between   and   is   then I'll put the
+  as a foreign key in the   table for the  
+relation. 
+ Since the relation between   and   is   then I'll put the
+  as a foreign key in the   table for the  
+relation. 
+ 
+ **Problem: How can I represent the recursive relation between the **
+** and **
+**?**
+
+ 
+ **Second solution:**
+
+ I'll consider that the   entity is not needed as other   may also have a   and  . (Actually I added these 2 attributes just to see how to model it in both cases)
+ 
+ 
+ Since the relation between   and   is   then I'll put the
+  as a foreign key in the   table for the  
+relation. 
+ Since the relation between   and   is   then I'll put the
+  as a foreign key in the   table for the  
+relation and call it  . 
+ 
+ **Problem: How can I represent the relation between the **
+** and **
+**?**
+
+ 
+ Questions: 
+ 
+ Is there any obvious mistakes in both design as they are? 
+ How to solve each problem in both cases? 
+ Is there a better solution than these two? 
+ 
+ 
+ I'd probably go with something like: 
+ 
+ This model has the following characteristics: 
+ 
+ Manager "inherits" employee.
+
+ 
+ To represent an employee, insert a single row in EMPLOYEE. 
+ To represent a manager, insert one row in EMPLOYEE  **and**
+ one row in MANAGER. 
+ 
+ A department can have multiple employees. 
+ Every department has exactly 1 manager and every manager manages 0 or 1 departments. 
+ A supervisor can be ordinary employee or a manager. 
+ Departments are not required to "match":
+
+ 
+ A supervisor can work in different department from the supervised employee. 
+ A manager can manage different department from where (s)he works. 
+ If a supervisor is manager, then the department (s)he manages, the department (s)he works in and the department(s) of his/her supervised employees can all be different. 
+ 
+ 
+ NOTE: If your DBMS does not support deferred constraints, you'll want to make the DEPARTMENT.MANAGER_ID NULL-able, to break the cycle that would otherwise prevent you from inserting the new data. 
+ 
+ If the departments are required to match, then you'd either employ a DBMS-specific technique (such as triggers or "special" constraints), or "propagate" the DEPARTMENT_ID into the PK of employees. This propagation is what ultimately enables the matching: 
+ 
+ Since EMPLOYEE_ID must be globally unique, it cannot stay in the composite key together with the DEPARTMENT_ID. So, we make it alternate key and instead use the surrogate EMPLOYEE_NO in the PK. 
+ This model prevents you from having a manager that manages one department and works in another, or a supervisor that supervises employees from a different department. 
+ 
+ In case you are not familiar with the symbol... 
+ 
+ ...it denotes a "category". In this context, you can simply interpret it as a "1 to 0 or 1" relationship between EMPLOYEE and MANAGER. 
+ 
+ Without getting into details, I do assure you that the Employee/Manager/Department solution is, on the long term, a  source of displeasure (at first) then a real PITA (later on) for the persons in charge of maintaining the database and/or developping its interface. So I do advise you to stick to your 2nd proposal.  
+ Regarding the manager/department relation, you have mainly two ways to represent this relation. Both solutions authorize you to keep your recursive "Manager manages Employee" relation in addition to a "manager manages Department" relation that you can implement as follows: 
+ 1 - first/simple way: add a manager/employee id in your department table. This field is of course a foreign key to the employee table 
+ 2 - second/more complex solution: add a "manager" table with the following fields: 
+ 
+ where you will store the management history: who, for which department, from when, till when 
+ In this case do not forget to add some logic (trigger, or client-side control) to translate your business rules such as you can have only one manager for a specific period and a specific department, no department can stay more than ... without a manager, etc. 
+ EDIT: 
+ 3 - a richer solution would be a generalisation of my second proposal, and will allow you to keep track of everyone's career in the company. You can do it with a 'works in' table, such as this one (as we call it here a 'position' table, I will keep the same terminology here: 
+ 
+ Where 'position level' leads to another table holding the different positions that can exist in a department, one of them being of course the 'manager' position. 
+ This proposal is closer to what is used in HR database and software, and you might not need such a complex solution. But keep in mind that splitting the human beings in multiple tables is ALWAYS a mistake. 
+ EDIT: following your comment ... 
+ To make things clear, I'd advise you to adjust your field names. I'd propose you to have the following fields:  
+ 
+ and 
+ 
+ Doing this, we (or any developper) will immediately understand that id_EmployeeManager participates in the recursive relation between the persons, while id_DepartmentManager participates in the relation between people and department. 
+ Back to your questions, and according to me, you should not create the following link: 
+ 
+ By doing so, you are meaning that somebody cannot be a department manager  **unless**
+ he is already managing employees. What about departments with a single employee? What about people named managers of a department newly created, where still no employee is allocated? It does not work. The right link should be: 
+ 
+ You could of course add some business rules saying for example that "an employee managing a department can only be a manager" (id_Employee exists somewhere as id_EmployeeManager) or "an employee managing a department cannot have a manager (where id_EmployeeManager for this employee is null...). But these are only business rules. Your data model is clean to accept all rules as long as the basic rule is respected, which is that a department is managed by an employee! 
+ 
+ I think this is the best solution: 
+ 
+ A manager is an employee that manages a department.
+The recursive relation you can get by the next flow: 
+ Employee has a department
+A department has a employee as manager 
+ Maybe its handy to give the employee table a EmployeeType column to define the role. 
+ 
+ My opinion: 
+ Table Person where you will add the info for both employees and managers, managers are human being too, you know? :), and you have a managerId field to link to the Id of the manager. 
+ Table department with the department information 
+ and, if the employee can belong to more that one department, create a table employee_department to relate them. If an employee can belong to only one department and you don't need more info in the relation, add a departmentID field on the Employee table. 
+ 
+ How about sticking with the 2nd design and having a pseudo-relationship?  
+ I'm assuming you're going to have a   column in the Employee entity to link the relationship between Employee and Department entities. If we can assume that there won't be a manager hierarchy (managers of managers) we can enforce a pseudo-relationship between the two tables where   for managers (  is Null) represents the Department they manage.  
+ As long as you document this clearly, I think it would be a space-efficient approach as you already would have a FK column ( ) in the Employee entity referencing the Department entity.  
+ 

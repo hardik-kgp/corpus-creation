@@ -1,0 +1,55 @@
+*** is-transactional-behaviour-ever-needed-outside-of-databases ***
+
+ I wouldn't dare do anything complex in a database without transactions. There is nearly always a simple to use in-built command. But when you start working with other persistent data you just don't get this simple to use transaction support. Some example are 
+ 
+ file systems 
+ web services (none that I've used) 
+ 
+ Even in non-persistent data it is often useful to undo a block of work, following an exception. None of the standard data structures you get with a language, support transactions. 
+ What I would like to know is, why are databases the special case? 
+ Are there any useful links to the topic of transactional behavior out-side of databases? 
+ 
+ I must respectfully disagree:  transactional systems are not automatically and exclusively database engines, quite the contrary... 
+ I have implemented an application transaction mechanism (in .NET) that is distinct from a database transaction.  It is actually rather easy (a few hours work including a unit test suite).  It is completely written in C# with no dependencies on any database functionality or any other component.  But first some context... 
+ This non-database-transaction feature exists in several manifestations on the Java platform, such as with EJBs, ESBs, JMS, and often in association with BPM.  Some of these manifestations use an underlying database, but not always and not out of necessity.  Other platforms have comparable manifestations, such as MSMQ. 
+ Most legacy version control systems do NOT implement ACID transaction semantics.  As ddaa said, CVS does not but Subversion (its successor) does.  Visual Source Safe does not.  If you research Subversion, you can find comparison charts that make a point of this. 
+ Now for the critical point, a database transaction or its equivalent does not guarantee safe business logic.  Although I love Subversion, it is ironically a great example of this fact. 
+ You can use Subversion religiously, along with an automated build script (one command that compiles, tests, and packages your application), and still commit a broken build to the source control repository.  I have seen it repeatedly.  Of course, it is even easier with non-ACID-transaction-based source control tools like VSS.  But it is shocking to many people to learn that it is possible with tools like Subversion. 
+ Allow me please to lay out the scenario.  You and a coworker are developing an application, and using Subversion for the source control repository.  Both of you are coding away and occasionally committing to the repository.  You make a few changes, run a clean build (recompile all source files), and all the tests pass.  So, you commit your changes and go home.  Your coworker has been working on his own changes, so he also runs a clean build, sees all the tests pass, and commits to the repository.  But, your coworker then updates from the repository, makes a few more changes, runs a clean build, and the build blows up in his face!  He reverts his changes, updates from the repository again (just to be sure), and finds that a clean build still blows up!  Your coworker spends the next couple of hours troubleshooting the build and the source, and eventually finds a change that you made before you left that is causing the build failure.  He fires off a nasty email to you, and your mutual boss, complaining that you broke the build and then carelessly went home.  You arrive in the morning to find your coworker and your boss waiting at your desk to cuss you out, and everyone else is watching!  So you quickly run a clean build and show them that the build is not broke (all the tests pass, just like last night). 
+ So, how is this possible?  It is possible because each developer's workstation is not part of the ACID transaction; Subversion only guarantees the contents of the repository.  When your coworker updated from the repository, his workstation contained a mixed copy of the contents of the repository (including your changes) and his own uncommitted changes.  When your coworker ran a clean build on his workstation, he was invoking a business transaction that was NOT protected by ACID semantics.  When he reverted his changes and performed an update, his workstation then matched the repository but the build was still broke.  Why?  Because your workstation was also part of a separate business transaction that also was NOT protected by ACID semantics, unlike your commit to the repository.  Since you had not updated your workstation to match the repository before running your clean build, you were not actually building the source files as they existed in the repository.  If you performed such an update, you would then find that the build also fails on your workstation. 
+ Now I can expound on my initial point--transactions have scope/context that must be considered carefully.  Just because you have an ACID transaction does not mean that your business logic is safe, UNLESS the scope/context of the ACID transaction and the business logic matches EXACTLY.  If you are relying on some form of database ACID transaction, but you do ANYTHING in your business logic that is not covered by that database transaction, then you have a gap that can allow a comparable and catastrophic error.  If you can force your business logic to exactly match your database transaction, then all is well.  If not, then you probably need a separate business transaction.  Depending on the nature of the unprotected logic, you may need to implement your own transaction mechanism. 
+ So, messaging can be transactional, but the scope is merely the message.  Regarding the example above, Subversion's context is only an individual commit to the repository.  However, the business transaction is a clean build, which involves a much larger scope.  This particular problem is usually solved by scripting a clean build together with a clean checkout, ideally using a continuous integration implementation (e.g., via CruiseControl or the like).  On the developer workstations, it requires each developer to exercise the discipline to perform a full update (or even a clean checkout) before a clean build. 
+ So, to recap, every transaction has a scope or context that limits its protection.  Business transactions often incorporate logic that exceeds the scope of the transaction mechanisms (such as a database engine) that we commonly use.  You might have to make up the difference.  On rare occasion, it might even make sense to write your own transaction mechanism to do so. 
+ I architected a rewrite of a critical business system for a modest ninety-person company.  I found it necessary to implement such a mechanism, and I found the experience to be easy, worthwhile, and rewarding.  I would do it again, perhaps a little more readily, but I would always question why I could not stick to just a database transaction. 
+ 
+ I think that the reason that transactions are only seen in databases is that, by definition, the systems that provide transactions are called databases. That sounds circular, so I must elaborate. 
+ Transaction support is the feature that provides  ACID  properties. In layman terms, that means a transaction is something that allows to 1. bundle a number of discreet operations into one package that either succeeds as a whole or fail as a whole 2. hide uncommitted changes to concurrent users, so that 3. concurrent users have at all time a "consistent" view of the system. 
+ Filesystems  traditionally offer some locking mechanism, but this is different from providing transactions. However, all filesystems have some atomic properties. For example, if you have directories   and  , and you concurrently try to perform   and  , only one of those operation will succeed, without compromising integrity. What filesystems generally lack, however is the ability to bundle multiple operations into one isolated atomic bundle. 
+ An answer  mentioned Subversion. All sane version control systems have transactions. When committing to multiple files, the system either applie the commit completely, or rejects it completely (except CVS, that I do not regard as sane). The cause of rejection is always a concurrent change. Version control system implementors are very conscious of maintaining a database. 
+ Another  answer mentioned messaging systems as transactional. I did not read the linked material, but the answer itself mentioned only atomic delivery of messages. That is not transactions. 
+ I never heard of  Clojure  before  Brian C.  mentioned it here. It seems to me it is indeed an implementation of transactions outside of the context of a database. Here the focus is concurrency control, rather than maintaining consistency of durable data. 
+ So, with the exception of Clojure, it seems that any system that needs transactions either uses an underlying database, or turn itself into a database. 
+ 
+ Modern file systems do have transactions.  They're just transparent to the end user. 
+ NTFS, XFS, JFS, EXT3, and ReiserFS all do, just to name a few. 
+ And that's just internal to the file system.  Many OSes also support file locking (see flock(2) in the *NIX world, for instance) with exclusive (write) and shared (read) locks. 
+ Edit:
+If you think about it, file systems don't have isolation levels like modern DBs because once you finish reading a file, you traditionally close it if you didn't lock it.  Then you reopen it when you want to write to it. 
+ 
+ Clojure  uses  Software Transactional Memory , which uses transactions to make it easy and safe to write multi-threaded programs without manual locks.  Clojure has immutable data structures with mutable references to them, and transactions are required to change the references. 
+ 
+ Messaging systems are another example of transactional resource managers. 
+ That is, you can ensure that a message consumer successfully processes a message from the queue. If the processing fails, then the message is left on the queue. 
+ In addition, a messaging system can take part in a distributed transaction with another resource manager. 
+ More info at 
+ 
+ https://java.sun.com/j2ee/1.4/docs/tutorial/doc/JMS6.html 
+ http://www.odi.ch/prog/jms-tx.php 
+ 
+ 
+ Subversion commits are transactional: they are truly atomic, so an interrupted commit does not leave the repository in a inconsistent state. 
+ 
+ I had the situation I needed to treat a filesystem and a database as one transactional unit. 
+ In my case I only needed to download a set of files into the filesystem. I did it by creating random directories each time, putting the data there, and storing the directory name in a database table. Therefore all my database work, and the directory name in the database table (= filesystem work), could be done in one database transaction. 
+ http://www.databasesandlife.com/atomic-operations-over-filesystem-and-database/ 
+ 

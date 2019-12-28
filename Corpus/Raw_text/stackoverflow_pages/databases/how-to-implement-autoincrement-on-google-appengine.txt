@@ -1,0 +1,56 @@
+*** how-to-implement-autoincrement-on-google-appengine ***
+
+ I have to label something in a "strong monotone increasing" fashion. Be it Invoice Numbers, shipping label numbers or the like. 
+ 
+ A number MUST NOT BE used twice 
+ Every number SHOULD BE used when exactly all smaller numbers have been used (no holes). 
+ 
+ Fancy way of saying: I need to count 1,2,3,4 ...
+The number Space I have available are typically 100.000 numbers and I need perhaps 1000 a day. 
+ I know this is a hard Problem in distributed systems and often we are much better of with GUIDs. But in this case for legal reasons I need "traditional numbering". 
+ Can this be implemented on Google AppEngine (preferably in Python)? 
+ 
+ If you absolutely have to have sequentially increasing numbers with no gaps, you'll need to use a single entity, which you update in a transaction  to 'consume' each new number. You'll be limited, in practice, to about 1-5 numbers generated per second - which sounds like it'll be fine for your requirements. 
+ 
+ If you drop the requirement that IDs must be strictly sequential, you can use a hierarchical allocation scheme. The basic idea/limitation is that transactions must not affect multiple storage groups. 
+ For example, assuming you have the notion of "users", you can allocate a storage group for each user (creating some global object per user). Each user has a list of reserved IDs. When allocating an ID for a user, pick a reserved one (in a transaction). If no IDs are left, make a new transaction allocating 100 IDs (say) from the global pool, then make a new transaction to add them to the user and simultaneously withdraw one. Assuming each user interacts with the application only sequentially, there will be no concurrency on the user objects. 
+ 
+ The  gaetk - Google AppEngine Toolkit  now comes with a simple library function to get a number in a sequence. It is based on Nick Johnson's transactional approach and can be used quite easily as a foundation for Martin von Löwis' sharding approach: 
+ 
+ The functionality is basically implemented like this: 
+ 
+ 
+ If you aren't too strict on the sequential, you can "shard" your incrementer.  This could be thought of as an "eventually sequential" counter. 
+ Basically, you have one entity that is the "master" count.  Then you have a number of entities (based on the load you need to handle) that have their own counters.  These shards reserve chunks of ids from the master and serve out from their range until they run out of values. 
+ Quick algorithm: 
+ 
+ You need to get an ID. 
+ Pick a shard at random. 
+ If the shard's start is less than its end, take it's start and increment it. 
+ If the shard's start is equal to (or more oh-oh) its end, go to the master, take the value and add an amount   to it.  Set the shards start to the retrieved value plus one and end to the retrieved plus  . 
+ 
+ This can scale quite well, however, the amount you can be out by is the number of shards multiplied by your   value.  If you want your records to appear to go up this will probably work, but if you want to have them represent order it won't be accurate.  It is also important to note that the latest values may have holes, so if you are using that to scan for some reason you will have to mind the gaps. 
+ **Edit**
+
+ I needed this for my app (that was why I was searching the question :P ) so I have implemented my solution.  It can grab single IDs as well as efficiently grab batches. I have tested it in a controlled environment (on appengine) and it performed very well.  You can find the code  on github . 
+ 
+ Take a look at how the  sharded counters  are made. It may help you. Also do you really need them to be numeric. If unique is satisfying just use the entity keys. 
+ 
+ Alternatively, you could use allocate_ids(), as people have suggested, then creating these entities up front (i.e. with placeholder property values). 
+ 
+ Then, when creating a new invoice, your code could run through these entries to find the one with the lowest ID such that the placeholder properties have not yet been overwritten with real data. 
+ I haven't put that into practice, but seems like it should work in theory, most likely with the same limitations people have already mentioned. 
+ 
+ Remember: Sharding increases the probability that you will get a unique, auto-increment value, but does not guarantee it. Please take Nick's advice if you MUST have a unique auto-incrment. 
+ 
+ I implemented something very simplistic for my blog, which increments an IntegerProperty,   rather than the Key ID. 
+ I define   to find the maximum   integer currently being used. This function scans through all existing blog posts. 
+ 
+ Then, when creating a new blog post, I assign it an   property of  
+ 
+ I wonder if you might also want to add some sort of verification function after this, i.e. to ensure the max_iden() has now incremented, before moving onto the next invoice. 
+ Altogether: fragile, inefficient code. 
+ 
+ I'm thinking in using the following solution: use CloudSQL (MySQL) to insert the records and assign the sequential ID (maybe with a Task Queue), later (using a Cron Task) move the records from CloudSQL back to the Datastore. 
+ The entities also can have a UUID, so we can map the entities from the Datastore in CloudSQL, and also have the sequential ID (for legal reasons). 
+ 

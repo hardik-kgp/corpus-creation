@@ -1,0 +1,60 @@
+*** keep-postgresql-from-sometimes-choosing-a-bad-query-plan ***
+
+ I have a strange problem with PostgreSQL performance for a query, using PostgreSQL 8.4.9.  This query is selecting a set of points within a 3D volume, using a   to add a related ID column where that related ID exists.  Small changes in the   range can cause PostgreSQL to choose a different query plan, which takes the execution time from 0.01 seconds to 50 seconds.  This is the query in question: 
+ 
+ That query takes nearly a minute, and, if I add   to the front of that query, seems to be using the following query plan: 
+ 
+ However, if I replace the   in the   range condition with  , the query is performed in a fraction of a second and uses this query plan: 
+ 
+ I'm far from an expert in parsing these query plans, but the clear difference seems to be that with one   range it uses a   for the   (which is very fast), while with the other range it uses a   (which seems to be very slow).  In both cases the queries return about 90 rows.  If I do   before the slow version of the query, it goes very fast, but I understand that  using that setting in general is a bad idea . 
+ Can I, for example, create a particular index in order to make it more likely that the query planner will choose the clearly more efficient strategy?  Could anyone suggest why PostgreSQL's query planner should be choosing such a poor strategy for one of these queries?  Below I have included details of the schema that may be helpful. 
+ 
+ The treenode table has 900,000 rows, and is defined as follows: 
+ 
+ The   composite type is defined as follows: 
+ 
+ The other two tables involved in the join are  : 
+ 
+ ... and  : 
+ 
+ 
+ If the query planner makes bad decisions it's mostly one of two things: 
+ **1. The **
+**statistics**
+ are inaccurate. 
+ Do you run   enough? Also popular in it's combined form  . If  autovacuum  is on (which is the default in modern-day Postgres),   is run automatically. But consider: 
+ 
+ Are regular VACUUM ANALYZE still recommended under 9.1? 
+ 
+ (Top two answers still apply for Postgres 12.) 
+ If your table is  big  and data distribution is  irregular , raising the   may help. Or rather, just  set the statistics target  for relevant columns (those in   or   clauses of your queries, basically):   
+ 
+ 
+ The target can be set in the range 0 to 10000; 
+ 
+ Run   again after that (on relevant tables).   
+ **2. The **
+**cost settings**
+ for planner estimates are off. 
+ Read the chapter  Planner Cost Constants  in the manual.   
+ Look at the chapters  **default_statistics_target**
+ and  **random_page_cost**
+ on this  generally helpful PostgreSQL Wiki page . 
+ There are many other possible reasons, but these are the most common ones by far. 
+ 
+ I'm skeptical that this has anything to do with bad statistics unless you consider the combination of database statistics and your custom data type.  
+ My guess is that PostgreSQL is picking a  nested loop  join because it looks at the predicates   and does something funky in the arithmetic of your comparison. A  nested loop  is typically going to be used when you have a small amount of data in the inner side of the join. 
+ But, once you switch the constant to 10736 you get a different plan. It's always possible that the plan is of sufficiently complexity that the  Genetic Query Optimization (GEQO)  is kicking in and you're seeing the side effects of  non-deterministic plan building . There are enough discrepancies in the order of evaluation in the queries to make me think that's what's going on.  
+ One option would be to examine using a parameterized/prepared statement for this instead of using ad hoc code. Since you're working in a 3-dimensional space, you might also want to considering using  PostGIS . While it might be overkill, it may also be able to provide you with the performance that you need to get these queries running properly. 
+ While forcing planner behavior isn't the best choice, sometimes we do end up making better decisions than the software. 
+ 
+ What Erwin said about the statistics. Also: 
+ 
+ Sorting on 
+ 
+ might give the optimiser a bit more room to shuffle. (I don't think it will matter much since it is the last term, and the sort is not that expensive, but you could give it a try) 
+ 
+ I am not positive it is the source of your problem but it looks like there were some changes made in the postgres query planner between versions 8.4.8 and 8.4.9.  You could try using an older version and see if it makes a difference. 
+ http://postgresql.1045698.n5.nabble.com/BUG-6275-Horrible-performance-regression-td4944891.html 
+ Don't forget to reanalyze your tables if you change the version. 
+ 

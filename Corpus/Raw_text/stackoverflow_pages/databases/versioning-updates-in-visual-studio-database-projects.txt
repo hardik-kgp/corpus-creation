@@ -1,0 +1,51 @@
+*** versioning-updates-in-visual-studio-database-projects ***
+
+ My company uses a Visual Studio database project for deploying updates to our DB.  As far as I can tell, it provides functionality for comparing the state of the project schema and a target DB, and generating code to update the latter's schema to the former.  It also provides one pre-deploy script and one post-deploy script, but nothing more. 
+ What this is missing is any concept of versioning and/or ordering.  If I want to, say, add a non-nullable FK column to a table, I need to do it in two steps - first, add it as a nullable column with a post-deploy script to update the rows to have meaningful values in.  Second, make the column non-nullable.  These must happen in order. 
+ As far as I can tell, there is no way to ensure this sequential ordering of pre- and post-deploy scripts with deploying with Visual Studio database projects.  Am I right here?  This has 2 implications: first, that you just can't really add a non-nullable FK column to a table once it's been created, and second, that your pre- and post- deploy scripts are going to keep growing and growing and contain cruft from years ago because they are both run  every single time  the database is deployed. 
+ Is there any way to version updates with Visual Studio database projects, and if not, is there a project type that would allow this kind of versioning? 
+ 
+ First of all you have this tagged with visual studio 2012 - if you are using that version be sure to upgrade to vs 2013 or 2015 and get the latest version of SSDT as releases come out every 3 months with new features and fixes so it is well worth getting a newer version - the bits I talk about below are current behavior, I do not know if all this was available in the original ssdt in visual studio 2012. 
+ There are a few things to say, firstly you can enforce ordered deployments by using the /p:BlockWhenDriftDetected in combination with registering the database as a data tier application (/p:RegisterDataTierApplication). This would allow you to do this: 
+ 
+ Build dacpac 1 
+ Deploy dacpac 1 
+ Build dacpac 2 
+ Deploy dacpac 2 
+ Build dacpac 3 
+ 
+ It would stop you from being able to deploy dacpac 2 before dacpac 1 was deployed but isn't ideal because if you built dacpac 3 before deploying dacpac 2 then you wouldn't be able to deploy without rebuilding dacpac 3 so it isn't ideal. 
+ When you deal with changes for a database (any rdbms not just sql server) there are sometimes cases where we need to release changes in phases and for me it is more of a process issue than a technology one. What I do is: 
+ 
+ Create the first part of the change 
+ Create a ticket in the backlog to finalise the change 
+ Deploy the change 
+ In a future iteration after the deployment, pick up the ticket to finalise the change 
+ Deploy the finalisation 
+ 
+ Some things to note about this: 
+ 
+ It takes discipline to make sure you tidy up and complete stuff, working in an agile way doesn't mean sloppy :) 
+ Any scripts you write should be idempotent so if you want to set up some static data etc use something like if exists checks or a merge statement, if you modify any schema objects wrap them in if exists etc.  If you do this you will find deploying a much more simple experience 
+ 
+ If you follow this process rather than relying on the versioning type of policy then you don't have to worry about which order you deploy dacpacs, if a script is important leave it in the post deploy script and check whether the script should do any work before doing it. If your scripts grow too large you can use :r sqlcmd imports to separate them into different files. I have also heard of people using deployment stored procedures and calling those from post-deploy scripts. 
+ I prefer a process where you just deploy the latest (or specific version) of a dacpac as it means you can always deploy to that version no matter whether you are going to a later build or back down to an earlier build. 
+ Finally with your example of adding a non-nullable fk column it is possible to do this with a single deploy of a dacpac. To do this you would: 
+ 
+ Create your new table definition (including non-null and foreign key constraint) 
+ In your post deploy script do an update on the table so that it sets up the data correctly (obviously making it idempotent so it can stay in forever if needs be) 
+ When you deploy enable /p:GenerateSmartDefaults 
+ 
+ What happens when the deployment script is generated is you get a script that looks like: 
+ 
+ Pre-Deploy script (if any) 
+ Create column not null with a temporary default constraint 
+ Drop temporary constraint 
+ Create foreign key with nocheck so it is not actually enfored 
+ Run post-deploy script 
+ Enable the foreign key constraint using "with check check" 
+ 
+ The /p: parameters things I mentioned are args you pass to sqlpackage.exe. if you do not use that but use some other way to deploy you can normally pass those as parameters, if you let me know how you deploy if you get stuck and I can help you. For a description of the args see  https://msdn.microsoft.com/en-us/library/hh550080.aspx  (sqlpackage.exe Command line syntax). 
+ Let me know if you have any questions, there is some additional things to think about but checking in your schema definition and having deploy scripts automatically generated cuts down the work to deploy changes dramatically and means you can focus on something more useful - writing unit tests for one :). 
+ Ed 
+ 

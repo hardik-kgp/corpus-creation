@@ -1,0 +1,76 @@
+*** why-doesnt-oracle-tell-you-which-table-or-view-does-not-exist ***
+
+ If you've used Oracle, you've probably gotten the helpful message "ORA-00942: Table or view does not exist". Is there a legitimate technical reason the message doesn't include the name of the missing object?  
+ Arguments about this being due to security sound like they were crafted by the TSA. If I'm an attacker, I'd know what table I just attempted to exploit, and be able to interpret this unhelpful message easily. If I'm a developer working with a complex join through several layers of application code, it's often very difficult to tell. 
+ My guess is that when this error was originally implemented, someone neglected to add the object name, and now, people are afraid it will break compatibility to fix it. (Code doing silly things like parsing the error message will be confused if it changes.) 
+ Is there a developer-friendly (as opposed to recruiting your DBA) way to determine the name of the missing table? 
+ 
+ Although I've accepted an answer which is relevant to the topic, it doesn't really answer my question:  Why isn't the name part of the error message?  If anyone can come up with the real answer, I'll be happy to change my vote. 
+ 
+ You can set an EVENT in your parameter file (plain text or spfile) to force Oracle to dump a detailed trace file in the user_dump_dest, the object name might be in there, if not the SQL should be. 
+ EVENT="942 trace name errorstack level 12" 
+ If you are using a plain text file you need to keep all your EVENT settings on consecutive lines. Not sure how that applied to spfile. 
+ 
+ SQL*Plus does tell you the table that doesn't exist. For example: 
+ 
+ Here it shows that the name of the missing table and the line number in the SQL statement where the error occurs. 
+ Similarly, in a one-line SQL statement you can see the asterisk highlighting the name of the unknown table: 
+ 
+ In terms of your question, I guess the reason the error message doesn't include the name of the table is that the error message itself needs to be static text. The line number and location in the line of the error is clearly passed back to SQL*Plus (somehow). 
+ 
+ If you are using a SQL browsing tool like TOAD or TORA it will help you with ORA errors by highlightling or pointing moving the cursor to where you made your error. 
+ Copy and paste your SQL in to one of these tools to help. You may also find the analyse info available useful too. 
+ 
+ I would disagree with the opinion, that SQL+ lets you understand which table name is unacceptable. True, it helps in direct DML, although parsing it is very hard. But when it comes to dynamic, we get no help: 
+ 
+ 
+ If its not a huge statement, then the easiest way is just to check the data dictionary, 
+ 
+ This isn't ideal, but short of going and examining trace files, I'm not sure how else to do it. 
+ 
+ I've never had a problem with interpreting Oracle error messages.  Part of the reason is that every interactive tool I've seen for developing SQL for Oracle helpfully points to the location the query went wrong.  That includes SQL*Plus, as others have noted, and the Perl DBI module: 
+ 
+ Well, that  **is**
+ a bit hard to read since it's all squished on one line.  But a GUI tool would be able to point to the token where Oracle started having problems with the query.  And given a bit of work on a parser, you could write a tool to pick out the offending table. 
+ To answer the underlying question, Oracle errors don't seem to be designed to work the way you expect.  As far as I can tell, none of the the error messages in Oracle support variable text.  Instead, Oracle returns two bits of information: an error number and a location where the error occurs.  If you have proper tools, it's pretty easy to diagnose an error with those pieces of data.  It can be argued that Oracle's system is nicer to tool creators than one which provides variable amounts of diagnostic data depending on the error.  Imagine having to write a custom parser for all of Oracle's error messages (including future errors) to highlight the offending location. 
+ Sometimes including the table name would be misleading.  Just knowing where things went wrong can be a huge help: 
+ 
+ As for why Oracle chose to do thing this way, I have some speculations: 
+ 
+ IBM used this style of error message for System R, which Larry Ellison, Bob Miner and Ed Oates copied to build Oracle V2.  (Backward compatibility.) 
+ Error number and location are the smallest possible representation of diagnostic information.  (Parsimony.) 
+ As I indicated above, to simplify the creation of tools that connect to Oracle.  (Interoperability.) 
+ 
+ In any case, I don't think you need to be a DBA to figure out which table doesn't exist.  You just need to use the proper tools.  (And adjust your expectations, I suppose.) 
+ 
+ **Reason 1:  Multi-lingual interface**
+
+ There is a language-specific message configuration file for your database instance.  Messages are pulled out of there and translated from the pure numeric version to the numeric+text version. 
+ It was probably considered better to have the hardcoded strings, than to run the risk at runtime of having a mysterious failure due to an improperly formatted "%s" string. 
+ (Not that I particularly agree with this POV, btw.) 
+ **Reason 2: Security**
+
+ Right now you don't particularly expose the internal workings of your application if you print a PHP, etc, dump of an Oracle error message to the browser. 
+ Applications would be a bit more exposed if more detail were printed by default... For example, if citibank printed a more explanatory message. 
+ (see disclaimer above, I would be happy to get more information in the error as well.) 
+ 
+ @Matthew 
+ Your query's a start, but it might not work when you have multiple schemas.  For example, if I log into our instance as myself, I have read access to all our tables.  But if I don't qualify the table name with the schema I'll get an ORA-00942 for tables without synonyms: 
+ 
+SQL> select * from tools; 
+select * from tools 
+              * 
+ERROR at line 1: 
+ORA-00942: table or view does not exist 
+ 
+ The table still shows up in all_tables though: 
+ 
+SQL> select owner, table_name from all_tables where table_name = 'TOOLS'; 
+
+OWNER                          TABLE_NAME 
+------------------------------ ------------------------------ 
+APPLICATION                    TOOLS 
+ 
+ @erikson
+Sorry that doesn't help much.  I'm with Mark - I used TOAD. 
+ 

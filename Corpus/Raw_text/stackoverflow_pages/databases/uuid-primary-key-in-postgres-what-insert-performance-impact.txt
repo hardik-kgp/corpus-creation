@@ -1,0 +1,28 @@
+*** uuid-primary-key-in-postgres-what-insert-performance-impact ***
+
+ I am wondering about the performance impact of using a non-sequential UUID as the primary key in a table that will become quite large in PosgreSQL.  
+ In DBMS's that use clustered storage for table records it is a given that using a UUID is going to increase the cost of inserts due to having to read from disk to find the data page into which to perform the insert, once the table is too big to hold in memory. As I understand it, Postgres does not maintain row clustering on inserts, so I imagine that in Postgres using a UUID PK does not hurt the performance of that insert.  
+ But I would think that it makes the insert into the index that the primary key constraint creates much more expensive once the table is large, because it will have to constantly be read from disk to update the index on insertion of new data. Whereas with a sequential key the index will only be updated at the tip which will always be in memory. 
+ Assuming that I understand the performance impact on the index correctly, is there any way to remedy that or are UUIDs simply not a good PK on a large, un-partitioned table? 
+ 
+ 
+ As I understand it, Postgres does not maintain row clustering on inserts 
+ 
+ Correct at the moment. Unfortunately. 
+ 
+ so I imagine that in Postgres using a UUID PK does not hurt the performance of that insert. 
+ 
+ It still does have a performance cost because of the need to maintain the PK, and because the inserted tuple is bigger. 
+ 
+ The uuid is 4 times as wide as a typical 32-bit integer synthetic key, so the row to write is 12 bytes bigger and you can fit fewer rows into a given amount of RAM 
+ The b-tree index that implements the primary key will be 4x as large (vs a 32-bit key), taking longer to search and requiring more memory to cache. It also needs more frequent page splits. 
+ Writes will tend to be random within indexes, not appends to hot, recently accessed rows 
+ 
+ 
+ is there any way to remedy [the performance impact on the index] or are UUIDs simply not a good PK on a large, un-partitioned table? 
+ 
+ If you need a UUID key, you need a UUID key. You shouldn't use one if you don't require one, but if you cannot rely on a central source of synthetic keys and there is no suitable natural key to use, it's still the way to go. 
+ Partitioning won't help much unless you can confine writes to one partition. Also, you won't be able to usefully use constraint exclusion on searches for the key if writing only to one partition at a time, so you'll still have to search all the partitions' indexes for a key when doing queries. I can only see it being useful if your UUID forms part of a composite key and you can partition on the other part of the composite key. 
+ 
+ It should be mentioned that you will get more WALs generated if you have btree index on UUID column with   option enabled. This happens because of UUID randomness - the values are not sequential so each insert is likely to touch completely new leaf index leaf page. You can read more in  On the impact of full-page writes  article. 
+ 

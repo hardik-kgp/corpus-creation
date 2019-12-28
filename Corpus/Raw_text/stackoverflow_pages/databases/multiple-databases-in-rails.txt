@@ -1,0 +1,74 @@
+*** multiple-databases-in-rails ***
+
+ Can this be done? In a single application, that manages many projects with SQLite.
+What I want is to have a different database for each project my app is managing.. so multiple copies of an identically structured database, but with different data in them. I'll be choosing which copy to use base on params on the URI. 
+ This is done for 1. security.. I'm a newbe in this kind of programming and I don't want it to happen that for some reason while working on a Project another one gets corrupted.. 2. easy backup and archive of old projects 
+ 
+ Rails by default is not designed for a multi-database architecture and, in most cases, it doesn't make sense at all.
+But yes, you can use different databases and connections. 
+ Here's some references: 
+ 
+ ActiveRecord: Connection to multiple databases in different models 
+ Multiple Database Connections in Ruby on Rails 
+ Magic Multi-Connections 
+ 
+ 
+ If you are able to control and configure each Rails instance, and you can afford wasting resources because of them being on standby, save yourself some trouble and just change the database.yml to modify the database connection used on every instance. If you are concerned about performance this approach won't cut it. 
+ For models bound to a single unique table on only one database you can call establish_connection inside the model: 
+ 
+ As described here:  http://apidock.com/rails/ActiveRecord/Base/establish_connection/class 
+ You will have some models using tables from one database and other different models using tables from other databases. 
+ If you have identical tables, common on different databases, and shared by a single model, ActiveRecord won't help you. Back in 2009 I required this on a project I was working on, using Rails 2.3.8. I had a database for each customer, and I named the databases with their IDs. So I created a method to change the connection inside ApplicationController: 
+ 
+ And added that method as a  before_filter  to all controllers: 
+ 
+ So for each action of each controller, when params[:company_id] is defined and set, it will change the database to the correct one. 
+ To handle migrations I extended ActiveRecord::Migration, with a method that looks for all the customers and iterates a block with each ID: 
+ 
+ Note that by doing this, it would be impossible for you to make queries within the same action from two different databases. You can call  change_database  again but it will get nasty when you try using methods that execute queries, from the objects no longer linked to the correct database. Also, it is obvious you won't be able to join tables that belong to different databases. 
+ To handle this properly, ActiveRecord should be considerably extended. There should be a plugin by now to help you with this issue. A quick research gave me this one: 
+ DB-Charmer:  http://kovyrin.github.com/db-charmer/ 
+ I'm willing to try it. Let me know what works for you. 
+ 
+ I got past this by adding this to the top of my models using the other database 
+ 
+ 
+ You should also check out this project called DB Charmer:
+ http://kovyrin.net/2009/11/03/db-charmer-activerecord-connection-magic-plugin/ 
+ 
+ DbCharmer is a simple yet powerful plugin for ActiveRecord that does a few things: 
+ 
+ Allows you to easily manage AR models’ connections (  method)  
+ Allows you to switch AR models’ default connections to a separate servers/databases 
+ Allows you to easily choose where your query should go (  methods family) 
+ Allows you to automatically send read queries to your slaves while masters would handle all the updates. 
+ Adds multiple databases migrations to ActiveRecord  
+ 
+ 
+ 
+ It's worth noting, in all these solutions you need to remember to close custom database connections.  You  will  run out of connections and see weird request timeout issues otherwise. 
+ An easy solution is to clear_active_connections! in an after_filter in your controller. 
+ 
+ 
+ in your config/database.yml do something like this 
+ 
+ then in your models you can reference db2 with 
+ 
+ 
+ What you've described in the question is multitenancy (identically structured databases with different data in each). The  Apartment gem  is great for this. 
+ For the general question of multiple databases in Rails: ActiveRecord supports multiple databases, but Rails doesn’t provide a way to manage them. I recently created the  Multiverse  gem to address this. 
+ 
+ **The best solution I have found so far is this:**
+
+ 
+There are 3 database architectures that we can approach. 
+ 
+ Single Database for Single Tenant 
+ Separate Schema for Each Tenant 
+ Shared Schema for Tenants 
+ 
+ Note: they have certain pros and cons depends on your use case. 
+ I got this from this  Blog ! Stands very helpful for me. 
+ You can use the gem  Apartment  for rails 
+ Video reference you may follow at  Gorails for apartment 
+ 

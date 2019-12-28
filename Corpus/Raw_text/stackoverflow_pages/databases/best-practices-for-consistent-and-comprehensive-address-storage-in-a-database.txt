@@ -1,0 +1,100 @@
+*** best-practices-for-consistent-and-comprehensive-address-storage-in-a-database ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ Are there any best practices (or even standards) to store addresses in a consistent and comprehensive way in a database ? 
+ To be more specific, I believe at this stage that there are two cases for address storage : 
+ 
+ you just need to associate an address to a person, a building or any item (the most common case). Then a flat table with text columns (address1, address2, zip, city) is probably enough. This is not the case I'm interested in. 
+ you want to run statistics on your addresses : how many items in a specific street, or city or... Then you want to avoid misspellings of any sorts, and ensure consistency. My question is about best practices in this specific case : what are the best ways to model a consistent address database ? 
+ 
+ A country specific design/solution would be an excellent start. 
+ **ANSWER**
+ : There does not seem to exist a perfect answer to this question yet, but : 
+ 
+ xAL , as  suggested by Hank , is the closest thing to a global standard that popped up. It seems to be quite an overkill though, and I am not sure many people would want to implement it in their database... 
+ To start one's own design (for a specific country),  Dave's link  to the  Universal Postal Union  (UPU) site is a very good starting point. 
+ As for France, there is a norm (non official, but de facto standard) for addresses, which bears the lovely name of  AFNOR XP Z10-011  (french only), and has to be paid for. The  UPU  description for France is based on this norm. 
+ I happened to find the equivalent norm for Sweden :  SS 613401 . 
+ At European level, some effort has been made, resulting in the norm EN 14142-1. It is obtainable via  CEN national members . 
+ 
+ 
+ I'd use an   table, as you've suggested, and I'd base it on the data tracked by  xAL . 
+ 
+ I've been thinking about this myself as well. Here are my loose thoughts so far, and I'm wondering what other people think. 
+ xAL (and its sister that includes personal names, XNAL) is used by both Google and Yahoo's geocoding services, giving it some weight. But since the same address can be described in xAL in many different ways--some more specific than others--then I don't see how xAL itself is an acceptable format for data storage. Some of its field names could be used, however, but in reality the only basic format that can be used among the 16 countries that my company ships to is the following: 
+ 
+ 
+ 
+ That's easy enough to map into a single database table, just allowing for NULLs on most of the columns. And it seems that this is how Amazon and a lot of organizations actually store address data. So the question that remains is how should I model this in an object model that is easily used by programmers and by any GUI code. Do we have a base   type with subclasses for each type of address, such as  ,  ,  , and so forth? Each of these address types would know how to format themselves and optionally would know a little bit about the validation of the fields. 
+ They could also return some type of metadata about each of the fields, such as the following pseudocode data structure: 
+ 
+ 
+ 
+ In fact, instead of having individual address objects for each country, we could take the slightly less object-oriented approach of having an   object that eschews .NET properties and uses an   to determine formatting and validation rules: 
+ 
+ 
+ 
+ When setting a field, that   object would invoke the appropriate method on its internal   object. 
+ The reason for using a   method approach rather than properties with getters and setters is so that it is easier for code to actually set these fields in a generic way without resorting to reflection or switch statements. 
+ You can imagine the process going something like this: 
+ 
+ GUI code calls a factory method or some such to create an address based on a country. (The country dropdown, then, is the first thing that the customer selects, or has a good guess pre-selected for them based on culture info or IP address.) 
+ GUI calls   or a similar method and receives a list of the   structures as described above. It can use this metadata to determine what fields to display (ignoring those with   set to  ), what to label those fields (using the   member), display those fields in a particular order, and perform cursory, presentation-level validation on that data (using the  ,  , and   members). 
+ GUI calls the   method using the   (which corresponds to the enumeration above) and its given values. The   object or its strategy can then perform some advanced address validation on those fields, invoke address cleaners, etc. 
+ 
+ There could be slight variations on the above if we want to make the   object itself behave like an immutable object once it is created. (Which I will probably try to do, since the   object is really more like a data structure, and probably will never have any true behavior associated with itself.) 
+ Does any of this make sense? Am I straying too far off of the OOP path? To me, this represents a pretty sensible compromise between being so abstract that implementation is nigh-impossible (xAL) versus being strictly US-biased. 
+ 
+ **Update 2 years later:**
+ I eventually ended up with a system similar to this and wrote about it at  my defunct blog . 
+ I feel like this solution is the right balance between legacy data and relational data storage, at least for the e-commerce world. 
+ 
+ In the UK there is a product called  PAF from Royal Mail 
+ This gives you a unique key per address - there are hoops to jump through, though. 
+ 
+ I basically see 2 choices if you want consistency: 
+ 
+ Data cleansing 
+ Basic data table look ups 
+ 
+ Ad 1. I work with the SAS System, and SAS Institute offers a tool for data cleansing - this basically performs some checks and validations on your data, and suggests that "Abram Lincoln Road" and "Abraham Lincoln Road" be merged into the same street. I also think it draws on national data bases containing city-postal code matches and so on. 
+ Ad 2. You build up a multiple choice list (ie basic data), and people adding new entries pick from existing entries in your basic data. In your fact table, you store keys to street names instead of the street names themselves. If you detect a spelling error, you just correct it in your basic data, and all instances are corrected with it, through the key relation. 
+ Note that these options don't rule out each other, you can use both approaches at the same time. 
+ 
+ The authorities on how addresses are constructed are generally the postal services, so for a start I would examine the data elements used by the postal services for the major markets you operate in.  
+ See the website of the Universal Postal Union for very specific and detailed information on international postal address formats: http://www.upu.int/post_code/en/postal_addressing_systems_member_countries.shtml 
+ 
+ "xAl is the closest thing to a global standard that popped up. It seems to be quite an overkill though, and I am not sure many people would want to implement it in their database..." 
+ This is not a relevant argument. Implementing addresses is not a trivial task if the system needs to be "comprehensive and consistent" (i.e. worldwide). Implementing such a standard is indeed time consuming, but to meet the specified requirement nevertheless mandatory. 
+ 
+ normalize your database schema and you'll have the perfect structure for correct consistency. and this is why:
+ http://weblogs.sqlteam.com/mladenp/archive/2008/09/17/Normalization-for-databases-is-like-Dependency-Injection-for-code.aspx 
+ 
+ I asked something quite similar earlier:  Dynamic contact information data/design pattern: Is this in any way feasible? .  
+ The short answer: Storing adderres or any kind of contact information in a database is complex. The Extendible Address Language (xAL) link above has some interesting information that is the closest to a standard/best practice that I've come accross... 
+ 
+ In the US, I'd suggest choosing a National Change of Address vendor and model the DB after what they return. 
+ 

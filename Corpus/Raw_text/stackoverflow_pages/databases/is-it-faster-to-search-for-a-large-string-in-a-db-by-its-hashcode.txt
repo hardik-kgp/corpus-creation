@@ -1,0 +1,46 @@
+*** is-it-faster-to-search-for-a-large-string-in-a-db-by-its-hashcode ***
+
+ If I need to retrieve a large string from a DB, Is it faster to search for it using the string itself or would I gain by hashing the string and storing the hash in the DB as well and then search based on that? 
+ If yes what hash algorithm should I use (security is not an issue, I am looking for performance) 
+ If it matters: I am using C# and MSSQL2005 
+ 
+ I'd be surprised if this offered huge improvement and I would recommend not using your own performance optimisations for a DB search. 
+ If you use a database index there is scope for performance to be tuned by a DBA using tried and trusted methods.  Hard coding your own index optimisation will prevent this and may stop you gaining for any performance improvements in indexing in future versions of the DB. 
+ 
+ In general: probably not, assuming the column is indexed. Database servers are designed to do such lookups quickly and efficiently. Some databases (e.g. Oracle) provide options to build indexes based on hashing. 
+ However, in the end this can be only answered by performance testing with representative (of your requirements) data and usage patterns. 
+ 
+ Though I've never done it, it sounds like this would work in principle. There's a chance you may get false positives but that's probably quite slim. 
+ I'd go with a fast algorithm such as MD5 as you don't want to spend longer hashing the string than it would have taken you to just search for it. 
+ The final thing I can say is that you'll only know if it is better if you try it out and  **measure**
+ the performance. 
+ 
+ First - MEASURE it.  That is the only way to tell for sure. 
+Second - If you don't have an issue with the speed of the string searching, then keep it simple and don't use a Hash. 
+ However, for your actual question (and just because it is an interesting thought).  It depends on how similar the strings are.  Remember that the DB engine doesn't need to compare all the characters in a string, only enough to find a difference.  If you are looking through 10 million strings that all start with the same 300 characters then the hash will almost certainly be faster.  If however you are looking for the only string that starts with an x, then i the string comparison could be faster.  I think though that SQL will still have to get the entire string from disc, even if it then only uses the first byte (or first few bytes for multi byte characters), so the total string length will still have an impact. 
+ If you are trying the hash comparison then you should make the hash an indexed calculated column.  It will not be faster if you are working out the hashes for all the strings each time you run a query! 
+ You could also consider using SQL's CRC function.  It produces an int, which will be even quicker to comapre and is faster to calculate.  But you will have to double check the results of this query by actually testing the string values because the CRC function is not designed for this sort of usage and is much more likly to return duplicate values.  You will need to do the CRC or Hash check in one query, then have an outer query that compares the strings.  You will also want to watch the QEP generated to make sure the optimiser is processing the query in the order you intended.  It might decide to do the string comparisons first, then the CRC or Hash checks second. 
+ As someone else has pointed out, this is only any good if you are doing an exact match.  A hash can't help if you are trying to do any sort of range or partial match. 
+ 
+ If your strings are short (less than 100 charaters in general), strings will be faster. 
+ If the strings are large,   search may and most probably will be faster. 
+  seems to be the fastest on  . 
+ 
+ Are you doing an  equality  match, or a  containment  match? For an  equality  match, you should let the db handle this (but add a non-clustered index) and just test via  . For a  containment  match, you should perhaps look at  full text index . 
+ 
+ If you use a fixed length field and an index it will probably be faster... 
+ 
+ TIP: if you are going to store the hash in the database, a MD5 Hash is always 16 bytes, so can be saved in a uniqueidentifier column (and System.Guid in .NET)  
+ This might offer some performance gain over saving hashes in a different way (I use this method to check for binary/ntext field changes but not for strings/nvarchars). 
+ 
+ The 'ideal' answer is definitely yes. 
+String matching against an indexed column will always be slower than matching a hashvalue stored in an index column. This is what hashvalues are designed for, because they take a large dataset (e.g. 3000 comparison points, one per character) and coalesce it into a smaller dataset, (e.g. 16 comparison points, one per byte).  
+ So, the most optimized string comparison tool will be slower than the optimized hash value comparison. 
+ However, as has been noted, implementing your own optimized hash function is dangerous and likely to not go well. (I've tried and failed miserably) Hash collisions are not particulrly a problem, because then you will just have to fall back on the string matching algorithm, which means that would be (at worst) exactly as fast as your string comparison method.  
+ But, this is all assuming that your hashing is done in an optimal fashion, (which it probably won't be) and that there will not be any bugs in your hashing component (which there will be) and that the performance increase will be worth the effort (probably not). String comparison algorithms, especially in indexed columns are already pretty fast, and the hashing effort (programmer time) is likely to be much higher than your possible gain. 
+ And if you want to know about performance, Just Measure It. 
+ 
+ I am confused and am probably misunderstanding your question. 
+ If you already have the string (thus you can compute the hash), why do you need to retrieve it? 
+ Do you use a large string as the key for something perhaps? 
+ 

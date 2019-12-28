@@ -1,0 +1,73 @@
+*** what-should-i-choose-mongodb-cassandra-redis-couchdb ***
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+                            As it currently stands, this question is not a good fit for our Q&A format. We expect answers to be supported by facts, references,   or expertise, but this question will likely solicit debate, arguments, polling, or extended discussion. If you feel that this question   can be improved and possibly reopened,  visit the help center  for guidance.
+                            
+                         
+ 
+ 
+ Closed  6 years ago . 
+ 
+ 
+ We're developing a really big project and I was wondering if anyone can give me some advice about what DB backend should we pick. 
+ Our system is compound by 1100 electronic devices that send a signal to a central server and then the server stores the signal info (the signal is about 35 bytes long). How ever these devices will be sending about 3 signals per minute each, so if we do de numbers, that'll be 4.752.000 new records/day on the database, and a total of 142.560.000 new records/month. 
+ We need a DB Backend that is lighting fast and reliable. Of course we need to do some complex data mining on that DB. We're doing some research on the MongoDB/Cassandra/Redis/CouchDB, however the documentation websites are still on early stages. 
+ Any help? Ideas? 
+ Thanks a lot! 
+ 
+ Don't let the spatial scale (1000+ devices) mislead you as to the computational and/or storage scale. A few dozen 35-byte inserts per second is a trivial workload for any mainstream DBMS, even running on low-end hardware. Likewise, 142 million records per month is only on the order of 1~10 gigabytes of storage per month, without any compression, including indices. 
+ In your question comment, you said: 
+ 
+ "It's all about reliability, scalability and speed. It's very important that the solution scales easily (MongoDB autosharding?) just throwing in more nodes, and the speed is also very important 
+ 
+ Reliability? Any mainstream DBMS can guarantee this (assuming you mean it's not going to corrupt your data, and it's not going to crash--see my discussion of the CAP theorem at the bottom of this answer). Speed? Even with a single machine, 10~100 times this workload should not be a problem. Scalability? At the current rate, a full year's data, uncompressed, even fully indexed, would easily fit within 100 gigabytes of disk space (likewise, we've already established the insert rate is not an issue). 
+ As such, I don't see any clear need for an exotic solution like NoSQL, or even a distributed database--a plain, old relational database such as MySQL would be just fine. If you're worried about failover, just setup a backup server in a master-slave configuration. If we're talking 100s or 1000s of times the current scale, just horizontally partition a few instances based on the ID of the data-gathering device ( i.e.  {partition index} = {device id} modulo {number of partitions}). 
+ Bear in mind that leaving the safe and comfy confines of the relational database world means abandoning both its  representational model  and its  rich toolset . This will make your "complex datamining" much more difficult--you don't just need to put data into the database, you also need to get it out. 
+ All of that being said, MongoDB and CouchDB are uncommonly simple to deploy and work with. They're also very fun, and will make you more attractive to any number of people (not just programmers--executives, too!). 
+ The common wisdom is that, of the three NoSQL solutions you suggested, Cassandra is the best for high insert volume (of course, relatively speaking, I don't think you  have  high insert volume--this was designed to be used by  Facebook ); this is countered by being more difficult to work with. So unless you have some strange requirements you didn't mention, I would recommend against it, for your use case. 
+ If you're positively set on a NoSQL deployment, you might want to consider the CAP theorem. This will help you decide between MongoDB and CouchDB. Here's a good link:  http://blog.nahurst.com/visual-guide-to-nosql-systems . It all comes down to what you mean by "reliability":  **MongoDB trades availability for consistency, whereas CouchDB trades consistency for availability**
+. (Cassandra allows you to finesse this tradeoff, per query, by specifying how many servers must be written/read for a write/read to succeed; UPDATE: Now, so can CouchDB, with  BigCouch ! Very exciting...) 
+ Best of luck in your project. 
+ 
+ Much of the answer depends on what you want to do with it after it's been collected. Storing lots of data is easy: just dumt it into log files, no need for a database. On the other hand, if you want to perform complex analysis and data mining on it, then a database is helpful. 
+ The next question is what kind of analysis you're going to do. Will it be performed on a subset of the data that has a particular property, the last hour/day/week/month only, can the data aggregated or somehow pre-computed? In other words: do you need access to the whole dataset in the form it is collected? Can you archive data when it gets too old to be interesting? Can you aggregate the data and perform the analysis on the aggregation? 
+ In my experience from working with advertising analytics (collecting billions of data points about ad exposures) aggregation is key. You collect raw data, sanitize it and then put it into a database like MongoDB, Cassandra or even MySQL that let you do updates and queries. Then you periodically aggregate the data and remove it from the database (but archive the raw data, you may need it later).  
+ The aggregation essentially asks all the questions that you want to ask about the data, and saves it in a form that makes it easy to retrieve the answer for a particular question. Say that you want to know on which day of the week has the most X. The naive implementation of this would be to keep all recorded signals in a huge table and do a query that sums all rows that have X. As the number of collected signals grow this query will take longer and longer. No amount of indexing, sharding or optimization will help with this. Instead every day/hour/minute (depending on the exact use case and how up to date your reporting needs to be) you look at the new signals you've recorded, and for every X you increment the counter that keeps track of how many X there were on mondays, if it's a monday, tuesdays if it's a tuesday and so on. That way you can later on retrieve the count for each day of the week and compare them. You do this for all questions you want to be able to answer, and then you remove the signals from the database (but again, keep the raw data).  
+ The database type you record the aggregates in can be the same as the one you store the incoming signals in, but it doesn't need to be very fancy. It will store keys that represent a particular answer, and values that are usually just numbers. 
+ In old school data warehousing speak the database you store the incoming signals in is called an OLTP (for on-line transactional processing) and the database you store the aggregates in is called OLAP (for on-line analytical processing). OLTP is optimized for insertion and OLAP is optimized for querying. The terms are old and when people hear them they tend to immediately think SQL and starschemas and all that. Perhaps I shouldn't use them, but they are convenient terms. 
+ Anyway, for OLTP you want something that is quick at inserting data, but also something that supports indexing the data and searching for things. The aggregation is greatly helped by a database that does half the work of summing and finding maximums and minimums. I really like MongoDB because it's so easy to set up and work with. The data I work with tends to be messy and not all items have the same set of properties, so the forgiving schemalessness of Mongo is a boon. On the other hand, your data sounds much more uniform, so Mongo would perhaps not give you as much benefits. Don't overlook the good old relational databases just yet though. If you're going to do a lot of summing and so on then SQL is great, that's what it's built for. 
+ For OLAP something much simpler works, a key-value store is all you need. I use Redis because it too is very easy to work with and to set up. It also lets you store more than scalar values, which is convenient. Sometimes your value is actually a list, or a hash, in most key-value stores you have to encode such values, but Redis handles it natively. The downside of Redis is that you can't do queries ("as in give me all rows that has this value for Y"), you have to keep indices to your data yourself. On the other hand you won't need indices very much since the answers to all your questions have been precomputed, all you need to do is look up the answer by a key that is defined by the question. For the question above, which day of the week has the most X you look up the number of X work monday, tuesday, etc. perhaps you've stored them as X:monday, X:tuesday, etc. 
+ In conclusion: MongoDB and Redis works great for me. I don't think MongoDB is very good for your use case, instead I think you actually might benefit more from a traditional SQL database (but it depends, if your data is really simple you could perhaps use Redis all the way). The most important thing is to not make the mistake of thinking that you need to have the data in one database and keep it forever. Aggregation and throwing away old data is key. 
+ 
+ CouchDB is very reliable, provides excellent durability, and you'll experience very low CPU load. It's also excellent at replicating between multiple nodes, either on-demand or continuously. 
+ Thanks to its replication abilities and RESTful API (it uses HTTP for its API) you can scale horizontally pretty easily using mature tools. (Nginx or Apache for reverse proxying, HTTP load balancers, etc.) 
+ You write map/reduce functions in JavaScript to precompute queries. The results are built up incrementally on disk which means they only neeed to be computed once per signal. In other words, queries can be really fast because it only has to do calculations on the signal data recorded since the last time you ran the query. 
+ CouchDB trades disk space for performance, so you can expect to use a lot of disk space. Your queries can be lightning fast and conserve disk space if you implement them properly. 
+ Give CouchDB a try. 
+ Check out  Why Large Hadron Collider Scientists are Using CouchDB  and  CouchDB at the BBC as a fault tolerant, scalable, multi-data center key-value store 
+ 
+ ~3000 signals/minute = 50 writes/s which any of these systems will be able to handle easily. 
+ Cassandra will probably work best as your data set grows larger than memory, though, and the Hadoop integration will help with your data mining. 
+ 
+ So you are storing data in a central db for datamining? No online transaction processing?  
+ I don't think that MongoDB does a good job when it comes to durability. See  http://nosql.mypopescu.com/post/392868405/mongodb-durability-a-tradeoff-to-be-aware-of  . 
+ Maybe you can use analytics db Infobright, it has a community edition:  http://www.infobright.org/  ? 
+ 
+ You are looking for a datastore that can allow "lightning fast" writes (data persisted on disk), and the data-mining will occur at a later stage (this is the READ cycle). Also, considering the numbers you state, it turns out you will collect all of 159MB of information per day, or approx 5GB per month.  
+ In this case, why not look at Redis.  
+ You could always archive the daily Redis data file, and refer to it later (if you have concerns of loading 5GB or greater amount of RAM space, then you this archiving could be a workaround) 
+ Redis is rather fast, based on the numbers published on that site. 
+Hope this helps. 
+Kiran 
+ 
+ I've used MongoDB from  Incanter  and have liked it. Although I can't speak to the speed with such large datasets, Clojure (which Incanter is based on) is very reliable in terms of transaction management. Incanter also provides some great analysis tools, so if you're planning on analyzing all of that data, MongoDB + Incanter could be a powerful combination. 
+ 
+ If you're liking the look of Cassandra for its designed-from-the-start ability to scale horizontally, tune consistency against availability and such, then you may also want to look at  Riak , which has a similar feature set but a different approach. 
+ 

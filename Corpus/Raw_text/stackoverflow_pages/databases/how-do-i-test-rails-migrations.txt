@@ -1,0 +1,50 @@
+*** how-do-i-test-rails-migrations ***
+
+ I want to test that certain conditions hold after running a migration I've written. What's the current best way to do that? 
+ To make this concrete: I made a migration that adds a column to a model, and gives it a default value. But I forgot to update all the pre-existing instances of that model to have that default value for the new column. None of my existing tests will catch that, because they all start with a fresh database and add new data, which will have the default. But if I push to production, I know things will break, and I want my tests to tell me that. 
+ I've found  http://spin.atomicobject.com/2007/02/27/migration-testing-in-rails/ , but haven't tried it. It's very old. Is that the state-of-the-art? 
+ 
+ Peter Marklund  has an example gist of testing a migration here:  https://gist.github.com/700194  (in rspec). 
+ Note migrations have changed since his example to use instance methods instead of class methods. 
+ Here's a summary: 
+ 
+ Create a migration as usual 
+ Create a file to put your migration test in. Suggestions:   or  
+NOTE: you probably need to explicitly load the migration file as rails will probably not load it for you. Something like this should do:  
+ Migrations are (like everything in ruby), just a class. Test the   and   methods. If your logic is complex, I suggest refactoring out bits of logic to smaller methods that will be easier to test. 
+ Before calling  , set up some some data as it would be before your migration, and assert that it's state is what you expect afterward. 
+ 
+ I hope this helps. 
+ **UPDATE**
+: Since posting this, I posted on my blog an  example migration test . 
+ **UPDATE**
+: Here's an idea for testing migrations even after they've been run in development. 
+ **EDIT**
+: I've updated my proof-of-concept to a full spec file using the contrived example from my blog post. 
+ 
+ 
+ I just create an instance of the class, then call   or   on on it.  
+ For example: 
+ 
+ 
+ 
+ I made a migration that adds a column to a model, and gives it a default value. But I forgot to update all the pre-existing instances of that model to have that default value for the new column. 
+ 
+ Based on this statement, you are just trying to test that an "old" model, has the default, correct? 
+ Theoretically you are testing if rails works. I.e., "Does rails set a default value to a newly added column" 
+ Adding a column and setting a default value will be there in the "old" records of your database. 
+ So, you don't need to update the other records to reflect the default setting, then.  In theory there is nothing to test, as rails has tested that for you. Lastly, the reason to use defaults is so that you don't have to update the previous instances to use that default, right? 
+ 
+ I don't know Rails, but I think the approach is the same independently from the tooling
+I use the following approach: 
+ 
+ make sure deployed versions of database scripts are apropiatly tagged/labeled in Version Control 
+ based on that you need at least three scripts: a script that creates the old version from scratch (1), a script that creates the new version from scratch (2) and a script that creates the new version from the old version (3). 
+ create two db instances/schemata. In one run script 2, in the other run script 1 followed by script 3 
+ compare the results in the two databases, using sql queries against the data dictionary. 
+ 
+ For testing also the effect on actual data, load test data into the databases after executing script 2 and between 1 and 3. Again run sql queries, compare the results 
+ 
+ You could consider running isolated portions of your test suite with specific settings against copies of your production data (with e.g. something like  yaml_db ). 
+ It's a bit meta, and if you know what the potential problems are with your new migrations you'd likely be better off just enhancing them to cover your specific needs, but it's possible. 
+ 

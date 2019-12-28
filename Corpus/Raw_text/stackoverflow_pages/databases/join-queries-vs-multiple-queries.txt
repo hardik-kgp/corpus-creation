@@ -1,0 +1,122 @@
+*** join-queries-vs-multiple-queries ***
+
+ Are JOIN queries faster than several queries? (You run your main query, and then you run many other SELECTs based on the results from your main query) 
+ I'm asking because JOINing them would complicate A LOT the design of my application 
+ If they are faster, can anyone approximate very roughly by how much? If it's 1.5x I don't care, but if it's 10x I guess I do. 
+ 
+ This is way too vague to give you an answer relevant to your specific case. It depends on a lot of things. Jeff Atwood (founder of this site) actually  wrote about this . For the most part, though, if you have the right indexes and you properly do your JOINs it is usually going to be faster to do 1 trip than several. 
+ 
+ For inner joins, a single query makes sense, since you only get matching rows.
+For left joins, multiple queries is much better... look at the following benchmark I did: 
+ 
+ **Single query with 5 Joins**
+
+ query:  **8.074508 seconds**
+
+ result size: 2268000 
+ **5 queries in a row**
+
+ combined query time:  **0.00262 seconds**
+  
+ result size: 165 (6 + 50 + 7 + 12 + 90) 
+ 
+ . 
+ Note that we get the same results in both cases (6 x 50 x 7 x 12 x 90 = 2268000) 
+ left joins use exponentially more memory with redundant data. 
+ The memory limit might not be as bad if you only do a join of two tables, but generally three or more and it becomes worth different queries. 
+ As a side note, my MySQL server is right beside my application server... so connection time is negligible. If your connection time is in the seconds, then maybe there is a benefit 
+ Frank 
+ 
+ I actually came to this question looking for an answer myself, and after reading the given answers I can only agree that the best way to compare DB queries performance is to get real-world numbers because there are just to many variables to be taken into account BUT, I also think that comparing the numbers between them leads to no good in almost all cases. What I mean is that the numbers should always be compared with an acceptable number and definitely not compared with each other. 
+ I can understand if one way of querying takes say 0.02 seconds and the other one takes 20 seconds, that's an enormous difference. But what if one way of querying takes 0.0000000002 seconds, and the other one takes 0.0000002 seconds ? In both cases one way is a whopping 1000 times faster than the other one, but is it  **really**
+ still "whopping" in the second case ? 
+ Bottom line as I personally see it: if it performs well, go for the easy solution. 
+ 
+ Did a quick test selecting one row from a 50,000 row table and joining with one row from a 100,000 row table. Basically looked like: 
+ 
+ vs 
+ 
+ The two select method took 3.7 seconds for 50,000 reads whereas the JOIN took 2.0 seconds on my at-home slow computer. INNER JOIN and LEFT JOIN did not make a difference. Fetching multiple rows (e.g., using IN SET) yielded similar results. 
+ 
+ Construct both separate queries and joins, then time each of them -- nothing helps more than real-world numbers. 
+ Then even better -- add "EXPLAIN" to the beginning of each query. This will tell you how many subqueries MySQL is using to answer your request for data, and how many rows scanned for each query. 
+ 
+ The real question is:  Do these records have a  **one-to-one relationship**
+ or a  **one-to-many relationship**
+? 
+ **TLDR Answer:**
+
+ If one-to-one, use a   statement. 
+ If one-to-many, use one (or many)   statements with server-side code optimization. 
+ **Why and How To Use SELECT for Optimization**
+
+ 'ing (with multiple queries instead of joins) on large group of records based on a one-to-many relationship produces an optimal efficiency, as  'ing has an exponential memory leak issue.  Grab all of the data, then use a server-side scripting language to sort it out: 
+ 
+ Results: 
+ 
+ Here, I am getting all of the records, in one select statement.  This is better than  , which would be getting a small group of these records, one at a time, as a sub-component of another query.  Then I parse it with server-side code that looks something like... 
+ 
+ **When Not To Use JOIN for Optimization**
+
+ 'ing a large group of records based on a one-to-one relationship with one single record produces an optimal efficiency compared to multiple   statements, one after the other, which simply get the next record type. 
+ But   is inefficient when getting records with a one-to-many relationship. 
+ Example: The database Blogs has 3 tables of interest, Blogpost, Tag, and Comment. 
+ 
+ If there is 1 blogpost, 2 tags, and 2 comments, you will get results like: 
+ 
+ Notice how each record is duplicated.  Okay, so, 2 comments and 2 tags is 4 rows.  What if we have 4 comments and 4 tags?  You don't get 8 rows -- you get 16 rows: 
+ 
+ Add more tables, more records, etc., and the problem will quickly inflate to hundreds of rows that are all full of  mostly  redundant data. 
+ What do these duplicates cost you?  Memory (in the SQL server and the code that tries to remove the duplicates) and networking resources (between SQL server and your code server). 
+ Source:  https://dev.mysql.com/doc/refman/8.0/en/nested-join-optimization.html  ;  https://dev.mysql.com/doc/workbench/en/wb-relationship-tools.html 
+ 
+ This question is old, but is missing some benchmarks. I benchmarked JOIN against its 2 competitors: 
+ 
+ N+1 queries 
+ 2 queries, the second one using a   or equivalent 
+ 
+ The result is clear: on MySQL,   is  much  faster. N+1 queries can drop the performance of an application drastically: 
+ 
+ That is, unless you select a lot of records that point to a very small number of distinct, foreign records. Here is a benchmark for the extreme case: 
+ 
+ This is very unlikely to happen in a typical application, unless you're joining a -to-many relationship, in which case the foreign key is on the other table, and you're duplicating the main table data many times. 
+ Takeaway: 
+ 
+ For *-to-one relationships, always use  
+ For *-to-many relationships, a second query  might  be faster 
+ 
+ See  my article on Medium  for more information. 
+ 
+ Depending on the complexity for the database compared to developer complexity, it may be simpler to do many SELECT calls.  
+ Try running some database statistics against both the JOIN and the multiple SELECTS. See if in your environment the JOIN is faster/slower than the SELECT. 
+ Then again, if changing it to a JOIN would mean an extra day/week/month of dev work, I'd stick with multiple SELECTs 
+ Cheers,  
+ BLT 
+ 
+ In my experience I have found it's usually faster to run several queries, especially when retrieving large data sets. 
+ When interacting with the database from another application, such as PHP, there is the argument of one trip to the server over many. 
+ There are other ways to limit the number of trips made to the server and still run multiple queries that are often not only faster but also make the application easier to read - for example mysqli_multi_query. 
+ I'm no novice when it comes to SQL, I think there is a tendency for developers, especially juniors to spend a lot of time trying to write very clever joins because they look smart, whereas there are actually smart ways to extract data that look simple. 
+ The last paragraph was a personal opinion, but I hope this helps. I do agree with the others though who say you should benchmark. Neither approach is a silver bullet. 
+ 
+ Whether you should use a join is first and foremost about whether a join  makes sense . Only at that point is performance even something to be considered, as nearly all other cases will result in significantly  worse  performance. 
+ Performance differences will largely be tied to how related the info you're querying for is. Joins work, and they're fast when  the data is related  and you index stuff correctly, but they do often result in some redundancy and sometimes more results than needed. And if your data sets are not directly related, sticking them in a single query will result in what's called a Cartesian product (basically, all possible combinations of rows), which is almost never what you want. 
+ This is often caused by many-to-one-to-many relationships. For example,  HoldOffHunger's answer  mentioned a single query for posts, tags, and comments. Comments are related to a post, as are tags...but tags are unrelated to comments. 
+ 
+ In this case, it is unambiguously better for this to be at least two separate queries. If you try to join tags and comments, because there's no direct relation between the two, you end up with every possible combination of tag and comment.  . Aside from that, since posts and tags are unrelated, you can do those two queries in parallel, leading to potential gain.  
+ Let's consider a different scenario, though: You want the comments attached to a post, and the commenters' contact info. 
+ 
+ This is where you should consider a join. Aside from being a much more natural query, most database systems (including MySQL) have lots of smart people put lots of hard work into optimizing queries just like it. For separate queries, since each query depends on the results of the previous one, the queries can't be done in parallel, and the total time becomes not just the actual execute time of the queries, but also the time spent fetching results, sifting through them for IDs for the next query, linking rows together, etc. 
+ 
+ Will it be faster in terms of throughput? Probably. But it also potentially locks more database objects at a time (depending on your database and your schema) and thereby decreases concurrency. In my experience people are often mislead by the "fewer database round-trips" argument when in reality on most OLTP systems where the database is on the same LAN, the real bottleneck is rarely the network. 
+ 
+ Here is a link with 100 useful queries, these are tested in Oracle database but remember SQL is a standard, what differ between Oracle, MS SQL Server, MySQL and other databases are the SQL dialect: 
+ http://javaforlearn.com/100-sql-queries-learn/ 
+ 
+ There are several factors which means there is no binary answer.  The question of what is best for performance depends on your environment.  By the way, if your single select with an identifier is not sub-second, something may be wrong with your configuration.   
+ The real question to ask is how do you want to access the data.  Single selects support late-binding.  For example if you only want employee information, you can select from the Employees table.  The foreign key relationships can be used to retrieve related resources at a later time and as needed.  The selects will already have a key to point to so they should be extremely fast, and you only have to retrieve what you need.  Network latency must always be taken into account. 
+ Joins will retrieve all of the data at once.  If you are generating a report or populating a grid, this may be exactly what you want.  Compiled and optomized joins are simply going to be faster than single selects in this scenario.  Remember, Ad-hoc joins may not be as fast--you should compile them (into a stored proc).  The speed answer depends on the execution plan, which details exactly what steps the DBMS takes to retrieve the data. 
+ 
+ Yes, one query using JOINS would be quicker. Although without knowing the relationships of the tables you are querying, the size of your dataset, or where the primary keys are, it's almost impossible to say how much faster. 
+ Why not test both scenarios out, then you'll know for sure... 
+ 

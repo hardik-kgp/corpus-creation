@@ -1,0 +1,91 @@
+*** rails-include-vs-joins ***
+
+ This is more of a "why do things work this way" question rather than a "I don't know how to do this" question... 
+ So the gospel on pulling associated records that you know you're going to use is to use   because you'll get a join and avoid a whole bunch of extra queries: 
+ 
+ However when you look at the logs, there's no join happening: 
+ 
+ It  is  taking a shortcut because it pulls all of the comments at once, but it's still not a join (which is what all the documentation seems to say). The only way I can get a join is to use   instead of  : 
+ 
+ And the logs show: 
+ 
+ Am I missing something? I have an app with half a dozen associations and on one screen I display data from all of them. Seems like it would be better to have one join-ed query instead of 6 individuals. I know that performance-wise it's not always better to do a join rather than individual queries (in fact if you're going by time spent, it looks like the two individual queries above are faster than the join), but after all the docs I've been reading I'm surprised to see   not working as advertised. 
+ Maybe Rails  is  cognizant of the performance issue and doesn't join except in certain cases? 
+ 
+ It appears that the   functionality was changed with Rails 2.1.  Rails used to do the join in all cases, but for performance reasons it was changed to use multiple queries in some circumstances.   This blog post  by Fabio Akita has some good information on the change (see the section entitled "Optimized Eager Loading"). 
+ 
+  will just joins the tables and brings selected fields in return. if you call associations on joins query result, it will fire database queries again 
+  will eager load the included associations and add them in memory.   loads all the included tables attributes. If you call associations on include query result, it will not fire any queries 
+ 
+ The difference between joins and include is that using the include statement generates a much larger SQL query loading into memory all the attributes from the other table(s). 
+ For example, if you have a table full of comments and you use a :joins => users to pull in all the user information for sorting purposes, etc it will work fine and take less time than :include, but say you want to display the comment along with the users name, email, etc.  To get the information using :joins, it will have to make separate SQL queries for each user it fetches, whereas if you used :include this information is ready for use. 
+ Great example: 
+ http://railscasts.com/episodes/181-include-vs-joins 
+ 
+ In addition to a performance considerations, there's a functional difference too.
+When you join comments, you are asking for posts that have comments- an inner join by default.
+When you include comments, you are asking for all posts- an outer join. 
+ 
+ I was recently reading more on difference between   and   in rails. Here is an explaination of what I understood (with examples :)) 
+ Consider this scenario: 
+ 
+ A User has_many comments and a comment belongs_to a User.  
+ The User model has the following attributes: Name(string), Age(integer). The Comment model has the following attributes:Content, user_id. For a comment a user_id can be null. 
+ 
+ **Joins:**
+
+ :joins performs a  **inner join**
+ between two tables. Thus  
+ 
+ will fetch  **all records where user_id (of comments table) is equal to user.id (users table).**
+ Thus if you do  
+ 
+ You will get a empty array as shown. 
+ Moreover joins does not load the joined table in memory. Thus if you do  
+ 
+ As you see,   will fire a database query again in the background to get the results 
+ **Includes:**
+
+ :includes performs a  **left outer join**
+ between the two tables. Thus 
+ 
+ will result in  **a joined table with all the records from comments table.**
+ Thus if you do  
+ 
+ it will fetch records where comments.user_id is nil as shown. 
+ Moreover includes loads both the tables in the memory. Thus if you do 
+ 
+ As you can notice comment_1.user.age simply loads the result from memory without firing a database query in the background. 
+ 
+ tl;dr 
+ I contrast them in two ways: 
+ **joins**
+ - For conditional selection of records. 
+ **includes**
+ - When using an association on each member of a result set. 
+ Longer version 
+ Joins is meant to filter the result set coming from the database. You use it to do set operations on your table. Think of this as a where clause that performs set theory. 
+ 
+ is the same as 
+ 
+ Except that if there are more than one comment you will get duplicate posts back with the joins. But every post will be a post that has comments. You can correct this with distinct: 
+ 
+ In contract, the   method will simply make sure that there are no additional database queries when referencing the relation (so that we don't make n + 1 queries) 
+ 
+ The moral is, use   when you want to do conditional set operations and use   when you are going to be using a relation on each member of a collection. 
+ 
+ .joins works as database join and it joins two or more table and fetch selected data from backend(database). 
+ .includes work as left join of database. It loaded all the records of left side, does not have relevance of right hand side model. It is used to eager loading because it load all associated object in memory. If we call associations on include query result then it does not fire a query on database, It simply return data from memory because it have already loaded data in memory. 
+ 
+ 'joins' just used to join tables and when you called associations on joins then it will again fire query (it mean many query will fire) 
+ 
+ total number of SQL is 11 in this case 
+ But with
+'includes' will eager load the included associations and add them in memory(load all associations on first load) and not fire query again 
+ when you get records with includes like 
+@records= User.includes(:organisations).where("organisations.user_id = 1")
+then query will be  
+ 
+ @records.map{|u|u.organisation.name}
+    no query will fire 
+ 

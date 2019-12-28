@@ -1,0 +1,97 @@
+*** how-do-you-structure-config-data-in-a-database ***
+
+ What is people's prefered method of storing application configuration data in a database. From having done this in the past myself, I've utilised two ways of doing it. 
+ 
+ You can create a table where you store key/value pairs, where key is the name of the config option and value is its value. Pro's of this is adding new values is easy and you can use the same routines to set/get data. Downsides are you have untyped data as the value. 
+ Alternatively, you can hardcode a configuration table, with each column being the name of the value and its datatype. The downside to this is more maintenance setting up new values, but it allows you to have typed data. 
+ 
+ Having used both, my preferences lie with the first option as its quicker to set things up, however its also riskier and can reduce performance (slightly) when looking up data. Does anyone have any alternative methods? 
+ **Update**
+
+ It's necessary to store the information in a database because as noted below, there may be multiple instances of the program that require configuring the same way, as well as stored procedures potentially using the same values. 
+ 
+ You can expand option 1 to have a 3rd column, giving a data-type. Your application can than use this data-type column to cast the value. 
+ But yeah, I would go with option 1, if config files are not an option. Another advantage of option 1 is you can read it into a Dictionary object (or equivalent) for use in your application really easily. 
+ 
+ Since configuration typically can be stored in a text file, the string data type should be more than enough to store the configuration values. If you're using a managed language, it's the code that knows what the data type should be, not the database. 
+ More importantly, consider these things with configuration: 
+ 
+ **Hierarchy**
+: Obviously, configuration will benefit from a
+hierarchy 
+ **Versioning**
+: Consider the benefit of being able to roll back to the configuration that was in effect at a certain date. 
+ **Distribution**
+: Some time, it might be nice to be able to cluster an application. Some properties should probably be local to each node in a cluster. 
+ **Documentation**
+: Depending on if you have a web tool or something, it is probably nice to store the documentation about a property close to the code that uses it. (Code annotations is very nice for this.) 
+ **Notification**
+: How is the code going to know that a change has been made somewhere in the configuration repository? 
+ 
+ Personally, i like an inverted way of handling configuration, where the configuration properties is injected into the modules which don't know where the values came from. This way, the configuration management system can be very complex or very simple depending on your (current) needs. 
+ 
+ I use option 1. 
+ 
+ It seems overkill to use the DB for config data.  
+ EDIT (sorry too long for comment box): 
+Of course there's no strict rules on how you implement any part of your program. For the sake of argument, slotted screwdrivers work on some philips screws! I guess I judged too early before knowing what your scenario is.  
+ Relational database excels in massive data store that gives you quick storing, updating, and retrieval, so if your config data is updated and read constantly, then by all means use db.  
+ Another scenario where db may make sense is when you have a server farm where you want your database to store your central config, but then you can do the same with a shared networked drive that point to the xml config file.  
+ XML file is better when your config is hierarchically structured. You can easily organize, locate, and update what you need, and for bonus benefit you can version control the config file along with your source code!  
+ All in all, it all depends on how the config data is used.  
+ That concludes my opinion with limited knowledge of your application. I am sure you can make the right decision.  
+ 
+ I guess this is more of a poll, so I'll say the column approach (option 2). However it will depend on how often your config changes, how dynamic it is, and how much data there is, etc. 
+ I'd certainly use this approach for user configurations / preferences, etc. 
+ 
+ My project uses a database table with four columns: 
+ 
+ ID [pk] 
+ Scope (default 'Application') 
+ Setting 
+ Value 
+ 
+ Settings with a Scope of 'Application' are global settings, such as Maximum number of simultaneous users.   
+ Each module has its own scope based; so our ResultsLoader and UserLoader have different scopes, but both have a Setting named 'inputPath'. 
+ Defaults are either provided in the source code or are injected via our IoC container.  If no value is injected or provided in the database, the default from the code is used (if one exists).  Therefore, defaults are never stored in the database. 
+ This works out quite well for us.  Each time we backup the database we get a copy of the Configuration which is quite handy.  The two are always in sync. 
+ 
+ Go with option 2.
+Option 1 is really a way of implenting a database on top of a database, and that is a well-known antipattern, which is just going to give you trouble in the long run. 
+ 
+ I can think of at least two more ways: 
+ (a) Create a table with key, string-value, date-value, int-value, real-value columns. Leave unused types NULL. 
+ (b) Use a serialization format like XML, YAML or JSON and store it all in a blob. 
+ 
+ Where do you you store the configuration settings your app needs to connect to the database? 
+ Why not store the other config info there too? 
+ 
+ I'd go with option 1, unless the number of config options were VERY small (seven or less) 
+ 
+ At my company, we're working on using option one (a simple dictionary-like table) with a twist. We're allowing for string substitution using tokens which contain the name of the config variable to be substituted.  
+ For example, the table might contain rows ('database connection string', 'jdbc://%host%...') and ('host', 'foobar'). Encapsulating that with a simple service or stored procedure layer allows for an extremely simple, but flexible, recursive configuration. It supports our need to have multiple isolated environments (dev, test, prod, etc). 
+ 
+ I've used both 1 and 2 in the past, and I think they're both terrible solutions.  I think Option 2 is better because it allows typing, but it's a lot more ugly than option 1.  The biggest problem I have with either is versioning the config file.  You can version SQL reasonably well using standard version control systems, but merging changes is usually problematic.  Given an opportunity to do this "right", I'd probably create a bunch of tables, one for each type of configuration parameter (not necessarily for each parameter itself), thus getting the benefit of typing and the benefit of the key/value paradigm where appropriate.  You can also implement more advanced structures this way, such as lists and hierarchies, which will then be directly queryable by the app instead of having to load the config and then transform it somehow in memory. 
+ 
+ I vote for option 2. Easy to understand and maintain.          
+ 
+ Option 1 is good for an easily expandable, central storage location.  In addition to some of the great column suggestions by folks like RB, Hugo, and elliott, you might also consider: 
+ Include a Global/User setting flag with a user field or even a user/machine field (for machine-specific UI type settings). 
+ Those can, of course, be stored in a local file, but since you are using the database anyway, that makes these available for aliasing a user when debugging - which can be important if the bug is setting related.  It also allows an admin to manage setings when necessary. 
+ 
+ I use a mix of option 2 and XML columns in SQL server.
+You may also wan't to add a check constraint to keep the table at one row. 
+ 
+ 
+ for settings that have no relation to any db tables, i'd probably go for the EAV approach if you need the db to work with the values. otherwise a serialized field value is good if it's really just a store for app code. 
+ but what about a format for a single field to store multiple config settings to be used by the db? 
+ like one field per user that contains all their settings related to their messageboard view (like default sort order, blocked topics, etc.), and maybe another with all their settings for their theme (like text color, bg color, etc.) 
+ 
+ Storing hierarchy and documents in a relational DB is madness. Firstly you either have to shred them, only to recombine them at some later stage. Or there bunged inside a BLOB, even more stupid. 
+ Don't use use a relational db for non-relational data, the tool does not fit. Consider something like MongoDB or CouchDB for this. Schema-less no-relational data stores. Store it as JSON if it's coming down the wire in any way to a client, use XML for serverside. 
+ CouchDB gives you versioning out of the box.  
+ 
+ Don't store configuration data in a database unless you have a very good reason to. If you do have a very good reason, and are absolutely certain you are going to do it, you should probably store it in a data serialization format like JSON or YAML (not XML, unless you actually need a markup language to configure your app -- trust me, you don't) as a string. Then you can just read the string, and use tools in whatever language you work in to read and modify it. Store the strings with timestamps, and you have a simple versioning scheme with the ability to store hierarchical data in a very simple system. Even if you don't need hierarchical config data, at least now if you need it in the future you won't have to change your config interface to get it. Of course you lose the ability to do relational queries on your config data, but if you're storing  **that**
+ much config data, then you're probably doing something very wrong anyway.  
+ Companies tend to store lots configuration data for their systems in a database, I'm not sure why, I don't think much thought goes into these decisions. I don't see this kind of thing done too often in the OSS world. Even large OSS programs that need lots of configuration like Apache don't need a connection to a database containing an apache_config table to work. Having a huge amount of configuration to deal with in your apps is a bad code smell, storing that data in a database just causes more problems (as this thread illustrates).  
+ 

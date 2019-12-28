@@ -1,0 +1,112 @@
+*** how-do-i-shrink-my-sql-server-database ***
+
+ I have a Database nearly 1.9Gb Database in size, and MSDE2000 does not allow DBs that exceed 2.0Gb 
+ I need to shrink this DB (and many others like this at various client locations). 
+ I have found and deleted many 100's of 1000's of records which are considered unneeded:
+these records account for a large percentage of some of the main (largest) tables in the Database. Therefore it's reasonable to assume much space should now be retrievable. 
+ So now I need to shrink the DB to account for the missing records. 
+ 
+ I execute  ...... No effect. 
+ I have tried the various shrink facilities provided in MSSMS.... Still no effect. 
+ I have backed up the database and restored it... Still no effect. 
+ 
+ Still 1.9Gb 
+ Why? 
+ Whatever procedure I eventually find needs to be replayable on a client machine with access to nothing other than OSql or similar. 
+ 
+ 
+ 
+ This may seem bizarre, but it's worked for me and I have written a C# program to automate this. 
+ Step 1: Truncate the transaction log (Back up only the transaction log, turning on the option to remove inactive transactions) 
+ Step 2: Run a database shrink, moving all the pages to the start of the files 
+ Step 3: Truncate the transaction log again, as step 2 adds log entries 
+ Step 4: Run a database shrink again. 
+ My stripped down code, which uses the SQL DMO library, is as follows: 
+ 
+ 
+ This is an old question but I just happened upon it. 
+ The really short and a correct answer is already given and has the most votes. That is  **how**
+ you shrink a transaction log, and that was probably the OPs problem. And when the transaction log has grown out of control, it often needs to be shrunk back, but care should be taken to prevent future situations of a log growing out of control. This question on  dba.se  explains that.  **Basically - Don't let it get that large in the first place through proper recovery model, transaction log maintenance, transaction management, etc.**
+
+ But the bigger question in my mind when reading this question about shrinking the data file (or even the log file) is  **why?**
+ and  **what bad things happen when you try?**
+ It appears as though shrink operations were done. Now in this case it makes sense in a sense - because MSDE/Express editions are capped at max DB size. But the right answer may be to look at the right version for your needs. And if you stumble upon this question looking to shrink your production database and this isn't the reason why, you should ask yourself the  **why?**
+ question. 
+ I don't want someone searching the web for "how to shrink a database" coming across this and thinking it is a cool or acceptable thing to do. 
+ Shrinking Data Files is a special task that should be reserved for special occasions. Consider that when you shrink a database, you are effectively fragmenting your indexes. Consider that when you shrink a database you are taking away the free space that a database may someday grow right back into - effectively wasting your time and incurring the performance hit of a shrink operation only to see the DB grow again. 
+ I wrote about this concept in several blog posts about shrinking databases. This one called " Don't touch that shrink button " comes to mind first. I talk about these concepts outlined here - but also the concept of "Right-Sizing" your database. It is far better to decide what your database size needs to be, plan for future growth and allocate it to that amount. With Instant File Initialization available in SQL Server 2005 and beyond for data files, the cost of growths is lower - but I still prefer to have a proper initial application - and I'm far less scared of  white space in a database than I am of shrinking in general with no thought first. :) 
+ 
+  works for me, but this is its full syntax: 
+ 
+ where   is the desired percentage of free space left in the database file after the database has been shrunk. 
+ And   parameter can be: 
+ 
+ Causes the freed file space to be retained in the database files. If not specified, the freed file space is released to the operating system.  
+ 
+ Causes any unused space in the data files to be released to the operating system and shrinks the file to the last allocated extent, reducing the file size without moving any data. No attempt is made to relocate rows to unallocated pages. target_percent is ignored when TRUNCATEONLY is used. 
+ ...and yes no_one is right, shrinking datbase is not very good practice becasue for example : 
+ shrink on data files are excellent ways to introduce significant logical fragmentation, becasue it moves pages from the end of the allocated range of a database file to somewhere at the front of the file... 
+ shrink database can have a lot of consequence on database, server.... think a lot about it before you do it! 
+ on the web there are a lot of blogs and articles about it. 
+ 
+ Late answer but might be useful useful for someone else 
+ If neither DBCC ShrinkDatabase/ShrinkFile or SSMS (Tasks/Shrink/Database) doesn’t help, there are tools from Quest and ApexSQL that can get the job done, and even schedule periodic shrinking if you need it. 
+ I’ve used the latter one in free trial to do this some time ago, by following short description at the end of this article: 
+ https://solutioncenter.apexsql.com/sql-server-database-shrink-how-and-when-to-schedule-and-perform-shrinking-of-database-files/ 
+ All you need to do is install ApexSQL Backup, click "Shrink database" button in the main ribbon, select database in the window that will pop-up, and click "Finish". 
+ 
+ You will also need to shrink the individual data files. 
+ It is however not a good idea to shrink the databases.  For example see  here 
+ 
+ You should use: 
+ 
+ It will shrink the log file (keep a windows explorer open and see it happening). 
+ 
+ Here's another solution:  Use the  Database Publishing Wizard  to export your schema, security and data to sql scripts.  You can then take your current DB offline and re-create it with the scripts.   
+ Sounds kind of foolish, but there are a couple advantages.  First, there's no chance of losing data.  Your original db (as long as you don't delete your DB when dropping it!) is safe, the new DB will be roughly as small as it can be, and you'll have two different snapshots of your current database - one ready to roll, one minified - you can choose from to back up. 
+ 
+ "Therefore it's reasonable to assume much space should now be retrievable." 
+ Apologies if I misunderstood the question, but are you sure it's the database and not the log files that are using up the space? Check to see what recovery model the database is in. Chances are it's in Full, which means the log file is never truncated. If you don't need a complete record of every transaction, you should be able to change to Simple, which will truncate the logs. You can shrink the database during the process. Assuming things go right, the process looks like: 
+ 
+ Backup the database! 
+ Change to Simple Recovery 
+ Shrink db (right-click db, choose all tasks > shrink db -> set to 10% free space) 
+ Verify that the space has been reclaimed, if not you might have to do a full backup 
+ 
+ If that doesn't work (or you get a message saying "log file is full" when you try to switch recovery modes), try this: 
+ 
+ Backup 
+ Kill all connections to the db 
+ Detach db (right-click > Detach or right-click > All Tasks > Detach) 
+ Delete the log (ldf) file 
+ Reattach the db 
+ Change the recovery mode 
+ 
+ etc. 
+ 
+ I came across this post even though I needed to SHRINKFILE on MSSQL 2012 version which is little trickier since 2000 or 2005 versions. After reading up on all risks and issues related to this issue I ended up testing. Long story short, the best results I got were from using the  **MS SQL Server Management Studio**
+.  
+ 
+ 
+ You also have to modify the minimum size of the data and log files. DBCC SHRINKDATABASE will shrink the data  inside  the files you already have allocated. To shrink a file to a size smaller than its minimum size, use DBCC SHRINKFILE and specify the new size.  
+ 
+ Delete data, make sure recovery model is simple, then skrink (either shrink database or shrink files works). If the data file is still too big, AND you use heaps to store data -- that is, no clustered index on large tables -- then you might have this problem regarding deleting data from heaps:  http://support.microsoft.com/kb/913399   
+ 
+ I recently did this.  I was trying to make a compact version of my database for testing on the road, but I just couldn't get it to shrink, no matter how many rows I deleted.  Eventually, after many other commands in this thread, I found that my clustered indexes were not getting rebuilt after deleting rows.  Rebuilding my indexes made it so I could shrink properly. 
+ 
+ Not sure how practical this would be, and depending on the size of the database, number of tables and other complexities, but I: 
+ 
+ defrag the physical drive 
+ create a new database according to my requirements, space, percentage growth, etc 
+ use the simple ssms task to import all tables from the old db to the new db 
+ script out the indexes for all tables on the old database, and then recreate the indexes on the new database. expand as needed for foreign keys etc. 
+ rename databases as needed, confirm successful, delete old 
+ 
+ 
+ I think you can remove all your log with switch from full to simple recovery. Right click on your Database and select   and select   and change  
+ 
+  to  
+  to  
+ 
+ 
+ 

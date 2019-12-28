@@ -1,0 +1,88 @@
+*** how-to-unit-test-an-object-with-database-queries ***
+
+ I've heard that unit testing is "totally awesome", "really cool" and "all manner of good things" but 70% or more of my files involve database access (some read and some write) and I'm not sure how to write a unit test for these files. 
+ I'm using PHP and Python but I think it's a question that applies to most/all languages that use database access. 
+ 
+ I would suggest mocking out your calls to the database.  Mocks are basically objects that look like the object you are trying to call a method on, in the sense that they have the same properties, methods, etc. available to caller.  But instead of performing whatever action they are programmed to do when a particular method is called, it skips that altogether, and just returns a result. That result is typically defined by you ahead of time.   
+ In order to set up your objects for mocking, you probably need to use some sort of inversion of control/ dependency injection pattern, as in the following pseudo-code: 
+ 
+ Now in your unit test, you create a mock of FooDataProvider, which allows you to call the method GetAllFoos without having to actually hit the database. 
+ 
+ A common mocking scenario, in a nutshell.  Of course you will still probably want to unit test your actual database calls too, for which you will need to hit the database. 
+ 
+ Ideally, your objects should be persistent ignorant. For instance, you should have a "data access layer", that you would make requests to, that would return objects. This way, you can leave that part out of your unit tests, or test them in isolation. 
+ If your objects are tightly coupled to your data layer, it is difficult to do proper unit testing. the first part of unit test, is "unit". All units should be able to be tested in isolation. 
+ In my c# projects, I use NHibernate with a completely seperate Data layer. My objects live in the core domain model and are accessed from my application layer. The application layer talks to both the data layer and the domain model layer. 
+ The application layer is also sometimes called the "Business Layer". 
+ If you are using PHP, create a specific set of classes for  **ONLY**
+ data access. Make sure your objects have no idea how they are persisted and wire up the two in your application classes. 
+ Another option would be to use mocking/stubs. 
+ 
+ The easiest way to unit test an object with database access is using transaction scopes.  
+ For example: 
+ 
+ This will revert back the state of the database, basically like a transaction rollback so you can run the test as many times as you want without any sideeffects. We've used this approach successfully in large projects. Our build does take a little long to run (15 minutes), but it is not horrible for having 1800 unit tests. Also, if build time is a concern, you can change the build process to have multiple builds, one for building src, another that fires up afterwards that handles unit tests, code analysis, packaging, etc... 
+ 
+ I can perhaps give you a taste of our experience when we began looking at unit testing our middle-tier process that included a ton of "business logic" sql operations. 
+ We first created an abstraction layer that allowed us to "slot in" any reasonable database connection (in our case, we simply supported a single ODBC-type connection). 
+ Once this was in place, we were then able to do something like this in our code (we work in C++, but I'm sure you get the idea): 
+ GetDatabase().ExecuteSQL( "INSERT INTO foo ( blah, blah )" ) 
+ At normal run time, GetDatabase() would return an object that fed all our sql (including queries), via ODBC directly to the database. 
+ We then started looking at in-memory databases - the best by a long way seems to be SQLite. ( http://www.sqlite.org/index.html ).  It's remarkably simple to set up and use, and allowed us subclass and override GetDatabase() to forward sql to an in-memory database that was created and destroyed for every test performed. 
+ We're still in the early stages of this, but it's looking good so far, however we do have to make sure we create any tables that are required and populate them with test data - however we've reduced the workload somewhat here by creating a generic set of helper functions that can do a lot of all this for us. 
+ Overall, it has helped immensely with our TDD process, since making what seems like quite innocuous changes to fix certain bugs can have quite strange affects on other (difficult to detect) areas of your system - due to the very nature of sql/databases. 
+ Obviously, our experiences have centred around a C++ development environment, however I'm sure you could perhaps get something similar working under PHP/Python. 
+ Hope this helps. 
+ 
+ You should mock the database access if you want to unit test your classes. After all, you don't want to test the database in a unit test. That would be an integration test.  
+ Abstract the calls away and then insert a mock that just returns the expected data. If your classes don't do more than executing queries, it may not even be worth testing them, though... 
+ 
+ The book  xUnit Test Patterns  describes some ways to handle unit-testing code that hits a database.  I agree with the other people who are saying that you don't want to do this because it's slow, but you gotta do it sometime, IMO.  Mocking out the db connection to test higher-level stuff is a good idea, but check out this book for suggestions about things you can do to interact with the actual database. 
+ 
+ Options you have: 
+ 
+ Write a script that will wipe out database before you start unit tests, then populate db with predefined set of data and run the tests. You can also do that before every test – it'll be slow, but less error prone. 
+ Inject the database. (Example in pseudo-Java, but applies to all OO-languages)  
+class Database {
+ public Result query(String query) {... real db here ...}
+}
+
+ class MockDatabase extends Database {
+  public Result query(String query) { 
+    return "mock result"; 
+  }
+} 
+
+ class ObjectThatUsesDB {
+ public ObjectThatUsesDB(Database db) { 
+   this.database = db; 
+ }
+}
+ 
+now in production you use normal database and for all tests you just inject the mock database that you can create ad hoc. 
+ Do not use DB at all throughout most of code (that's a bad practice anyway). Create a "database" object that instead of returning  with results will return normal objects (i.e. will return   instead of a tuple  ) write all your tests with ad hoc constructed  real  objects and write one big test that depends on a database that makes sure this conversion works OK. 
+ 
+ Of course these approaches are not mutually exclusive and you can mix and match them as you need.  
+ 
+ Unit testing your database access is easy enough if your project has high cohesion and loose coupling throughout.  This way you can test only the things that each particular class does without having to test everything at once.   
+ For example, if you unit test your user interface class the tests you write should only try to verify the logic inside the UI worked as expected, not the business logic or database action behind that function.   
+ If you want to unit test the actual database access you will actually end up with more of an integration test, because you will be dependent on the network stack and your database server, but you can verify that your SQL code does what you asked it to do. 
+ The hidden power of unit testing for me personally has been that it forces me to design my applications in a much better way than I might without them.  This is because it really helped me break away from the "this function should do everything" mentality. 
+ Sorry I don't have any specific code examples for PHP/Python, but if you want to see a .NET example I have a  post  that describes a technique I used to do this very same testing. 
+ 
+ I usually try to break up my tests between testing the objects (and ORM, if any) and testing the db.  I test the object-side of things by mocking the data access calls whereas I test the db side of things by testing the object interactions with the db which is, in my experience, usually fairly limited. 
+ I used to get frustrated with writing unit tests until I start mocking the data access portion so I didn't have to create a test db or generate test data on the fly.  By mocking the data you can generate it all at run time and be sure that your objects work properly with known inputs. 
+ 
+ I've never done this in PHP and I've never used Python, but what you want to do is mock out the calls to the database.  To do that you can implement some  IoC  whether 3rd party tool or you manage it yourself, then you can implement some mock version of the database caller which is where you will control the outcome of that fake call. 
+ A simple form of IoC can be performed just by coding to Interfaces. This requires some kind of object orientation going on in your code so it may not apply to what your doing (I say that since all I have to go on is your mention of PHP and Python) 
+ Hope that's helpful, if nothing else you've got some terms to search on now. 
+ 
+ I agree with the first post - database access should be stripped away into a DAO layer that implements an interface.  Then, you can test your logic against a stub implementation of the DAO layer. 
+ 
+ You could use  **mocking frameworks**
+ to abstract out the database engine. I don't know if PHP/Python got some but for typed languages (C#, Java etc.) there are plenty of choices 
+ It also depends on how you designed those database access code, because some design are easier to unit test than other like the earlier posts have mentioned. 
+ 
+ Setting up test data for unit tests can be a challenge. 
+ When it comes to Java, if you use Spring APIs for unit testing, you can control the transactions on a unit level. In other words, you can execute unit tests which involves database updates/inserts/deletes and rollback the changes. At the end of the execution you leave everything in the database as it was before you started the execution. To me, it is as good as it can get. 
+ 

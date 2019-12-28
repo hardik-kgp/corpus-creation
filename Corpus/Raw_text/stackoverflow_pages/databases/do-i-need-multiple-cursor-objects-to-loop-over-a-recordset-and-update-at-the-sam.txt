@@ -1,0 +1,42 @@
+*** do-i-need-multiple-cursor-objects-to-loop-over-a-recordset-and-update-at-the-sam ***
+
+ So I've got a large database that I can't hold in memory at once.  I've got to loop over every item in a table, process it, and put the processed data into another column in the table. 
+ While I'm looping over my cursor, if I try to run an update statement it truncates the recordset (I believe because it's re-purposing the cursor object). 
+ **Questions:**
+
+ Will creating a second cursor object to run the update statements allow me to continue looping over the original select statement? 
+ Do I need a second connection to the database in order to have a second cursor object, that will allow me do do this? 
+ How would sqlite respond to having two connections to the database, one reading from the table, the other writing to it? 
+ **My code (simplified):**
+
+ 
+ The other method I tried was to modify my select statement to be: 
+ 
+ Then I would do: 
+ 
+ The problem I had with this was that my  real  select statement has a JOIN in it and takes a while, so executing the JOIN that many times is very time intensive.  I'm trying to speed up the process by only doing the select once, then using a generator so I don't have to hold it all in memory. 
+ **Solution:**
+
+ Ok, so the answer to my first two questions is "No."  To my third question, once a connection is made to a database, it locks the entire database, so another connection won't be able to do anything until the first connection is closed.  
+ I couldn't find the source code for it, but from empirical evidence I believe that a connection can only use one cursor object at a time and the last run query takes precedence. This means that, while I'm looping over the selected recordset yielding one row at a time, as soon as I run my first update statement my generator stops yielding rows. 
+ My solution is to create a temporary database that I stick the processed_content in with the id, so that I have one connection/cursor object per database and can continue looping over the selected recordset, while inserting into the temporary database periodically.  Once I reach the end of my selected recordset I transfer the data in the temporary database back to the original. 
+ If anyone knows for sure about the connection/cursor objects, let me know in a comment. 
+ 
+ I think you have roughly the right architecture -- presenting it in terms of "cursors" WILL confuse the "old SQL hands", because they'll be thinking of the many issues connected with  ,  ,  , and other such beauts having to do with  **SQL**
+ cursors.  Python DB API's "cursor" is simply a convenient way to package and execute SQL statements,  **not**
+ necessarily connected with  **SQL**
+ cursors -- it won't suffer from any of those problems -- though it may present its (completely original) own ones;-) But, with the "batching" of results you're doing, your proper commits, etc, you have preventively finessed most of those "original problems" I had in mind. 
+ On some other engines I'd suggest doing first a select into a temporary table, then reading from that temporary table while updating the primary one, but I'm uncertain how the performance would be affected in sqlite, depending on what indices you have (if no index is affected by your update, then I suspect that such a temporary table would not be an optimization at all in sqlite -- but I can't run benchmarks on your data, the only real way to check performance hypotheses). 
+ So, I'd say, go for it!-) 
+ 
+ Is it possible to create a DB function that will process your content?  If so, you should be able to write a single update statement and let the database do all the work.  Eg; 
+ 
+ 
+ Cursors are bad bad bad for a multitude of reasons. 
+ I'd suggest (and a lot of others will definitely chime in) that you use a single UPDATE statement instead of going the CURSOR route. 
+ Can your Processed_Content be sent as a parameter to a single query that does set based operations like so: 
+ 
+ **Edited based on responses:**
+
+ Since every row has a unique value for Processed_Content, you have no option but to use a recordset and a loop.  I have done this in the past on multiple occasions. What you are suggesting should work effectively. 
+ 

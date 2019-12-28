@@ -1,0 +1,122 @@
+*** whats-your-1-way-to-be-careful-with-a-live-database ***
+
+ For my customer I occasionally do work in their live database in order to fix a problem they have created for themselves, or in order to fix bad data that my product's bugs created.  Much like Unix root access, it's just dangerous.  What lessons should I learn ahead of time? 
+ What is the #1 thing you do to be careful about operating on live data? 
+ 
+ Three things I've learned the hard way over the years... 
+ First, if you're doing updates or deletes on live data, first write a SELECT query with the WHERE clause you'll be using. Make sure it works. Make sure it's correct. Then prepend the UPDATE/DELETE statement to the known working WHERE clause. 
+ You never want to have  
+ 
+ sitting in your query analyzer waiting for you to write the WHERE clause... accidentally hit "execute" and you've just killed your Customer table. Oops. 
+ Also, depending on your platform, find out how to take a quick'n'dirty backup of a table. In SQL Server 2005, 
+ 
+ will copy every row from the entire Customer table into a new table called CustomerBackup200810032034, which you can then delete once you've done your updates and made sure everything's OK. If the worst happens, it's a lot easier to restore missing data from this table than to try and restore last night's backup from disk or tape. 
+ Finally, be wary of cascade deletes getting rid of stuff you didn't intend to delete - check your tables' relationships and key constraints before modifying anything. 
+ 
+ 
+ That way you can rollback after a mistake. 
+ 
+ Do a backup first: it should be the number 1 law of sysadmining anyways 
+ **EDIT**
+: incorporating what others have said, make sure your UPDATES have appropriate WHERE clauses. 
+ Ideally, changing a live database should never happen (beyond INSERTs and basic maintenance). Changing the live DB's structure is especially fraught with potential bad karma. 
+ 
+ Make your changes to a copy, and when you're satisfied, then apply the fix to live. 
+ 
+ Often before I do an UPDATE or DELETE, I write the equivalent SELECT.  
+ 
+ NEVER do an update unless you are in a BEGIN TRAN t1--not in a dev database, not in production, not anywhere.  NEVER run a COMMIT TRAN t1 outside a comment--always type 
+ 
+ and then select the statement in order to run it.  (Obviously, this only applies to GUI query clients.)  If you do these things, it will become second nature to do them and you won't lose hardly any time. 
+ I actually have a "update" macro that types this.  I always paste this in to set up my updates.  You can make a similar one for deletes and inserts. 
+ 
+ 
+ Always make sure your UPDATEs and DELETEs have the proper WHERE clause. 
+ 
+ To answer my own question: 
+ When writing an update statement, write it out of order. 
+ 
+ Write  
+ Write  
+ Go back and write  
+ 
+ Choosing the rows you want to update before you say what values you want to change is much safer than doing it in the other order.  It makes it impossible for   to be sitting in your query window, ready to be run by a misplaced keystroke, ready to mess up every row in the table. 
+ Edit:  As others have said, write the   clause for your deletes before you write  . 
+ 
+ As an example, I create SQL like this 
+ 
+ I highlight the text from the end up to the Select and run that SQL.  Once I verify that it is pulling the record I want to update, I hit shift-up to hightlight the Update statement and run that.   
+ Note that I used an alias.  I never update a table name explicity.  I always use an alias. 
+ If I do this in conjunction with transactions and rollback/commits, I am really, really safe. 
+ 
+ My #1 way to be careful with a live database? Don't touch it. :)  
+ Backups can undo damage that you inflict on the database, but you're still likely to introduce negative side effects during that span of time. 
+ No matter how solid you think the script you're working with is, run it through a test cycle. Even if a "test cycle" means running the script against your own instance of the database, make sure you do it. It's much better to introduce defects on your local box than a production environment. 
+ 
+ 
+ Check, recheck, and check again any statment that is doing updates. Even if you think you're just doing a simple, single column update, sooner or later you will not have enough coffee and forget a 'where' clause, nuking a whole table. 
+ 
+ A couple other things I've found helpful: 
+ 
+ if using MySQL, enable  Safe updates   
+ If you have a DBA, ask them to do it. 
+ 
+ I 've found these 3 things have kept me from doing any serious harm. 
+ 
+ 
+ **Nobody wants backup but everyone cries for recovery**
+
+ Create your DB with foreign key references, because you should: 
+ make it as hard as possible for yourself to update/delete data and destroying the structural integrity / something else with that 
+ If possible, run on a system where you have to commit the changes before you permanently store them (i.e. deactivate autocommit while repairing the db) 
+ Try to identify your problem's classes so that you get an understanding how to fix without trouble 
+ Get a routine in playing backups into a database, always have a second database on a test server at hand so you can just work on that 
+ Because remember:  **If something fails totally, you need to be up and running again as fast as any possible**
+
+ 
+ Well, that's about all I can think of now. Take the bold passages and you see whats #1 for me. ;-) 
+ 
+ Maybe consider not using any deletes or drops at all. Or maybe reduce the user permissions so that only a special DB user can delete/drop things. 
+ 
+ If you're using Oracle or another database that supports it, verify your changes before doing a COMMIT. 
+ 
+ Data should always be deployed to live via scripts, which can be rehearsed as many times as it is required to get it right on dev. When there's dependent data for the script to run correctly on dev, stage it appropriately -- you can not get away with this step if you truly want to be careful.  
+ 
+ Check twice, commit once! 
+ 
+ Backup or dump the database before starting. 
+ 
+ To add on to what @ Wayne  said, write your   before the table name in a   or   statement. 
+ 
+ BACK UP YOUR DATA. Learned that one the hard way working with customer databases on a regular basis. 
+ 
+ Always add a using clause. 
+ 
+ My rule (as an app developer):  Don't touch it!  That's what the trained DBAs are for.  Heck, I don't even want permission to touch it. :) 
+ 
+ Different colors per environment: We've setup our PL\SQL developer (IDE for Oracle) so that when you logon to the production DB all the windows are in bright red. Some have gone as far as assigning a different color for dev and test as well. 
+ 
+ Make sure you specify a where clause when deleting records. 
+ 
+ always test any queries beyond select on development data first to ensure it has the correct impact. 
+ 
+ 
+ if possible, ask to pair with someone 
+ always count to 3 before pressing Enter (if alone, as this will infuriate your pair partner!) 
+ 
+ 
+ If I'm updating a database with a script, I always make sure I put a breakpoint or two at the start of my script, just in case I hit the run/execute by accident.    
+ 
+ I'll add to recommendations of doing BEGIN TRAN before your UPDATE, just don't forget to actually do the COMMIT; you can do just as much damage if you leave your uncommitted transaction open. Don't get distracted by phones, co-workers, lunch etc when in the middle of updates or you'll find everyone else is locked up until you COMMIT or ROLLBACK. 
+ 
+ I always comment out any destructive queries (insert, update, delete, drop, alter) when writing out adhoc queries in Query Analyzer.  That way, the only way to run them, is to highlight them, without selecting the commented part, and press F5. 
+ I also think it's a good idea, as already mentioned, to write your where statement first, with a select, and ensure that you are altering the right data.  
+ 
+ 
+ Always back up before changing. 
+ Always make mods (eg. ALTER TABLE) via a script. 
+ Always modify data (eg. DELETE) via a stored procedure. 
+ 
+ 
+ Create a read only user (or get the DBA to do it) and only use that user to look at the DB. Add the appropriate permissions to schema so that you can view the content of stored procedures/views/triggers/etc. but not have the ability to change them. 
+ 

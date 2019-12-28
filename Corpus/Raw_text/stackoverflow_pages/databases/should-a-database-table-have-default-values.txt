@@ -1,0 +1,43 @@
+*** should-a-database-table-have-default-values ***
+
+ I was having a discussion with a developer at work on the issue of should a table use default values. Is there a hard and fast rule on this or is it a gray area in best practices? 
+ 
+ My rule: if many records will use that default (at least initially) then I like to use it as a default. For example, an image table for products in an online store might have a default path of  . Eventually, those will get replaced, but for batch loads of data where the pictures simply don't exist yet (and maybe most of them never will!), a default makes sense (to me, at least). 
+ If there is no sensible default (such as "first name" in a customer database - I don't want MY name defaulted to "FirstName"), then I make it non-nullable and no default - it's the application's responsibility to ensure that a correct value gets entered. 
+ But no hard and fast rules on this. It all varies a little ;) 
+ 
+ One practical case where I personally found good use of default values is for a   column.  
+ This column is never updated by stored procedures or business logic, but gets updated automatically by triggers when any value in the row changes. However it is also set to   by default so that the value of a new row would contain the timestamp of when it was created, which basically is when it was last modified. 
+ 
+ The update trigger would then look like something like this: 
+ 
+ 
+ No hard and fast rule can be applied. It depends on the columns. It may be totally sensible to have a default order type, for example, but the idea of a default for a customer phone number doesn't make sense. 
+ 
+ I would say its a gray area.  Typically I wouldn't design a new database with lots of default values, but you often need to use them when enhancing an existing system.   
+ For example adding a new non-null column to an existing database.  You might not want to (or be able to) update all the code that inserts into that table, so you would need to put a default on it to ensure that any "legacy" code can still insert data (assuming the default value is appropriate for the legacy code of course).   
+ 
+ Default values are important if the column must have a value (it is not null). In fact if you are changing a column from allowing nulls to not allowing them a default value is pretty much necessary as not all existing code may populate a value. Sometimes in this case the default value is something like 'UNKNOWN'. This is especially true if you want to use the WITH VALUES to provide the default values to exisiting records where the field is null in the ALTER TABLE statement that changes the column to NOT NULL 
+ Default values are critical for fields that the user interface typically doesn't deal with. For instance we have default values on date_inserted and user_inserted columns that the user never even knows are there. This is especially critical if many different applications could populate the data to ensure no one forgets about these columns. 
+ Then there are columns which are typically given a value on data entry that may change later. Things like a status column.  
+ Many columns can't really have a default though. What would be the default address or name of a user?  
+ 
+ **tl;dr:**
+ Default values are business logic, and I want business logic in the object model. As such, a database cannot contain default values. 
+ E.g. In the database I have a bit field: IsANicePerson. This field translates to a property on the Person class. Being optimistic by nature, I want the default value for this property to be 'true'. So in the Person class I implement this (as the default value of the isANicePerson backing field). If I would allow default values in the database I would have to duplicate this logic. Duplicate code/logic is bad. Hence my objection to default values. 
+ Disclaimer: I live in an OO-world and use Linq2Sql. 
+ 
+ It should be pretty simple.  If the data should usually be unique for each row like customer phone number or the default value will most likely change over time then I wouldn't use it.  That means it is really only useful for filling CreateDate, ModifiedDate, or other columns of that nature. 
+ 
+ Here are the guidelines I personally use regarding default values which have served me well in the past. In the following examples, consider a database backend with multiple applications with read/write access to the backend. In these cases it is essential that the database define how the data is to be modelled and therefore ensure data integrity.  
+ 1) CreatedDate and ModifiedDate columns. These columns typically will have getdate() (sql server) defined as the default. As mentioned in other posts, these fields can then be updated with triggers etc. 
+ 2) Boolean state columns. Examples:  "IsDefault", "IsDeleted" (for auditing), "IsActive",etc. All of these fields will generally have a logical default state which should be defined by the data model. Exceptions to this would obviously be nullable tri-state boolean fields where the null state represents something about the data stored in the record. 
+ 3) Data constraint definitions: Columns with AllowNull=false and no default defined. In other words, a value is required by the application.  
+ 4) Lookup table foreign key identities: This is probably not the norm but for alot of lookup table foreign keys I will define a default that covers the initial state of a record. So for example, in an "Event" table the foreign key column "EventTypeId"(int-autoincrement) will have default 1 and represent "General" or something. This will cover most scenarios where, for instance, I want to log an event but dont care about a specific type id. 
+ 5) Non-critical string columns: "Description", "Comment" etc. For these columns I will generally define '' as the default purely to simpify System.DbNull=>Null conversion handling in applications. This is something that may not be applicable in all scenarios especially when the table concerned contains millions of rows and storage space is an issue. 
+ So in summary, use defaults to ensure the data integrity of the actual data stored in the database. The data model should define these data integrity rules within itself and any application interacting with it will and should be forced to respect these rules. Also please note that this is not doctrine and that there will always be exceptions. Consider each scenario individually so that it makes sense for your database/application. 
+ 
+ Definitely a gray area. It is the classic how much business logic to put into the database question.  
+ If we wanted to be purist and say no business logic belongs in the database then the answer would be never use them.  
+ Being practical we can make an exception as we often do and allow the logic of a default into the database. 
+ 

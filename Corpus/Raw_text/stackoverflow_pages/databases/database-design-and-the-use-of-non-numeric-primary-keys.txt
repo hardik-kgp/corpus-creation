@@ -1,0 +1,78 @@
+*** database-design-and-the-use-of-non-numeric-primary-keys ***
+
+ I'm currently in the process of designing the database tables for a customer & website management application. My question is in regards to the use of primary keys as functional parts of a table (and not assigning "ID" numbers to every table just because).  
+ For example, here are four related tables from the database so far, one of which uses the traditional primary key number, the others which use unique names as the primary key: 
+ 
+ As you can see, 3 of the 4 tables use their 'name' as the primary key. I know that these will always be unique. In 2 of the cases (the *_status tables) I am basically using a dynamic replacement for ENUM, since status options could change in the future, and for the 'website' table, I know that the 'name' of the website will always be unique. 
+ I'm wondering if this is sound logic, getting rid of table ID's when I know the name is always going to be a unique identifier, or a recipe for disaster? I'm not a seasoned DBA so any feedback, critique, etc. would be extremely helpful. 
+ Thanks for taking the time to read this! 
+ 
+ There are 2 reasons I would always add an ID number to a lookup / ENUM table: 
+ 
+ If you are referencing a single column table with the name then you may be better served by using a constraint 
+ What happens if you wanted to rename one of the client_status entries?  e.g. if you wanted to change the name from 'affiliate' to 'affiliate user' you would need to update the client table which should not be necessary.  The ID number serves as the reference and the name is the description. 
+ 
+ In the website table, if you are confident that the name will be unique then it is fine to use as a primary key.  Personally I would still assign a numeric ID as it reduces the space used in foreign key tables and I find it easier to manage. 
+ EDIT:
+As stated above, you will run into problems if the website name is renamed.  By making this the primary key you will be making it very difficult if not impossible for this to be changed at a later date. 
+ 
+ When making natural  's, make sure their uniqueness is under your control. 
+ If you're absolutely sure you will never ever have uniqueness violation, then it's OK to use these values as  's. 
+ Since   and   seem to be generated and used by you and only by you, it's acceptable to use them as a  , though having a long key may impact performance. 
+  name seems be under control of the outer world, that's why I'd make it a plain field. What if they want to rename their  ? 
+ The counterexamples would be   and   codes: it's not you who generates them and there is no guarantee that they won't be ever duplicated. 
+ 
+ Kimberly Tripp has an Excellent series of blog articles ( GUIDs as PRIMARY KEYs and/or the clustering key  and  The Clustered Index Debate Continues ) on the issue of creating clustered indexes, and choosing the primary key (related issues, but not always exactly the same). Her recommendation is that a clustered index/primary key should be: 
+ 
+ **Unique**
+ (otherwise useless as a key) 
+ **Narrow**
+ (the key is used in all non-clustered indexes, and in foreign-key relationships) 
+ **Static**
+ (you don't want to have to change all related records) 
+ **Always Increasing**
+ (so new records always get added to the end of the table, and don't have to be inserted in the middle) 
+ 
+ Using "Name" as your key, while it seems to satisfy #1, doesn't satisfy ANY of the other three.  
+ Even for your "lookup" table, what if your boss decides to change all  affiliate s to  partner s instead? You'll have to modify all rows in the database that use this value. 
+ From a performance perspective, I'm probably most concerned that a key be  narrow . If your website name is actually a long URL, then that could really bloat the size of any non-clustered indexes, and all tables that use it as a foreign key. 
+ 
+ Besides all the other excellent points that have already been made, I would add one more word of caution against using large fields as clustering keys in SQL Server (if you're not using SQL Server, then this probably doesn't apply to you). 
+ I add this because in SQL Server, the primary key on a table by default also is the clustering key (you can change that, if you want to and know about it, but most of the cases, it's not done). 
+ The clustering key that determines the physical ordering of the SQL Server table is also being added to every single non-clustered index on that table. If you have only a few hundred to a few thousand rows and one or two indices, that's not a big deal. But if you have really large tables with millions of rows, and potentially lots of indices to speed up the queries, this will indeed cause a lot of disk space and server memory to be wasted unnecessarily. 
+ E.g. if your table has 10 million rows, 10 non-clustered indices, and your clustering key is 26 bytes instead of 4 (for an INT), then you're wasting 10 mio. by 10 by 22 bytes for a total of 2.2 billion bytes (or 2.2 GBytes approx.) - that's not peanuts anymore!  
+ Again - this only applies to SQL Server, and only if you have really large tables with lots of non-clustered indices on them. 
+ Marc 
+ 
+ "If you're absolutely sure you will never ever have uniqueness violation, then it's OK to use these values as PRIMARY KEY's." 
+ If you're absolutely sure you will never ever have uniqueness violation, then don't bother to define the key. 
+ 
+ Personally, I think you will run into trouble using this idea. As you end up with more parent child relationships, you end up with a huge amount of work when the names change (As they always will sooner or later). There can be a big performance hit when having to update a child table that has thousands of rows when the name of the website changes. And you have to plan for how do make sure that those changes happen. Otherwise, the website name changes (oops we let the name expire and someone else bought it.) either break because of the foreign key constraint or you need to put in an automated way (cascade update) to propagate the change through the system. If you use cascading updates, then you can suddenly bring your system to a dead halt while a large chage is processed. This is not considered to be a good thing. It really is more effective and efficient to use ids for relationships and then put unique indexes on the name field to ensure  they stay unique. Database design needs to consider maintenance of the data integrity and how that will affect performance. 
+ Another thing to consider is that websitenames tend to be longer than a few characters. This means the performance difference between using an id field for joins and the name for joins could be quite significant. You have to think of these things at the design phase as it is too late to change to an ID when you have a production system with millions of records that is timing out and the fix is to completely restructure the databse and rewrite all of the SQL code. Not something you can fix in fifteen minutes to get the site working again.  
+ 
+ This just seems like a really bad idea.  What if you need to change the value of the enum?  The idea is to make it a relational database and not a set of flat files.  At this point, why have the client_status table?  Moreover, if you are using the data in an application, by using a type like a GUID or INT, you can validate the type and avoid bad data (in so far as validating the type).  Thus, it is another of many lines to deter hacking. 
+ 
+ I would argue that a database that is resistant to corruption, even if it runs a little slower, is better than one that isn’t. 
+ In general, surrogate keys (such as arbitrary numeric identifiers) undermine the integrity of the database.  Primary keys are the main way of identifying rows in the database; if the primary key values are not meaningful, the constraint is not meaningful.  Any foreign keys that refer to surrogate primary keys are therefore also suspect.  Whenever you have to retrieve, update or delete individual rows (and be guaranteed of affecting only one), the primary key (or another candidate key) is what you must use; having to work out what a surrogate key value is when there is a meaningful alternative key is a redundant and potentially dangerous step for users and applications. 
+ Even if it means using a composite key to ensure uniqueness, I would advocate using a meaningful, natural set of attributes as the primary key, whenever possible.  If you need to record the attributes anyway, why add another one?  That said, surrogate keys are fine when there is no natural, stable, concise, guaranteed-to-be-unique key (e.g. for people). 
+ You could also consider using index key compression, if your DBMS supports it.  This can be very effective, especially for indexes on composite keys (think  trie  data structures), and especially if the least selective attributes can appear first in the index. 
+ 
+ I think I am in agreement with cheduardo. It has been 25 years since I took a course in database design but I recall being told that database engines can more efficiently manage and load indexes that use character keys. The comments about the database having to update thousands of records when a key is changed and on all of the added space being taken up by the longer keys and then having to be transferred across systems, assumes that the key is actually stored in the records and that it does not have to be transferred across systems anyway. If you create an index on a column(s) of a table, I do not think the value is stored in the records of the table (unless you set some option to do so).   
+ If you have a natural key for a table, even if it is changed occassionally, creating another key creates a redundancy that could result in data integrity issues and actually creates even more information that needs to be stored and transferred across systems. I work for a team that decided to store the local application settings in the database. They have an identity column for each setting, a section name, a key name, and a key value. They have a stored procedure (another holy war) to save a setting that ensures it does not appear twice. I have yet to find a case where I would use a setting's ID. I have, however, ended up with multiple records with the same section and key name that caused my application to fail. And yes, I know that could have been avoided by defining a constraint on the columns. 
+ 
+ Here few points should be considered before deciding keys in table 
+ 
+ Numeric key is more suitable when you
+use references ( foreign keys), since
+you not using foreign keys, it ok in
+your case to use non numeric key.   
+ Non-numeric key uses more space than
+numeric keys, can decrease
+performance. 
+ Numeric keys make db look simpler to
+understand ( you can easily know no
+of rows just by looking at last row) 
+ 
+ 
+ You NEVER know when the company you work for suddenly explodes in growth and you have to hire 5 developers overnight. Your best bet is to use numeric (integer) primary keys because they will be much easier for the entire team to work with AND will help your performance if and when the database grows. If you have to break records out and partition them, you might want to use the primary key. If you are adding records with a datetime stamp (as every table should), and there is an error somewhere in the code that updates that field incorrectly, the only way to confirm if the record was entered in the proper sequence it to check the primary keys. There are probably 10 more TSQL or debugging reasons to use INT primary keys, not the least of which is writing a simple query to select the last 5 records entered into the table. 
+ 

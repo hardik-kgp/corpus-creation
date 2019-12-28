@@ -1,0 +1,45 @@
+*** postgresql-performance-monitoring-tool ***
+
+ I'm setting up a web application with a FreeBSD PostgreSQL back-end. I'm looking for some database performance optimization tool/technique. 
+ 
+ pgfouine  works fairly well for me.  And it looks like there's a  FreeBSD port  for it. 
+ 
+ Database optimization is usually a combination of two things 
+ 
+ Reduce the number of queries to the database 
+ Reduce the amount of data that needs to be looked at to answer queries 
+ 
+ Reducing the amount of queries is usually done by caching non-volatile/less important data (e.g. "Which users are online" or "What are the latest posts by this user?") inside the application (if possible) or in an external - more efficient - datastore (memcached, redis, etc.). If you've got information which is very write-heavy (e.g. hit-counters) and doesn't need  ACID -semantics you can also think about moving it out of the Postgres database to more efficient data stores. 
+ Optimizing the query runtime is more tricky - this can amount to creating  special indexes  (or  indexes in the first place ), changing (possibly denormalizing) the data model or changing the fundamental approach the application takes when it comes to working with the database. See for example the  Pagination done the Postgres way  talk by  Markus Winand  on how to rethink the concept of pagination to make it more database efficient  
+ **Measuring queries the slow way**
+
+ But to understand which queries should be looked at first you need to know how often they are executed and how long they run on average.  
+ One approach to this is logging all (or "slow") queries including their runtime and then parsing the query log. A good tool for this is   which has already been mentioned earlier in this discussion, it has since been replaced by   which is written in a more friendly language, is much faster and more actively maintained. 
+ Both   and   suffer from the fact that they need query-logging enabled, which can cause a noticeable performance hit on the database or bring you into disk space troubles on top of the fact that parsing the log with the tool can take quite some time and won't give you up-to-date insights on what is going in the database. 
+ **Speeding it up with extensions**
+
+ To address these shortcomings there are now two extensions which track query performance directly in the database -   (which is only helpful in version 9.2 or newer) and  . Both extensions offer the same basic functionality - tracking how often a given "normalized query" (Query string minus all expression literals) has been run and how long it took in total. Due to the fact that this is done while the query is actually run this is done in a very efficient manner, the measurable overhead was less than 5% in synthetic benchmarks. 
+ **Making sense of the data**
+
+ The list of queries itself is very "dry" from an information perspective. There's been work on a third extension trying to address this fact and offer nicer representation of the data called   (along with  ), but it's a bit of an undertaking to get it up and running. 
+ To offer a more convenient solution to this problem I started working on a commercial project which is focussed around   and   and augments the information collected by lots of other data pulled out of the database. It's called   and you can find it at  https://pganalyze.com/ . 
+ To offer a concise overview of interesting tools and projects in the Postgres Monitoring area i also started compiling a list at the  Postgres Wiki  which is updated regularly. 
+ 
+ I've used pgtop a little. It is quite crude, but at least I can see which query is running for each process ID. 
+ I tried pgfouine, but if I remember, it's an offline tool. 
+ I also tail the psql.log file and set the logging criteria down to a level where I can see the problem queries. 
+ 
+ I also use EMS Postgres Manager to do general admin work. It doesn't do anything for you, but it does make most tasks easier and makes reviewing and setting up your schema more simple. I find that when using a GUI, it is much easier for me to spot inconsistencies (like a missing index, field criteria, etc.). It's only one of two programs I'm willing to use VMWare on my Mac to use. 
+ 
+ Munin is quite simple yet effective to get trends of how the database is evolving and performing over time. In the standard kit of Munin you can among other thing monitor the size of the database, number of locks, number of connections, sequential scans, size of transaction log and long running queries.  
+ Easy to setup and to get started with and if needed you can write your own plugin quite easily. 
+ Check out the latest postgresql plugins that are shipped with Munin here: 
+ http://munin-monitoring.org/browser/branches/1.4-stable/plugins/node.d/ 
+ 
+ Well, the first thing to do is try all your queries from psql using "explain" and see if there are sequential scans that can be converted to index scans by adding indexes or rewriting the query. 
+ Other than that, I'm as interested in the answers to this question as you are. 
+ 
+ Check out Lightning Admin, it has a GUI for capturing log statements, not perfect but works great for most needs.   http://www.amsoftwaredesign.com 
+ 
+ DBTuna  http://www.dbtuna.com/postgresql_monitor.php  has recently started supporting PostgreSQL monitoring. We use it extensively for MySQL monitoring, so if it provides the same for Postgres then it should be a good fit for you too. 
+ 

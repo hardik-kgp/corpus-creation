@@ -1,0 +1,82 @@
+*** decision-between-storing-lookup-table-ids-or-pure-data ***
+
+ I find this comes up a lot, and I'm not sure the best way to approach it.  
+ **The question I have is how to make the decision between using foreign keys to lookup tables, or using lookup table values directly in the tables requesting it, avoiding the lookup table relationship completely.**
+
+ Points to keep in mind: 
+ 
+ With the second method you would
+need to do mass updates to all
+records referencing the data if it
+is changed in the lookup table. 
+ This is focused more
+towards tables that have a lot of
+the column's referencing many lookup
+tables.Therefore lots of foreign
+keys means a lot of
+joins every time you query the
+table. 
+ This data would be coming from drop
+down lists which would be pulled
+from the lookup tables. In order to match up data when reloading, the values need to be in the existing list ( related to the first point ). 
+ 
+ Is there a best practice here, or any key points to consider? 
+ 
+ You can use a lookup table with a VARCHAR primary key, and your main data table uses a FOREIGN KEY on its column, with cascading updates. 
+ 
+ This solution has the following advantages: 
+ 
+ You can query the color names in the main data table without requiring a join to the lookup table. 
+ Nevertheless, color names are constrained to the set of colors in the lookup table. 
+ You can get a list of unique colors names (even if none are currently in use in the main data) by querying the lookup table. 
+ If you change a color in the lookup table, the change automatically cascades to all referencing rows in the main data table. 
+ 
+ 
+ It's surprising to me that so many other people on this thread seem to have mistaken ideas of what "normalization" is.  Using a surrogate keys (the ubiquitous "id") has nothing to do with normalization! 
+ 
+ Re comment from @MacGruber: 
+ Yes, the size is a factor. In InnoDB for example, every secondary index stores the primary key value of the row(s) where a given index value occurs. So the more secondary indexes you have, the greater the overhead for using a "bulky" data type for the primary key.  
+ Also this affects foreign keys; the foreign key column must be the same data type as the primary key it references. You might have a small lookup table so you think the primary key size in a 50-row table doesn't matter. But that lookup table might be referenced by millions or  billions  of rows in other tables! 
+ There's no right answer for all cases. Any answer can be correct for different cases. You just learn about the tradeoffs, and try to make an informed decision on a case by case basis. 
+ 
+ In cases of simple atomic values, I tend to disagree with the common wisdom on this one, mainly on the complexity front. Consider a table containing hats. You can do the "denormalized" way: 
+ 
+ Or you can normalize it more by making a "color" table: 
+ 
+ The end result of the latter is that you've added some complexity - instead of: 
+ 
+ You now have to say: 
+ 
+ Is that extra join a huge deal? No - in fact, that's the foundation of the relational design model - normalizing allows you to prevent possible inconsistencies in the data. But every situation like this adds a  little bit  of complexity, and unless there's a good reason, it's worth asking why you're doing it. I consider possible "good reasons" to include: 
+ 
+ **Are there other attributes that "hang off of" this attribute?**
+ Are you capturing, say, both "color name" and "hex value", such that hex value is always dependent on color name? If so, then you definitely want a separate color table, to prevent situations where one row has ("Red", "#FF0000") and another has ("Red", "#FF3333"). Multiple correlated attributes are the #1 signal that an entity should be normalized. 
+ **Will the set of possible values change frequently?**
+ Using a normalized lookup table will make future changes to the elements of the set easier, because you're just updating a single row. If it's infrequent, though, don't balk at statements that have to update lots of rows in the main table instead; databases are quite good at that. Do some speed tests if you're not sure. 
+ **Will the set of possible values be directly administered by the users?**
+ I.e. is there a screen where they can add / remove / reorder the elements in the list? If so, a separate table is a must, obviously. 
+ **Will the list of distinct values power some UI element?**
+ E.g. is "color" a droplist in the UI? Then you'll be better off having it in its own table, rather than doing a SELECT DISTINCT on the table every time you need to show the droplist. 
+ 
+ If none of those apply, I'd be hard pressed to find another (good) reason to normalize. If you just want to make sure that the value is one of a certain (small) set of legal values, you're better off using a CONSTRAINT that says the value must be in a specific list; keeps things simple, and you can always "upgrade" to a separate table later if the need arises. 
+ 
+ One thing no one has considered is that you would not join to the lookup table if the data in it can change over time and the records joined to are historical. The example is a parts table and an order table. The vendors may drop parts or change part numbers, but the orders table should alawys have exactly what was ordered at the time it was ordered. Therefore, it should lookup the data to do the record insert but should never join to the lookup table to get information about an existing order. Instead the part number and description and price, etc. should be stored in the orders table. This is espceially critical so that price changes do not propagate through historical data and make your financial records inaccurate. In this case, you would also want to avoid using any kind of cascading update as well. 
+ 
+ rauhr.myopenid.com  wrote : 
+ 
+ The way we decided to solve this problem is with 4th normal form. 
+  ... 
+ 
+ That is not 4th normal form. That is a common mistake called One True Lookup:
+ http://www.dbazine.com/ofinterest/oi-articles/celko22 
+ 4th normal form is :
+ http://en.wikipedia.org/wiki/Fourth_normal_form 
+ 
+ Normalization is pretty universally regarded as part of best practices in databases, and normalization says yeah, you push the data out and refer to it by key. 
+ 
+ Since no one else has addressed your second point: When queries become long and difficult to read and write due to all those joins, a view will usually resolve that. 
+ 
+ You can even make it a rule to always program against the views, having the view get the lookups. 
+ This makes it possible to optimize the view and make your code resistant to changes in the tables. 
+ In oracle, you could even convert the view into a materialized view if you ever need to. 
+ 

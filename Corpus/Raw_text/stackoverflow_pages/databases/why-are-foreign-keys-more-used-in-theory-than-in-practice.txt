@@ -1,0 +1,116 @@
+*** why-are-foreign-keys-more-used-in-theory-than-in-practice ***
+
+ When you study relational theory foreign keys are, of course, mandatory. But in practice, in every place I worked, table products and joins are always done by specifying the keys explicitly in the query, instead of relying on foreign keys in the DBMS.   
+ This way, you could of course join two tables by fields that are not meant to be foreign keys, having unexpected results.   
+ Why do you think that is? Shouldn't DBMSs enforce that Joins and Products be made only by foreign keys? 
+ EDIT: Thanks for all the answers. It's clear to me now that the main reason for FKs is reference integrity. But if you design a DB, all relationships in the model (I.E. arrows in the ERD) become Foreign keys, at least in theory, whether or not you define them as such in your DBMS, they're semantically FKs. I can't imagine the need to join tables by fields that aren't FKs.  **Can someone give an example that makes sense?**
+
+ PS: I'm aware about the fact that N:M relationships become separate tables and not foreign keys, just omitted it for simplicity's sake. 
+ 
+ **The reason foreign key constraints exist is to guarantee that the referenced rows exist.**
+
+ "The foreign key identifies a column or a set of columns in one table that refers to a column or set of columns in another table. The values in one row of the referencing columns must occur in a single row in the referenced table.  
+ Thus, a row in the referencing table cannot contain values that don't exist in the referenced table (except potentially NULL). This way references can be made to link information together and it is an essential part of database normalization." ( Wikipedia ) 
+ 
+ **RE: Your question: "I can't imagine the need to join tables by fields that aren't FKs":**
+
+ When defining a Foreign Key constraint, the column(s) in the referencing table must be the primary key of the referenced table, or at least a candidate key. 
+ When doing joins, there is no need to join with primary keys or candidate keys. 
+ The following is an example that could make sense: 
+ 
+ And then query as follows: 
+ 
+ Another case where these joins make sense is in databases that offer geospatial features, like SQL Server 2008 or Postgres with PostGIS. You will be able to do queries like these: 
+ 
+ Source:  ConceptDev - SQL Server 2008 Geography: STIntersects, STArea 
+ You can see another similar geospatial example in the accepted answer to the post " Sql 2008 query problem - which LatLong’s exists in a geography polygon? ": 
+ 
+ These are all valid SQL joins that have nothing to do with foreign keys and candidate keys, and can still be useful in practice. 
+ 
+ Foreign keys have less to do with joins than with keeping database integrity. Proof of that is that you can join tables in any way you want, even in ways that don't necessarily make sense. 
+ 
+ 
+ I can't imagine the need to join tables by fields that aren't FKs. Can someone give an example that makes sense? 
+ 
+ s can only be used to enforce referential integrity if the relationship between the entities of the   model is reflected with an equijoin between two relations in the relational model. 
+ This is not always true. 
+ Here's an example from the article in my blog I wrote some time ago: 
+ 
+ **What is entity-relationship model?**
+
+ 
+ This model describes goods and price ranges: 
+ 
+ And here's the relational implementation of the model: 
+ 
+ As you can see, the   table has only one price-related attribute,  , but the model has two attributes:   and  . 
+ This is because relational model allows transforming the sets and the entity   can be easily reconstructed using   operations. 
+ 
+ We store only the lower bound of each range. Upper bound can easily be inferred. 
+ Here's the query to find the bonus for each good: 
+ 
+ We see that these relational model implements the ER model fairly well, but no foreign key can be declared between these relations, since the operation used to bind them is not an equijoin. 
+ 
+ No, the enforcement is unnecessary; it would disallow some useful functionality, such as the possible overloading of columns.  While this sort of use isn't ideal, it IS useful in some real-world situations. 
+ The appropriate use for Foreign key constraints is just as that; a constraint upon values added to a given column that assures that their referenced rows exist. 
+ It should be noted that a significant lack of foreign key constraints on a given schema is a bad "smell", and can indicate some serious design problems. 
+ 
+ You can join on any expression.  Whether you define foreign keys in your database or not is immaterial.  Foreign keys constrain INSERT/UPDATE/DELETE, not SELECT. 
+ So why do lots of projects skip defining foreign keys?  There are several reasons: 
+ 
+ The data model is designed poorly and requires broken references (examples: polymorphic associations, EAV). 
+ The coders may have heard that "foreign keys are slow" so they drop them.  In fact, the extra work you have to do to ensure data consistency when you can't rely on foreign keys makes your app much less efficient.  Premature optimization without actually measuring the benefit is a common problem. 
+ Constraints get in the way of some data cleanup tasks.  Sometimes you need to break references temporarily as you refactor data.  Many RDBMS allow constraints to be disabled, but sometimes the programmers decide it's easier to  leave  them disabled.  If there's a frequent need for disabling the constraints, this probably indicates a seriously broken database design. 
+ 
+ 
+ Foreign keys used in the manner you describe is not how they are meant to be used.  They are meant to make sure that if a record logically depends on a corresponding record exist somewhere else, that that corresponding record is indeed there. 
+ I believe that if developers/dbas have time to either (A) developer good names for their tables and fields, or (B) define extensive foreign key constraints, option  **A**
+ is the easy choice.  I've worked in both situations.  Where extensive constraints were relied upon to maintain order and keep people from screwing up things can really become a mess. 
+ It takes a lot of effort to keep all your foreign key constraints up to date during development, time you could be spending on other high-value tasks that you barely have time for.  In contrast, in situations where you have good naming conventions, the foreign keys are instantly clear.  Developers don't have to look up foreign keys, or try a query to see if it works; they can just see the relationships. 
+ I think foreign key constraints quickly become helpful as the number of different teams grow using a database grows.  It becomes difficult to enforce consistent naming; knowledge of the DB becomes fragmented; it's easy for db actions to have unintended consequences for another team. 
+ 
+ Because in practice, theory is not enough ;) 
+ Seriously, in my experience is mainly because theory is not flexible enough to consider all the possibilities that you have to handle in the real world. Only with one extremely bizarre case that you have to store in your DB (or something more common, like overloading columns), you have to get out the FK and implement it in the DAL.  
+ May be you can develop some solution that can be archived in a totally normalized way (for example), but in many cases the work needed and/or the final results are not worth enough. 
+ My two cents. 
+ 
+ DBMS's are built to allow the widest number of solutions while still working according to their core rules. 
+ Restricting joins to defined foreign keys would limit functionality enormously, especially as most development does not occur with a dedicated DBA or review of SQL/stored procedures. 
+ Having said that, depending on your Data Access Layer, you may be required to configure foreign keys, to use functionality. For example Linq to SQL. 
+ 
+ Foreign keys are not used as often as relational theory suggests because DB/relational type people don't write much of the code or even design the tables. Programmers write the code/design tables or have much influence on how the tables are designed. 
+ 
+ What sort of database applications do you work on?  The theory that you frequently see is about using the database raw, in which case constraints can be very useful.  In practice, databases are often used as the back end of larger applications.  In many cases, these applications have to validate transactions themselves, and it would be wasted effort to repeat it in the database. 
+ Consider a sales application, for example.  When somebody's entering an order, it will perhaps look up the customer in the database, to get the address or credit card information.  When it doesn't find a customer, it will be programmed to do something reasonable.  If it waited until it tried to insert a row into the order table to discover there was no customer, it would get slower and less convenient feedback. 
+ Something has to maintain the integrity of the database, but doing it inside the DBMS itself is not always the best way. 
+ 
+ Foreign keys are extremely important, especially in databases that have manual queries run upon them, or are having software actively developed for them. Every untested query that is run on the database has the possibility of containing an error. Constraints such as foreign keys serve to highlight these errors before inconsistency is introduced into the data. 
+ These constraints are applied by the designer of the schema, and they ensure that the data remains in the model that (s)he envisaged. If the constraints are not there, then sooner or later a query will introduce some inconsistency. Inconsistency will lead to unpredictable results from queries, and is very hard to reverse. 
+ 
+ I've been programming for a couple decades, since well before relational databases became the norm.  When I first started working with MySQL when I taught myself PHP, I saw the Foreign Key option and the very first thought was "Wow!  That's retarded."  The reason be only a fool believes that the laboratory dictates reality.  It was obvious immediately that unless you were coding an application that would never,  ever , be changed, you're wrapping your application in a steel cast where the only option is to either build more tables or come up with creative solutions. 
+ This initial assessment had been born out in every single real-world production application I have come across.  Not only do the constraint significantly slow down any and all modifications, they make almost impossible the growing of the application, something that is required for a business. 
+ The only reason I've ever found for any constraints on table is lazy coders.  Not willing to write clean code to check data integrity.     
+ Michael 
+ 
+ Good question. I have always wondered why SQL doesn't have a syntax like 
+ 
+ where FK_tbl1_tbl2 is some foreign key constraint between the tables. This would be incredibly much more useful that NATURAL JOIN or Oracle's USING(col1, col2). 
+ 
+ The main reason is there is no way to set them up without a query in most MySQL GUI tools (Navicat, MySQL, etc.) 
+ Sounds stupid but I'm guilty of this as well since I don't have the syntax memorized :/ 
+ 
+ Part of it for me is that (and yes, this is a lame excuse) the UI in MS's SQL Server Management studio for adding foreign keys is  **awful**
+.   
+ A foreign key is a constraint that "any value in column x on table a must appear in column y on table b", but the UI for specifying it in SSMS doesn't clearly indicate which table you're messing with, which is the parent table, which is the child table, and so on.   
+ Every time I've had to create a foreign key, it's been trial and error until it seemed to work. 
+ 
+ I'm not aware of a SQL dialect which automatically joins all foreign key tables implicitly.  I've seen code generation and data dictionary tools for reporting infer them, but the SQL is always explicit. 
+ That's why you are seeing that, in practice, in SQL,  **ALL**
+ joins are explicit. 
+ In practice, databases without FK constraints tend to have integrity issues, since there is no constraint to require the key to exist.  So it's certainly a best practice to have as many constraints as possible - it protects integrity and helps the optimizer and other users.  As with any best practice, knowing when (if ever) to break the rule is also important. 
+ As to why you can make a join which doesn't match a foreign key constraint between those tables, there are myriad examples.  Particularly in the case of composite keys with partial joins, I find this is often necessary.  We often join on tables using partial versions of their primary keys in data warehousing. 
+ You may also be interested in  this article  on foreign key join elimination by the optimizer. 
+ 
+ Foreign key is  **coupling**
+. In programming, coupling is rarely good. 
+ 

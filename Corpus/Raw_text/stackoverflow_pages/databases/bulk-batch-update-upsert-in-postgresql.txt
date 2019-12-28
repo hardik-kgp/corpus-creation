@@ -1,0 +1,79 @@
+*** bulk-batch-update-upsert-in-postgresql ***
+
+ I'm writing a Django-ORM enchancement that attempts to cache models and postpone model saving until the end of the transaction. It's all almost done, however I came across an unexpected difficulty in SQL syntax. 
+ I'm not much of a DBA, but from what I understand, databases don't really work efficiently for many small queries. Few bigger queries are much better. For example it's better to use large batch inserts (say 100 rows at once) instead of 100 one-liners. 
+ Now, from what I can see, SQL doesn't really supply any statement to perform a batch update on a table. The term seems to be  confusing  so, I'll explain what I mean by that. I have an array of arbitrary data, each entry describing a single row in a table. I'd like to update certain rows in the table, each using data from its corresponding entry in the array. The idea is very similar to a batch insert.  
+ For example: My table could have two columns   and  . Now the array describing the data for a batch update consists of three entries  ,  , and  . Before the update the table contains rows:  ,  ,  . 
+ I came accross this post: 
+ Why are batch inserts/updates faster? How do batch updates work? 
+ which seems to do what I want, however I can't really figure out the syntax at the end. 
+ I could also delete all the rows that require updating and reinsert them using a batch insert, however I find it hard to believe that this would actually perform any better. 
+ I work with PostgreSQL 8.4, so some stored procedures are also possible here. However as I plan to open source the project eventually, any more portable ideas or ways to do the same thing on a different RDBMS are most welcome. 
+ **Follow up question:**
+ How to do a batch "insert-or-update"/"upsert" statement? 
+ **Test results**
+
+ I've performed 100x times 10 insert operations spread over 4 different tables (so 1000 inserts in total). I tested on Django 1.3 with a PostgreSQL 8.4 backend. 
+ These are the results: 
+ 
+ All operations done through Django ORM - each pass  **~2.45 seconds**
+, 
+ The same operations, but done without Django ORM - each pass  **~1.48 seconds**
+, 
+ Only insert operations, without querying the database for sequence values  **~0.72 seconds**
+, 
+ Only insert operations, executed in blocks of 10 (100 blocks in total)  **~0.19 seconds**
+, 
+ Only insert operations, one big execution block  **~0.13 seconds**
+. 
+ Only insert operations, about 250 statements per block,  **~0.12 seconds**
+. 
+ 
+ Conclusion: execute as many operations as possible in a single connection.execute(). Django itself introduces a substantial overhead. 
+ Disclaimer: I didn't introduce any indices apart from default primary key indices, so insert operations could possibly run faster because of that. 
+ 
+ I've used 3 strategies for batch transactional work: 
+ 
+ Generate SQL statements on the fly, concatenate them with semicolons, and then submit the statements in one shot.  I've done up to 100 inserts in this way, and it was quite efficient (done against Postgres). 
+ JDBC has batching capabilities built in, if configured.  If you generate transactions, you can flush your JDBC statements so that they transact in one shot.  This tactic requires fewer database calls, as the statements are all executed in one batch. 
+ Hibernate also supports JDBC batching along the lines of the previous example, but in this case you execute a   method against the Hibernate  , not the underlying JDBC connection.  It accomplishes the same thing as JDBC batching. 
+ 
+ Incidentally, Hibernate also supports a batching strategy in collection fetching.  If you annotate a collection with  , when fetching associations, Hibernate will use   instead of  , leading to fewer   statements to load up the collections. 
+ 
+ **Bulk insert**
+
+ You can modify the bulk insert of three columns by Ketema: 
+ 
+ It becomes: 
+ 
+ Replacing the values with placeholders: 
+ 
+ You have to pass arrays or lists as arguments to this query. This means you can do huge bulk inserts  without doing string concatenation (and all its hazzles and dangers: sql injection and quoting hell). 
+ **Bulk update**
+
+ PostgreSQL has added the FROM extension to UPDATE. You can use it in this way: 
+ 
+ The manual is missing a good explanation, but there is an example on the  postgresql-admin mailing list . I tried to elaborate on it: 
+ 
+ There are also  other   posts  on StackExchange explaining   using a   clause instead of a subquery. They might by easier to read, but are restricted to a fixed number of rows. 
+ 
+ Bulk inserts can be done as such: 
+ 
+ Will insert 3 rows. 
+ Multiple updating is defined by the SQL standard, but not implemented in PostgreSQL. 
+ Quote:  
+ 
+ "According to the standard, the column-list syntax should allow a list
+  of columns to be assigned from a single row-valued expression, such as
+  a sub-select: 
+ UPDATE accounts SET (contact_last_name, contact_first_name) =
+      (SELECT last_name, first_name FROM salesmen
+       WHERE salesmen.id = accounts.sales_id);" 
+ 
+ Reference:  http://www.postgresql.org/docs/9.0/static/sql-update.html 
+ 
+ it is pretty fast to populate json into recordset (postgresql 9.3+) 
+ 
+ 
+ Turn off autocommit and just do one commit at the end. In plain SQL, this means issuing BEGIN at the start and COMMIT at the end.  You would need to create a  function  in order to do an actual upsert. 
+ 

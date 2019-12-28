@@ -1,0 +1,64 @@
+*** postgres-pg-dump-dumps-database-in-a-different-order-every-time ***
+
+ I am writing a PHP script (which also uses linux bash commands) which will run through test cases by doing the following: 
+ I am using a PostgreSQL database (8.4.2)... 
+ 1.) Create a DB
+2.) Modify the DB
+3.) Store a database dump of the DB (pg_dump) 
+ 4.) Do regression testing by doing steps 1.) and 2.), and then take another database dump and compare it (diff) with the original database dump from step number 3.) 
+ However, I am finding that pg_dump will not always dump the database in the same way. It will dump things in a different order every time. Therefore, when I do a diff on the two database dumps, the comparison will result in the two files being different, when they are actually the same, just in a different order. 
+ Is there a different way I can go about doing the pg_dump? 
+ Thanks! 
+ 
+ It is impossible to force pg_dump to dump data in any particular order, as it dumps data in disk order - it is much faster this way. 
+ You can use "-a -d" options for pg_dump and then "sort" output, but newlines in data will make sorted output unusable. But for basic comparison, whether anything changed, it would suffice. 
+ 
+ Here is a handy script for pre-processing   output to make it more suitable for diffing and storing in version control: 
+ https://github.com/akaihola/pgtricks 
+  splits the dump into the following files: 
+ 
+ : everything up to the first COPY 
+ 
+. 
+. 
+ : data for each table  sorted by the first field 
+ : everything after the last COPY 
+ 
+ The files for table data are numbered so a simple sorted concatenation of all files can be used to re-create the database: 
+ 
+ I've found that a good way to take a quick look at differences between dumps is to use the   tool on the whole directory: 
+ 
+ Storing the dump in version control also gives a decent view on the differences. Here's how to configure git to use color in diffs: 
+ 
+ **Note:**
+ If you have created/dropped/renamed tables, remember to delete all   files before post-processing the new dump. 
+ 
+ It's worth distinguishing schema and data here.  The schema is dumped in a fairly deterministic order, most objects alphabetically, constrained by inter-object dependencies.  There are some limited cases where the order is not fully constrained and may appear random to an outside observer, but that may get fixed in the next version. 
+ The data on the other hand is dumped in disk order.  This is usually what you want, because you want dumps to be fast and not use insane amounts of resources to do sorting.  What you might be observing is that when you "modify the DB" you are doing an UPDATE, which will actually delete the old value and append the new value at the end.  And that will of course upset your diff strategy. 
+ A tool that might be more suitable for your purpose is  pg_comparator . 
+ 
+ As of may 2010 a  patch to pg_dump  exists that may be helpful to all interested in this matter - it adds "--ordered" option to this utility: 
+ 
+ Using --ordered will order the data by
+  primary key or  unique index, if one
+  exists, and use the "smallest"
+  ordering  (i.e. least number of
+  columns required for a unique  order). 
+ Note that --ordered could crush your
+  database server if you  try to order
+  very large tables, so use judiciously. 
+ 
+ I didn't test it, but I guess it's worth a try. 
+ 
+ If you are just interested in the schema: 
+ You could do your diff table by table-by-using a combination of these options to dump the schema for only one table at a time.  You could then compare them individually or cat them all to one file in a known order. 
+ 
+ To generate the list of tables to feed to the above, query  . 
+ 
+ It is not unusual that PostgreSQL behaves nondeterministically - maybe timer triggered reorganization processes or something like that occur in the background. Further I am not aware of a way to force pg_dump to reproduce a bit-identical output on successive runs. 
+ I suggest to change your comparison logic because it is your comparison that is misbehaved - it reports differences while both dumps represent the same database state. This of course means some additional work but is in my opinion the correct way to attack the problem. 
+ 
+ If performance is less important than order you could use: 
+ 
+ See  COPY (9.5) 
+ 

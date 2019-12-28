@@ -1,0 +1,32 @@
+*** am-i-immune-to-sql-injections-if-i-use-stored-procedures ***
+
+ Lets say on MySQL database (if it matters). 
+ 
+ No, you will not be completely safe. As others have mentioned, parameterized queries are always the way to go -- no matter how you're accessing the database. 
+ It's a bit of an urban legend that with procs you're safe. I think the reason people are under this delusion is because most people assume that you'll call the procs with parameterized queries from your code. But if you don't, if for example you do something like the below, you're wide open: 
+ 
+ Because you're using unfiltered content from the end user. Once again, all they have to do is terminate the line (";"), add their dangerous commands, and boom -- you're hosed.  
+ (As an aside, if you're on the web, don't take unfiltered junk from the query string of the browser -- that makes it absurdly easy to do extremely bad things to your data.) 
+ If you parameterize the queries, you're in much better shape. However, as others here have mentioned, if your proc is still generating dynamic SQL and executing that, there may still be issues. 
+ I should note that I'm not anti-proc. Procs can be very helpful for solving certain problems with data access. But procs are  **not**
+ a "silver-bullet solution to SQL injections. 
+ 
+ You are only immune to SQL injections if you consistenly use parameterized queries. You are  nearly  immune to SQL injections if you use proper escaping everywhere (but there can be, and has been, bugs in the escaping routines, so it's not as foolproof as parameters). 
+ If you call a stored procedure, adding the arguments by concatenation, I can still add a random query at the end of one of the input fields - for example, if you have CALL CheckLogin @username='$username', @password='$password', with the $-things representing directly concatenated variables, nothing stops me from changing the $password variable to read "'; DROP DATABASE; --". 
+ Obviously, if you clean up the input beforehand, this also contributes to preventing SQL injection, but this can potentially filter out data that shouldn't have been cleaned. 
+ 
+ It depends what your stored procs do. If they dynamically generate SQL based on their parameters, and then execute that SQL, then you're still vulnerable. Otherwise, you're far more likely to be fine - but I hesitate to sound 100% confident! 
+ 
+ nope.  If you're constructing SQL that invokes a stored procedure you're still a target. 
+ You should be creating parametized queries on the client side. 
+ 
+ No, as you could still use D-SQL in your stored procedures... and validating and restricting your input is a good idea in any case.  
+ 
+ Stored Procedures are not a guarantee, because what is actually vulnerable is any dynamic code, and that includes code inside stored procedures and dynamically generated calls to stored procedures. 
+ Parameterized queries and stored procs called with parameters are both invulnerable to injection as long as they don't use arbitrary inputs to generate code.  Note that there is plenty of dynamic code which is also not vulnerable to injection (for instance integer parameters in dynamic code). 
+ The benefits of a largely (I'm not sure 100% is really possible) stored procs-based architecture, however, is that injection can even be somewhat defended against (but not perfectly) for dynamic code at the client side because: 
+ Only EXEC permissions are granted to any user context the app is connecting under, so any SELECT, INSERT, UPDATE, DELETE queries will simply fail.  Of course, DROP etc should not be allowed anyway.  So any injection would have to be in the form of EXEC, so ultimately, only operations which you have defined in your SP layer will even be available (not arbitrary SQL) to inject against. 
+ Amongst the many other benefits of defining your database services as a set of stored procedures (like any abstraction layer in software) are the ability to refactor your database underneath without affecting apps, the ability to better understand and monitor the usage patterns in your database with a profiler, and the ability to selectively optimize within the database without having to deploy new clients. 
+ 
+ Additionally, consider using fine grained database access, (also called generally Role Based Access Control)  The main user of your database should have exactly the permissions needed to do its job and nothing else.  Don't need to create new tables after install?  REVOKE that permission.  Don't have a legitimate need to run as sysdba?  Then don't!  A sneaky injection instructing the user to "DROP DATABASE" will be stymied if the user has not been GRANTed that permission.  Then all you need to worry about is data-leaking SELECT statements. 
+ 

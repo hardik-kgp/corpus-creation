@@ -1,0 +1,25 @@
+*** core-data-performance-with-single-parent-entity ***
+
+ I am creating a framework that works with Core Data. One of the requirements for using my framework on your Core Data class is that any entity you want to have the Framework's capabilities will need to be sub entities and sub classes of an entity I provide to you. For the sake of this I will call that object Foo. 
+ Today I realized that Core Data stores all objects that are sub entities of Foo into a table called ZFOO. I'm worried about the performance of Core Data if someone with massive data sets wants to use it, since ALL sub entities of the foo class will be store in one enormous ZFOO table.  
+ Any opinions or recommendations would be highly appreciated. 
+ 
+ Last year I worked on a project that did the same thing, we stored everything in core data and everything in core data inherited from a single class which had some common attributes. 
+ We had somewhere between 1k - 10k records in core data and performance degraded to the point where we rewrote it and removed the common ancestor.  As I recall simple searches were taking multiple seconds, and insertions / updates were pretty crappy too.  It was only after things had gotten painfully slow that we cracked the db open and noticed under the covers core data was storing everything in one table.   
+ Sorry I don't remember specific numbers, the big takeaway was we had to redo it because it was too slow, and not too slow like too slow for high frequency trading but too slow like the app crashed on load when trying to populate the initial view out of core data.   
+ So, with the grain of salt that this was on older iOS and older hardware, I would say definitely do not do this.   
+ 
+ I worked with @deathbob on this project as the iOS lead. In our instance I had multiple classes which contained the attributes "remote_id" and "remote_update". I initially set the tables up using subclasses. I had a "RemoteEntity" abstract entity which contained those attributes and a bunch of other entities which inherited from it, each with their own. I  thought  that we would end up with a bunch of tables each with remote_id, remote_update, and then their custom attributes. Instead we ended up with the massive table you describe. 
+ The fix was pretty simple you  **must**
+ not set up inheritance through the GUI. Instead include all attributes for that object including your shared ones in the Core Data modeller (this means "remote_id" and "remote_update" will appear in each entity. That being said we can still use a subclass. After generating your models' classes, create the parent entity's class. This must  **not**
+ be in the GUI. It should inherit from NSManagedObject and in the .m file the properties should use @dynamic instead of @synthesize. Now that you have the parent class it is time to adjust the child classes. Set the parent class to RemoteEntity (in my example) instead of NSManagedObject. Then remove any properties that appear in your super class (in my example, "remote_id" and "remote_update"). 
+ Here is an example of my super class  https://gist.github.com/1121689 . 
+ I hope this helps, hat tip to @deathbob for pointing this out. 
+ 
+ Hindsight is a wonderful thing. 
+ As people are still reading this Q&A and referring to it in their questions and thinking that nothing has changed, I'd like to add a few comments for clarity and to provide a "modern" or more recent response. 
+ Core data is a powerful beast, but you must learn to control the beast, and thanks to the pioneers who have answered previously and the improvements that Apple has made to the framework, it is a lot easier to do today than it was a couple of years ago (in particular iOS 5). 
+ Initially I'd recommend learning how to prepare a solid and robust data model. There is a huge amount of information on this so I will leave it to the reader to investigate. As the previous answers mention, it is important to learn to prepare all relationships in the data model. 
+ Beyond that, there are a number of mechanisms to control the size of data set you fetch. It has not been better explained to me than in a book from The Pragmatic Bookshelf – "Core Data, 2nd Edition, Data Storage and Management for iOS, OS X, and iCloud" (Jan 2013) by Marcus S. Zarra, and in particular Chapter 4 titled "Performance Tuning”. 
+ Read it. 
+ 

@@ -1,0 +1,62 @@
+*** which-orm-framework-can-best-handle-an-mvcc-database-design ***
+
+ When designing a database to use MVCC (Multi-Version Concurrency Control), you create tables with either a boolean field like "IsLatest" or an integer "VersionId", and you never do any updates, you only insert new records when things change.   
+ MVCC gives you automatic auditing for applications that require a detailed history, and it also relieves pressure on the database with regards to update locks.  The cons are that it makes your data size much bigger and slows down selects, due to the extra clause necessary to get the latest version.  It also makes foreign keys more complicated. 
+ (Note that I'm  not  talking about the native MVCC support in RDBMSs like SQL Server's snapshot isolation level) 
+ This has been discussed in other posts here on Stack Overflow. [todo - links] 
+ I am wondering, which of the prevalent entity/ORM frameworks (Linq to Sql, ADO.NET EF, Hibernate, etc) can cleanly support this type of design?  This is a major change to the typical ActiveRecord design pattern, so I'm not sure if the majority of tools that are out there could help someone who decides to go this route with their data model.  I'm particularly interested in how foreign keys would be handled, because I'm not even sure of the best way to data model them to support MVCC. 
+ 
+ I might consider implementing the MVCC tier purely in the DB, using stored procs and views to handle my data operations. Then you could present a reasonable API to any ORM that was capable of mapping to and from stored procs, and you could let the DB deal with the data integrity issues (since it's pretty much build for that). If you went this way, you might want to look at a more pure Mapping solution like IBatis or IBatis.net. 
+ 
+ I designed a database similarly (only INSERTs — no UPDATEs, no DELETEs). 
+ Almost all of my SELECT queries were against views of only the current rows for each table (highest revision number). 
+ The views looked like this… 
+ 
+ And my inserts (and updates and deletes) were all handled by stored procedures (one per table). 
+ The stored procedures looked like this… 
+ 
+ Revision numbers were handled per-transaction in the Visual Basic code… 
+ 
+ I created an object for each table, each with constructors, instance properties and methods, create-update-delete commands, a bunch of finder functions, and IComparable sorting functions.  It was a huge amount of code. 
+ One-to-one DB table to VB object... 
+ 
+ Such a system preserves all past versions of each row, but can be a real pain to manage. 
+ **PROS:**
+
+ 
+ Total history preserved 
+ Fewer stored procedures 
+ 
+ **CONS:**
+
+ 
+ relies on non-database application for data integrity 
+ huge amount of code to be written 
+ No foreign keys managed within database (goodbye automatic Linq-to-SQL-style object generation) 
+ I still haven't come up with a good user interface to retrieve all that preserved past versioning. 
+ 
+ **CONCLUSION:**
+
+ 
+ I wouldn't go to such trouble on a new project without some easy-to-use out-of-the-box ORM solution. 
+ 
+ I'm curious if the Microsoft Entity Framework can handle such database designs well. 
+ Jeff and the rest of that Stack Overflow team must have had to deal with similar issues while developing Stack Overflow:  Past revisions of edited questions and answers are saved and retrievable. 
+ I believe Jeff has stated that his team used Linq to SQL and MS SQL Server. 
+ I wonder how they handled these issues. 
+ 
+ To the best of my knowledge, ORM frameworks are going to want to generate the CRUD code for you, so they would have to be explicitly designed to implement a MVCC option; I don't know of any that do so out of the box. 
+ From an Entity framework standpoint, CSLA doesn't implement persistence for you at all -- it just defines a "Data Adapter" interface that you use to implement whatever persistence you need.  So you could set up code generation (CodeSmith, etc.) templates to auto-generate CRUD logic for your CSLA entities that go along with a MVCC database architecture. 
+ This approach would work with any entity framework, most likely, not just CSLA, but it would be a very "clean" implementation in CSLA. 
+ 
+ Check out the Envers project - works nice with JPA/Hibernate applications and basically does that for you - keeps track of different versions of each Entity in another table and gives you SVN-like possibilities ("Gimme the version of Person being used 2008-11-05...") 
+ http://www.jboss.org/envers/ 
+ /Jens 
+ 
+ I always figured you'd use a db trigger on update and delete to push those rows out into a TableName_Audit table. 
+ That'd work with ORMs, give you your history and wouldn't decimate select performance on that table. Is that a good idea or am I missing something? 
+ 
+ What we do, is just use a normal ORM ( hibernate ) and handle the MVCC with views + instead of triggers. 
+ So, there is a v_emp view, which just looks like a normal table, you can insert and update into it fine, when you do this though, the triggers handle actually inserting the correct data into the base table. 
+ Not.. I hate this method :) I'd go with a stored procedure API as suggested by Tim. 
+ 

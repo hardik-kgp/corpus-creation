@@ -1,0 +1,365 @@
+*** one-400gb-table-one-query-need-tuning-ideas-sql2005 ***
+
+ I have a single large table which I would like to optimize.
+I'm using MS-SQL 2005 server. I'll try to describe how it is used and if anyone has any suggestions I would appreciate it very much. 
+ The table is about 400GB, has 100 million rows and 1 million rows are inserted each day.
+The table has 8 columns, 1 data col and 7 columns used for lookups/ordering.  
+ 
+ where 
+ 
+ Only one select query is run which looks like this: 
+ 
+ where g = circa 1 million
+This query us ran about 10 times per day (often while inserts are happening) and takes about 5-30 minutes. 
+ So I currently only have a clustered index on the two primary key columns. My question is: what indexes should I add to improve this query's performance? 
+ Would separate indexes on every column be a good choice? I think a single index would take up about 5-8GB. The DB server has 8GB RAM total. 
+ Please do not say that the best thing is to experiment. This is akin to 'I don't know, work it out your self' :) 
+ Any tips much appreciated! 
+ 
+EDIT by doofledorfer--
+
+ You've caused an outbreak of premature optimization here, if not outright suggestions that "the best thing is to experiment". You need to clarify a number of issues if you want useful help. 
+ -- doofledorfer
+ 
+EDIT: Comments on posts to date are now posted below along with query plan
+- Mr. Flibble
+
+ 
+ 
+ You are probably I/O bound 
+ 
+ Yes, it is not CPU bound. Disk access is high. All available RAM seems to be used. Whether it is used wisely or not remains to be seen. 
+ 
+ You say you can't split the data because all the data is used: IMPOSSIBLE 
+ 
+ I mean that all data is used at some point - not that all data is used by each user in each query. 
+I can certainly split the data but, so far, I don't understand why partitioning the table is any better than using a clustered index. 
+ 
+ Why did you choose these types
+  VARCHAR probably should have been INT as it can only be a few values. The rest are sensible enough, Money represents a money value in real life and bigint is an ID, and the bools are onny, offy type things :) 
+ By any chance we could get have a look the insert statement, or TSQL or the bulkinsert  
+ 
+ TSQL. Its basically INSERT INTO table VALUES (k1,k2,k3,k4,k5,k6,d1). The only thing that is in any way interesting is that many duplicate inserts are attempted and the k1 & k2 PK constraint is used to prevent duplicate data entering the database. I believed at design time (and now) that this was as quick a way as any to finter out duplicate data.  
+ 
+ Can you tell how often your insert happens
+  Every 10 minutes or so inserts run (ADO.NET) maybe 10K at a time and take a few minutes. I estimate currently a full day's inserts take 40% of the time in the day.  
+ Does the DateTime field contains the date of insert
+  No. There is actually another DateTime column which does but it is not retrieved in any SELECT query so I didn't mention it for the sake of simplicity. 
+ How did you came to this
+  More one man day thinking.  
+ if you're interested only in the last data, deleting/archiving the useless data could make sense (start from scratch every morning) 
+ 
+ I am not interested in recent data only. A query may select some of the very first data that was inserted into the table all the way up to data inserted minutes ago. But as the data is filtered this does not mean that all the data in the DB is requested in that query. 
+ 
+ if there is only one "inserter" and only one "reader", you may want to switch to a specialised type (hashmap/list/deque/stack) or something more elaborated, in a programming language. 
+ 
+ I will probably stick with MSSQL for the moment. It's not broke yet, just a little slow. 
+ liggett78, do you suggest a clustered index on columns k1,k4,k5,k6,k3 or a non-clustered index on those columns? 
+ 
+ My main question right now is should I extend the current clustered index to contain k4 also (this is the col with next most possible values) or should I just add a non-clustered index to k4. 
+ Would adding all k1-k6 to a clustered index be an option? Then have a separate non-clustered index on the DateTime column for the ORDER BY? Am I correct in thinking that this would not cause any major increase in DB size but will only affect insert times. Can anyone guesstimate the effect this will have on inserts? 
+ I think that if adding indexes to all the columns will double the DB size then it is not viable without large (ie. hardware) changes.  
+ 
+ The following plan was run with an index (non clustered) on the DATE column. 
+ EDIT:
+Not sure if you can see the XML below so here is a link to it:  http://conormccarthy.com/box/queryplan.sqlplan.txt 
+ 
+ 
+ As I hinted in a comment, I have done this with a single Oracle table approaching 8 TB consisting of over two billion rows growing at the rate of forty million rows per day.  However, in my case, the users were two million (and growing) customers accessing this data over the web, 24x7, and literally ANY of the rows was subject to being accessed.  Oh, and new rows had to be added within two minutes of real-time. 
+ You are probably I/O bound, not CPU or memory bound, so optimizing the disk access is critical.  Your RAM is fine--more than adequate.  Using multiple cores would be helpful, but limited if the I/O is not parallelized. 
+ Several people have suggested splitting up the data, which should be taken seriously since it is far better and more effective than any other solution (nothing is faster than not touching the data at all). 
+ You say you can't split the data because all the data is used:  IMPOSSIBLE!  There is no way that your users are paging through one million rows per day or one hundred million rows total.  So, get to know how your users are ACTUALLY using the data--look at every query in this case. 
+ More importantly, we are not saying that you should DELETE the data, we are saying to SPLIT the data.  Clone the table structure into multiple, similarly-named tables, probably based on time (one month per table, perhaps).  Copy the data into the relevant tables and delete the original table.  Create a view that performs a union over the new tables, with the same name as the original table.  Change your insert processing to target the newest table (assuming that it is appropriate), and your queries should still work against the new view. 
+ Your savvy users can now start to issue their queries against a subset of the tables, perhaps even the newest one only.  Your unsavvy users can continue to use the view over all the tables. 
+ You now have a data management strategy in the form of archiving the oldest table and deleting it (update the view definition, of course).  Likewise, you will need to create a new table periodically and update the view definition for that end of the data as well. 
+ Expect to not be able to use unique indexes:  they don't scale beyond about one-to-two million rows.  You may also have to modify some other tactics/advice as well.  At one hundred million rows and 400 GB, you have entered another realm of processing. 
+ Beyond that, use the other suggestions--analyze the actual performance using the many tools already available in SQL Server and the OS.  Apply the many well-known tuning techniques that are readily available on the web or in books. 
+ However, do NOT experiment!  With that much data, you don't have time for experiments and the risk is too great.  Study carefully the available techniques and your actual performance details, then choose one step at a time and give each one a few hours to days to reveal its impact. 
+ 
+ Help me understand more about the table.  if your PK is k1,k2, you shouldn't have to select by any other column to get a completely unique record.   
+ Do you mean to say that k1 through 7 is the PK?  If so, declare it as such and it will be a clustered index.  Query performance should improve dramatically. 
+ The order by is adding a lot of overhead.  Consider finding a better option that can return a smaller set of data.  Knowing why you need around a million records returned might help me provide a better solution. 
+ Edit:  I get the sense that I'm not alone in my suspicion that the best place to start optimizing is in your physical table design.  Do you have any control over this?  Not knowing what each column stores, I can't offer very specific ideas but a very general approach follows:  Put K1,3,4,5 & 6 (k2 appears to be directly related to the values in your table) in its own table with a single unique int as the PK.  Then create a FK relationship back to this table.  You PK on the main table would then include this field, k2 & k7. Now your query will optimizer will perform a rather inexpensive lookup in your new table, return a single record and then perform an index seek into your main table by PK only. 
+ 
+ It looks like you only want the earliest "g" records? Maybe only the most recent "g" records? 
+ Basically you want your query to only read the most recent/oldest records. You don't want to query the entire 400GB do you? If this is the case, you might consider archiving the majority of the 400GB, or keeping the most recently inserted records in a "current" table that you can query. You can keep the records in the current table current through dual inserts, or through a trigger on the table (shudder). But the basic premise is that you run your query against as small a table as possible. This is basically poor-man's table partitioning. 
+ 
+ Here is what I would do: 
+ 
+ Don't create single indexes on each column. You'll be wasting space and they won't help you much (if at all) 
+ Leave your primary key alone, but create a clustered index on your date column, since this is what you use in ORDER BY. That way the database engine would begin to scan the clustered key, compare columns with your supplied values and output rows that satisfy the conditions. 
+ You don't need any other indexes for that. I believe even 100 values out of 100 millions for k4 would be considered poor selectivity by the optimizer (though you can try that at least). 
+ if you select based on some date ranges, e.g. only data from the last month, week, year etc. you might want to look at partitioning your big table into "smaller" ones based on the date-column. Those 10-value columns would be good candidates for partition-keys too. 
+ 
+ BTW, you specify you entire PK in the query - assuming AND'ing in WHERE - that will select exactly 1 row. 
+ 
+ OK, 
+ Let's try to solve this problem with statistics.  Before you try and create any index, you should ask what combination of keys gives me better selectiveness: 
+ 
+ K1 : 10 different values 
+ K3 : 100 different values 
+ k4 : 10 different values 
+ k5 : 2 differente values 
+ k6 : 2 differente values 
+ 
+ If we make a compund key of k1,k3,k4,k5,and k6 that means that key will only have 40,000 different combinations(10 * 100 * 10 * 2 * 2).  That means that if we have 100,000,000 record divides by 40,000, statistically we will have a subset of 2,500 different records, on wich a sequential search will be aplied to complete the other restrictions of the WHERE clause. 
+ If we extrapolate this result and compare them with the current execution time(30 minutes), with a  key(k1) that generates statistically a subset of 10 million different records we get: 
+ 10,000,000 rec * X sec = 30 * 60 sec * 2,500 rec 
+ => X sec = 0.45 sec 
+ Not bad huh?  Better yet.  How about if we eliminate k5 and k6 from the compund index?  Statistically we will have a subset of 10,000 different records where the sequential search will be performed.  In theory, How much time will that take?  lets see: 
+ 10,000,000 rec * X sec = 30 * 60 * 10,000 rec 
+ => X sec = 1.8 sec 
+ Since we want the smallest index footprint traded off with the best possible performance, I would say an index on k1 + K3 + K4 is as good as it gets. 
+ Hope this helps, 
+ 
+ First off, spend a day with SQL Profiler running in the background. At the end of the day, save the trace data to a file and have the Optimization wizard pour over it and evaluate your current index. That should tell you if changing the indexed fields, sort order, etc. can give you any significant gains. Do not let the wizard make the changes. If the percentage performance gain looks significant (> 30% IMHO), go ahead and make the change yourself.  
+ Your index has to be getting on the large side. You may want to schedule a job (overnight, a couple times a week) to do the following:  
+ 
+ Move data over a certain age to a history table 
+ defrag the index  
+ recalculate metrics 
+ 
+ That will keep it speedy once you have tuned the indexes.  
+ 
+ It is is difficult to give you a very meaningful answer. Have you looked at the disk I/O costs ? Where are you keeping the database files  - perhaps it is the I/O that is stalling  ? There are so many variables here that can affect the performance. Perhaps it is the time taken by your UI or whather to display the data, perhaps it is the time taken by the Network ?  
+ Perhaps the easiest way - where you will see the most gains will be to partition the table - if you are on the Enterprise Edition of SQL Server 2005. 
+ Again without having access to actual query plans, perfmon stats it is mighty hard to tell you exactly what is the problem. Your question simply doesn't give us enough to go on - and everything is just a guess. 
+ 
+ Why have you clustered on the primary key? 
+Which columns can be NULL? 
+What are the VARCHAR lengths? 
+What does the query plan give you now?   
+ You handicap us by giving meaningless column names.   
+ Even if the clustered index is proper, the more selective field should come first. 
+ I could make recommendations based on insufficient information, but some help would be better. 
+ 
+ Use the SQL Profiler to work out what indexes to create, it is designed to work out that information for you and suggest improved execution profiles. 
+ Do you have foreign keys on k3, k4? 
+ Try turning k1, k2 into ints and making them foreign keys, it'll use a lot less storage for one, I'd have thought and I think it should be quicker (though I may be wrong there, I guess SQL Server caches these values).  More to the point, it's easier if you ever need to update a value.  You just change the name of the foreign key row- you don't then have to update 100 million primary keys, or whatever. 
+ One good tip to improve query speeds is to put in a sub-query that cuts down your recordset size to a more managable one. 
+ In: 
+ 
+ Which, I presume should be  
+ 
+ There is likely to be some set of data that immediately cuts the recordset down from, say 10 million rows, to 10,000. 
+ e.g.  
+ 
+ This assumes that you can cut down the initial set of data massively by one or two of the WHERE arguments- which is almost certain. 
+ DBAs probably have more, better solutions! 
+ 
+ Show the query plan output - any tuning adventure that doesnt start there is a misadventure. 
+ 
+ Partition and parallelize - check the query plan, if its not showing that the query is parallelized then find out why it isn't. You may need to break the query into a couple of steps and then bring the results together. 
+ If it is then parition the data across multiple physical disks, add more cores. Its got lots of work to do, once you've indexed the hell out of it raw, physical power is all thats left. 
+ Don't assume that SQL Server will just use all your cores. Generally you have to design your query just right so that multiple cores can be used. Check the properties of the first node in the query plan to see the DOP (degree of parallelizm). If its 1 you're wasting cores... 
+ 
+ Have you considered creating a surrogate identity column (type bigint) and using that as the clustered index? Then create your primary key as a non-clustered unique index. 
+ With a table of this size, it's quite possible that index and page fragmentation are a big performance problem. The surrogate clustered index will ensure that all inserts are at the end of the table, which can almost completely eliminate page fragmentation (unless rows get deleted). Less page fragmentation == more pages per IO, which is a very good thing. 
+ This will also allow you to periodically defrag the unique index that you are querying on, which will make it much more effective. Do this often, or at least monitor index fragmentation on this table regularly. 
+ These performance improvements can be quite dramatic -- if your current PK is highly fragmented, an index seek can involve a great deal more IO than it should. 
+ Once you've implemented this, consider (aka, try it and measure ;-) adding a nonclustered index on column k7. 
+ 
+ It looks like you are not using your clustered index to its full potential, and have a LOT of duplicated data.  
+ Your clustered index seems to be constructed something like: 
+ 
+ However, your other k* columns represent only 40,000 possible permutations.   
+ 
+ 10 (k1) * 10 (k3) * 100 (k4) * 2 (k5) * 2 (k6) = 40,000 
+ 
+ You should pull unique combinations of these 4 keys out into a separate table and give each of these a unique int (primary key "newPK"). 
+ Excuse the pseudocode please:  
+ 
+ This table will only have 40,000 rows and be very fast to lookup the primary key, newPK.
+Then, you can lookup a single integer in your large table.  
+ Your existing table should be altered to have the following columns: 
+ 
+ newPK 
+ k2 (which really is not a key, probably just a sequence number) 
+ d1 
+ k7 the datetime 
+ 
+ Given the above, you can change your clustered index to: 
+ 
+ And you can seek along this.  It is guaranteed to be faster than what your query is doing now (equivalent performance to an index scan + key lookup). 
+ 
+ Your insert statement will need to be modified to query/insert the SurrogateKey table as well. 
+ 
+ You need to create an index which will reduce the number of possible rows returned as quickly as possible. 
+ Therefore the simplest index to create would be on column k4, as that can have to highest number of different values.
+It is only necessary to index the initial substring of k4 where the expected values of k4 differ within that substring. This will reduce the size of the index, and speed up access. 
+ k7 should also be indexed as this will greatly increase the speed of the orderby clause. 
+ You may also need to experiment (I know, I know, you said don't experiment, but this may help...) with creating a multiple column index in this order: k4, k1, k2, k3. This, again, is to reduce the number of possible rows returned as quickly as possible. 
+ 
+ Here is an idea, what if you create a second table with all of the Lookup values, and then instead of using   you join the tables and do the where clause on the new Lookup table. 
+ Also I think it could help if you posted a few rows of data and a sample query, if possible. 
+ 
+ Add a single index with columns k1-k6 in it; that should be the best.    
+ Also, if you can run sp_updatestats before each query.  
+ 
+ I would use the index tuning wizard to get a better answer.  
+ However, if it were me, I would try an index on  K3, K4 (In the order you most commonly query) (you already have K1 and K2 indexed) and a separate indexed on K7. I don't belive the additon of the boolean fields would improve index performance.  
+ Remember the more indexes, the slower inserts will be. With the number of inserts you have, this ia a real concern. So truly the only real answer is that you will have to experiment with your own data and hardware and find what works best for your personal situation. The fact that it wasn't what you wanted to hear doesn't make it any less true, Indexing is very dependent on how your application actually works and the structure of your data. 
+ 
+ I would say that 8 GB are not enough RAM for a 400 GB table. The server has no chance to keep the relevant data in memory if one index alone takes 5-8 GB. So there's lots and lots of harddisk reads which make the query slow. 
+ In my opinion increasing the amount of RAM and having the database on a fast RAID (perhaps splitted on multiple RAIDs?) would help the most. 
+ EDIT: To be sure what's your real bottleneck, run Windows'  Performance Monitor . 
+ 
+ Your query plan basically shows the following: 
+ 
+ The first op is clustered index seek with comparisons on k1, handId?, d1, k3-k6 
+ Second is an entire index scan on the k1, handId? and k7 
+ Third is of course the join to build the final result set 
+ Sorting ORDER BY 
+ TOP n (Filter) 
+ 
+ The plan suggest an index, which should improve perm by 81% - k1, k4, k5, k6, k3 + include  d1 & k7.
+I don't know how long it would take to build such an index and see the results, but as I've commented here, it will effectively double the size of your table, simply because almost every column is present in the index. Also inserts will be slower. 
+ As many people have suggested, partitioning is the best strategy here, e.g. make one table for example have k3 values from 1 to 3, another from 4 to 7, and the third from 8 to 10. With SQL Server Enterprise partitioning is done using a CHECK constraint on this column, the query optimizer will determine which table out of n to scan/seek depending on the parameter value for the column. 
+ 
+ That sounds like good fun. 
+ A few questions: 
+ 
+ Why did you choose these types ? varchar, money, bigint, int, bool ? is there a reason or just willing to add some good fun? 
+ By any chance we could get have a look the insert statement, or TSQL or the bulkinsert ? 
+ Can you tell how often your insert happens (is it a bulk, or random ?) 
+ Does the DateTime field contains the date of insert ? 
+ How did you came to this ? (a one man/day thinking or a team of 20 people working like crazy for the last three months ?) 
+ 
+ A few facts seems important to me: 
+ 
+ You insert a million row every day 
+ You want only the last million data 
+ 
+ A few remarks came to me: 
+ 
+ if you're interested only in the last data, deleting/archiving the useless data could make sense (start from scratch every morning) 
+ if there is only one "inserter" and only one "reader", you may want to switch to a specialised type (hashmap/list/deque/stack) or something more elaborated, in a programming language. 
+ 
+ 
+ I think a clustered index on K7 is the only thing of any value. The rest of your where clause has such low selectivity that it's a waste of time. 
+ Unless you can take advantage of some specific knowledge of your values (maybe k5 is only true if k4 < 0, or something), you're pretty much looking at a clustered index scan. Might as well make it the field that you're ordering by. 
+ Looking at the low numbers of distinct values in k3 - k6, you'd probably only need to read < 1.5 million rows to get your top 1 million. That's probably the best you're going to do - especially since any other plan would need you to order by k7 anyway to evaluate your TOP clause. 
+ 
+ what is D1, is it decimal or a long char please can you elaborate this.
+My recomendation would be to create the clustered index as (K7, k2, k1, k4) and then create an aditional index on (k3) (creation of an index on the two bool values are mostly meaningless unless the value distribution is around 30%/70% between the values, or if your table is very wide, if d1). 
+ this change would not greatly impact your insert speed much at all, while providing you with a rough generic answer to the clustered index. 
+ 
+ You can try: 
+ 
+ This will ensure that your duplicate inserts continue to error out. 
+ This may also instruct SQL Server to filter on   and order on   in one pass, permitting SQL Server to stream the query results without the intermediate step of sorting a million results first. Once SQL Server finds the first row matching  , the next million rows or so rows will all match the same filter, and will already be in sorted order by  . All filtering and ordering will be done, together, based on the clustered index. 
+ Provided the pages are stored consecutively, and provided SQL Server knows how to optimize, that's a few disk seeks to walk down the index to find the first matching row followed by one big sequential disk read of ten thousand or so pages. That should be faster than asking SQL Server to seek all over the place to find the rows and then asking SQL Server to sort them in tempdb! 
+ You will have to be vigilant and ensure that the clustered index is in good health at all times. You may also have to reduce the page fill factor if insert time slows down too much. 
+ 
+ Thanks all for your help. 
+ I have made 3 edits to mistakes in the original post. 
+ 1) The WHEREs should have been ANDs. 
+ 2) k4 should have been MONEY not VARCHAR. Also, k1 is of length 3. 
+ 3) The k2 should not be in the WHERE clause. As doofledorfer correctly points out, it makes no sense to have any other WHERE statements other than the full primary key.  
+ Here are the answers to your questions: 
+ 
+ Why have you clustered on the primary key? 
+ 
+ I was under the impression that the PK was set as a clustered index by default. I did not change it. 
+ 
+ Which columns can be NULL? 
+ 
+ None. 
+ 
+ What are the VARCHAR lengths? 
+ 
+ I made a mistake with the column types. The only remaining VARCHAR is of length 3. 
+ 
+ What does the query plan give you now?  
+ 
+ Posted in the next post. 
+ 
+ Help me understand more about the table. 
+  if your PK is k1,k2, you shouldn't have to select by
+  any other column to get a completely unique record.
+  This was a mistake. The k2 part of the PK is not in the WHERE clause. 
+ Knowing why you need around a million records
+  returned might help me provide a better solution. 
+ 
+ The database contains daily records (the d1 TEXT column) or data. People need access to large amounts of this data to run their own reports.
+They need to filter it by a number of values and have it delivered sorted by time. 
+ 
+ It looks like you only want the earliest "g" records? Maybe only the most recent "g" records? 
+ 
+ Yes, the latest. But I a certain number of them. I don't know the start date beforehand. 
+ 
+ Do you have foreign keys on k3, k4?
+  No. This is the only table int the DB. 
+ 
+ Comments: 
+ 
+ Even if the clustered index is proper, the more selective field should come first. 
+ 
+ The more selective index is not used in the WHERE clause (post edit!). So I take it it should not come first in that case? 
+ 
+ You may want to Move data over a certain age to a history table 
+ 
+ Currently all the data is used so pruning is not an option. 
+ 
+ You may want to defrag the index  
+ 
+ Currently I have none. Will look into it if this thread proves fruitful. 
+ 
+ Add a single index with columns k1-k6 in it; that should be the best.  
+ 
+ Can anyone else comment on this suggestion? Liggett78 cammented that this will double the size of the DB without helping much
+because of the date-column sort. Note that the DATE column is not in the WHERE clause, it is only used for ordering the data. 
+ 
+ Try turning k1, k2 into ints and
+  making them foreign keys, it'll use a
+  lot less storage for one, I'd have
+  thought and I think it should be
+  quicker (though I may be wrong there,
+  I guess SQL Server caches these
+  values). 
+ 
+ k2 is a bigint (mistake in the orig post).
+So changing k1 to an int (from a VARCHAR(3)) is an option. Do we really think this is going to make much difference.
+And do people really think that splitting the table into k1,k2,d1 and k1,k2,k3,k4,k5,k7 and using foreign keys would improve things? 
+ 
+ One good tip to improve query speeds
+  is to put in a sub-query that cuts
+  down your recordset size to a more
+  manageable one. There is likely to be
+  some set of data that immediately cuts
+  the recordset down from, say 10
+  million rows, to 10,000. 
+ e.g. SELECT TOP(g) d1 FROM (SELECT *
+  FROM table WHERE k1=a
+  WITH(NOLOCK)) WHERE AND k3 = c AND k4
+  = d AND k5 = e AND k6 = f ORDER BY k7 
+ 
+ Very interesting. Would this really help? It seems like SQL Server would be very stupid if it did not cut down the data in a similar manner itself.  
+ 
+ Perhaps it
+  is the time taken by your UI or
+  whether to display the data, perhaps
+  it is the time taken by the Network ? 
+ 
+ There is no UI. There certainly are network issues moving the data but I am only concerned with the time taken for the query to start returning results (I'm using an ADO.NET data reader) at the moment - one thing at a time :) 
+ 
+ .. [to] see the most gains ... partition the table 
+ 
+ Will a clustered index not have the same effect? 
+ 
+ Leave your primary key alone, but
+  create a clustered index on your date
+  column, since this is what you use in
+  ORDER BY. That way the database engine
+  would begin to scan the clustered key,
+  compare columns with your supplied
+  values and output rows that satisfy
+  the conditions. 
+ 
+ Sounds like a sound plan! Any other backers? 
+ To summarize the suggestions: 
+ 1) Create separate indexes on all keys: most people vote no on this? 
+ 2) Create separate indexes on the keys with most distinct values. 
+ 3) Create a multiple column index on  some  of the columns, with the columns with the most distinct values first. 
+ 4) Throw RAM at it. 
+ 

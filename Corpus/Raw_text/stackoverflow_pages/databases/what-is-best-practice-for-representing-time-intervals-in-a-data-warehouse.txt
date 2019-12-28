@@ -1,0 +1,103 @@
+*** what-is-best-practice-for-representing-time-intervals-in-a-data-warehouse ***
+
+ In particular I am dealing with a Type 2  Slowly Changing Dimension  and need to represent the time interval a particular record was active for, i.e. for each record I have a  StartDate  and an  EndDate . My question is around whether to use a  closed  ( [StartDate,EndDate] ) or  half open  ( [StartDate,EndDate) ) interval to represent this, i.e. whether to include the last date in the interval or not. To take a concrete example, say record 1 was active from day 1 to day 5 and from day 6 onwards record 2 became active. Do I make the EndDate for record 1 equal to 5 or 6? 
+ Recently I have come around to the way of thinking that says half open intervals are best based on, inter alia,  Dijkstra:Why numbering should start at zero  as well as the conventions for array slicing and the  range()  function in Python. Applying this in the data warehousing context I would see the advantages of a half open interval convention as the following: 
+ 
+ EndDate-StartDate  gives the time the record was active 
+ Validation: The  StartDate  of the next record will equal the  EndDate  of the previous record which is easy to validate. 
+ Future Proofing: if I later decide to change my granularity from daily to something shorter then the switchover date still stays precise. If I use a closed interval and store the EndDate with a timestamp of midnight then I would have to adjust these records to accommodate this. 
+ 
+ Therefore my preference would be to use a half open interval methodology. However if there was some widely adopted industry convention of using the closed interval method then I might be swayed to rather go with that, particularly if it is based on practical experience of implementing such systems rather than my abstract theoretising. 
+ Thanks in advance for any insights or comments. 
+ 
+ I have seen both closed and half-open versions in use. I prefer half-open for the reasons you have stated. 
+ In my opinion the half-open version it makes the intended behaviour clearer and is "safer". The predicate ( a <= x < b ) clearly shows that b is intended to be outside the interval. In contrast, if you use closed intervals and specify (x BETWEEN a AND b) in SQL then if someone unwisely uses the enddate of one row as the start of the next, you get the wrong answer. 
+ Make the latest end date default to the largest date your DBMS supports rather than null. 
+ 
+ Generally I agree with David's answer (voted), so I won't repeat that info.  Further to that: 
+ Did you really mean  half open ([StartDate,EndDate]) 
+ Even in that "half-open", there are two errors.  One is a straight Normalisation error that of course implements duplicate data that you identify in the discussion, that is available as derived data, and that should be removed.   
+ 
+ To me, Half Open is (StartDate) 
+ EndDate is derived from the next row. 
+ it is best practice 
+ it is not common usage, because (a) common implementors are unaware these days and (b) they are too lazy, or don't know how, to code the necessary simple subquery 
+ it is based on experience, in large banking databases 
+ 
+ Refer to this for details: 
+ **Link to Recent Very Similar Question & Data Model**
+
+ **Responses to Comments**
+
+ 
+ You seem to clearly favour normalised designs with natural, meaningful keys. Is it ever warranted to deviate from this in a reporting data warehouse? My understanding is that the extra space devoted to surrogate keys and duplicate columns (eg EndDate) are a trade off for increased query performance. However some of your comments about cache utilisation and increased disk IO make me question this. I would be very interested in your input on this. 
+ 
+ 
+ Yes. Absolutely.  Any sane person (who is not learning Computer Science from wiki) should question that.  It simply defies the laws of physics. 
+ Can you understand that many people, without understanding Normalisation or databases (you need 5NF), produce Unnormalised slow data heaps, and their famous excuse (written up by "gurus") is "denormalised for performance" ? Now you know that is excreta.   
+ Those same people, without understanding Normalisation or datawarehouses (you need 6NF), (a) create a  **copy**
+ of the database and (b) all manner of weird and wonderful structures to "enhance" queries, including (c) even more duplication. And guess what their excuse is ? "denormalised for performance".  
+ 
+ It is criminal, and the "gurus" are no better, they validate it.  
+ I would say those "gurus" are only "gurus" because they provide a pseudo scientific basis that justifies the non-science of the majority. 
+ false information does not get any truer by repeating it, and God knows they repeat it ad infinitum
+. 
+ 
+ The simple truth (not complex enough for people who justify datawarehouses with (1) (2) (3) ), is that 6NF, executed properly,  **is**
+ the data warehouse.  I provide both database and data warehouse from the same data, at warehouse speeds. No second system; no second platform; no copies; no ETL; no keeping copies synchronised; no users having to go to two sources.  Sure, it takes skill and an understanding of performance, and a bit of special code to overcome the limitations of SQL (you cannot specify 6NF in DDL, you need to implement a catalogue). 
+ 
+ why implement a StarSchema or a SnowFlake, when the pure Normalised structure already has full Dimension-Fact capability. 
+.   
+ 
+ Even if you did not do that, if you just did the traditional thing and ETLed that database onto a separate datawarehouse system, within it, if you eliminated duplication, reduced row size, reduced Indices, of course it would run faster.  Otherwise, it defies the laws of physics: fat people would run faster than thin people; a cow would run faster than a horse.   
+ 
+ fair enough, if you don't have a Normalised structure, then anything, please, to help. So they come up with StarSchemas, SnowFlakes and all manner of Dimension-Fact designs.   
+ 
+ 
+ And please understand, only un_qualified, in_experienced people believe all these myths and magic. Educated experienced people have their hard-earned truths, they do not hire witch doctors.  Those "gurus" only validate that the fat person doesn't win the race because of the weather, or the stars; anything  but  the thing that will solve the problem.  A few people get their knickers in a knot because I am direct, I tell the fat person to shed weight; but the real reason they get upset is, I puncture their cherished myths, that keep them justified being fat. People do not like to change. 
+ 
+ One thing.  Is it ever warranted to deviate . The rules are not black-or-white; they are not single rules in isolation.  A thinking person has to consider all of them together; prioritise them for the context.  You will find neither all iot keys , nor zero  iot keys in my databases, but every   key has been carefully considered and justified. 
+ 
+ By all means, use the shortest possible keys, but use meaningful Relational ones over Surrogates; and use Surrogates when the key becomes too large to carry. 
+ But never start out with Surrogates.  This seriously hampers your ability to understand the data; Normalise; model the data.   
+ 
+ Here is one  **▶question/answer◀**
+ (of many!) where the person was stuck in the process, unable to identify even the basic Entities and Relations, because he had stuck  iot keys on everything at the start.  Problem solved without discussion, in the first iteration. 
+. 
+ 
+ 
+ Ok, another thing.  Learn this subject, get experience, and further yourself.  But do not try to teach it or convert others, even if the lights went on, and you are eager. Especially if you are enthusiastic.  Why ? Because when you question a witch doctor's advice, the whole village will lynch you because you are attacking their cherished myths, their comfort; and you need my kind of experience to nail witch doctors (just check for evidence of his in the comments!).  Give it a few years, get your real hard-won experience, and then take them on. 
+ 
+ If you are interested, follow this ▶ **question/answer**
+◀ for a few days, it will be a great example of how to follow IDEF1X methodology, how to expose and distil those Identifiers. 
+ 
+ Well, the standard sql   is inclusive, so I prefer the inclusive form -- not that the other one is wrong. 
+ The thing is that for usual DW queries, these ( ) fields are mostly not used at all because the foreign key in a fact table already points to the appropriate row in the dimension table. 
+ These are mostly needed during loading (we are talking type 2 SCD here), to look-up the most current primary key for the matching business key. At that point you have something like: 
+ 
+ Or, if you prefer to create key-pipeline before loading: 
+ 
+ This helps loading, because it is easy to cache the key table into memory before loading. For example if   is varchar(40) and   an integer, the key table is less than 0.5 GB per 10 million rows, easy to cache for lookup.     
+ Other frequently seen variations include   and  . 
+ In general, one or more of the following fields are used : 
+ 
+ rowValidFrom   
+ rowValidTo 
+ rowIsCurrent 
+ rowVersion 
+ 
+ depending on a DW designer and sometimes ETL tool used, because most tools have a SCD type 2 loading blocks. 
+ There seems to be a concern about the space used by having extra fields -- so, I will estimate here the cost of using some extra space in a dimension table, if for no other reason then convenience. 
+ Suppose I use all of the row_ fields. 
+ 
+ This totals 15 bytes. One may argue that this is 9 or even 12 bytes too many -- OK. 
+ For 10 million rows this amounts to 150,000,000 bytes ~ 0.14GB 
+ I looked-up prices from a Dell site.  
+ 
+ I will assume raid 5 here (three drives), so disk price will be 0.078 $/GB * 3 = 0.23 $/GB 
+ So, for 10 million rows, to store these 4 fields on disk costs  . If the whole dimension table is to be cached into memory, the price of these fields would be   per 10 million rows. In comparison, a beer in my local pub costs ~ 7$. 
+ The year is 2010, and I do expect my next laptop to have 16GB memory. Things and (best) practices change with time.  
+ **EDIT:**
+
+ Did some searching, in the last 15 years, the disk capacity of an average computer increased about 1000 times, the memory about 250 times. 
+ 

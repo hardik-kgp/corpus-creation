@@ -1,0 +1,47 @@
+*** the-fastest-way-to-check-if-some-records-in-a-database-table ***
+
+ I have a huge table to work with . I want to check if there are some records whose parent_id equals my passing value . 
+currently what I implement this is by using "select count(*) from mytable where parent_id = :id"; if the result > 0 , means the they do exist. 
+ Because this is a very huge table , and I don't care what's the exactly number of records that exists , I just want to know whether it exists , so I think count(*) is a bit inefficient. 
+ How do I implement this requirement in the fastest way ? I am using Oracle 10. 
+
+#
+
+ According to hibernate Tips & Tricks  https://www.hibernate.org/118.html#A2 
+ It suggests to write like this : 
+ Integer count = (Integer) session.createQuery("select count(*) from ....").uniqueResult(); 
+ I don't know what's the magic of uniqueResult() here ? why does it make this fast ? 
+ Compare to "select 1 from mytable where parent_id = passingId and rowrum < 2 " , which is more efficient ? 
+ 
+ An EXISTS query is the one to go for if you're not interested in the number of records: 
+ 
+ This will return 'Y' if a record exists and nothing otherwise. 
+ [In terms of your question on Hibernate's "uniqueResult" - all this does is return a single object when there is only one object to return - instead of a set containing 1 object. If multiple results are returned the method throws an exception.] 
+ 
+ select count(*) should be lighteningly fast if you have an index, and if you don't, allowing the database to abort after the first match won't help much. 
+ But since you asked:  
+ 
+ (Some syntax errors to be expected, since I don't have a hibernate to test against on this computer) 
+ For Oracle, maxResults is translated into rownum by hibernate. 
+ As for what uniqueResult() does, read its JavaDoc! Using uniqueResult instead of list() has no performance impact; if I recall correctly, the implementation of uniqueResult delegates to list(). 
+ 
+ There's no real difference between: 
+ 
+ and  
+ 
+ ... at least in Oracle10gR2 and up.  Oracle's smart enough in that release to do a FAST DUAL operation where it zeroes out any real activity against it.  The second query would be easier to port if that's ever a consideration. 
+ The real performance differentiator is whether or not the parent_key column is indexed.  If it's not, then you should run something like: 
+ 
+ 
+ First of all, you need an index on mytable.parent_id. 
+ That should make your query fast enough, even for big tables (unless there are also a lot of rows with the same parent_id). 
+ If not, you could write 
+ 
+ which would return a single row containing 1, or no row at all. It does not need to count the rows, just find one and then quit. But this is Oracle-specific SQL (because of rownum), and you should rather not. 
+ 
+ For DB2 there is something like  . I assume that something similar exists for oracle. 
+ 
+ This query will return 1 if any record exists and 0 otherwise: 
+ 
+ It could help when you need to check table data statistics, regardless table size and any performance issue. 
+ 

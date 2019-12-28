@@ -1,0 +1,66 @@
+*** type-to-use-for-status-columns-in-a-sql-table ***
+
+ I have a (dummy) table structure as follows: 
+ 
+ticket
+   id : int(11) PK
+   name : varchar(255)
+   status : ?????????
+ 
+ The question is, what data type should I use for status? Here are my options, as I see them: 
+ 
+  varchar representing the status - BAD because there's no integrity 
+  enum representing the status - BAD because to change the value, I'd have to alter the table, and then any code with dropdowns for the values, etc etc etc 
+  int FK to a status table - GOOD because it's dynamic, BAD because it's harder to inspect by sight (which may be useful) 
+  varchar FK to a status table - GOOD because it's dynamic, and visible on inspection. BAD because the keys are meaningful, which is generally frowned upon.  Interestingly, in this case it's entirely possible for the status table to have just 1 column, making it a glorified enum 
+ 
+ Have I got an accurate read of the situation? Is having a meaningful key really that bad? Because while it does give me goosebumps, I don't have any reason for it doing so... 
+ **Update:**
+
+For option 4, the proposed structure would be  **status**
+:  char(4) FK , to a status table. So,  
+ OPEN => "Open" 
+ CLOS => "Closed" 
+ "PEND" => "Pending Authorization" 
+ "PROG" => "In Progress 
+ What's the disadvantage in this case ? The only benefit I can see of using int over char in this case is slight performance. 
+ 
+ Go with number 3.  Create a view that join's in the status value if you want something inspectable. 
+ 
+ I would go with number 4, but I'd use a   column. If you're worried about performance, a char(4) takes up as much space (and, or so one would think, disk i/o, bandwidth, and processing time) as an int, which also takes 4 bytes to store. If you're really worried about performance, make it a char(2) or even char(1). 
+ Don't think of it as "meaningful data", think of it as an abbreviation of the natural key. Yes, the data has meaning, but as you've noticed that can be a good thing when working with the data--it means you don't always have to join (even if to a trivially small table) to extract meaning from the database. And of course the foreign key constraint ensures that the data is valid, since it must be in the lookup table. (This can be done with CHECK constraints as well, but Lookup tables are generally easier to manage and maintain over time.) 
+ The downside is that you can get caught up with trying to find meaning. char(1) has a strong appeal, but if you get to ten or more values, it can get hard to come up with  good  meaningful values. Less of a problem with char(4), but still a possible issue. Another downside: if the data is likely to change, then yes, your meaningful data ("PEND" = "Pending Authorization") can lose its meaning ("PEND" = "Forward to home office for initial approval"). That's a poor example; if codes like that do change, you're probably much better off refactoring your system to reflect the change in business rules. I guess my point should be, if it's a user-entered lookup value, surrogate keys (integers) will be your friend, but if they're internally defined and maintained you should definitely consider more human-friendly values. That, or you'll need post-em notes on your monitor to remind you what the heck Status = 31 is supposed to mean. (I've got three on mine, and the stickum wears out every few months. Talk about cost to maintain...) 
+ 
+ I would use an INT, and create a foreign key relationship to the status table. An INT should definitely be safe for an enumerated status column. 
+ 
+ May I recommend you go with a statusID field instead, and have a separate table mapping the ID to a varchar? 
+ EDIT: I guess that's exactly what you outlined in point 3. I think that is the best option. 
+ 
+ I'm assuming that your database has a front end of some description, and that regular users are not exposed to the status code.  
+ So, your convenience is only for programmers and DBAs - important people, but I wouldn't optimize my design for them.  
+ Stronger - I would be very careful of using "meaningful" abbreviations - the most egregious data foul-up I've ever seen happened when a developer was cleansing some data, and interpreted the "meaningful" key incorrectly; turns out that "PROG" does not mean "programmed", but "in progress".  
+ Go with option 3.  
+ 
+ Creating a separate table with status is a good idea when you want to show the list of the status in the HTML form. You can show the verbose description from the lookup table and it will help the user to choose status if the requirements are like that.  
+ From the development perspective, I would like to go integer as a primary key. You can optimize it by using small/tiny integer if you know it will not exceed the limit.  
+ If you use abbreviation as a foreign key then you have to think every time to make it unique all the time as @Philip Kelley had mentioned it as a downside of it.    
+ Lastly, you can declare the table type MYISAM if you like.   
+ Update:
+   Reflecting @Philip Kelley opinion, if there are too many status, then it's better to use integer as foreign key. If there are only couple of status, then may be use abbr as a foreign key. 
+ 
+ I've been working with a lot of databases recently that require  **a lot**
+ of statuses AND I've got a few notes that might be worth adding to the conversation. 
+ **INT**
+: One thing I found is that if an application has a lot of tracking going on, the number of reference tables can quickly get unwieldy and, as you've mentioned, make inspecting the database at a glance impractical. (Which, for some of my clients, has mattered much more than the scant milliseconds it's saved in processing time.) 
+ **VARCHAR**
+: Terrible idea for programming, but it's important to consider if a given status is actually going to be used by the code, or just human eyes. For the latter, you get unlimited range and don't have to maintain any relationships. 
+ **CHAR(4)**
+: Using a descriptive char column can actually be a very good approach. I'd typically only consider it if the value range were going to be low and obvious, but only because I consider this a nonstandard approach (risking confusion to new devs). Realistically, you could use a CHAR value as a foreign key just the same as an INT, gain legibility and maintain performance parity. 
+ The one thing you couldn't do that I'd miss is mathematical operations (like "<" and ">"). 
+ **INT Range**
+: A hybrid strategy I've tried out is to use INT, but adding a degree of semantics to the numbers. So, for instance,  
+ 
+ The problem here is that if you discover you need more numbers, you're SOL, since the next range is already taken. So, what I ended up doing was (sort of) mimicking HTTP responses: 
+ 
+ I prefer this to simple INT, and while it  can  be less descriptive than CHAR, it can also be less ambiguous. Whereas "PROG" could mean a number of things, good, bad or benign, if I can see something is in the 500 range, I may not known what the problem is, I will be able to tell you there  is  a problem. 
+ 

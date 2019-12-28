@@ -1,0 +1,38 @@
+*** database-cleanup-after-junit-tests ***
+
+ I have to test some Thrift services using Junit. When I run my tests as a Thrift client, the services modify the server database. I am unable to find a good solution which can clean up the database after each test is run.
+Cleanup is important especially because the IDs need to be unique which are currently read form an XML file. Now, I have to manually change the IDs after running tests, so that the next set of tests can run without throwing primary key violation in the database. If I can cleanup the database after each test run, then the problem is completely resolved, else I will have to think about other solutions like generating random IDs and using them wherever IDs are required. 
+ Edit: I would like to emphasize that I am testing a service, which is writing to database, I don't have direct access to the database. But since, the service is ours, I can modify the service to provide any cleanup method if required.  
+ 
+ Unless you as testing specific database actions (verifying you can query or update the database for example) your JUnits shouldn't be writing to a real database.  Instead you should mock the database classes.  This way you don't actually have to connect and modify the database and therefor no cleanup is needed. 
+ You can mock your classes a couple of different ways.  You can use a library such as  JMock  which will do all the execution and validation work for you.  My personal favorite way to do this is with Dependency Injection.  This way I can create mock classes that implement my repository interfaces (you are using interfaces for your data access layer right?  ;-)) and I implement only the needed methods with known actions/return values. 
+ 
+ 
+ If you are using Spring, everything you need is the @DirtiesContext annotation on your test class. 
+ 
+ 
+ How about using something like  DBUnit ? 
+ 
+ Spring's unit testing framework has extensive capabilities for dealing with JDBC. The general approach is that the unit tests runs in a transaction, and (outside of your test) the transaction is rolled back once the test is complete. 
+ This has the advantage of being able to use your database and its schema, but without making any direct changes to the data. Of course, if you actually perform a commit inside your test, then all bets are off! 
+ For more reading, look at  Spring's documentation  on integration testing with JDBC. 
+ 
+ When writing JUnit tests, you can override two specific methods: setUp() and tearDown(). In setUp(), you can set everything thats necessary in order to test your code so you dont have to set things up in each specific test case. tearDown() is called after all the test cases run. 
+ If possible, you could set it up so you can open your database in the setUp() method and then have it clear everything  from the tests and close it in the tearDown() method. This is how we have done all testing when we have a database. 
+ Heres an example: 
+ 
+ 
+ Assuming you have access to the database: Another option is to create a backup of the database just before the tests and restore from that backup after the tests. This can be automated. 
+ 
+ If you are using Spring + Junit 4.x then you don't need to insert anything in DB. 
+Look at 
+ AbstractTransactionalJUnit4SpringContextTests  class. 
+ Also check out the Spring documentation for JUnit support. 
+ 
+ It's a bit draconian, but I usually aim to wipe out the database (or just the tables I'm interested in) before every test method execution.  This doesn't tend to work as I move into more integration-type tests of course. 
+ In cases where I have no control over the database, say I want to verify the correct number of rows were created after a given call, then the test will count the number of rows before and after the tested call, and make sure the difference is correct.  In other words, take into account the existing data, then see how the tested code changed things, without assuming anything about the existing data.  It can be a bit of work to set up, but let's me test against a more "live" system. 
+ In your case, are the specific IDs important?   Could you generate the IDs on the fly, perhaps randomly, verify they're not already in use, then proceed?    
+ 
+ I agree with Brainimus if you're trying to test against data you have pulled from a database. If you're looking to test modifications made to the database, another solution would be to mock the database itself. There are multiple implementations of in-memory databases that you can use to create a temporary database (for instance during JUnit's  ) and then remove  the entire database from memory (during  ). As long as you're not using an vendor-specific SQL, then this is a good way to test modifying a database without touching your real production one. 
+ Some good Java databases that offer in memory support are  Apache Derby ,  Java DB  (but it is really Oracle's flavor of Apache Derby again),  HyperSQL  (better known as HSQLDB) and  H2 Database Engine . I have personally used HSQLDB to create in-memory mock databases for testing and it worked great, but I'm sure the others would offer similar results. 
+ 

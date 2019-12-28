@@ -1,0 +1,97 @@
+*** need-advice-in-data-model ***
+
+ Need advice on data model for my use case.
+I have two parameters to store, A for things of type T and,B for things of type U(which is set of T's)
+Lets say every object of type T has 2 properties p1 and p2, now 
+A= (count of t's with p1)/(count of t's with p1)+(count of t's with p1)  
+ B=  (A1+A2+.. )for its set of T's/ (Number of T's in U). 
+ Now, i have to tackle the storage and updation of both A and B whenever a new object of type T is added/modified.(Almost instantly) 
+ I have decided to tackle the calculation of A as follows, to maintain a table like  (T id, No. of p1,  No. of p2), thereby every time the number changes i just update 2nd or 3rd column and i can calculate A on the fly. 
+But i am confused on how to optimize calculation of B??
+My initial thoughts were to write a trigger on above table so that whenever something gets updated, recalculate B for that U object, but i think that would give me very poor performance when i scale up,
+Any suggestions what else i might do here? 
+ Example:
+Say U is a city with many blocks(T).
+Now, every block will have say p1 number of non veg restaurants and p2 number of veg. 
+So, A for every block would be p1/(p1+p2)
+and B for every city would be A1+A2+.. / count(blocks) in that city.
+How do i store the initially calculated A and B for all the objects such that when p1 and p2 keep changing, i need update A and B almost instantly. 
+ Adding metrics, to have more clarity on the desired solution, 
+ 
+ I already have 100k blocks and close to 1000 cities. And this number
+is going to rise in future.    My requirement is, once i calculate A
+and B for all the existing data, any updation to p1 and p2 that
+causes change say 'deltaA'.Now this 'deltaA' should be easily appended to   'A' rather than recalculating A(similarly for B), can't we have some data model that    can support this?   
+ Latency
+should be ~100ms i,e A and B should be available after p1/p2 change. 
+ Frequency of writes will be in spikes, it will be a    100 or 1000
+writes simultaneously or 3-5. 
+ 
+ 
+ Using your cities/blocks example, your schema could be something like: 
+ 
+ Your query for a given city ( ) would be: 
+ **Query 1**
+
+ 
+ Note:  
+ Now, if you worry about performance you should define some expected numbers: 
+ 
+ Number of cities 
+ (Average) Number of blocks per city 
+ Hardware you will/can use 
+ Queries you will usually run 
+ Number of queries per hour/minute/sec 
+ 
+ If you have defined these numbers, you can generate some dummy/fake data to run performance tests against it. 
+ Here is an example with 1000 cities and 100K blocks (100 blocks per city on average): 
+ First create a helper table with 100K sequence numbers: 
+ 
+ With MariaDB you can use the sequence plugin instead. 
+ Generate the data: 
+ 
+ Now you can run your queries. Note that I will not use exact runtimes. If you need them to be exact, you should use profiling. 
+ Running  **Query 1**
+ my GUI (HeidiSQL) shows  , which I call "almost instant". 
+ You might want to run a query like: 
+ **Query 2**
+
+ 
+ HeidiSQL shows  . 
+ Using a covering index 
+ 
+ you can decrease the runtime to  . If that isn't fast enough, you should think about some caching strategies. One way (beside caching on application level) is to use triggers to manage a new column in the   table (let's just call it  ): 
+ 
+ Define the update trigger: 
+ 
+ Update test: 
+ **Query 3**
+
+ 
+ This query runs in   without the trigger and   with the trigger. This might look like a lot of overhead - But consider, that we are updating 100K rows twice - which means an average of  . 
+ And now you can get the same result from  **Query 2**
+ with 
+ **Query 4**
+
+ 
+ "almost instantly" ( ). 
+ You can still optimize the trigger if you need. Using an additional column   in the   table (which also needs to be managed with triggers). 
+ Add column: 
+ 
+ Init data: 
+ 
+ Rewrite the trigger: 
+ 
+ With this trigger  **Query 3**
+ now runs in  . This means an overhead of   per update. 
+ Note that you will also need to define the INSERT and DELETE triggers. And you will need to add more logic (e.g. to handle changes in   on updates). But it's also possible that you will not need any trigger at all. 
+ 
+ You can also use a meterialized view (concept of postgres), in mysql it doesn't exist, but you can use a table for that: 
+ 
+ Took me with 1000 cities and 100'000 blocks 200ms to create and almost for the query 
+ 
+ around 1 ms. 
+ You can either actualise the data in a trigger, or in the application logic with: 
+ 
+ took me 19ms to update 
+ 

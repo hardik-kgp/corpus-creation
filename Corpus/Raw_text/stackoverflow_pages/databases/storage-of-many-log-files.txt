@@ -1,0 +1,40 @@
+*** storage-of-many-log-files ***
+
+ I have a system which is receiving log files from different places through http (>10k producers, 10 logs per day, ~100 lines of text each).  
+ I would like to store them to be able to compute misc. statistics over them nightly , export them (ordered by date of arrival or first line content) ...    
+ My question is : what's the best way to store them ? 
+ 
+ Flat text files (with proper locking), one file per uploaded file, one directory per day/producer 
+ Flat text files, one (big) file per day for all producers (problem here will be indexing and locking) 
+ Database Table with text (MySQL is preferred for internal reasons) (pb with DB purge as delete can be very long !) 
+ Database Table with one record per line of text 
+ Database with sharding (one table per day), allowing simple data purge. (this is partitioning. However the version of mysql I have access to (ie supported internally) does not support it) 
+ Document based DB à la couchdb or mongodb (problem could be with indexing / maturity / speed of ingestion) 
+ 
+ Any advice ? 
+ 
+ I'd pick the very first solution. 
+ I don't see why would you need DB at all. Seems like all you need is to scan through the data. Keep the logs in the most "raw" state, then process it and then create a tarball for each day.  
+ The only reason to aggregate would be to reduce the number of files. On some file systems, if you put more than N files in a directory, the performance decreases rapidly. Check your filesystem and if it's the case, organize a simple 2-level hierarchy, say, using the first 2 digits of producer ID as the first level directory name. 
+ 
+ (Disclaimer: I work on MongoDB.) 
+ I think MongoDB is the best solution for logging.  It is blazingly fast, as in, it can probably insert data faster than you can send it.  You can do interesting queries on the data (e.g., ranges of dates or log levels) and index and field or combination of fields.  It's also nice because you can randomly add more fields to logs ("oops, we want a stack trace field for some of these") and it won't cause problems (as it would with flat text files).   
+ As far as stability goes, a lot of people are already using MongoDB in production (see  http://www.mongodb.org/display/DOCS/Production+Deployments ).  We just have a few more features we want to add before we go to 1.0. 
+ 
+ I would write one file per upload, and one directory/day as you first suggested.  At the end of the day, run your processing over the files, and then tar.bz2 the directory.   
+ The tarball will still be searchable, and will likely be quite small as logs can usually compress quite well. 
+ For total data, you are talking about 1GB [corrected 10MB] a day uncompressed.  This will likely compress to 100MB or less.  I've seen 200x compression on my log files with bzip2. You could easily store the compressed data on a file system for years without any worries.  For additional processing you can write scripts which can search the compressed tarball and generate more stats.   
+ 
+ Since you would like to store them to be able to compute misc. statistics over them nightly , export them (ordered by date of arrival or first line content) ... You're expecting 100,000 files a day, at a total of 10,000,000 lines: 
+ I'd suggest: 
+ 
+ Store all the files as regular textfiles using the following format : yyyymmdd/producerid/fileno. 
+ At the end of the day,  **clear the database**
+, and load all the textfiles for the day. 
+ After loading the files, it would be easy to get the stats from the database, and post them in any format needed. (maybe even another "stats" database). You could also generate graphs. 
+ To save space ,you could compress the daily folder. Since they're textfiles, they would compress well. 
+ 
+ So you would only be using the database to be able to easily aggregate the data. You could also reproduce the reports for an older day if the process didn't work, by going through the same steps. 
+ 
+ To my experience, single large table performs much faster then several linked tables if we talk about database solution. Particularly on write and delete operations. For example, splitting one table into three linked tables decreases performance 3-5 times. This is very rough, of course it depends on details, but generally this is the risk. It gets worse when data volumes get very large. Best way, IMO, to store log data is not in a flat text, but rather in a structured form, so that you can do efficient queries and formatting later. Managing log files could be pain, especially when there are lots of them and coming from many sources and locations. Check out our  solution , IMO it can save you lots of development time. 
+ 

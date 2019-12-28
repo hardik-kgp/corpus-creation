@@ -1,0 +1,24 @@
+*** implementing-an-efficient-system-of-unread-comments-counters ***
+
+ I am trying to find an optimal solution for the following problem: there is a need to design a database (postgres-based), the system of triggers and counters in it, which will form a system of efficiently querying, updating and storing information on 'how much unread comments exist in each article (or blog entry, or smth. similar), that is displayed on the page'. 
+ Every solution that comes to the head, has some serious disadvantages, either in querying, or the storing, or the updating part. I.e. it needs too much storage, or too much updates, or too costy queries. 
+ What about your expirience? Maybe there is an already formed nice solution for this kind of problems? 
+ 
+ I would keep the schema as simple as possible, so querying will be as simple as possible. This usually also has the lowest storage requirements. Of course, set indices to support this query. 
+ Next step: measure the performance! "To measure is to know." What is the response time? What is the load on the server? As long as the performance is acceptable, keep the schema and query simple. Do not sacrifice maintainability if it is not absolutely necessary: your successors will thank you for it later. 
+ If performance really is a problem, look at the caching functionality of the framework you are using for your application. NOT performing a query is always faster than performing an optimized one. 
+ 
+ If you really don't succeed within your resource envelope, maybe you have to tweak the user experience. Perhaps storing the date of last access to a thread is enough. 
+ 
+ I don't believe that the typical, normalised approach would leave you with inefficient queries.  Suppose you have a table   with PK   and another table   with PK  .  All you need to do is, for each article listed on the page: 
+ 
+ If you show 20 articles on a page, you'll run the above query 20 times, and each run will use an index to pull out say 10-20 rows from  , and the subquery test is just another index scan on  , so all in all you might have 20 * (20 * 2) = 800 indexed lookups to perform to show a given page.  That's no sweat to a modern DB.  And I'm probably overlooking even better query plans that PostgreSQL might find. 
+ Have you tried this, and found performance wanting?  If so, my first guess would be that you haven't  ed in a while.  Otherwise, I must have got my estimates for numbers of articles per page, or comments per article, wrong -- please update with further details in that case. 
+ 
+ I'll second j_random_hacker's answer, only I'd avoid storing the article_id in the comments_seen_by_user table since the comment_id should be globally unique for each comment. Also 3-dimensional (and 2-d to a lesser degree) indices are still slow in PostgreSQL, so try to avoid them. 
+ There's no really good way around a table of user_id, comment_id values to store the information about read comments, just make sure it has a unique index. A few 10 million rows in such a table are no problem at all for PostgreSQL, as long as it can keep the index in memory. You can keep track of the index size (number of 8KB pages on disk) with queries to system tables: 
+ 
+ 
+ I would agree to go for a normalized approach and see if it's works out. Normally i should. However, you could also use some INSERT-trigger on the 'comment' table, which updates a comment counter in the base (i.e. article) table. It depends on the usage profile for this website: If comments are mostly read (compared to adding comments) the overhead of a trigger based approach should amortize quickly. If it's otherwise a site which has a high comment load this could kill performance. 
+ I would go for a simple, normalized table structure and add other optimization later, when you have some reasonable usage profile. 
+ 

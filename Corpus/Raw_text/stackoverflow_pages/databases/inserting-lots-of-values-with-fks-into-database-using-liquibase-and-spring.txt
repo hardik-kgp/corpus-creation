@@ -1,0 +1,58 @@
+*** inserting-lots-of-values-with-fks-into-database-using-liquibase-and-spring ***
+
+ I'm trying to add a lot of records (currently located in an Excel file) into my DB using Liquibase (so that I know how to do it for future DB changes) 
+ My idea was to read the excel file using Java, and then fill the ChangeLogParameters from my Spring initialization class like this: 
+ 
+ The problem with this approach is that my changelog.xml would be very strange (and non productive) 
+ 
+ Is there any way that I could do something like this: 
+ 
+ Or is there any other way? 
+ **EDIT :**
+
+My current option is to convert the Excel into a CSV file and import the data using 
+ 
+ with these CSV files: 
+ entity.csv 
+ 
+ client.csv 
+ 
+ But I get this error: 
+ 
+ If I change the header of my client.csv to  DESCRIPTION,ENTITYID I get this error: 
+ 
+ I any of these cases, it looks like defaultValueComputed doesn't work in the same way as valueComputed in the following example 
+ 
+ Is this the expected behavior?  Bug of LiquiBase?  Or just me doing something wrong (the most likely) ? 
+ Or is there any other way to import massive amount of data? But always using LiquiBase and/or Spring. 
+ **EDIT2 :**
+ My problem is that I'm unable to insert the  data into the second table with the correct foreign key 
+ 
+ I would say that Liquibase is not the ideal tool for what you want to achieve. Liquibase is well-suited to managing the database structure, not the database's data.  
+ If you still want to use Liquibase to manage the data, you have a couple of options (see  here ) -  
+ 
+ Record your insert statements as SQL, and refer to them from changelog.xml like this:  
+ 
+ Use a  Custom Refactoring Class  which you refer to from the changelog.xml like this: 
+ 
+ YourJavaClass would read the records from the CSV file, and apply them to the database,  implementing this method: 
+ 
+ 
+ Bear in mind, that once you have loaded this data via Liquibase, you shouldn't modify the data in the file, because those changes won't be re-applied. If you want to make changes to it, you would have to do it in subsequent changesets. So after a while you might end up with a lot of different CSV files/liquibase changesets, all operating on the same/similar data (this depends on how you are going to use this data - will it ever change once inserted?). 
+ I would recommend looking at using  DBUnit  for managing your reference data. Its a tool primarily used in unit testing, but it is very mature, suitable for use in production I would say. You can store information in CSV or XML. I would suggest using a Spring 'InitializingBean' to load the dataset from the classpath and perform a DBUnit 'refresh' operation, which will, from the  docs : 
+ 
+ This operation literally refreshes dataset contents into the database. This
+    means that data of existing rows is updated and non-existing row get
+    inserted. Any rows which exist in the database but not in dataset stay
+    unaffected. 
+ 
+ This way, you can keep your reference data in one place, and add to it over time so that there is only one source of the information, and it isn't split across multiple Liquibase changesets. Keeping your DBUnit datasets in version control would provide trace-ability, and as a bonus, DBUnit datasets are portable across databases, and can manage things like insert order to prevent foreign key violations for you.  
+ 
+ It depends on your target database. If you are using  **Sybase**
+ or  **MSSQL**
+ server then you can use the  BCP tool  that comes along with your installed client+driver. It is the fastest way of moving large amounts of data in/out of these databases. 
+ Googling around I also found these links... 
+ Oracle has the  SQL*LOADER  tool 
+ MySQL has the  LOAD DATA INFILE  command 
+ I would expect each database vendor to supply a tool of some description for bulk loading of data. 
+ 

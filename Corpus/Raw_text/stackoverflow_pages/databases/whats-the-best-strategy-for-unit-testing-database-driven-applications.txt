@@ -1,0 +1,86 @@
+*** whats-the-best-strategy-for-unit-testing-database-driven-applications ***
+
+ I work with a lot of web applications that are driven by databases of varying complexity on the backend. Typically, there's an  ORM  layer separate from the business and presentation logic. This makes unit-testing the business logic fairly straightforward; things can be implemented in discrete modules and any data needed for the test can be faked through object mocking. 
+ But testing the ORM and database itself has always been fraught with problems and compromises.  
+ Over the years, I have tried a few strategies, none of which completely satisfied me. 
+ 
+ Load a test database with known data. Run tests against the ORM and confirm that the right data comes back. The disadvantage here is that your test DB has to keep up with any schema changes in the application database, and might get out of sync. It also relies on artificial data, and may not expose bugs that occur due to stupid user input. Finally, if the test database is small, it won't reveal inefficiencies like a missing index. (OK, that last one isn't really what unit testing should be used for, but it doesn't hurt.) 
+ Load a copy of the production database and test against that. The problem here is that you may have no idea what's in the production DB at any given time; your tests may need to be rewritten if data changes over time.  
+ 
+ Some people have pointed out that both of these strategies rely on specific data, and a unit test should test only functionality. To that end, I've seen suggested: 
+ 
+ Use a mock database server, and check only that the ORM is sending the correct queries in response to a given method call. 
+ 
+ What strategies have you used for testing database-driven applications, if any? What has worked the best for you? 
+ 
+ I've actually used your first approach with quite some success, but in a slightly different ways that I think would solve some of your problems: 
+ 
+ Keep the entire schema and scripts for creating it in source control so that anyone can create the current database schema after a check out. In addition, keep sample data in data files that get loaded by part of the build process.  As you discover data that causes errors, add it to your sample data to check that errors don't re-emerge. 
+ Use a continuous integration server to build the database schema, load the sample data, and run tests.  This is how we keep our test database in sync (rebuilding it at every test run).  Though this requires that the CI server have access and ownership of its own  dedicated database instance, I say that having our db schema built 3 times a day has dramatically helped find errors that probably would not have been found till just before delivery (if not later).  I can't say that I rebuild the schema before every commit.  Does anybody?  With this approach you won't have to (well maybe we should, but its not a big deal if someone forgets). 
+ For my group, user input is done at the application level (not db) so this is tested via standard unit tests. 
+ 
+ Loading Production Database Copy: 
+This was the approach that was used at my last job.  It was a huge pain cause of a couple of issues: 
+ 
+ The copy would get out of date from the production version 
+ Changes would be made to the copy's schema and wouldn't get propagated to the production systems.  At this point we'd have diverging schemas.  Not fun. 
+ 
+ Mocking Database Server: 
+We also do this at my current job.  After every commit we execute unit tests against the application code that have mock db accessors injected.  Then three times a day we execute the full db build described above.  I definitely recommend both approaches. 
+ 
+ I'm always running tests against an in-memory DB (HSQLDB or Derby) for these reasons: 
+ 
+ It makes you think which data to keep in your test DB and why. Just hauling your production DB into a test system translates to "I have no idea what I'm doing or why and if something breaks, it wasn't me!!" ;) 
+ It makes sure the database can be recreated with little effort in a new place (for example when we need to replicate a bug from production) 
+ It helps enormously with the quality of the DDL files. 
+ 
+ The in-memory DB is loaded with fresh data once the tests start and after most tests, I invoke ROLLBACK to keep it stable.  **ALWAYS**
+ keep the data in the test DB stable! If the data changes all the time, you can't test. 
+ The data is loaded from SQL, a template DB or a dump/backup. I prefer dumps if they are in a readable format because I can put them in VCS. If that doesn't work, I use a CSV file or XML. If I have to load enormous amounts of data ... I don't. You never have to load enormous amounts of data :) Not for unit tests. Performance tests are another issue and different rules apply. 
+ 
+ I have been asking this question for a long time, but I think there is no silver bullet for that.  
+ What I currently do is mocking the DAO objects and keeping a in memory representation of a good collection of objects that represent interesting cases of data that could live on the database. 
+ The main problem I see with that approach is that you're covering only the code that interacts with your DAO layer, but never testing the DAO itself, and in my experience I see that a lot of errors happen on that layer as well. I also keep a few unit tests that run against the database (for the sake of using TDD or quick testing locally), but those tests are never run on my continuous integration server, since we don't keep a database for that purpose and I think tests that run on CI server should be self-contained. 
+ Another approach I find very interesting, but not always worth since is a little time consuming, is to create the same schema you use for production on an embedded database that just runs within the unit testing.  
+ Even though there's no question this approach improves your coverage, there are a few drawbacks, since you have to be as close as possible to ANSI SQL to make it work both with your current DBMS and the embedded replacement. 
+ No matter what you think is more relevant for your code, there are a few projects out there that may make it easier, like  DbUnit . 
+ 
+ Even if there are tools that allow you to mock your database in one way or another (e.g.  jOOQ 's  , which can be seen in  this answer  - disclaimer, I work for jOOQ's vendor), I would advise  not  to mock larger databases with complex queries. 
+ Even if you just want to integration-test your ORM, beware that an ORM issues a very complex series of queries to your database, that may vary in 
+ 
+ syntax 
+ complexity 
+ order (!) 
+ 
+ Mocking all that to produce sensible dummy data is quite hard, unless you're actually building a little database inside your mock, which interprets the transmitted SQL statements. Having said so, use a well-known integration-test database that you can easily reset with well-known data, against which you can run your integration tests. 
+ 
+ I use the first (running the code against a test database).  The only substantive issue I see you raising with this approach is the possibilty of schemas getting out of sync, which I deal with by keeping a version number in my database and making all schema changes via a script which applies the changes for each version increment. 
+ I also make all changes (including to the database schema) against my test environment first, so it ends up being the other way around:  After all tests pass, apply the schema updates to the production host.  I also keep a separate pair of testing vs. application databases on my development system so that I can verify there that the db upgrade works properly before touching the real production box(es). 
+ 
+ I'm using the first approach but a bit different that allows to address the problems you mentioned. 
+ Everything that is needed to run tests for DAOs is in source control. It includes schema and scripts to create the DB (docker is very good for this). If the embedded DB can be used - I use it for speed. 
+ The important difference with the other described approaches is that the data that is required for test is not loaded from SQL scripts or XML files. Everything (except some dictionary data that is effectively constant) is created by application using utility functions/classes. 
+ The main purpose is to make data used by test  
+ 
+ very close to the test 
+ explicit (using SQL files for data make it very problematic to see what piece of data is used by what test) 
+ isolate tests from the unrelated changes.  
+ 
+ It basically means that these utilities allow to declaratively specify only things essential for the test in test itself and omit irrelevant things. 
+ To give some idea of what it means in practice, consider the test for some DAO which works with  s to  s written by  . In order to test CRUD operations for such DAO some data should be created in the DB. The test would look like: 
+ 
+ This has several advantages over SQL scripts or XML files with test data: 
+ 
+ Maintaining the code is much easier (adding a mandatory column for example in some entity that is referenced in many tests, like Author, does not require to change lots of files/records but only a change in builder and/or factory) 
+ The data required by specific test is described in the test itself and not in some other file. This proximity is very important for test comprehensibility. 
+ 
+ **Rollback vs Commit**
+
+ I find it more convenient that tests do commit when they are executed. Firstly, some effects (for example  ) cannot be checked if commit never happens. Secondly, when a test fails the data can be examined in the DB as it is not reverted by the rollback.  
+ Of cause this has a downside that test may produce a broken data and this will lead to the failures in other tests. To deal with this I try to isolate the tests. In the example above every test may create new   and all other entities are created related to it so collisions are rare. To deal with the remaining invariants that can be potentially broken but cannot be expressed as a DB level constraint I use some programmatic checks for erroneous conditions that may be run after every single test (and they are run in CI but usually switched off locally for performance reasons). 
+ 
+ For JDBC based project (directly or indirectly, e.g. JPA, EJB, ...) you can mockup not the entire database (in such case it would be better to use a test db on a real RDBMS), but only mockup at JDBC level. 
+ Advantage is abstraction which comes with that way, as JDBC data (result set, update count, warning, ...) are the same whatever is the backend: your prod db, a test db, or just some mockup data provided for each test case. 
+ With JDBC connection mocked up for each case there is no need to manage test db (cleanup, only one test at time, reload fixtures, ...). Every mockup connection is isolated and there is no need to clean up. Only minimal required fixtures are provided in each test case to mock up JDBC exchange, which help to avoid complexity of managing a whole test db. 
+ Acolyte is my framework which includes a JDBC driver and utility for this kind of mockup:  http://acolyte.eu.org  . 
+ 

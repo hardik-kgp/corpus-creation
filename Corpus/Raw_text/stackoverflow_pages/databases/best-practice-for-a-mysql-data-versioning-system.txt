@@ -1,0 +1,58 @@
+*** best-practice-for-a-mysql-data-versioning-system ***
+
+ I have to store data like articles into a mysql database and if an article is modified, I have to save the old version as well to make it possible to restore it. I have found some similar questions and posts on this topic, but I am not sure, which solution is the best to solve the problem. 
+ Here is the basic table "articles" for better understanding: 
+ articles (id, name, text) 
+ For me, there are two different approaches for this: 
+ Approach 1 
+ Store the data and every version of an article in the table "articles" and add the columns "version" and "status". In version i store the incremented version number of the article. The active article gets the "status" 1 and the others the "status" 2. 
+ **Pro's:**
+
+ 
+ Only one table is needed 
+ A new version is an insert of the new data and only an update of the "status"-column of the old one 
+ 
+ **Con's**
+
+ 
+ Very large tables (maybe slower queries???) 
+ 
+ Approach 2 
+ Add the field "version" to "articles" and store only the active data into the table "articles". Old versions of the data is stored / moved to the new table "articles_versioned".  
+ **Pro's:**
+
+ 
+ Only the actual valid data is in the table "articles" 
+ 
+ **Con's**
+
+ 
+ Dublication of tables 
+ 
+ So. Have I forgotten a good aproach? How to deal with related data in other tables (like images, etc.)?  
+ 
+ My choice would be a variation of approach 2. Bold indicates fields in the primary key. 
+ 
+ You insert every article in a table   ( **id**
+,  **timestamp**
+, name, text) 
+ Your second table is   ( **id**
+, timestamp, [name, text]). Note how timestamp is not primary; name and text may be replicated, or you may use a join with   (which will be fast since id and timestamp are the   primary key) 
+  has a trigger on insert that takes the just inserted row and replicates it on  
+ To restore a specific version of an article you modify the   table. 
+ 
+ The advantages of this approach are: 
+ 
+ You get for free another information (the date and time of the article) in your table, that you may need anyway 
+ You do not need to query the database to get the current date. If you use version, you have to. 
+ Your code doesn't have to insert the article in two tables. You simply insert in   and read from  , the db takes care of migrating data as you insert it via the trigger, avoiding any consistency problems. 
+ 
+ Con's 
+ 
+ In an heavily concurrent environment, two versions may be inserted at the very same time, so one of them may fail. This shouldn't be a problem when inserting user-written articles (it is highly unlikely given precision of timestamps these days). If you don't specify the timestamp in your   statement, but instead you set the datetime field to have the current time as a default value, you may avoid this problem entirely. 
+ 
+ 
+ To answer the rest of your question. Approach 1 will not lead to longer queries as long as you add an index on status. This makes sense only if you tend to have many different versions of each article; as long as you have 2 versions per article on average or less, the index will only slow you down, and approach 2 would not be sensibly faster anyway (altough I'd still recommend my approach because it simplyfies code, since restoring a version does not require switching status for two rows). 
+ Related resources, like images, should follow a similar versioning. I assume you are saving them on the filesystem; instead of saving them with their real name, use a table ( **id**
+, image_name) to give to each image an id, then save the image as  . The image_name field will make you able to know what the original file name was (if you care about that). This way you can version images the same way as you version articles, and in articles you would use something like  , that you know will remain available forever. 
+ 

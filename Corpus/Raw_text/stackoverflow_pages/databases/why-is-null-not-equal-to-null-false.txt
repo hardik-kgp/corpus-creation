@@ -1,0 +1,69 @@
+*** why-is-null-not-equal-to-null-false ***
+
+ I was reading this article:
+ Get null == null in SQL 
+ And the consensus is that when trying to test equality between two (nullable) sql columns, the right approach is: 
+ 
+ When A and B are NULL, (A=B) still returns FALSE, since NULL is not equal to NULL. That is why the extra check is required. 
+ What about when testing inequalities? Following from the above discussion, it made me think that to test inequality I would need to do something like: 
+ 
+ However, I noticed that that is not necessary (at least not on informix 11.5), and I can just do: 
+ 
+ If A and B are NULL, this returns FALSE. If NULL is not equal to NULL, then shouldn't this return TRUE? 
+ **EDIT**
+
+These are all good answers, but I think my question was a little vague. Allow me to rephrase: 
+ Given that either A or B can be NULL, is it enough to check their inequality with 
+ 
+ Or do I need to explicitly check it like this: 
+ 
+ REFER to this  thread  for the answer to this question. 
+ 
+ relational expressions involving NULL actually yield NULL again 
+ edit 
+ here,   stands for arbitrary binary operator,   is the SQL placeholder, and   is any value (  is  not  a value): 
+ 
+  ->  
+  ->  
+ 
+ the logic is:   means "no value" or "unknown value", and thus any comparison with any actual  value  makes no sense. 
+ is   true, false, or unknown, given that you don't know what value (if  any )   holds? SQL says it's unknown.  is   true, false, or unknown, given that both are unknown?  SQL says the result is  unknown .  and it says so for any binary relational operation, which is only logical (even if having NULLs in the model is not in the first place). 
+ SQL also provides two  unary  postfix operators,   and  , these return TRUE or FALSE according to their operand. 
+ 
+  ->  
+  ->  
+ 
+ 
+ Because that behavior follows established  ternary logic  where NULL is considered an unknown value. 
+ If you think of NULL as unknown, it becomes much more intuitive: 
+ Is   equal to  ? There's no way to know, so:  . 
+ 
+ All comparisons involving   are undefined, and evaluate to false. This idea, which is what prevents   being evaluated as equivalent to  , also prevents   being evaluated as NOT equivalent to  . 
+ 
+ The short answer is...  **NULLs are weird**
+, they don't really behave like you'd expect. 
+ Here's a great paper on how NULLs work in SQL.  I think it will help improve your understanding of the topic.  I think the sections on handling null values in expressions will be especially useful for you. 
+ http://www.oracle.com/technology/oramag/oracle/05-jul/o45sql.html 
+ 
+ The default (ANSI) behaviour of nulls within an expression will result in a null (there are enough other answers with the cases of that). 
+ There are however some edge cases and caveats that I would place when dealing with MS Sql Server that are not being listed. 
+ 
+ Nulls within a statement that is grouping values together will be considered equal and be grouped together. 
+ Null values within a statement that is ordering them will be considered equal. 
+ Null values selected within a statement that is using distinct will be considered equal when evaluating the distinct aspect of the query 
+ 
+ It is possible in SQL Server to override the expression logic regarding the specific Null = Null test, using the SET ANSI_NULLS OFF, which will then give you equality between null values - this is not a recommended move, but does exist. 
+ 
+ 
+ Here is a Quick Fix 
+ ISNULL(A,0)=ISNULL(B,0) 
+ 0 can be changed to something that can never happen in your data 
+ 
+ "Is unknown a equal to unknown b? There's no way to know, so: unknown." 
+ The question was : why does the comparison yield FALSE ? 
+ Given three-valued logic, it would indeed be sensible for the comparison to yield UNKNOWN (not FALSE).  But SQL does yield FALSE, and not UNKNOWN. 
+ One of the myriads of perversities in the SQL language. 
+ Furthermore, the following must be taken into account : 
+ If "unkown" is a logical value in ternary logic, then it ought to be the case that an equality comparison between two logical values that both happen to be (the value for) "unknown", then that comparison ought to yield TRUE. 
+ If the logical value is itself unknown, then obviously that cannot be represented by putting the value "unknown" there, because that would imply that the logical value is known (to be "unknown").  That is, a.o., how relational theory proves that implementing 3-valued logic raises the requirement for a 4-valued logic, that a 4 valued logic leads to the need for a 5-valued logic, etc. etc. ad infinitum. 
+ 

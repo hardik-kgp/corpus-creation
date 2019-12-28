@@ -1,0 +1,61 @@
+*** horizontal-vs-vertical-table-design-sql ***
+
+ Apologies if this has been covered thoroughly in the past - I've seen some related posts but haven't found anything that satisfies me with regards to this specific scenario. 
+ I've been recently looking over a relatively simple game with around 10k players. In the game you can catch and breed pets that have certain attributes (i.e. wings, horns, manes). There's currently a table in the database that looks something like this: 
+ 
+ The table goes on like that and currently has 100+ columns, but in general a single pet will only have around 1-8 of these attributes. A new attribute is added every 1-2 months which requires table columns to be added. The table is rarely updated and read frequently.  
+ I've been proposing that we move to a more vertical design scheme for better flexibility as we want to start adding larger volumes of attributes in the future, i.e.: 
+ 
+ The old developer has raised concerns that this will create performance issues as users very frequently search for pets with specific attributes  (i.e. must have these attributes, must have at least one in this colour or position, must have > 30 attributes). Currently the search is quite fast as there are no JOINS required, but introducing a vertical table would presumably mean an additional join for every attribute searched and would also triple the number of rows or so. 
+ The first part of my question is if anyone has any recommendations with regards to this? I'm not particularly experienced with database design or optimisation. 
+ I've run tests for a variety of cases but they've been largely inconclusive - the times vary quite significantly for all of the queries that I ran (i.e. between half a second and 20+ seconds), so I suppose the second part of my question is whether there's a more reliable way of profiling query times than using microtime(true) in PHP. 
+ Thanks. 
+ 
+ This is called the  Entity-Attribute-Value-Model , and relational database systems are really not suited for it at all. 
+ To quote someone who deems it one of the five  errors not to make :  
+ 
+ So what are the benefits that are touted for EAV? Well, there are none. Since EAV tables will contain any kind of data, we have to PIVOT the data to a tabular representation, with appropriate columns, in order to make it useful. In many cases, there is middleware or client-side software that does this behind the scenes, thereby providing the illusion to the user that they are dealing with well-designed data. 
+ EAV models have a host of problems. 
+ Firstly, the massive amount of data is, in itself, essentially unmanageable. 
+ Secondly, there is no possible way to define the necessary constraints -- any potential check constraints will have to include extensive hard-coding for appropriate attribute names. Since a single column holds all possible values, the datatype is usually VARCHAR(n).   
+ Thirdly, don't even think about having any useful foreign keys. 
+ Finally,  there is the complexity and awkwardness of queries. Some folks consider it a benefit to be able to  jam a variety of data into a single table when necessary -- they call it "scalable". In reality, since EAV mixes up data with metadata, it is lot more difficult to manipulate data even for simple requirements. 
+ The solution to the EAV nightmare is simple: Analyze and research the users' needs and identify the data requirements up-front.  A relational database maintains the integrity and consistency of data.  It is virtually impossible to make a case for designing such a database without well-defined requirements. Period. 
+ 
+ 
+ 
+ The table goes on like that and currently has 100+ columns, but in general a single pet will only have around 1-8 of these attributes. 
+ 
+ That looks like a case for normalization: Break the table into multiple, for example one for horns, one for wings, all connected by foreign key to the main entity table. But do make sure that every attribute still maps to one or more columns, so that you can define constraints, data types, indexes, and so on. 
+ 
+ Do the join. The database was specifically designed to support joins for your use case. If there is any doubt, then benchmark. 
+ **EDIT**
+: A better way to profile the queries is to run the query directly in the MySQL interpretter on the CLI. It will give you the exact time that it took to run the query. The PHP microtime() function will also introduce other latencies (Apache, PHP, server resource allocation, network if connection to a remote MySQL instance, etc). 
+ 
+ What you are proposing is called ' normalization '. This is exactly what relational databases were made for - if you take care of your indexes, the joins will run almost as fast as if the data were in one table. 
+ Actually, they might even go faster: instead of loading 1 table row with 100 columns, you can just load the columns you need. If a pet only has 8 attributes, you only load those 8. 
+ 
+ This question is a very subjective. If you have the resources to update the middleware to reflect the column that has been added then, by all means, go with horizontal there is nothing safer and easier to learn than a fixed structure. One thing to remember, anytime you update a tables structure you have to update each one of its dependencies unless there is some catch-all like *, which I suggest you stay aware from unless you are just dumping data to a screen and order of columns is irrelevant. 
+ With that said, Verticle is the way to go if you don't have all of your requirements in place or don't have the desire to update code in n number of areas. Most of the time you just need storage containers to store data. I would segregate things like numbers, dates, binary, and text in separate columns to preserve some data integrity, but there is nothing wrong with verticle storage, as long as you know how to formulate and structure queries to bring back the data in the appropriate format. 
+ FYI, Wordpress uses verticle data storage for majority of the dynamic content it has to store for the millions of uses it has. 
+ 
+ First thing from Database point of view is that your data should be grow vertically not in horizontal way. So, adding a new column is not a good design at all. Second thing, this is very common scenario in DB design. And the way to solve this you have to create three tables. 1st is of Pets, 2nd is of Attributes and 3rd is mapping table between theres two. Here is the example: 
+ **Table 1 (Pet)**
+  
+Pet_ID | Pet_Name  
+   1      |     Dog    
+   2      |     Cat    
+ **Table 2 (Attribute)**
+  
+Attribute_ID | Attribute_Name  
+   1                |     Wings    
+   2               |     Eyes    
+ **Table 3 (Pet_Attribute)**
+  
+Pet_ID | Attribute_ID | Attribute_Value  
+      1         |           1                |         0  
+     1         |           2                |         2  
+ **About Performance:**
+  
+Pet_ID and Attribute_ID are the primary keys which are indexed (http://developer.mimer.com/documentation/html_92/Mimer_SQL_Engine_DocSet/Basic_concepts4.html), so the search is very fast. And this is the right way to sovle the problem. Hope, now it will be clear to you. 
+ 

@@ -1,0 +1,30 @@
+*** mongodb-can-different-databases-be-placed-on-separate-drives ***
+
+ I am working on an application in which there is a pretty dramatic difference in usage patterns between "hot" data and other data.   We have selected MongoDB as our data repository, and in most ways it seems to be a fantastic match for the kind of application we're building. 
+ Here's the problem.   There will be a central document repository, which must be searched and accessed fairly often:  it's size is about 2 GB now, and will grow to 4GB in the next couple years.    To increase performance, we will be placing that DB on a server-class mirrored SSD array, and given the total size of the data, don't imagine that memory will become a problem. 
+ The system will also be keeping record versions, audit trail, customer interactions, notification records, and the like. that will be referenced only rarely, and which could grow quite large in size.   We would like to place this on more traditional spinning disks, as it would be accessed rarely (we're guessing that a typical record might be accessed four or five times  per year , and will be needed only to satisfy research and customer service inquiries), and could grow quite large, as well. 
+ I haven't found any reference material that indicates whether MongoDB would allow us to place different databases on different disks (were're running mongod under Windows, but that doesn't have to be the case when we go into production. 
+ Sorry about all the detail here, but these are primary factors we have to think about as we plan for deployment.    Given Mongo's proclivity to grab all available memory, and that it'll be running on a machine that maxes out at 24GB memory, we're trying to work out the best production configuration for our database(s). 
+ So here are what our options seem to be: 
+ 
+ **Single instance of Mongo with multiple databases**
+   This seems to have the advantage of simplicity, but I still haven't found any definitive answer on how to split databases to different physical drives on the machine. 
+ **Two instances of Mongo**
+, one for the "hot" data, and the other for the archival stuff.   I'm not sure how well Mongo will handle two instances of mongod contending for resources, but we were thinking that, since the 32-bit version of the server is limited to 2GB of memory, we could use that for the archival stuff without having it overwhelm the resources of the machine.   For the "hot" data, we could then easily configure a 64-bit instance of the database engine to use an SSD array, and given the relatively small size of our data, the whole DB and indexes could be directly memory mapped without page faults. 
+ **Two instances of Mongo in two separate virtual machines**
+  Would could use VMWare, or something similar, to create two Linux machines which could host Mongo separately.   While it might up the administrative burden a bit, this seems to me to provide the most fine-grained control of system resource usage, while still leaving the Windows Server host enough memory to run IIS and it's own processes. 
+ 
+ But all this is speculation, as none of us have ever done significant MongoDB deployments before, so we don't have a great experience base to draw upon.    
+ My actual question is whether there are options to have two databases in the same mongod server instance utilize entirely separate drives.   But any insight into the advantages and drawbacks of our three identified deployment options would be welcome as well. 
+ 
+ That's actually a pretty easy thing to do when using Linux: 
+ 
+ Activate the  directoryPerDB  config option 
+ Create the databases you need. 
+ Shut down the instance. 
+ Copy over the data from the individual database directories to the different block devices (disks, RAID arrays, Logical volumes, iSCSI targets and alike). 
+ Mount the respective block devices to their according positions beyond the   directory (don't forget to add the according lines to  !) 
+ Restart mongod. 
+ 
+ Edit:  As a side note, I would like to add that you should not use Windows as OS for a production MongoDB. The available filesystems NTFS and ReFS perform horribly when compared to ext4 or XFS (the latter being the suggested filesystem for production, see the  MongoDB production notes for details  ). For this reason alone, I would suggest Linux. Another reason is the RAM used by rather unnecessary subsystems of Windows, like the GUI. 
+ 

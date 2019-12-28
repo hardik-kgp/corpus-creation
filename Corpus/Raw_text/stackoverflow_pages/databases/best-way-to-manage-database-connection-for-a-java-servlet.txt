@@ -1,0 +1,66 @@
+*** best-way-to-manage-database-connection-for-a-java-servlet ***
+
+ What is the best way to manage a database connection in a Java servlet? 
+ Currently, I simply open a connection in the   function, and then close it in  .  
+ However, I am concerned that "permanently" holding onto a database connection could be a bad thing.  
+ Is this the correct way to handle this?  If not, what are some better options? 
+ edit: to give a bit more clarification: I have tried simply opening/closing a new connection for each request, but with testing I've seen performance issues due to creating too many connections. 
+ Is there any value in sharing a connection over multiple requests?   The requests for this application are almost all "read-only" and come fairly rapidly (although the data requested is fairly small). 
+ 
+ I actually disagree with using Commons DBCP. You should really defer to the container to manage connection pooling for you. 
+ Since you're using Java Servlets, that implies running in a Servlet container, and all major Servlet containers that I'm familiar with provide connection pool management (the Java EE spec may even require it). If your container happens to use DBCP (as Tomcat does), great, otherwise, just use whatever your container provides. 
+ 
+ As everybody says, you need to use a connection pool. Why? What up? Etc. 
+ **What's Wrong With Your Solution**
+
+ I know this since I also thought it was a good idea once upon a time. The problem is two-fold: 
+ 
+ All threads (servlet requests get served with one thread per each) will be sharing the same connection. The requests will therefore get processed one at a time. This is very slow, even if you just sit in a single browser and lean on the F5 key. Try it: this stuff sounds high-level and abstract, but it's empirical and testable. 
+ If the connection breaks for any reason, the init method will not be called again (because the servlet will not be taken out of service). Do not try to handle this problem by putting a try-catch in the doGet or doPost, because then you will be in hell (sort of writing an app server without being asked). 
+ Contrary to what one might think, you will not have problems with transactions, since the transaction start gets associated with the thread and not just the connection. I might be wrong, but since this is a bad solution anyway, don't sweat it. 
+ 
+ **Why Connection Pool**
+
+ Connection pools give you a whole bunch of advantages, but most of all they solve the problems of  
+ 
+ Making a real database connection is costly. The connection pool always has a few extra connections around and gives you one of those. 
+ If the connections fail, the connection pool knows how to open a new one 
+ Very important: every thread gets its own connection. This means that threading is handled where it should be: at the DB level. DBs are super efficient and can handle concurrent request with ease.  
+ Other stuff (like centralizing location of JDBC connect strings, etc.), but there are millions of articles, books, etc. on this 
+ 
+ **When to Get a Connection**
+
+ Somewhere in the call stack initiated in your service delegate (doPost, doGet, doDisco, whatever) you should get a connection and then you should do the right thing and return it in a finally block. I should mention that the C# main architect dude said once up a time that you should use   blocks 100x more than   blocks. Truer words never spoken... 
+ **Which Connection Pool**
+
+ You're in a servlet, so you should use the connection pool the container provides. Your JNDI code will be completely normal except for how you obtain the connection. As far as I know, all servlet containers have connection pools.  
+ Some of the comments on the answers above suggest using a particular connection pool API instead. Your WAR should be portable and "just deploy." I think this is basically wrong. If you use the connection pool provided by your container, your app will be deployable on containers that span multiple machines and all that fancy stuff that the Java EE spec provides. Yes, the container-specific deployment descriptors will have to be written, but that's the EE way, mon. 
+ One commenter mentions that certain container-provided connection pools do not work with JDBC drivers (he/she mentions Websphere). That sounds totally far-fetched and ridiculous, so it's probably true. When stuff like that happens, throw everything you're "supposed to do" in the garbage and do whatever you can. That's what we get paid for, sometimes :) 
+ 
+ I'd use  Commons DBCP . It's an Apache project that manages the connection pool for you. 
+ You'd just get your connection in your doGet or doPost run your query and then close the connection in a finally block. (con.close() just returns it to the pool, it doesn't actually close it). 
+ DBCP can manage connection timeouts and recover from them. The way you are currently doing things if your database goes down for any period of time you'll have to restart your application. 
+ 
+ Are you pooling your connections? If not, you probably should to reduce the overhead of opening and closing your connections. 
+ Once that's out of the way, just keep the connection open for as long as it's need, as John suggested. 
+ 
+ The best way, and I'm currently looking through Google for a better reference sheet, is to use pools.   
+ On initialization, you create a pool that contains X number of SQL connection objects to your database.  Store these objects in some kind of List, such as ArrayList.  Each of these objects has a private boolean for 'isLeased', a long for the time it was last used and a Connection.  Whenever you need a connection, you request one from the pool.  The pool will either give you the first available connection, checking on the isLeased variable, or it will create a new one and add it to the pool.  Make sure to set the timestamp.  Once you are done with the connection, simply return it to the pool, which will set isLeased to false. 
+ To keep from constantly having connections tie up the database, you can create a worker thread that will occasionally go through the pool and see when the last time a connection was used.  If it has been long enough, it can close that connection and remove it from the pool. 
+ The benefits of using this, is that you don't have long wait times waiting for a Connection object to connect to the database.  Your already established connections can be reused as much as you like.  And you'll be able to set the number of connections based on how busy you think your application will be.  
+ 
+ You should only hold a database connection open for as long as you need it, which dependent on what you're doing is probably within the scope of your   methods. 
+ 
+ Pool it. 
+ Also, if you are doing raw JDBC, you could look into something that helps you manage the Connection, PreparedStatement, etc. Unless you have very tight "lightweightness" requirements, using Spring's JDBC support, for instance, is going to simplify your code a lot- and you are not forced to use any other part of Spring. 
+ See some examples here: 
+ http://static.springframework.org/spring/docs/2.5.x/reference/jdbc.html 
+ 
+ A connection pool associated with a Data source should do the trick. You can get hold of the connection from the dataSource in the servlet request method( / , etc). 
+ dbcp, c3p0 and many other connection pools can do what you're looking for. While you're pooling connections, you might want to pool Statements and PreparedStatements; Also, if you're a READ HEAVY environment as you indicated, you might want to cache some of the results using something like ehcache. 
+ BR, 
+~A 
+ 
+ Usually you will find that opening connections per request is easier to manage. That means in the doPost() or the doGet() method of your servlet. 
+ Opening it in the init() makes it available to all requests and what happens when you have concurrent requests? 
+ 

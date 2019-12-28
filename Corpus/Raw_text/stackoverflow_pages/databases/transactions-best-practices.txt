@@ -1,0 +1,74 @@
+*** transactions-best-practices ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ How much do you rely on database transactions?   
+ Do you prefer small or large transaction scopes ?   
+ Do you prefer client side transaction handling (e.g. TransactionScope in .NET) over server 
+side transactions or vice-versa?     
+ What about nested transactions?   
+ Do you have some tips&tricks related to transactions ? 
+ Any gotchas you encountered working with transaction ? 
+ All sort of answers are welcome. 
+ 
+ I always wrap a transaction in a using statement. 
+ 
+ Once the transaction moves out of scope, it is disposed. If the transaction is still active, it is rolled back. This behaviour fail-safes you from accidentally locking out the database. Even if an unhandled exception is thrown, the transaction will still rollback.  
+ In my code I actually omit explicit rollbacks and rely on the using statement to do the work for me. I only explicitly perform commits.   
+ I've found this pattern has drastically reduced record locking issues. 
+ 
+ Personally, developing a website that is high traffic perfomance based, I stay away from database transactions whenever possible. Obviously they are neccessary, so I use an ORM, and page level object variables to minimize the number of server side calls I have to make.  
+ Nested transactions are an awesome way to minimize your calls, I steer in that direction whenever I can as long as they are quick queries that wont cause locking. NHibernate has been a savior in these cases.  
+ 
+ I use transactions on every write operation to the database. 
+So there are quite a few small "transactions" wrapped in a larger transaction and basically there is an outstanding transaction count in the nesting code. If there are any outstanding children when you end the parent, its all rolled back.   
+ I prefer client-side transaction handling where available. If you are relegated to doing sps or other server side logical units of work, server side transactions are fine. 
+ 
+ Wow! Lots of questions!  
+ Until a year ago I relied 100% on transactions. Now its only 98%. In special cases of high traffic websites (like Sara mentioned) and also high partitioned data, enforcing the need of distributed transactions, a transactionless architecture can be adopted. Now you'll have to code referential integrity in the application. 
+ Also, I like to manage transactions declaratively using annotations (I'm a Java guy) and aspects. That's a very clean way to determine transaction boundaries and it includes transaction propagation functionality. 
+ 
+ Just as an FYI... Nested transactions can be dangerous.  It simply increases the chances of getting deadlock.  So, though it is good and necessary, the way it is implemented is important in higher volume situation. 
+ 
+ Server side transactions, 35,000 transactions per second, SQL Server:  10 lessons from 35K tps 
+ We only use server side transactions: 
+ 
+ can start later and finish sooner 
+ not distributed 
+ can do work before and after 
+ SET XACT_ABORT ON means immediate rollback on error 
+ client/OS/driver agnostic 
+ 
+ Other: 
+ 
+ we nest calls but use @@TRANCOUNT to detect already started TXNs 
+ each DB call is always atomic 
+ 
+ We deal with millions of INSERT rows per day (some batched via staging tables), full OLTP, no problems. Not 35k tps though. 
+ 
+ This is an interesting link for nesting T-SQL transactions:  http://aleemkhan.wordpress.com/2006/07/21/t-sql-error-handling-pattern-for-nested-transactions-and-stored-procedures/ 
+ 
+ As Sara Chipps said, transaction is overkill for high traffic applications. So we should avoid it as much as possible. In other words, we use a  BASE architecture  rather than ACID. Ebay is a typical case. Distributed transaction is not used at all in Ebay architecture. But for  eventual consistency , you have to do some sort of trick on your own. 
+ 

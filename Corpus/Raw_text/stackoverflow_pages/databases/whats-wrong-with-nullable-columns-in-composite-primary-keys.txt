@@ -1,0 +1,55 @@
+*** whats-wrong-with-nullable-columns-in-composite-primary-keys ***
+
+ ORACLE does not permit NULL values in any of the columns that comprise a primary key. It appears that the same is true of most other "enterprise-level" systems. 
+ At the same time, most systems also allow  unique  contraints on nullable columns. 
+ Why is it that unique constraints can have NULLs but primary keys can not? Is there a fundamental logical reason for this, or is this more of a technical limitation? 
+ 
+ Primary keys are for uniquely identifying rows. This is done by comparing all parts of a key to the input.  
+ Per definition, NULL cannot be part of a successful comparison. Even a comparison to itself ( ) will fail. This means a key containing NULL would not work. 
+ Additonally, NULL is allowed in a foreign key, to mark an optional relationship. (*)  Allowing it in the PK as well would break this. 
+ 
+ (*) A word of caution: Having nullable foreign keys is not clean relational database design. 
+ If there are two entities   and   where   can optionally be related to  , the clean solution is to create a resolution table (let's say  ). That table would link   with  : If there  is  a relationship then it would contain a record, if there  isn't  then it would not. 
+ 
+ A primary key defines a unique identifier for  **every**
+ row in a table: when a table has a primary key, you have a guranteed way to select any row from it. 
+ A unique constraint does not necessarily identify every row; it just specifies that  **if**
+ a row has values in its columns,  **then**
+ they must be unique.  This is not sufficient to uniquely identify  **every**
+ row, which is what a primary key must do. 
+ 
+ Fundamentally speaking nothing is wrong with a NULL in a multi-column primary key. But having one has implications the designer likely did not intend, which is why many systems throw an error when you try this. 
+ Consider the case of module/package versions stored as a series of fields: 
+ 
+ The first 5 elements of the primary key are regularly defined parts of a release version, but some packages have a customized extension that is usually not an integer (like "rc-foo" or "vanilla" or "beta" or whatever else someone for whom  four  fields is insufficient might dream up). If a package does not have an extension, then it is NULL in the above model, and no harm would be done by leaving things that way. 
+ But what  is  a NULL? It is supposed to represent a  lack  of information, an unknown. That said, perhaps this makes more sense: 
+ 
+ In this version the "ext" part of the tuple is NOT NULL but defaults to an empty string -- which is semantically (and practically) different from a NULL. A NULL is an unknown, whereas an empty string is a deliberate record of "something not being present". In other words, "empty" and "null" are different things. Its the difference between "I don't have a value here" and "I don't know what the value here is." 
+ When you register a package that lacks a version extension you  know  it lacks an extension, so an empty string is actually the correct value. A NULL would only be correct if you didn't know whether it had an extension or not, or you knew that it did but didn't know what it was. This situation is easier to deal with in systems where string values are the norm, because there is no way to represent an "empty integer" other than inserting 0 or 1, which will wind up being rolled up in any comparisons made later (which has its own implications)*. 
+ Incidentally, both ways are valid in Postgres (since we're discussing "enterprise" RDMBSs), but comparison results can vary quite a bit when you throw a NULL into the mix -- because NULL == "don't know" so all results of a comparison involving a NULL wind up being NULL since you can't know something that is unknown.  **DANGER!**
+ Think carefully about that: this means that NULL comparison results  propagate  through a series of comparisons. This can be a source of subtle bugs when sorting, comparing, etc. 
+ Postgres assumes you're an adult and can make this decision for yourself. Oracle and DB2 assume you didn't realize you were doing something silly and throw an error. This is  usually  the right thing, but not always -- you might  actually  not know and have a NULL in some cases and therefore leaving a row with an unknown element against which meaningful comparisons are impossible is correct behavior. 
+ In any case you should strive to eliminate the number of NULL fields you permit across the entire schema and doubly so when it comes to fields that are part of a primary key. In the vast majority of cases the presence of NULL columns is an indication of un-normalized (as opposed to deliberately de-normalized) schema design and should be thought very hard about before being accepted. 
+ [*  NOTE: It is possible to create a custom type that is the union of integers and a "bottom" type that would semantically mean "empty" as opposed to "unknown". Unfortunately this introduces a bit of complexity in comparison operations and usually being truly type correct isn't worth the effort in practice as you shouldn't be permitted many   values at all in the first place. That said, it would be wonderful if RDBMSs would include a default   type in addition to   to prevent the habit of casually conflating the semantics of "no value" with "unknown value". ] 
+ 
+ NULL == NULL -> false (at least in DBMSs) 
+ So you wouldn't be able to retrieve any relationships using a NULL value even with additional columns with real values. 
+ 
+ The answer by Tony Andrews is a decent one. But the real answer is that this has been a convention used by relational database community and is NOT a necessity. Maybe it is a good convention, maybe not. 
+ Comparing anything to NULL results in UNKNOWN (3rd truth value).
+So as has been suggested with nulls all traditional wisdom concerning equality goes out the window. Well that's how it seems at first glance. 
+ But I don't think this is necessarily so and even SQL databases don't think that NULL destroys all possibility for comparison. 
+ Run in your database the query
+SELECT * FROM VALUES(NULL)
+UNION
+SELECT * FROM VALUES(NULL) 
+ What you see is just one tuple with one attribute that has the value NULL.
+So the union recognized here the two NULL values as equal. 
+ When comparing a composite key that has 3 components to a tuple with 3 attributes (1, 3, NULL) = (1, 3, NULL) <=> 1 = 1 AND 3 = 3 AND NULL = NULL
+The result of this is UNKNOWN. 
+ But we could define a new kind of comparison operator eg. ==.
+X == Y <=> X = Y OR (X IS NULL AND Y IS NULL) 
+ Having this kind of equality operator would make composite keys with null components or non-composite key with null value unproblematic. 
+ 
+ I still believe this is a fundamental / functional flaw brought about by a technicality. If you have an optional field by which you can identify a customer you now have to hack a dummy value into it, just because NULL != NULL, not particularly elegant yet it is an "industry standard" 
+ 

@@ -1,0 +1,39 @@
+*** extreme-sharding-one-sqlite-database-per-user ***
+
+ I'm working on a web app that is somewhere between an email service and a social network.  I feel it has the potential to grow really big in the future, so I'm concerned about scalability. 
+ Instead of using one centralized MySQL/InnoDB database and then partitioning it when that time comes, I've decided to create a separate SQLite database for each active user: one active user per 'shard'. 
+ That way backing up the database would be as easy as copying each user's  small  database file to a remote location once a day. 
+ Scaling up will be as easy as adding extra hard disks to store the new files. 
+ When the app grows beyond a single server I can link the servers together at the filesystem level using GlusterFS and run the app unchanged, or rig up a simple SQLite proxy system that will allow each server to manipulate sqlite files in adjacent servers. 
+ Concurrency issues will be minimal because each HTTP request will only touch one or two database files at a time, out of thousands, and SQLite only blocks on reads anyway. 
+ I'm betting that this approach will allow my app to scale gracefully and support lots of cool and  unique  features. Am I betting wrong?  Am I missing anything? 
+ **UPDATE**
+ I decided to go with a less extreme solution, which is working fine so far.  I'm using a fixed number of shards - 256 sqlite databases, to be precise.  Each user is assigned and bound to a random shard by a simple hash function.   
+ Most features of my app require access to just one or two shards per request, but there is one in particular that requires the execution of a simple query on 10 to 100 different shards out of 256, depending on the user.  Tests indicate it would take about 0.02 seconds, or less, if all the data is cached in RAM.  I think I can live with that! 
+ **UPDATE 2.0**
+ I ported the app to MySQL/InnoDB and was able to get about the same performance for regular requests, but for that one request that requires shard walking, innodb is 4-5 times faster.  For this reason, and other reason, I'm dropping this architecture, but I hope someone somewhere finds a use for it...thanks. 
+ 
+ The place where this will fail is if you have to do what's called "shard walking" - which is finding out all the data across a bunch of different users. That particular kind of "query" will have to be done programmatically, asking each of the SQLite databases in turn - and will very likely be the slowest aspect of your site. It's a common issue in any system where data has been "sharded" into separate databases. 
+ If all the of the data is self-contained to the user, then this should scale pretty well - the key to making this an effective design is to know how the data is likely going to be used and if data from one person will be interacting with data from another (in your context). 
+ You may also need to watch out for file system resources - SQLite is great, awesome, fast, etc - but you do get some caching and writing benefits when using a "standard database" (i.e. MySQL, PostgreSQL, etc) because of how they're designed. In your proposed design, you'll be missing out on some of that. 
+ 
+ Sounds to me like a maintenance nightmare. What happens when the schema changes on all those DBs? 
+ 
+ One possible problem is that having one database for each user will use disk space and RAM very inefficiently, and as the user base grows the benefit of using a light and fast database engine will be lost completely. 
+ A possible solution to this problem is to create " **minishards**
+" consisting of maybe 1024 SQLite databases housing up to  100 users each .  This will be more efficient than the DB per user approach, because data is packed more efficiently. And lighter than the  Innodb database server approach, because we're using Sqlite. 
+ Concurrency will also be pretty good, but queries will be less elegant (shard_id yuckiness). What do you think? 
+ 
+ http://freshmeat.net/projects/sphivedb 
+ SPHiveDB is a server for sqlite database. It use JSON-RPC over HTTP to expose a network interface to use SQLite database. It supports combining multiple SQLite databases into one file. It also supports the use of multiple files. It is designed for the extreme sharding schema -- one SQLite database per user. 
+ 
+ If you're creating a separate database for each user, it sounds like you're not setting up relationships... so why use a relational database at all? 
+ 
+ I am considering this same architecture as I basically wanted to use the server side SQLLIte databases as backup and synching copy for clients.  My idea for querying across all the data is to use Sphinx for full-text search and run Hadoop jobs from flat dumps of all the data to Scribe and then expose the results as webservies.  This post gives me some pause for thought however, so I hope people will continue to respond with their opinion. 
+ 
+ If your data is this easy to shard, why not just use a standard database engine, and if you scale large enough that the DB becomes the bottleneck, shard the database, with different users in different instances? The effect is the same, but you're not using scores of tiny little databases. 
+ In reality, you probably have at least some shared data that doesn't belong to any single user, and you probably frequently need to access data for more than one user. This will cause problems with either system, though. 
+ 
+ Having one database per user would make it really easy to restore individual users data of course, but as  @John  said, schema changes would require some work. 
+ Not enough to make it hard, but enough to make it non-trivial. 
+ 

@@ -1,0 +1,62 @@
+*** are-there-any-real-advantages-to-nosql-over-rdbms-for-structured-data-on-one-mac ***
+
+ So I've been trying hard to figure out if NoSQL is really bringing that much value outside of auto-sharding and handling UNSTRUCTURED data. 
+ Assuming I can fit my STRUCTURED data on a single machine OR have an effective 'auto-sharding' feature for SQL, what advantages do any NoSQL options offer? I've determined the following: 
+ 
+ **Document-based (MongoDB, Couchbase, etc)**
+ - Outside of it's 'auto-sharding' capabilities, I'm having a hard time understanding where the benefit is. Linked objects are quite similar to SQL joins, while Embedded objects significantly bloat doc size and causes a challenge regarding to replication (a comment could belong to both a post AND a user, and therefore the data would be redundant). Also, loss of ACID and transactions are a big disadvantage. 
+ **Key-value based (Redis, Memcached, etc)**
+ - Serves a different use case, ideal for caching but not complex queries 
+ **Columnar (Cassandra, HBase, etc )**
+ - Seems that the big advantage here is more how the data is stored on disk, and mostly useful for aggregations rather than general use 
+ **Graph (Neo4j, OrientDB, etc)**
+ - The most intriguing, the use of both edges and nodes makes for an interesting value-proposition, but mostly useful for highly complex relational data rather than general use. 
+ 
+ I can see the advantages of Key-value, Columnar and Graph DBs for specific use cases (Caching, social network relationship mapping, aggregations), but can't see any reason to use something like MongoDB for STRUCTURED data outside of it's 'auto-sharding' capabilities.  
+ If SQL has a similar 'auto-sharding' ability, would SQL be a no-brainer for structured data? Seems to me it would be, but I would like the communities opinion... 
+ NOTE: This is in regards to a typical CRUD application like a Social Network, E-Commerce site, CMS etc. 
+ 
+ If you're starting off on a single server, then many advantages of NoSQL go out the window.  The biggest advantages to the most popular NoSQL are high availability with less down time.  Eventual consistency requirements can lead to performance improvements as well.  It really depends on your needs. 
+ 
+ **Document-based**
+ - If your data fits well into a handful of small buckets of data, then a document oriented database.  For example, on a classifieds site we have Users, Accounts and Listings as the core data.  The bulk of search and display operations are against the Listings alone.  With the legacy database we have to do nearly 40 join operations to get the data for a single listing.  With NoSQL it's a single query.  With NoSQL we can also create indexes against nested data, again with results queried without Joins.  In this case, we're actually mirroring data from SQL to MongoDB for purposes of search and display (there are other reasons), with a longer-term migration strategy being worked on now.  ElasticSearch, RethinkDB and others are great databases as well.  RethinkDB actually takes a very conservative approach to the data, and ElasticSearch's out of the box indexing is second to none. 
+ **Key-value store**
+ - Caching is an excellent use case here, when you are running a medium to high volume website where data is mostly read, a good caching strategy alone can get you 4-5 times the users handled by a single server.  Key-value stores (RocksDB, LevelDB, Redis, etc) are also very good options for Graph data, as individual mapping can be held with subject-predicate-target values which can be very fast for graphing options over the top. 
+ **Columnar**
+ - Cassandra in particular can be used to distribute significant amounts of load for even single-value lookups.  Cassandra's scaling is very linear to the number of servers in use.  Great for heavy read and write scenarios.  I find this less valuable for live searches, but very good when you have a  VERY  high load and need to distribute.  It takes a lot more planning, and may well not fit your needs.  You can tweak settings to suite your CAP needs, and even handle distribution to multiple data centers in the box.  NOTE: Most applications do emphatically  NOT  need this level of use.  ElasticSearch may be a better fit in most scenarios you would consider HBase/Hadoop or Cassandra for. 
+ **Graph**
+ - I'm not as familiar with graph databases, so can't comment here (beyond using a key-value store as underlying option). 
+ 
+ Given that you then comment on MongoDB specifically vs SQL ... even if both auto-shard.  PostgreSQL in particular has made a lot of strides in terms of getting unstrictured data usable (JSON/JSONB types) not to mention the power you can get from something like PLV8, it's probably the most suited to handling the types of loads you might throw at a document store with the advantages of NoSQL.  Where it happens to fall down is that replication, sharding and failover are bolted on solutions not really in the box. 
+ For small to medium loads sharding really isn't the best approach.  Most scenarios are mostly read so having a replica-set where you have additional read nodes is usually better when you have 3-5 servers.  MongoDB is great in this scenario, the master node is automagically elected, and failover is pretty fast.  The only weirdness I've seen is when Azure went down in late 2014, and only one of the servers came up first, the other two were almost 40 minutes later.  With replication any given read request can be handled in whole by a single server.  Your data structures become simpler, and your chances of data loss are reduced. 
+ Again in my own example above, for a mediums sized classifieds site, the vast majority of data belongs to a single collection... it is searched against, and displayed from that collection.  With this use case a document store works much better than structured/normalized data.  The way the objects are stored are much closer to their representation in the application.  There's less of a cognitive disconnect and it simply works. 
+ The fact is that SQL JOIN operations kill performance, especially when aggregating data across those joins.  For a single query for a single user it's fine, even with a dozen of them.  When you get to dozens of joins with thousands of simultaneous users, it starts to fall apart.  At this point you have several choices... 
+ 
+ **Caching**
+ - caching is always a great approach, and the less often your data changes, the better the approach.  This can be anything from a set of memcache/redis instances to using something like MongoDB, RethinkDB or ElasticSearch to hold composite records.  The challenge here comes down to updating or invalidating your cached data. 
+ **Migrating**
+ - migrating your data to a data store that better represents your needs can be a good idea as well.  If you need to handle massive writes, or very massive read scenarios no SQL database can keep up.  You could  NEVER  handle the likes of Facebook or Twitter on SQL. 
+ **Something in between**
+ - As you need to scale it depends on what you are doing and where your pain points are as to what will be the best solution for a given situation.  Many developers and administrators fear having data broken up into multiple places, but this is often the best answer.  Does your analytical data really need to be in the same place as your core operational data?  For that matter do your logins need to be tightly coupled?  Are you doing a lot of correlated queries?  It really depends. 
+ 
+ 
+ Personal Opinions Ahead 
+ For me, I like the safety net that SQL provides.  Having it as the central store for core data it's my first choice.  I tend to treat RDBMS's as dumb storage, I don't like being tied to a given platform.  I feel that many people try to over-normalize their data.  Often I will add an XML or JSON field to a table so additional pieces of data can be stored without bloating the scheme, specifically if it's unlikely to ever be queried... I'll then have properties in my objects in the application code that store in those fields.  A good example may be a payment... if you are currently using one system, or multiple systems (one for CC along with Paypal, Google, Amazon etc) then the details of the transaction really don't affect your records, why create 5+ tables to store this detailed data.  You can even use JSON for primary storage and have computed columns derived and persisted from that JSON for broader query capability and indexing where needed.  Databases like postgresql and mysql (iirc) offer direct indexing against JSON data as well. 
+ When data is a natural fit for a document store, I say go for it... if the vast majority of your queries are for something that fits better to a single record or collection, denormalize away.  Having this as a mirror to your primary data is great. 
+ For write-heavy data you want multiple systems in play... It depends heavily on your needs here...  Do you need fast hot-query performance? Go with ElasticSearch.  Do you need absolute massive horizontal scale, HBase or Cassandra. 
+ The key take away here is not to be afraid to mix it up... there really isn't a one size fits all.  As an aside, I feel that if PostgreSQL comes up with a good in the box (for the open-source version) solution for even just replication and automated fail-over they're in a much better position than most at that point. 
+ I didn't really get into, but feel I should mention that there are a number of SaaS solutions and other providers that offer hybrid SQL systems.  You can develop against MySQL/MariaDB locally and deploy to a system with SQL on top of a distributed storage cluster.  I still feel that HBase or ElasticSearch are better for logging and analitical data, but the SQL on top solutions are also compelling. 
+ More:  http://www.mongodb.com/nosql-explained 
+ 
+ Schema-less storage (or schema-free). Ability to modify the storage (basically add new fields to records) without having to modify the storage 'declared' schema. RDBMSs require the explicit declaration of said 'fields' and require explicit modifications to the schema before a new 'field' is saved. A schema-free storage engine allows for fast application changes, just modify the app code to save the extra fields, or rename the fields, or drop fields and be done. 
+ Traditional RDBMS folk consider the schema-free a  disadvantage  because they argue that on the long run one needs to query the storage and handling the heterogeneous records (some have some fields, some have other fields) makes it difficult to handle. But for a start-up the schema-free is overwhelmingly alluring, as fast iteration and time-to-market is all that matter (and often rightly so).  
+ 
+ You asked us to assume that either the data can fit on a single machine, OR your database has an effective auto-sharding feature. 
+ Going with the assumption that your SQL data has an auto-sharding feature, that means you're talking about running a cluster. Any time you're running a cluster of machines you have to worry about fault-tolerance. 
+ For example, let's say you're using the simplest approach of sharding your data by application function, and are storing all of your user account data on server A and your product catalog on server B. 
+ Is it acceptable to your business if server A goes down and none of your users can login? 
+ Is it acceptable to your business if server B goes down and no one can buy things? 
+ If not, you need to worry about setting up data replication and high-availability failover. Doable, but not pleasant or easy for SQL databases. Other types of sharding strategies (key, lookup service, etc) have the same challenges. 
+ Many NoSQL databases will automatically handle replication and failovers. Some will do it out of the box, with very little configuration. That's a huge benefit from an operational point of view. 
+ Full disclosure : I'm an engineer at FoundationDB, a NoSQL database that  automatically  handles sharding, replication, and fail-over with very little configuration. It also has a  SQL layer  so you you don't have to give up structured data. 
+ 

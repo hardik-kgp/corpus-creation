@@ -1,0 +1,39 @@
+*** flags-in-a-database-rows-best-practices ***
+
+ I am asking this out of a curiosity. Basically my question is when you have a database which needs a row entry to have things which act like flags, what is the best practice? A good example of this would be the badges on stack overflow, or the operating system field in bugzilla. Any subset of the flags may be set for a given entry. 
+ Usually, I do c and c++ work, so my gut reaction is to use an unsigned integer field as a set of bits which can be flipped... But i know that isn't a good solution for several reasons. The most obvious of which is scale-ability, there will be a hard upper limit on how many flags I can have. 
+ I can also think of a couple of other solutions which scale better but would have performance issues because they would require multiple selects to get all the information. 
+ So, what is the "right" way to do this? 
+ 
+ If you really need an unbounded selection from a closed set of flags (e.g. stackoverflow badges), then the "relational way" would be to create a table of flags and a separate table which relates those flags to your target entities.  Thus, users, flags and usersToFlags. 
+ However, if space efficiency is a serious concern and query-ability is not, an unsigned mask would work almost as well. 
+ 
+ Generally speaking, I avoid bitmask fields.  They're difficult to read in the future and they require a much more in-depth knowledge of the data to understanding. 
+ The relational solution has been proposed previously.  Given the example you outlined, I would create something like this (in SQL Server): 
+ 
+ 
+ For many cases, it depends on a lot of things - like your database backend. If you're using MySQL, for example, the  SET datatype  is exactly what you want. 
+ Basically, it's just a bitmask, with values assigned to each bit. MySQL supports up to 64-bit values (meaning 64 different toggles). If you only need 8, then it only takes a byte per row, which is pretty awesome savings. 
+ If you honestly have more than 64 values in a single field, your field might be getting more complicated. You may want to expand then to the BLOB datatype, which is just a raw set of bits that MySQL has no inherent understanding of. Using this, you can create an arbitrary number of bit fields that MySQL is happy to treat as binary, hex, or decimal values, however you need. If you need more than 64 options, create as many fields as is appropriate for your application. The downside is that is is difficult to make the field human readable. The  BIT datatype  is also limited to 64. 
+ 
+ **A Very Relational Approach**
+
+ For databases without the set type, you could open a new table to represent the set of entities for which each flag is set.   
+ E.g. for a Table "Students" you could have tables "RegisteredStudents", "SickStudents", TroublesomeStudents etc. Each table will have only one column: the student_id.  This would actually be very fast if all you want to know is which students are "Registered" or "Sick", and would work the same way in every DBMS. 
+ 
+ If the flags have very different meanings and are used directly in SQL queries or VIEWS, then using multiple columns of type   might be a good idea. 
+ Put each flag into an extra column, because you'll read and modify them separately anyway. If you want to group the flags, just give their column names a common prefix, i.e. instead of: 
+ 
+ you should use: 
+ 
+ Although MySQL doesn't have a BOOLEAN type, you can use the quasi standard TINYINT(1) for that purpose, and set it only to 0 or 1. 
+ 
+ I would recommend using a BOOLEAN datatype if your database supports this. 
+ Otherwise, the best approach is to use NUMBER(1) or equivalent, and put a check constraint on the column that limits valid values to (0,1) and perhaps NULL if you need that.  If there is no built-in type, using a number is less ambiguous that using a character column. (What's the value for true? "T" or "Y" or "t") 
+ The nice thing about this is that you can use SUM() to count the number of TRUE rows. 
+ 
+ 
+ If there are more than just a few flags, or likely to be so in the future, I'll use a separate table of flags and a many-to-many table between them. 
+ If there are a handful of flags and I'm never going to use them in a WHERE, I'll use a SET() or bitfield or whatever.  They're easy to read and more compact, but a pain to query and sometimes even more of a headache with an ORM. 
+ If there are only a few flags -- and only ever  going  to be a few flags -- then I'll just make a couple BIT/BOOLEAN/etc columns. 
+ 

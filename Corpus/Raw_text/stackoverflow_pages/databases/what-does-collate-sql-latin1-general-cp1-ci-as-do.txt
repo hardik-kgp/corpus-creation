@@ -1,0 +1,108 @@
+*** what-does-collate-sql-latin1-general-cp1-ci-as-do ***
+
+ I have an SQL query to create the database in SQLServer as given below: 
+ 
+ It runs fine. 
+ While rest of the SQL is clear to be I am quite confused about the functionality of  . 
+ Can anyone explain this to me? Also, I would like to know if creating the database in this way is a best practice? 
+ 
+ It sets how the database server sorts (compares pieces of text). in this case: 
+ 
+ breaks up into interesting parts: 
+ 
+  makes the server treat strings using charset latin 1, basically ascii 
+  stands for Code Page 1252 
+  case insensitive comparisons so 'ABC' would equal 'abc' 
+  accent sensitive, so 'ü' does not equal 'u' 
+ 
+ **P.S.**
+ For more detailed information be sure to  read @solomon-rutzky's answer . 
+ 
+ Please be aware that the accepted answer is a bit incomplete. Yes, at the most basic level Collation handles sorting. BUT, the comparison rules defined by the chosen Collation are used in many places outside of user queries against user data. 
+ **If "What does **
+** do?" means "What does the **
+** clause of **
+** do?", then:**
+
+ The   clause of the   statement specifies the default Collation of the  Database , and  not  the Server; Database-level and Server-level default Collations control different things. 
+ **Server (i.e. Instance)-level**
+ controls: 
+ 
+ Database-level Collation for system Databases:  ,  ,  , and  . 
+ Due to controlling the DB-level Collation of  , it is then the default Collation for string columns in temporary tables (global and local), but not table variables. 
+ Due to controlling the DB-level Collation of  , it is then the Collation used for  Server-level  data, such as Database names (i.e.   column in  ), Login names, etc. 
+ Handling of parameter / variable names 
+ Handling of cursor names 
+ Handling of   labels 
+ Default Collation used for newly created Databases when the   clause is missing 
+ 
+ **Database-level**
+ controls: 
+ 
+ Default Collation used for newly created string columns ( ,  ,  ,  ,  , and   -- but don't use   or  ) when the   clause is missing from the column definition. This goes for both   and   statements. 
+ Default Collation used for string literals (i.e.  ) and string variables (i.e.  ). This Collation is only ever used when comparing strings and variables to other strings and variables. When comparing strings / variables to columns, then the Collation of the column will be used. 
+ The Collation used for  Database-level  meta-data, such as object names (i.e.  ), column names (i.e.  ), index names (i.e.  ), etc. 
+ The Collation used for  Database-level  objects: tables, columns, indexes, etc. 
+ 
+ **Also:**
+
+ 
+ ASCII is an encoding which is 8-bit (for common usage; technically "ASCII" is 7-bit with character values 0 - 127, and "ASCII Extended" is 8-bit with character values 0 - 255). This group is the same across cultures. 
+ The Code Page is the "extended" part of Extended ASCII, and controls which characters are used for values 128 - 255. This group varies between each culture. 
+  does  not  mean "ASCII" since standard ASCII only covers values 0 - 127, and  all  code pages (that can be represented in SQL Server, and even  ) map those same 128 values to the same characters. 
+ 
+ **If "What does **
+** do?" means "What does this particular collation do?", then:**
+
+ 
+ Because the name start with  , this is a SQL Server collation, not a Windows collation. These are definitely obsolete, even if not officially deprecated, and are mainly for pre-SQL Server 2000 compatibility. Although, quite unfortunately   is very common due to it being the default when installing on an OS using US English as its language. These collations should be avoided if at all possible. 
+ Windows collations (those with names  not  starting with  ) are newer, more functional, have consistent sorting between   and   for the same values, and are being updated with additional / corrected sort weights and uppercase/lowercase mappings. These collations also don't have the potential performance problem that the SQL Server collations have:  Impact on Indexes When Mixing VARCHAR and NVARCHAR Types . 
+  is the culture / locale.
+
+ 
+ For  ,  , and   data this determines the linguistic rules used for sorting and comparison. 
+ For  ,  , and   data (columns, literals, and variables) this determines the:
+
+ 
+ linguistic rules used for sorting and comparison. 
+ code page used to encode the characters. For example,   collations use code page 1252,   collations use code page 1255, and so on. 
+ 
+ 
+  or  
+ 
+ For  SQL Server  collations:  , is the 8-bit code page that determines what characters map to values 128 - 255. While there are four code pages for Double-Byte Character Sets (DBCS) that can use 2-byte combinations to create more than 256 characters, these are not available for the SQL Server collations. 
+ For  Windows  collations:  , while not present in all collation names, refers to the SQL Server version in which the collation was introduced (for the most part). Windows collations with no version number in the name are version   (meaning SQL Server 2000 as that is version 8.0). Not all versions of SQL Server come with new collations, so there are gaps in the version numbers. There are some that are   (for SQL Server 2005, which is version 9.0), most are   (for SQL Server 2008, version 10.0), and a small set has   (for SQL Server 2017, version 14.0). 
+ I said "for the most part" because the collations ending in   were introduced in SQL Server 2012 (version 11.0), but the underlying data wasn't new, they merely added support for supplementary characters for the built-in functions. So, those endings exist for version   and   collations, but only starting in SQL Server 2012. 
+ 
+ Next you have the sensitivities, that can be in any combination of the following, but always specified in this order:
+
+ 
+  = case-sensitive or   = case-insensitive 
+  = accent-sensitive or   = accent-insensitive 
+  = Kana type-sensitive or missing = Kana type-insensitive 
+  = width-sensitive or missing = width insensitive 
+  = variation selector sensitive (only available in the version 140 collations) or missing = variation selector insensitive 
+ 
+ Optional last piece: 
+ 
+  at the end means "Supplementary Character support". The "support" only affects how the built-in functions interpret surrogate pairs (which are how supplementary characters are encoded in UTF-16). Without   at the end (or   in the middle), built-in functions don't see a single supplementary character, but instead see two meaningless code points that make up the surrogate pair. This ending can be added to any non-binary, version 90 or 100 collation. 
+  or   at the end means "binary" sorting and comparison. Data is still stored the same, but there are no linguistic rules. This ending is never combined with any of the 5 sensitivities or  .   is the older style, and   is the newer, more accurate style. If using SQL Server 2005 or newer, use  . For details on the differences between   and  , please see:  Differences Between the Various Binary Collations (Cultures, Versions, and BIN vs BIN2) . 
+  is a new option as of SQL Server 2019. It's an 8-bit encoding that allows for Unicode data to be stored in   and   datatypes (but not the deprecated   datatype). This option can only be used on collations that support supplementary characters (i.e. version 90 or 100 collations with   in their name, and version 140 collations). There is also a single binary   collation ( , not  ). 
+ **PLEASE NOTE:**
+ UTF-8 was designed / created for compatibility with environments / code that are set up for 8-bit encodings yet want to support Unicode. Even though there are a few scenarios where UTF-8 can provide up to 50% space savings as compared to  , that is a side-effect and has a cost of a slight hit to performance in many / most operations. If you need this for compatibility, then the cost is acceptable. If you want this for space-savings, you had better test, and TEST AGAIN. Testing includes all functionality, and more than just a few rows of data. Be warned that UTF-8 collations work best when ALL columns, and the database itself, are using   data (columns, variables, string literals) with a   collation. This is the natural state for anyone using this for compatibility, but not for those hoping to use it for space-savings. Be careful when mixing VARCHAR data using a   collation with either   data using non-  collations or   data, as you might experience odd behavior / data loss. For more details on the new UTF-8 collations, please see:  Native UTF-8 Support in SQL Server 2019: Savior or False Prophet? 
+ 
+ 
+ 
+ The CP1 means 'Code Page 1' - technically this translates to code page 1252 
+ 
+ The  COLLATE  keyword specify what kind of character set and rules (order, confrontation rules) you are using for string values. 
+ For example in your case you  are using Latin rules with case insensitive ( **CI**
+) and accent sensitive ( **AS**
+) 
+ You can refer to this  Documentation 
+ 
+ This specifies the default collation for the database. Every text field that you create in tables in the database will use that collation, unless you specify a different one. 
+ A database always has a default collation. If you don't specify any, the default collation of the SQL Server instance is used. 
+ The name of the collation that you use shows that it uses the Latin1 code page 1, is case insensitive (CI) and accent sensitive (AS). This collation is used in the USA, so it will contain sorting rules that are used in the USA. 
+ The collation decides how text values are compared for equality and likeness, and how they are compared when sorting. The code page is used when storing non-unicode data, e.g. varchar fields. 
+ 

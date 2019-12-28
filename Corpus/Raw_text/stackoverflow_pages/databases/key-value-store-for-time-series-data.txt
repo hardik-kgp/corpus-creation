@@ -1,0 +1,56 @@
+*** key-value-store-for-time-series-data ***
+
+ I've been using SQL Server to store historical time series data for a couple hundred thousand objects, observed about 100 times per day. I'm finding that queries (give me all values for object XYZ between time t1 and time t2) are too slow (for my needs, slow is more then a second). I'm indexing by timestamp and object ID. 
+ I've entertained the thought of using somethings a key-value store like MongoDB instead, but I'm not sure if this is an "appropriate" use of this sort of thing, and I couldn't find any mentions of using such a database for time series data. ideally, I'd be able to do the following queries: 
+ 
+ retrieve all the data for object XYZ between time t1 and time t2 
+ do the above, but return one date point per day (first, last, closed to time t...) 
+ retrieve all data for all objects for a particular timestamp 
+ 
+ the data should be ordered, and ideally it should be fast to write new data as well as update existing data. 
+ it seems like my desire to query by object ID as well as by timestamp might necessitate having two copies of the database indexed in different ways to get optimal performance...anyone have any experience building a system like this, with a key-value store, or HDF5, or something else? or is this totally doable in SQL Server and I'm just not doing it right? 
+ 
+ It sounds like MongoDB would be a very good fit.  Updates and inserts are super fast, so you might want to create a document for every event, such as: 
+ 
+ Then you can index the ts field and queries will also be fast.  (By the way, you can create multiple indexes on a single database.) 
+ How to do your three queries: 
+ 
+ retrieve all the data for object XYZ
+  between time t1 and time t2 
+ 
+ 
+ 
+ do the above, but return one date
+  point per day (first, last, closed to
+  time t...) 
+ 
+ 
+ For closest to some time, you'd probably need a custom JavaScript function, but it's doable. 
+ 
+ retrieve all data for all objects for
+  a particular timestamp 
+ 
+ 
+ Feel free to ask on the  user list  if you have any questions, someone else might be able to think of an easier way of getting closest-to-a-time events. 
+ 
+ This is why databases specific to time series data exist - relational databases simply aren't fast enough for large time series. 
+ I've used  Fame  quite a lot at investment banks. It's very fast but I imagine very expensive. However if your application requires the speed it might be worth looking it. 
+ 
+ There is an open source timeseries database under active development (.NET only for now) that I wrote. It can store massive amounts (terrabytes) of uniform data in a "binary flat file" fashion. All usage is stream-oriented (forward or reverse). We actively use it for the stock ticks storage and analysis at our company. 
+ I am not sure this will be exactly what you need, but it will allow you to get the first two points - get values from t1 to t2 for any series (one series per file) or just take one data point. 
+ https://code.google.com/p/timeseriesdb/ 
+ 
+ 
+ I recently tried something similar in F#.  I started with the 1 minute bar format for the symbol in question in a Space delimited file which has roughly 80,000 1 minute bar readings.  The code to load and parse from disk was under 1ms.   The code to calculate a 100 minute SMA for every period in the file was 530ms.  I can pull any slice I want from the SMA sequence once calculated in under 1ms.     I am just learning F# so there are probably ways to optimize.  Note this was after multiple test runs so it was already in the windows Cache but even when loaded from disk it never adds more than 15ms to the load.  
+ date,time,open,high,low,close,volume
+01/03/2011,08:00:00,94.38,94.38,93.66,93.66,3800 
+ To reduce the recalculation time I save the entire calculated indicator sequence to disk in a single file with \n delimiter and it generally takes less than 0.5ms to load and parse when in the windows file cache.  Simple iteration across the full time series data to return the set of records inside a date range in a sub 3ms operation with a full year of 1 minute bars.   I also keep the daily bars in a separate file which loads even faster because of the lower data volumes.  
+ I use the .net4 System.Runtime.Caching layer to cache the serialized representation of the pre-calculated series and with a couple gig's of RAM dedicated to cache I get nearly a 100% cache hit rate so my access to any pre-computed indicator set for any symbol generally runs under 1ms. 
+ Pulling any slice of data I want from the indicator is typically less than 1ms so advanced queries simply do not make sense.  Using this strategy I could easily load 10 years of 1 minute bar in less than 20ms.  
+ 
+ 
+ I use HDF5 as my time series repository.  It has a number of effective and fast compression styles which can be mixed and matched.  It can be used with a number of different programming languages.   
+ I use boost::date_time for the timestamp field.   
+ In the financial realm, I then create specific data structures for each of bars, ticks, trades, quotes, ...   
+ I created a number of custom iterators and used standard template library features to be able to efficiently search for specific values or ranges of time-based records. 
+ 

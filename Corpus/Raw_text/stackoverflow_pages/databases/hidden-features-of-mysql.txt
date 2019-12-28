@@ -1,0 +1,323 @@
+*** hidden-features-of-mysql ***
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Locked . This question and its answers are  locked  because the question is off-topic but has historical significance. It is not currently accepting new answers or interactions.
+                            
+                         
+ 
+ 
+ 
+ 
+ I've been working with  Microsoft SQL Server  with many years now but have only just recently started to use  MySQL  with my web applications, and I'm hungry for knowledge. 
+ To continue with the long line of  "hidden feature" questions , I would like to know any hidden or handy features of MySQL which will hopefully improve my knowledge of this open source database. 
+ 
+ Since you put up a bounty, I'll share my hard won secrets... 
+ In general, all the SQLs I tuned today required using sub-queries. Having come from Oracle database world, things I took for granted weren’t working the same with MySQL. And my reading on MySQL tuning makes me conclude that MySQL is behind Oracle in terms of optimizing queries.  
+ While the simple queries required for most B2C applications may work well for MySQL, most of the aggregate reporting type of queries needed for Intelligence Reporting seems to require a fair bit of planning and re-organizing the SQL queries to guide MySQL to execute them faster. 
+ Administration: 
+  is the number of concurrent connections. The default value is 100 connections (151 since 5.0) - very small. 
+ Note:  
+ connections take memory and your OS might not be able to handle a lot of connections.  
+ MySQL binaries for Linux/x86 allow you to have up to 4096 concurrent connections, but self compiled binaries often have less of a limit. 
+ Set table_cache to match the number of your open tables and concurrent connections. Watch the open_tables value and if it is growing quickly you will need to increase its size. 
+ Note:  
+ The 2 previous parameters may require a lot of open files. 20+max_connections+table_cache*2 is a good estimate for what you need. MySQL on Linux has an open_file_limit option, set this limit. 
+ If you have complex queries sort_buffer_size and tmp_table_size are likely to be very important. Values will depend on the query complexity and available resources, but 4Mb and 32Mb, respectively are recommended starting points. 
+ Note: These are "per connection" values, among read_buffer_size, read_rnd_buffer_size and some others, meaning that this value might be needed for each connection. So, consider your load and available resource when setting these parameters. For example sort_buffer_size is allocated only if MySQL needs to do a sort. Note: be careful not to run out of memory. 
+ If you have many connects established (i.e. a web site without persistent connections) you might improve performance by setting thread_cache_size to a non-zero value. 16 is good value to start with. Increase the value until your threads_created do not grow very quickly. 
+ PRIMARY KEY: 
+ There can be only one AUTO_INCREMENT column per table, it must be indexed, and it cannot have a DEFAULT value 
+ KEY is normally a synonym for INDEX. The key attribute PRIMARY KEY can also be specified as just KEY when given in a column definition. This was implemented for compatibility with other database systems. 
+ A PRIMARY KEY is a unique index where all key columns must be defined as NOT NULL 
+ If a PRIMARY KEY or UNIQUE index consists of only one column that has an integer type, 
+you can also refer to the column as "_rowid" in SELECT  statements. 
+ In MySQL, the name of a PRIMARY KEY is PRIMARY 
+ Currently, only InnoDB (v5.1?) tables support foreign keys. 
+ Usually, you create all the indexes you need when you are creating tables. 
+Any column declared as PRIMARY KEY, KEY, UNIQUE, or INDEX will be indexed. 
+ NULL means "not having a value". To test for NULL, you  cannot  use the arithmetic comparison operators such as =, <, or <>.  Use the IS NULL and IS NOT NULL operators instead: 
+ NO_AUTO_VALUE_ON_ZERO suppresses auto increment for 0 so that only NULL generates the next sequence number. This mode can be useful if 0 has been stored in a table's AUTO_INCREMENT column. (Storing 0 is not a recommended practice, by the way.) 
+ To change the value of the AUTO_INCREMENT counter to be used for new rows: 
+ 
+ or
+    SET INSERT_ID = value; 
+ Unless otherwise specified, the value will begin with: 1000000 or specify it thus: 
+ ...) ENGINE=MyISAM DEFAULT CHARSET=latin1 AUTO_INCREMENT=1 
+ TIMESTAMPS: 
+ Values for TIMESTAMP columns are converted from the current time zone to UTC for storage, 
+and from UTC to the current time zone for retrieval. 
+ http://dev.mysql.com/doc/refman/5.1/en/timestamp.html 
+For one TIMESTAMP column in a table, you can assign the current timestamp as the default value and the auto-update value. 
+ one thing to watch out for when using one of these types in a WHERE clause, it is best to do 
+     WHERE datecolumn = FROM_UNIXTIME(1057941242) 
+and not 
+     WHERE UNIX_TIMESTAMP(datecolumn) = 1057941242. 
+doing the latter won't take advantage of an index on that column. 
+ http://dev.mysql.com/doc/refman/5.1/en/date-and-time-functions.html 
+ 
+ if you convert a datetime to unix timestamp in MySQL: 
+And then add 24 hours to it: 
+And then convert it back to a datetime it magically loses an hour! 
+ Here's what's happening. When converting the unix timestamp back to a datetime the timezone is taken into consideration and it just so happens that between the 28th and the 29th of October 2006 we went off daylight savings time and lost an hour.  
+ Beginning with MySQL 4.1.3, the CURRENT_TIMESTAMP(), CURRENT_TIME(), CURRENT_DATE(), and FROM_UNIXTIME() functions return values in the connection's  current time zone , which is available as the value of the time_zone system variable. In addition, UNIX_TIMESTAMP()  assumes that its argument is a datetime value in the current time zone. 
+ The current time zone setting does not affect values displayed by functions such as UTC_TIMESTAMP() or values in DATE, TIME, or DATETIME columns. 
+ NOTE: ON UPDATE  ONLY  updates the DateTime if a field is changed If an UPDATE results in no fields being changed then the DateTime is NOT updated! 
+ Addtionally, the First TIMESTAMP is always AUTOUPDATE by default even if not specified 
+ When working with Dates, I almost always convet to Julian Date becuase Data math is then a simple matter of adding or subtracing integers, and Seconds since Midnight for the same reason. It is rare I need time resoultion of finer granularity than seconds. 
+ Both these can be stored as a 4 byte integer, and if space is really tight can be combined into UNIX time (seconds since the epoch 1/1/1970) as an unsigned integer which will be good till around 2106 as: 
+ ' secs in 24Hrs = 86400 
+ ' Signed Integer  max val = 2,147,483,647  -  can hold 68  years of Seconds  
+ ' Unsigned Integer max val = 4,294,967,295  -  can hold 136 years of Seconds 
+ Binary Protocol: 
+ MySQL 4.1 introduced a binary protocol that allows non-string data values to be sent 
+and returned in native format without conversion to and from string format. (Very usefull)     
+ Aside, mysql_real_query() is faster than mysql_query() because it does not call strlen() 
+to operate on the statement string.  
+ http://dev.mysql.com/tech-resources/articles/4.1/prepared-statements.html 
+The binary protocol supports server-side prepared statements and allows transmission of data values in native format. The binary protocol underwent quite a bit of revision during the earlier releases of MySQL 4.1.  
+ You can use the IS_NUM() macro to test whether a field has a numeric type. 
+Pass the type value to IS_NUM() and it evaluates to TRUE if the field is numeric: 
+ One thing to note is that binary data  CAN  be sent inside a regular query if you escape it and remember MySQL requires  only  that backslash and the quote character be escaped.
+So that is a really easy way to INSERT shorter binary strings like encrypted/Salted passwords for example. 
+ Master Server: 
+ http://www.experts-exchange.com/Database/MySQL/Q_22967482.html 
+ http://www.databasejournal.com/features/mysql/article.php/10897_3355201_2 
+ GRANT REPLICATION SLAVE ON  .  to slave_user IDENTIFIED BY 'slave_password' 
+ 
+ Binary Log File must read: 
+ http://dev.mysql.com/doc/refman/5.0/en/binary-log.html 
+ http://www.mydigitallife.info/2007/10/06/how-to-read-mysql-binary-log-files-binlog-with-mysqlbinlog/ 
+ http://dev.mysql.com/doc/refman/5.1/en/mysqlbinlog.html   
+ http://dev.mysql.com/doc/refman/5.0/en/binary-log.html 
+ http://dev.mysql.com/doc/refman/5.1/en/binary-log-setting.html 
+ You can delete all binary log files with the RESET MASTER statement, or a subset of them with PURGE MASTER 
+ --result-file=binlog.txt TrustedFriend-bin.000030 
+ Normalization: 
+ http://dev.mysql.com/tech-resources/articles/intro-to-normalization.html 
+ UDF functions 
+ http://www.koders.com/cpp/fid10666379322B54AD41AEB0E4100D87C8CDDF1D8C.aspx   
+ http://souptonuts.sourceforge.net/readme_mysql.htm 
+ DataTypes: 
+ http://dev.mysql.com/doc/refman/5.1/en/storage-requirements.html 
+ http://www.informit.com/articles/article.aspx?p=1238838&seqNum=2 
+ http://bitfilm.net/2008/03/24/saving-bytes-efficient-data-storage-mysql-part-1/ 
+ One thing to note is that on a mixed table with both CHAR and VARCHAR, mySQL will change the CHAR's to VARCHAR's 
+ RecNum integer_type UNSIGNED NOT NULL AUTO_INCREMENT, PRIMARY KEY (RecNum) 
+ MySQL always represents dates with the year first, in accordance with the standard SQL and ISO 8601 specifications 
+ Misc: 
+ Turing off some MySQl functionality will result in smaller data files
+and faster access. For example:  
+ --datadir will specify the data directory and 
+ --skip-innodb will turn off the inno option and save you 10-20M 
+ More here
+ http://dev.mysql.com/tech-resources/articles/mysql-c-api.html 
+ Download Chapter 7 - Free 
+ InnoDB is transactional but there is a performance overhead that comes with it. I have found MyISAM tables to be sufficient for 90% of my projects.
+Non-transaction-safe tables (MyISAM) have several advantages of their own, all of which occur because:  
+ there is no transaction overhead: 
+ Much faster 
+ Lower disk space requirements 
+ Less memory required to perform updates 
+ Each MyISAM table is stored on disk in three files. The files have names that begin with the table name and have an extension to indicate the file type. An .frm file stores the table format. The data file has an .MYD (MYData) extension. The index file has an .MYI (MYIndex) extension.  
+ These Files  can  be copied to a storage location intact without using the MySQL Administrators Backup feature which is time consuming (so is the Restore) 
+ The trick is make a copy of these files then DROP the table. When you put the files back
+MySQl will recognize them and update the table tracking. 
+ If you must Backup/Restore, 
+ Restoring a backup, or importing from an existing dump file can takes a long time depending on the number of indexes and primary keys you have on each table. You can speed this process up dramatically by modifying your original dump file by surrounding it with the following: 
+ 
+ To vastly increase the speed of the reload, add the SQL command SET AUTOCOMMIT = 0; at the beginning of the dump file, and add the COMMIT; command to the end.  
+ By default, autocommit is on, meaning that each and every insert command in 
+the dump file will be treated as a separate transaction and written to disk before the next one is started. If you don't add these commands, reloading a large database into InnoDB can take many hours... 
+ The maximum size of a row in a MySQL table is 65,535 bytes 
+ The effective maximum length of a VARCHAR in MySQL 5.0.3 and on = maximum row size (65,535 bytes) 
+ VARCHAR values are not padded when they are stored. Trailing spaces are retained when 
+values are stored and retrieved, in conformance with standard SQL. 
+ CHAR and VARCHAR values in MySQL are compared without regard to trailing spaces. 
+ Using CHAR will only speed up your access if the whole record is fixed size. That is, 
+if you use any variable size object, you might as well make all of them variable size. 
+You gain no speed by using a CHAR in a table that also contains a VARCHAR. 
+ The VARCHAR limit of 255 characters was raised to 65535 characters as of MySQL 5.0.3 
+ Full-text searches are supported for MyISAM tables only.  
+ http://dev.mysql.com/doc/refman/5.0/en/fulltext-search.html 
+ BLOB  columns have no character set, and sorting and comparison are based on the
+numeric values of the bytes in column values     
+ If strict SQL mode is not enabled and you assign a value to a BLOB or TEXT column that 
+exceeds the column's maximum length, the value is truncated to fit and a warning is generated. 
+ Useful Commands: 
+ check strict mode: 
+SELECT @@global.sql_mode; 
+ turn off strict mode: 
+ SET @@global.sql_mode= '';  
+ SET @@global.sql_mode='MYSQL40' 
+ or remove:
+sql-mode="STRICT_TRANS_TABLES,... 
+ SHOW COLUMNS FROM  
+ SELECT max(namecount) AS   FROM mytable ORDER BY virtualcolumn  
+ http://dev.mysql.com/doc/refman/5.0/en/group-by-hidden-fields.html 
+ http://dev.mysql.com/doc/refman/5.1/en/information-functions.html#function_last-insert-id 
+last_insert_id()  
+ gets you the PK of the last row inserted in the current thread max(pkcolname) gets you last PK overall.  
+ Note: if the table is empty max(pkcolname) returns 1 mysql_insert_id() converts the return type of the native MySQL C API function mysql_insert_id() to a type of 
+long (named int in PHP).  
+ If your AUTO_INCREMENT column has a column type of BIGINT, the value returned by 
+mysql_insert_id()  will be incorrect. Instead, use the internal MySQL SQL function LAST_INSERT_ID() in an SQL query. 
+ http://dev.mysql.com/doc/refman/5.0/en/information-functions.html#function_last-insert-id 
+ Just a note that when you’re trying to insert data into a table and you get the error: 
+ 
+ using something like 
+ 
+ it’s because you’ve not got any apostrophes around the values you’re trying to stick into the table. So you should change your code to: 
+ 
+ reminder that `` are used to define MySQL fields, databases, or tables, not values ;) 
+ Lost connection to server during query: 
+ http://dev.mysql.com/doc/refman/5.1/en/gone-away.html 
+ http://dev.mysql.com/doc/refman/5.1/en/packet-too-large.html   
+ http://dev.mysql.com/doc/refman/5.0/en/server-parameters.html 
+ http://dev.mysql.com/doc/refman/5.1/en/show-variables.html   
+ http://dev.mysql.com/doc/refman/5.1/en/option-files.html 
+ http://dev.mysql.com/doc/refman/5.1/en/error-log.html 
+ Tuning Queries 
+ http://www.artfulsoftware.com/infotree/queries.php?&bw=1313 
+ Well that should be enough to earn the bonus I would think... The fruits of many hours and many projects with a great  free  database. I develop application data servers on windows platforms mostly with MySQL. The worst mess I had to straighten out was 
+ The ultimate MySQL legacy database nightmare 
+ This required a series of appplications to process the tables into something usefull using many of the tricks mentioned here. 
+ If you found this astoundingly helpfull, express your thanks by voting it up. 
+ Also check out my other articles and white papers at: www.coastrd.com 
+ 
+ One of the not so hidden feature of MySQL is that it's not really good at being SQL compliant, well, not bugs really, but, more  gotchas ... :-) 
+ 
+ A command to find out what tables are currently in the cache: 
+ 
+ (From  MySQL performance blog ) 
+ 
+ A command to find out who is doing what: 
+ 
+ And you can kill a process with: 
+ 
+ 
+ I particularly like MySQL's built-in support for   and  .  It makes handling of IP addresses in tables very straightforward (at least so long as they're only IPv4 addresses!) 
+ 
+ I love   (AKA upsert, merge) for all kinds of counters created lazily: 
+ 
+ You can insert many rows in one query, and immediately handle duplicate index for each of the rows. 
+ 
+ Again - not really hidden features, but really handy: 
+ **Feature**
+
+ Easily grab DDL: 
+ 
+ output: 
+ 
+ **Feature: GROUP_CONCAT() aggregate function**
+ 
+Creates a concatenated string of its arguments per detail, and aggregates by concatenating those per group.  
+ Example 1: simple 
+ 
+ Output:  
+ 
+ Example 2: multiple arguments 
+ 
+ Output: 
+ 
+ Example 3: Using a custom separator 
+ 
+ Output: 
+ 
+ Example 4: Controlling the order of the list elements 
+ 
+ Output: 
+ 
+ **Feature: COUNT(DISTINCT ) with multiple expressions**
+
+ You can use multiple expressions in a COUNT(DISTINCT ...) expression to count the number of combinations.  
+ 
+ **Feature / Gotcha: No need to include non-aggregated expressions in the GROUP BY list**
+
+ Most RDBMS-es enforce a SQL92 compliant GROUP BY which requires all non-aggregated expressions in the SELECT list to appear in the GROUP BY. In these RDBMS-es, this statement: 
+ 
+ is not valid, because the SELECT list contains the non-aggregated column Country.Continent which does not appear in the GROUP BY list. In these RDBMS-es, you must either modify the GROUP BY list to read  
+ 
+ or you must add some non-sense aggregate to Country.Continent, for example 
+ 
+ Now, the thing is, logically there is nothing that demands that Country.Continent should be aggreagated. See, Country.Code is the primary key of the Country table. Country.Continent is also a column from the Country table and is thus by definitions functionally dependent upon the primary key Country.Code. So, there must  exist exactly one value in Country.Continent for each distinct Country.Code. If you realize that, than you realize that it does not make sense to aggregate it (there is just one value, right) nor to group by it (as it won't make the result more unique as you're already grouping by on the pk) 
+ Anyway - MySQL lets you include non-aggregated columns in the SELECT list without requiring you to also add them to the GROUP BY clause. 
+ The gotcha with this is that MySQL does not protect you in case you happen to use a non-aggregated column. So, a query like this: 
+ 
+ Will be executed without complaint, but the CountryLanguage.Percentage column will contain non-sense (that is to say, of all languages percentages, one of the available values for the percentage will be picked at random or at least outside your control. 
+ See:  Debunking Group By Myths 
+ 
+ The "pager" command in the client 
+ If you've got, say, 10,000 rows in your result and want to view them (This assumes the "less" and "tee" commands available, which is normally the case under Linux; in Windows YMMV.) 
+ 
+ And you'll get them in the "less" file viewer so you can page through them nicely, search etc. 
+ Also 
+ 
+ Will conveniently write to a file. 
+ 
+ Some things you may find interesting: 
+ 
+ 
+ Not a hidden feature, but useful nonetheless:  http://mtop.sourceforge.net/ 
+ 
+ Here are some of my tips - I blogged about them in my blog ( Link ) 
+ 
+ You don't need to use '@' sign when declaring variables. 
+ You have to use a delimiter (the default is ';') to demarcate the end of a statement -  Link 
+ If you trying to move data between MS-SQL 2005 and mySQL there are a few hoops to jump through -  Link 
+ Doing case sensitive matches in mySQL -  link 
+ 
+ 
+ If you're going to be working with large and/or high transaction InnoDb databases learn and understand "SHOW INNODB STATUS"  Mysql Performance Blog , it will become your friend. 
+ 
+ If using cmdline Mysq, you can interact with the command line (on Linux machines - not sure if there is an equivalent effect on Windows) by using the shriek/exclamation mark. For example: 
+ 
+ will display the code for file1.sql. To save your statement and query to a file, use the tee facility 
+ 
+ to turn this off use \t 
+ Lastly to run a script you've already saved, use "source filename". Of course, the normal alternative is to direct in the script name when starting mysql from the command line: 
+ 
+ Hope that's of use to someone ! 
+ Edit: Just remembered another one - when invoking mysql from the command line you can use the -t switch so that output is in table format - a real boon with some queries (although of course terminating queries with \G as mentioned elsewhere here is also helpful in this respect). A lot more on various switches  Command Line Tool 
+ Just found out a neat way to change the order of a sort (normally use Case...) 
+If you want to change the order of a sort (perhaps sort by 1, 4, 3 ,2 instead of 1, 2, 3,4) you can use the field function within the Order by clause.
+For example 
+ Order By Field(sort_field,1,4,3,2)  
+ 
+ Found this out here  Order by day_of_week in MySQL  courtesey of user gms8994 
+ 
+ 
+ I don't think this is MySQL specific, but enlighting for me: 
+ Instead of writing 
+ 
+ You can just write 
+ 
+ 
+ mysqlsla - One of the very commonly used slow query log analysis tool. You can see top 10 worsts queries since u last rolled out slow query logs. It can also tell you the number of times that BAD query was fired and how much total time it took on the server.  
+ 
+ Actually  documented , but very annoying: automatic conversions for incorrect dates and other incorrect input. 
+ 
+ Before MySQL 5.0.2, MySQL is forgiving of illegal or improper data values and coerces them to legal values for data entry. In MySQL 5.0.2 and up, that remains the default behavior, but you can change the server SQL mode to select more traditional treatment of bad values such that the server rejects them and aborts the statement in which they occur. 
+ 
+ As for dates: sometimes you'll be "lucky" when MySQL doesn't adjust the input to nearby valid dates, but instead stores it as   which by definition is invalid. However, even then you might have wanted MySQL to fail rather than silently storing this value for you. 
+ 
+ The built-in  SQL Profiler . 
+ 
+ InnoDB by default stores all tables in one global tablespace that will  never shrink . 
+ You can use   which will put each table in a separate tablespace that will be deleted when you drop the table or database. 
+ Plan ahead for this since you have to dump and restore the database to reclaim space otherwise. 
+ Using Per-Table Tablespaces 
+ 
+ If you insert into datetime column empty string value "", MySQL will retain the value as 00/00/0000 00:00:00. Unlike Oracle, which will save null value. 
+ 
+ During my benchmarks with large datasets and DATETIME fields, it's always slower to do this query: 
+ 
+ Than this approach: 
+ 
+ 

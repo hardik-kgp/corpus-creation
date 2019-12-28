@@ -1,0 +1,117 @@
+*** deleting-repeating-values-in-database ***
+
+ I have a MySql table which is populating daily with price values. Each day it records an entry even if the price hasn't changed. I want to delete some rows that repeat too much. I want to keep the first price and the last price before there is a price change. 
+ **Example 1)**
+
+ 
+ From that list records with id 2 and 6 should be deleted with the following result: 
+ 
+ **Example 2)**
+
+ 
+ Here there is no price change so I can delete all records from 2 to 6: 
+ 
+ Id is not supposed to be one incremental and also date is not updated on daily basis.  
+ 
+ This is the second answer I've submitted for this question, but I think I've finally got it this time: 
+ 
+ This is a modified version of the answer from @vadim_hr. 
+ Edit: Below is a different query that filters on   instead of subquery.    may be faster than the former query (above) for large datasets, but I'll leave the performance testing up to you. 
+ http://sqlfiddle.com/#!9/ee0655/8 
+ 
+ Both queries accomplish the same end, and they both assume that rows are unique per   and   (as explained in the comment below). 
+ 
+ You can do this with some creative self-join logic. 
+ Think of three hypothetical rows in the table. 
+ 
+ Row a you want to keep. 
+ Row b has the same product name and price, and a date 1 day after a. You want to delete this. 
+ Row c has the same product name and price, and a date 1 day after b. You want to keep this. 
+ 
+ So if you can do a self-join to match these three rows, then delete row b. 
+ 
+ This works even if there are multiple rows that fit the conditions for row b. It'll delete the first one, and then continue to delete subsequent rows that also fit the conditions. 
+ This works if you use the   data type and store your dates as 'YYYY-MM-DD', not 'DD-MM-YYYY'. You should do this anyway. 
+ 
+ You want to delete the rows where the product name and price are the same as the rows with the date plus/minus one day. 
+ 
+ 
+ Is your MySQL new enough to support CTE?  This is a pretty interesting problem I've seen with date scheduling.  The code always looks awkward.  To check the results without a delete you can switch the comment mark with the select and delete and comment out the t.[Name] is null line. 
+ WITH  
+ 
+ 
+ You can detect   and  , then select rows for deletion: 
+ 
+ I tested this queries on both of your examples.  Demo . 
+ **UPDATE**
+. If the   column is not unique then the logic must be corrected from  +  to  + . Anyway general concept will stay the same. Query will looks like this: 
+ 
+ Demo  for second query. 
+ 
+ all of your data is repeated, witch one do you want to keep? your explanation is confusing. 
+ you can save oldest data with same price and delete other :  
+ 
+ 
+ Well i cannot write the exact code for your scenario but you can write a Function\Procedure and follow this pseudo code 
+ 
+ 
+ Try the below query ,hope it helps you. 
+ **(I don't have mysql , I've tried to convert the syntax to my sql-- so I'm sorry if any syntax error.)**
+
+ **(I've tested it on sqlserver with random dates and different products ,it works well and get the result you want)**
+
+ 
+ 
+ You can use below piece of code. Let me know if it is working. 
+ 
+ 
+ You can use    
+ 
+ or   construct to solve your problem 
+ 
+ sqlfiddle demo 
+ 
+ You can use the logic below:  
+ 
+ rank by price 
+ group by id, name, price 
+ get min date 
+ get max date 
+ 
+ Following the query and fiddle example: 
+ 
+ sqlfiddle 
+ 
+ We have to ask ourselves, when do we have to delete a record? 
+ **Answer:**
+ A record can be deleted,    
+ 
+ if there exists another record, with the same name, with the same price, and an earlier date, while there is no record with the same name, with another price in between the both dates. 
+ and 
+ if there exists another record, with the same name, with the same price, and a later date, while there is no record with the same name, with another price in between the both dates. 
+ 
+ Putting both requirements into SQL results in the following: 
+ 
+ 
+ Edit: after further consideration, it appears that it's not possible to solve this problem with user defined variable trickery (take note of the other solutions using these).  While I think the below solution will "most likely work 99% of the time," MySQL does not guarantee the order of variable evaluation:  link 1  and  link 2 . 
+ Original answer: 
+ (I am working under the assumptions that   is defined as   and both   and   are not negative [can provide a simple patch if handling negatives, too]). 
+ The query: 
+ 
+ The query's return, based on your "Example 1:" 
+ 
+ The query's return, based on your "Example 2:" 
+ 
+ How the query works: 
+ 
+ Do a simple 'partitioning' of the   table via ORDER BY 
+ Loop over the ordered result set, tracking 2 sets of variables: the 1st set to hold the price and name of the 'one prior' row (the 'one prior' row being directly above the current row) and the 2nd set of variables to hold the 'two prior' row (the 'two prior' row being directly above the 'one prior' row). 
+ The   and   are identical except that the former returns a value that will evaluate to true for the   and the latter will evaluate to false.  The real point of these functions is to update our loop variables. 
+ See  this  for more info regarding variable updating within subqueries. 
+ 
+ The actual DELETE: 
+ 
+ **Important Note**
+
+ See how the above delete query does 2 inner selects?  Make sure that you include this, otherwise you will unintentionally delete the last row!  Try executing without the   to see what I mean. 
+ 

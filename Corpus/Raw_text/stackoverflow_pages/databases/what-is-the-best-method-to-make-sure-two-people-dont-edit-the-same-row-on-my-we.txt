@@ -1,0 +1,47 @@
+*** what-is-the-best-method-to-make-sure-two-people-dont-edit-the-same-row-on-my-we ***
+
+ I have a PHP/jQuery/AJAX/MySQL app built for managing databases.  I want to implement the ability to prevent multiple users from editing the same database row at the same time. 
+ 
+ What is this called? 
+ Do I use a token system and who ever has the token can edit it until they release the token? 
+ Do I use a "last edit date/time" to compare you loading the HTML form with the time in the database and if the database is the most resent edit then it warns you? 
+ Do I lock the row using database functions? 
+ 
+ I'm just not sure which is the best.  Assuming between 10 - 15 concurrent users 
+ 
+ There are two general approaches-- optimistic and pessimistic locking. 
+ Optimistic locking is generally much easier to implement in a web-based environment because it is fundamentally stateless.  It scales much better as well.  The downside is that it assumes that your users generally won't be trying to edit the same set of rows at the same time.  For most applications, that's a very reasonable assumption but you'd have to verify that your application isn't one of the outliers where users would regularly be stepping on each other's toes.  In optimistic locking, you would have some sort of   column that you would   when a user fetched the data and then use in the   clause when you go to update the date, i.e. 
+ 
+ If that updates 1 row, you know you were successful.  Otherwise, if it updates 0 rows, you know that someone else has modified the data in the interim and you can take some action (generally showing the user the new data and asking them if they want to overwrite but you can adopt other conflict resolution approaches). 
+ Pessimistic locking is more challenging to implement particularly in a web-based application particularly when users can close their browser without logging out or where users may start editing some data and go to lunch before hitting  .  It makes it harder to scale and generally makes the application more difficult to administer.  It's really only worth considering if users will regularly try to update the same rows or if updating a row takes a large amount of time for a user so it's worth letting them know up front that someone else has locked the row. 
+ 
+ I was going to implement this into one of my own systems. 
+ You could create  new columns in your database of records, called timelocked. 
+ When a record is opened, you would set the record they are opening's column for timelocked to the current time. During editing of the record, send a keepalive back to the server through ajax every 2 minutes. When sending the keepalive, the server will then increase the timelocked time to the current time the request was sent, and so fourth (this will make sense in a second). WHen the user is finished editing, set the timelocked to false.  
+ Now, If someone went to open a record which is already open, the php would check -
+if timelocked == false - would mean it's not being edited, 
+ otherwise, the record may be being edited, but what if the user closed their browser window. that's why the keepalive is used. 
+ if the difference between the current time and the timelocked is larger than 2 minutes, it means they're no longer lively editing, which would allow you to open it.  
+ Hopefully you understand all that. 
+ 
+ Don't try to prevent it. Let them decide what to do in the case of an edit conflict. 
+ Add a timestamp to the table. Compare the timestamp of when the row was retrieved with the current timestamp. Make them aware of changes between their load and their save, and let them decide what action to take. 
+ So yeah, number 3. 
+ 
+ I personally would not prevent this. If it was a requirement of the job I would track the users' current / last known location and disallow someone from editing the same line someone else is editing this way. I have seen people add a row to a table saying isLocked or isBeingWorkedOn etc... but I have seen this type of system fail far more often as well, or require moderation to unlock stuck tables if someone closed it while working on it etc... 
+ 
+ 1) This is called locking. There are two main types of locking when referring to relational databases (like MySQL): table locking and row locking. Table locking ensures only one session at at time is making changes to a table, whereas row locking ensures only one session at a time is making changes to a particular row. You can think of row locking as a more fine-grained approach to concurrent access than table locking. Row locking is more complicated, but allows multiple concurrent sessions to write to the same table (important if your database has lots of concurrent writes--table locking should be fine for 10-15 users)
+ 
+2-3) MySQL takes care of concurrent access for you! It automatically implements locking in the background. The type of locking (row or table) depends on which storage engine you use. For example, MyISAM uses table locking and InnoDB uses row locking. MySQL uses an internal table to manage this. You can query the status of this table (and all locks on your database) by checking the   and   variables (it uses your option number 2).  
+When you issue an INSERT or UPDATE statement while another session is using the table (or row), the calling application (i.e. PHP in this case) will pause for a few milliseconds until the other session is done writing. 
+ 4) Again, MySQL will automatically take care of locking, but you can manually manage table locking with the   and   commands.  If you are using row locking with InnoDB, there is a host of functions you can use to manually manage concurrent access.  
+ See MySQL's page on  Internal Locking  for an overview of MySQL's locking system, and  Concurrent Inserts  for InnoDB's row locking features. 
+ 
+ As others have said it's much easier to deal with a conflicting update. 
+What you are suggesting is called pesimistic locking. It's called thate because it's all too likely that two users will try and edit the same record at the same time. 
+ Is that true? 
+ And is it a disaster if a user has to start again, because the data they tried to update was changed by someone else. 
+ Locking costs, you always lock in a pessimistic scheme, so you have an overhead, and that's before you start looking at related data and such.  
+ Making it robust, dealing with no one can do it now coz sumfin' went wrong... 
+ If I had something short of editing an entire file, that needed pessimistic locking, I'd be having a look at my design, on the basis that it isn't fit for purpose. 
+ 

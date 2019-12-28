@@ -1,0 +1,92 @@
+*** h2-in-memory-database-table-not-found ***
+
+ I've got a H2 database with URL  . I create a table using  . I then select everything from this (empty) table using  . So far, so good. 
+ However, if I change the URL to  , the only difference being the database is now in memory only, this gives me an  . I'm probably missing something simple here, but any help would be appreciated. 
+ 
+ hbm2ddl closes the connection after creating the table, so h2 discards it. 
+ If you have your connection-url configured like this 
+ 
+ the content of the database is lost at the moment the last connection is closed. 
+ If you want to keep your content you have to configure the url like this 
+ 
+ If doing so,  **h2**
+ will keep its content as long as the  **vm**
+ lives.  
+ 
+ I know this was not your case but I had the same problem because H2 was creating the tables with UPPERCASE names then behaving case-sensitive, even though in all scripts (including in the creation ones) i used lowercase.  
+ Solved by adding   to the connection URL.  
+ 
+ Hard to tell. I created a program to test this:  
+ 
+ The test ran to completion, with no failures and no unexpected output. Which version of h2 are you running? 
+ 
+ The H2 in-memory database stores data in memory inside the JVM.  When the JVM exits, this data is lost.   
+ I suspect that what you are doing is similar to the two Java classes below.  One of these classes creates a table and the other tries to insert into it: 
+ 
+ and 
+ 
+ When I ran these classes one after the other, I got the following output: 
+ 
+C:\Users\Luke\stuff>java CreateTable
+
+C:\Users\Luke\stuff>java InsertIntoTable
+Exception in thread "main" org.h2.jdbc.JdbcSQLException: Table "PERSON" not found; SQL statement:
+INSERT INTO PERSON (ID, FIRSTNAME, LASTNAME) VALUES (1, 'John', 'Doe') [42102-154]
+        at org.h2.message.DbException.getJdbcSQLException(DbException.java:327)
+        at org.h2.message.DbException.get(DbException.java:167)
+        at org.h2.message.DbException.get(DbException.java:144)
+        ...
+ 
+ As soon as the first   process exits, the table created by   no longer exists.  So, when the InsertIntoTable class comes along, there's no table for it to insert into. 
+ When I changed the connection strings to  , I found that there was no such error.  I also found that a file   had appeared.  This was where H2 had put the table, and since it had been stored on disk, the table was still there for the InsertIntoTable class to find. 
+ 
+ I have tried to add 
+ 
+ However, that didn't helped. On the  H2 site , I have found following, which indeed could help in some cases. 
+ 
+ By default, closing the last connection to a database closes the database. For an in-memory database, this means the content is lost. To keep the database open, add ;DB_CLOSE_DELAY=-1 to the database URL. To keep the content of an in-memory database as long as the virtual machine is alive, use jdbc:h2:mem:test;DB_CLOSE_DELAY=-1. 
+ 
+ **However**
+, my issue was that just the schema supposed to be different than default one. So insted of using  
+ 
+ I had to use: 
+ 
+ Then the tables were visible 
+ 
+ I was trying to fetch table meta data, but had the following error: 
+ Using: 
+ 
+ returned an empty ResultSet. 
+ But using the following URL instead it worked properly: 
+ 
+ There was a need to specify:  **DATABASE_TO_UPPER=false**
+
+ 
+ I came to this post because I had the same error. 
+ In my case the database evolutions weren't been executed, so the table wasn't there at all. 
+ My problem was that the folder structure for the evolution scripts was wrong. 
+ from:  https://www.playframework.com/documentation/2.0/Evolutions 
+ 
+ Play tracks your database evolutions using several evolutions script. These scripts are written in plain old SQL and should be located in the conf/evolutions/{database name} directory of your application. If the evolutions apply to your default database, this path is conf/evolutions/default. 
+ 
+ I had a folder called  **conf/evolutions.default**
+ created by eclipse. The issue disappeared after I corrected the folder structure to  **conf/evolutions/default**
+
+ 
+ I had the same problem and changed my configuration in application-test.properties to this: 
+ 
+ And my dependencies: 
+ 
+ And the annotations used on test class: 
+ 
+ 
+ 
+ 
+ Solved by creating a new src/test/resources folder + insert application.properties file, explicitly specifying to create a test dbase : 
+ 
+ 
+ When opening the h2-console, the JDBC URL must match the one specified in the properties: 
+ 
+ 
+ Which seems obvious, but I spent hours figuring this out.. 
+ 

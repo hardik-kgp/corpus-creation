@@ -1,0 +1,40 @@
+*** race-conditions-in-django ***
+
+ Here is a simple example of a django view with a potential race condition: 
+ 
+ The race condition should be fairly obvious: A user can make this request twice, and the application could potentially execute   simultaneously, causing one of the requests to override the other. 
+ Suppose the function   is relatively complicated, and makes calculations based on all kinds of weird stuff that cannot be placed in a single   and would be difficult to put in a stored procedure. 
+ So here is my question: What kind of locking mechanisms are available to django, to deal with situations similar to this? 
+ 
+ Django 1.4+ supports  select_for_update , in earlier versions you may execute raw SQL queries e.g.   which depending on underlying DB will lock the row from any updates, you can do whatever you want with that row until the end of transaction. e.g. 
+ 
+ 
+ As of Django 1.1 you can use the ORM's F() expressions to solve this specific problem.  
+ 
+ For more details see the documentation: 
+ https://docs.djangoproject.com/en/1.8/ref/models/instances/#updating-attributes-based-on-existing-fields 
+ https://docs.djangoproject.com/en/1.8/ref/models/expressions/#django.db.models.F 
+ 
+ Database locking is the way to go here. There are plans to add "select for update" support to Django ( here ), but for now the simplest would be to use raw SQL to UPDATE the user object before you start to calculate the score. 
+ 
+ Pessimistic locking is now supported by Django 1.4's ORM when the underlying DB (such as Postgres) supports it.  See the  Django 1.4a1 release notes . 
+ 
+ You have many ways to single-thread this kind of thing. 
+ One standard approach is  **Update First**
+.  You do an update which will seize an exclusive lock on the row; then do your work; and finally commit the change.  For this to work, you need to bypass the ORM's caching.  
+ Another standard approach is to have a separate, single-threaded application server that isolates the Web transactions from the complex calculation.   
+ 
+ Your web application can create a queue of scoring requests, spawn a separate process, and then write the scoring requests to this queue.  The spawn can be put in Django's   so it happens on web-app startup.  Or it can be put into separate   admin script.  Or it can be done "as needed" when the first scoring request is attempted. 
+ You can also create a separate WSGI-flavored web server using Werkzeug which accepts WS requests via urllib2.  If you have a single port number for this server, requests are queued by TCP/IP.  If your WSGI handler has one thread, then, you've achieved serialized single-threading.  This is slightly more scalable, since the scoring engine is a WS request and can be run anywhere. 
+ 
+ Yet another approach is to have some other resource that has to be acquired and held to do the calculation.   
+ 
+ A Singleton object in the database.  A single row in a unique table can be updated with a session ID to seize control; update with session ID of   to release control.  The essential update has to include a   filter to assure that the update fails when the lock is held by someone else.  This is interesting because it's inherently race-free -- it's a single update -- not a SELECT-UPDATE sequence. 
+ A garden-variety semaphore can be used outside the database.  Queues (generally) are easier to work with than a low-level semaphore. 
+ 
+ 
+ This may be oversimplifying your situation, but what about just a JavaScript link replacement?  In other words when the user clicks the link or button wrap the request in a JavaScript function which immediately disables / "greys out" the link and replaces the text with "Loading..." or "Submitting request..." info or something similar.  Would that work for you? 
+ 
+ Now, you must use: 
+ 
+ 

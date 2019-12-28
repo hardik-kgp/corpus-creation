@@ -1,0 +1,37 @@
+*** return-datareader-from-datalayer-in-using-statement ***
+
+ We have a lot of data layer code that follows this very general pattern: 
+ 
+ I think we can do a little better.  My main complaint right now is that it forces all the records to be loaded into memory, even for large sets.  I'd like to be able to take advantage of a DataReader's ability to only keep one record in ram at a time, but if I return the DataReader directly the connection is cut off when leaving the using block. 
+ How can I improve this to allow returning one row at a time? 
+ 
+ Once again, the act of composing my thoughts for the question reveals the answer.  Specifically, the last sentence where I wrote "one row at a time".  I realized I don't really care that it's a datareader, as long as I can enumerate it row by row.  That lead me to this: 
+ 
+ This will work even better once we move to 3.5 and can start using other linq operators on the results, and I like it because it sets us up to start thinking in terms of a "pipeline" between each layer for queries that return a lot of results. 
+ The down-side is that it will be awkward for readers holding more than one result set, but that is exceedingly rare. 
+ **Update**
+
+Since I first started playing with this pattern in 2009, I have learned that it's best if I also make it a generic   return type and add a   parameter to convert the DataReader state to business objects in the loop. Otherwise, there can be issues with the lazy iteration, such that you see the last object in the query every time. 
+ 
+ What you want is a supported pattern, you'll have to use  
+ 
+ and remove both  's form your GetSomeData() method. Exception safety has to be supplied by the caller, in guaranteeing a Close on the reader. 
+ 
+ In times like these I find that lambdas can be of great use. Consider this, instead of the data layer giving us the data, let us give the data layer our data processing method: 
+ 
+ Then the business layer would call it: 
+ 
+ 
+ The key is   keyword.  
+ Similar to Joel's original answer, little more fleshed out: 
+ 
+ And I have this extension method: 
+ 
+ So I call: 
+ 
+ This is fully generic, fits any model that comply to ado.net interfaces.  The connection and reader objects are disposed after the collection is enumerated.  Anyway filling a   using  's   method  can be faster than  
+ 
+ I was never a big fan of having the data layer return a generic data object, since that pretty much dissolves the whole point of having the code seperated into its own layer (how can you switch out data layers if the interface isn't defined?). 
+ I think your best bet is for all functions like this to return a list of custom objects you create yourself, and in your data later, you call your procedure/query into a datareader, and iterate through that creating the list. 
+ This will make it easier to deal with in general (despite the initial time to create the custom classes), makes it easier to handle your connection (since you won't be returning any objects associated with it), and should be quicker.  The only downside is everything will be loaded into memory like you mentioned, but I wouldn't think this would be a cause of concern (if it was, I would think the query would need to be adjusted). 
+ 

@@ -1,0 +1,36 @@
+*** phone-number-columns-in-a-database ***
+
+ In the last 3 companies I've worked at, the phone number columns are of type varchar(n). The reason being that they might want to store extensions (ext. 333). But in every case, the "-" characters are stripped out when inserting and updating. I don't understand why the ".ext" characters are okay to store but not the "-" character. Has any one else seen this and what explanation can you think of for doing it this way? If all you want to store is the numbers, then aren't you better off using an int field? Conversely, if you want to store the number as a string/varchar, then why not keep all the characters and not bother with formatting on display and cleaning on write?  
+ I'm also interested in hearing about other ways in which phone number storage is implemented in other places. 
+ 
+ Quick test: are you going to add/subtract/multiply/divide Phone Numbers? Nope. Similarly to SSNs, Phone Numbers are discrete pieces of data that can contain actual numbers, so a string type is probably most appropriate. 
+ 
+ one point with storing phone numbers is a  leading 0. 
+ eg: 01202 8765432 
+ in an int column, the 0 will be stripped of, which makes the phone number invalid. 
+ I would hazard a guess at the - being swapped for spaces is because they dont actually mean anything 
+ eg: 123-456-789 = 123 456 789 = 123456789 
+ 
+ Personally, I wouldn't strip out any characters, as depending on where the phone number is from, it could mean different things.  Leave the phone number in the exact format it was entered, as obviously that's the way the person who typed it in is used to seeing it. 
+ 
+ It doesn't really matter how you store it,  as long as it's consistent . The norm is to strip out formatting characters, but you can also store country code, area code, exchange, and extension separately if you have a need to query on those values. Again, the requirement is that it's consistent - otherwise querying it is a PITA. 
+ 
+ Another reason I can think of not to store phone numbers as 'numbers' but as strings of characters, is that often enough part of the software stack you'd use to access the database (PHP, I am looking at you) wouldn't support big enough integers (natively) to be able to store some of the longer and/or exotic phone numbers. 
+ Largest number that 32-bits can carry, without sign, is 4294967295. That wouldn't work for just any Russian mobile phone number, take, for instance, the number 4959261234. 
+ So you have yourself an extra inconvenience of finding a way to carry more than 32-bits worth of number data. Even though databases have long supported very large integers, you only need one bad link in the chain for a showstopper. Like PHP, again. 
+ 
+ Stripping some characters and allowing others may have an impact if the database table is going to drive another system, e.g. IP Telephony of some sort.  Depending on the systems involved, it may be legitimate to have etc.333 as a suffix, whereas the developers may not have accounted for "-" in the string (and yes, I am guessing here...) 
+ As for storing as a varchar rather than an int, this is just plain-ole common sense to me.  As mentioned before, leading zeros may be stripped in an int field, the query on an int field may perform implicit math functions (which could also explain stripping "-" from the text, you don't want to enter 555-1234 and have it stored as -679 do you?) 
+ In short, I don't know the exact reasoning, but can deduce some possibilities. 
+ 
+ I'd opt to store the digits as a string and add the various "()" and "-" in my display code. It does get more difficult with international numbers. We handle it by having various "internationalized" display formats depending on country.  
+ 
+ What I like to do if I know the phone numbers are only going to be within a specific region, such as North America, is to change the entry into 4 fields. 3 for area code, 3 for prefix, 3 for line, and maybe 5 for extension. I then insert these as 1 field with '-' and maybe an 'e' to designate extension. Any searching of course also needs to follow the same process. This ensures I get more regular data and even allows for the number to be used for actually making a phone call, once the - and the extension are removed. I can also get back to original 4 fields easily. 
+ 
+ Good stuff! It seems that the main point is that the formatting of the phone number is not actually part of the data but is instead an aspect of the source country. Still, by keeping the extension part of the number as is, one might be breaking the model of separating the formatting from the data. I doubt that all countries use the same syntax/format to describe an extension. Additionally, if integrating with a phone system is a (possible) requirement, then it might be better to store the extension separately and build the message as it is expected. But Mark also makes a good point that if you are consistent, then it probably won't matter how you store it since you can query and process it consistently as well. 
+ Thank you Eric for the link to the other question. 
+ 
+ When an automated telephone system uses a field to make a phone call it may not be able to tell what characters it should use and which it should ignore in dialing. A human being may see a "(" or ")" or "-" character and know these are considered delimiters separating the area code, npa, and nxx of the phone number. Remember though that each character represents a binary pattern that, unless pre-programmed to ignore, would be entered by an automated dialer. To account for this it is better to store the equivalent of only the characters a user would press on the phone handset and even better that the individual values be stored in separate columns so the dialer can use individual fields without having to parse the string. 
+ Even if not using dialing automation it is a good practice to store things you dont need to update in the future. It is much easier to add characters between fields than strip them out of strings. 
+ In comment of using a string vs. integer datatype as noted above strings are the proper way to store phone numbers based on variations between countries. There is an important caveat to that though in that while aggregating statistics for reporting (i.e. SUM of how many numbers or calls) character strings are MUCH slower to count than integers. To account for this its important to add an integer as an identity column that you can use for counting instead of the varchar or char field datatype. 
+ 

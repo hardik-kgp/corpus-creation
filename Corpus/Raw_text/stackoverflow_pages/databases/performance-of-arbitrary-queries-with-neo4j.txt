@@ -1,0 +1,38 @@
+*** performance-of-arbitrary-queries-with-neo4j ***
+
+ I was reading a paper published by Neo4J (a while ago):  http://dist.neo4j.org/neo-technology-introduction.pdf 
+ and on the 2nd to last page the  **Drawbacks**
+ section states that Neo4J is not good for arbitrary queries.  
+ Say I had Nodes of users with the following properties:
+NAME, AGE, GENDER 
+ And the following relationships:
+LIKE (points to Sports, Technology, etc. NODE) and FRIEND (Points to another USER). 
+ Is Neo4J not very efficient in querying something similar to: 
+ Find FRIENDS (of given node) that LIKE Sports, Tech, & Reading that were OVER_THE_AGE 21. 
+ Therefore, you must first find the FRIEND edges of USER1 and then find the LIKE edges of friends and determine if that node was called Sports and you must determine if the age property of the given friend is > 21.   
+ Is this a poor data model to begin with? And especially for graph databases? The reason for the LIKE relationship is in the event that you want to find all people who LIKE Sports. 
+ What would be the better database choice for this? Redis, Cassandra, HBase, PostgreSQL? And Why? 
+ Does anyone have any empirical data regarding this? 
+ 
+ This is a general question about the nature of graph databases.  Hopefully one of the neo4j devs will jump in here, but here is my understanding. 
+ You can think of any database as being "naturally indexed" in a certain way.  In a relational database, when you look up a record in storage, generally the next record is stored right next to it in storage.  We might call this a "natural index" because if what you want to do is scan through a bunch of records, the relational structure is just fundamentally set up to make that perform really well. 
+ Graph databases on the other hand are generally naturally indexed by relationships.   (Neo4J devs, jump in if this needs refinement in terms of how neo4j does storage on disk).  This means that in general, graph databases traverse relationships very quickly, but perform less well on mass/bulk queries.    
+ Now, we're only talking about relative performance.  Here's an example of an RDBMS style query.  I'd expect MySQL to blow away neo4j in performance on this query: 
+ 
+ Note that this exploits no relationships at all, and forces the DB to scan ALL nodes.  You could improve this by narrowing it down to a certain label, or by indexing on name, but in general, if you had a MySQL table of "people" with a "name" column, an RDBMS is going to kick ass on queries like this, and graph is going to do less well. 
+ OK, so that's the downside.  What's the upside?   Let's take a look at this query: 
+ 
+ This is an entirely different beast. The real action of the query is in matching a variable length path between n and m.  How would we do this in relational?  We might set up a "nodes" and "edges" table, then add a PK/FK relationship between them.  You then could write an SQL query that recursively joined the two tables to traverse that "path".  Believe me, I have tried this in SQL, and it requires wizard-level skill to express the "between 1 and 5 hops" part of that query.   Also, RDMBS will perform like a dog on this query, because it's not terribly selective, and the recursive query is quite expensive, doing all those repetitive joins.  
+ On queries like this, neo4j is going to kick RDBMS's ass. 
+ So -- on your question about  **arbitrary queries**
+ -- no system in the world is good at arbitrary queries, that is to say,  **all**
+ queries.  Systems have strengths and weaknesses.  Neo4J  can  execute arbitrary queries, but there's no guarantee that for some class of queries, it will perform better than some alternative.  But that observation is general - the same is true of MySQL, MongoDB, and anything else you choose. 
+ OK, so bottom lines, and observations: 
+ 
+ Graph databases perform well on a class of queries where RDMBS (and others) perform poorly. 
+ Graph databases aren't tuned for high performance on mass/bulk queries like the example I provided.  They can do them, and you can tune their performance to improve things there, but they're never going to be as good as an RDBMS 
+ This is because of fundamentally how they're laid out, how they think about/store the data. 
+ So what should you do?   If your problem consists of a lot of relationship/path traversal type problems, graph is a big win!   (I.e., your data is a graph, and traversing relationships is important to you).   If your problem consists of scanning large collections of objects, then the relational model is probably a better fit. 
+ 
+ Use tools in their area of strength.  Don't use neo4j like a relational database, or it will perform about as well as if you tried to use a screwdriver to pound nails.  :) 
+ 

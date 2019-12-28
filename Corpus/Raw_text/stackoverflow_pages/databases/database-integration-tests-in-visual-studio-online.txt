@@ -1,0 +1,108 @@
+*** database-integration-tests-in-visual-studio-online ***
+
+ I'm enjoying the new Build tool in Visual Studio Online. Allows me to do almost everything that I do my local build server. But one thing that I'm missing is integration database tests: for every build run I re-create test database from scripts and run DB-tests against it. 
+ In Visual Studio Online I can't seem to find any database instance available for my needs.  
+ I have tried creating Azure SQL database (via PowerShell) for every build run and then delete it after the build is complete. But it takes forever (comparing to the rest of the build process) to create a database. And even when PowerShell scripts are done, database is not yet ready to accept requests - I need to constantly check if it is actually ready. So this scenario becomes too complex and not reliable. 
+ Are there other options to do database (SQL Server) integration tests in Visual Studio Online? 
+ **Update:**
+ I think I'm not very clear of what I need - I need a free (very cheap) SQL Server instance to connect to that runs on build agent in VSO. Something like SQL Express or SQL CE or LocalDB, where I can connect to and re-create database to run C# tests against. Re-creating database or running tests is not a problem, having a valid connection string is a problem. 
+ **Update Oct 2016:**
+  I've blogged  about how I do integration testing in VSTS 
+ 
+ The TFS build servers come with MSSQL Server 2012 and MSSQL Server 2014 LocalDBs preinstalled. 
+ Source:   TFS Service - Software on the hosted build server 
+ So, just put the following one-liner into your solution's post-build event to create a  MYTESTDB  LocalDB instance for your needs. This will allow you to connect to   an run the database integration tests just fine. 
+ 
+ Source:   SqlLocalDB Utility 
+ 
+ In  **Azure DevOps**
+, with  **.net Core and EF Core**
+, I use a different technique.
+I use a SQLite in memory database to execute both Integration and End to End tests.
+Currently in .net Core you can use both InMemory database and SQLite with in memory option, to run any integration test in the default Azure DevOps CI Agent. 
+ **InMemory**
+:  https://docs.microsoft.com/en-us/ef/core/miscellaneous/testing/in-memory 
+Note that the InMemory database is not a relational database, it is a multi-purpose one, and just to mention one limitation: 
+ 
+ InMemory will allow you to save data that would violate referential
+  integrity constraints in a relational database 
+ 
+ **SQLite in memory mode**
+  https://docs.microsoft.com/en-us/ef/core/miscellaneous/testing/sqlite 
+This approach offers a more realistic platform to test against. 
+ Now, I went a bit further, I didn't want to just be able to run integration tests with database dependency in Azure DevOps, I wanted to also be able to host my WebAPIs in the CI Agent, and to share the database between the API DBcontext and my Persister object (Persister object is a helper class that allow me to automatically generate any kind of entity and save them to the database). 
+ 
+ A quick note on Integration Tests and Ent to End tests: 
+ **Integration Tests**
+
+ An example of integration test involving a database, could be a test of the Data Access Layer. In this case, normally, you would create a DBContext when starting a test, fill the target database with some data, use the component under test to manipulate the data, and again use the DBContext to make sure the assertions are satisfied.
+This scenario is quite straight forward, in the same code you can share the same DBContext to generated the data and inject it to the component. 
+ **End to End Tests**
+
+ Imagine you have like in my case a RESTful .net Core WebAPI you want to test, making sure all your CRUD operations are working as expected, and you want to test that filtering, pagination and so on are also correct.
+In this case, it much more complex share the same DBContext between test (data setup and/or verification) and the WebAPI stack. 
+ 
+ **Before .net EF Core and WebHostBuilder**
+
+ So far, the only way I knew was possible, was to have a dedicated server, VM or docker image, responsible serve the API, which had to be also accessible from the web or Azure DevOps.
+Setup my integration tests to either re-create the DB, or be clever/limited enough to ignore completely the existing data, and make sure that each test was resilient to data corruption and fully reliable (no false negative or positive results).
+Then I had to configure my build definition to run the tests. 
+ **Leveraging SQLite in memory with cache=shared and WebHostBuilder**
+
+ Below I first describe the two majour technologies I use, then I add some code to show how to do it. 
+ **SQLite file::memory:?cache=shared**
+
+ SQLite allow you to work in memory, instead of using a traditional file, this already gives us a huge performance boost, removing the I/O bottleneck, but on top of this, using the option cache=shared, we can use multiple connections within the same process to access the same data. If you need more than one database you can specify a name.
+ More info:   https://www.sqlite.org/inmemorydb.html 
+ **WebHostBuilder**
+
+ .net Core offers Host builders,  **WebHostBuilder**
+ allow us to create a server that startup and host our WebAPI, so that can be reached like if they were hosted on a real server.
+When you use the WebHostBuilder in a test class, this two, are living within the same process.
+ More info:   https://docs.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.hosting.webhostbuilder?view=aspnetcore-2.2 
+ The Solution 
+ When initialising an E2E test, create a new client to connect the api, create a dbcontext that you will use to seed the database and maybe assert. 
+ **Test initialisation**
+: 
+ 
+ **TestServerApiClient**
+ class: 
+ 
+ **ContextProvider class**
+ is used to generate the DBContext which can be used to seed data or perform database queries for assertions. 
+ 
+ **IocConfig class**
+ is an helper class I use in my framework to setup the dependency injection. The menthod used above, RegisterContext, is responsile to register the DBContext and set it up as desired, and because this is the same class used by the WebAPI, uses the configuration DatabaseType to determine what to do.
+Inside this class probably you can find most of the "complexity".
+When using SQLite in memory, you have to remember that: 
+ 
+ The connection is not opened and closed automatically like when using SQL Server (that's why i used:  ) 
+ If no connection is active, the database is deleted (that's why I used   it is important that one connection is left open so that the database is not destroyed, but on the other hand you have to be careful to close all connections when a test ends, so that the database is eventually destroyed and the next test will correctly create a new empty one. 
+ 
+ The rest of the class handles the SQL Server configuration for both Production and Testing setup. I can at any time setup the tests to use a real instance of SQL Server, all tests will keep being fully independend from the others but it will definitely be slow, and maybe suitable only for a nightly build (if needed, and it depends on the size of your system). 
+ 
+ **Sample Test**
+, where first I use the persister to generated data which is seeded in the database, then I use the API to get data, the test can be also reversed, using a POST request to set data and then using the DBContext to read the db and make sure the creation was successful. 
+ 
+ **Conclusions**
+
+ I love the fact that I can run E2E tests in Azure DevOps for free, performances are incredibly good and this gives me a lot of confidence, ideal when you want to setup a continuous delivery environment.
+Here is a screenshot of part of the build execution of this code in Azure DevOps (free version).
+ 
+ Sorry this ended up being longer than expected. 
+ 
+ There is a "Redgate SQL CI" extension for VSTS in the marketplace you may want to try. See this link for details:  
+ 
+ Within the extension, there are four actions available: 
+ •Build – builds your database into a NuGet package from the database
+  scripts folder in source control 
+ •Test – runs your tSQLt tests against the database 
+ •Sync – synchronizes the package to an integration database 
+ •Publish – publishes the package to a NuGet stream 
+ 
+ 
+ You should push the integration tests (anything that needs an instance of your application) to be run in an environment as part of your release pipeline. 
+ In your build just do compile and unit tests. If that competes you should trigger a Release and as part of your release pipeline your first step should be to deploy your database to an azure server.  
+ Instead of trying to use SQL Azure you can create a VM in azure that already exists that has SQL server installed. Use remote scripting to deploy the database and execute your tests. 
+ Even if you are not using the release tools to release this would work for you. 
+ 

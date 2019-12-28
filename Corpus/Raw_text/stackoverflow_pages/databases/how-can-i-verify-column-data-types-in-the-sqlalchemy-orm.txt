@@ -1,0 +1,28 @@
+*** how-can-i-verify-column-data-types-in-the-sqlalchemy-orm ***
+
+ Using the SQLAlchemy ORM, I want to make sure values are the right type for their columns. 
+ For example, say I have an Integer column. I try to insert the value “hello”, which is not a valid integer. SQLAlchemy will allow me to do this. Only later, when I execute  , does it raise an exception:  . 
+ I am adding batches of records, and I don’t want to commit after every single  , for performance reasons. 
+ So how can I: 
+ 
+ Raise the exception as soon as I do  
+ Or, make sure the value I am inserting can be converted to the target Column datatype,  before  adding it to the batch? 
+ Or any other way to prevent one bad record from spoiling an entire  . 
+ 
+ 
+ SQLAlchemy doesn't build this in as it defers to the DBAPI/database as the best and most efficient source of validation and coercion of values. 
+ To build your own validation, usually TypeDecorator or ORM-level validation is used.  TypeDecorator has the advantage that it operates at the core and can be pretty transparent, though it only occurs when SQL is actually emitted. 
+ To do validation and coercion sooner, this is at the ORM level. 
+ Validation can be ad-hoc, at the ORM layer, via  : 
+ http://docs.sqlalchemy.org/en/latest/orm/mapped_attributes.html#simple-validators 
+ The event system that @validates uses is also available directly.  You can write a generalized solution that links validators of your choosing to the types being mapped: 
+ 
+ Validation and coercion can also be built at the type level using TypeDecorator, though this is only when SQL is being emitted, such as this example which coerces utf-8 strings to unicode: 
+ http://docs.sqlalchemy.org/en/latest/core/custom_types.html#coercing-encoded-strings-to-unicode 
+ 
+ Improving on the answer of @zzzeek , I suggest the following solution: 
+ 
+ That lets you do things like: 
+ 
+ This has two benefits: Firstly, there is only an event triggered, when there actually is a validator attached to the data field object. It does not waste precious CPU cycles on   events for objects, that have no function for validation defined. Secondly, it allows you to define your own field types and just add a validator method there, so not all things that you want to store as   etc run through the same checks, just the ones derived from your new field type. 
+ 

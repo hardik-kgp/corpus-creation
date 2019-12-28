@@ -1,0 +1,64 @@
+*** should-i-normalize-my-db-or-not ***
+
+ When designing a schema for a DB (e.g. MySQL) the question arises whether or not to completely normalize the tables. 
+ On one hand joins (and foreign key constraints, etc.) are very slow, and on the other hand you get redundant data and the potential for inconsistency. 
+ Is "optimize last" the correct approach here? i.e. create a by-the-book normalized DB and then see what can be denormalized to achieve the optimal speed gain. 
+ My fear, regarding this approach, is that I will settle on a DB design that might not be fast enough - but at that stage refactoring the schema (while supporting existing data) would be very painful. This is why I'm tempted to just temporarily forget everything I learned about "proper" RDBMS practices, and try the "flat table" approach for once. 
+ Should the fact that this DB is going to be insert-heavy effect the decision? 
+ 
+ A philosophical answer: Sub-optimal (relational) databases are rife with insert, update, and delete anomalies. These all lead to inconsistent data, resulting in poor data quality.  If you can't trust the accuracy of your data, what good is it? Ask yourself this: Do you want the right answers slower or do you want the wrong answers faster? 
+ As a practical matter: get it right before you get it fast.  We humans are very bad at predicting where bottlenecks will occur.  Make the database great, measure the performance over a decent period of time, then decide if you need to make it faster.  Before you denormalize and sacrifice accuracy try other techniques: can you get a faster server, connection, db driver, etc?  Might stored procedures speed things up?  How are the indexes and their fill factors?  If those and other performance and tuning techniques do not do the trick, only then consider denormalization.  Then measure the performance to verify that you got the increase in speed that you "paid for".  Make sure that you are performing optimization, not pessimization. 
+ [edit] 
+ 
+ Q: So if I optimize last, can you
+  recommend a reasonable way to migrate
+  data after the schema is changed? If,
+  for example, I decide to get rid of a
+  lookup table - how can I migrate
+  existing databased to this new design? 
+ 
+ A: Sure.  
+ 
+ Make a backup. 
+ Make another backup to a different device. 
+ Create new tables with "select into newtable from oldtable..." type commands.  You'll need to do some joins to combine previously distinct tables. 
+ Drop the old tables. 
+ Rename the new tables. 
+ 
+ **BUT**
+... consider a more robust approach: 
+ Create some views on your fully normalized tables right now.  Those views (virtual tables, "windows" on the data... ask me if you want to know more about this topic) would have the same defining query as step three above.  When you write your application or DB-layer logic, use the views (at least for read access; updatable views are... well, interestsing).  Then if you denormalize later, create a new table as above, drop the view, rename the new base table whatever the view was.  Your application/DB-layer won't know the difference. 
+ There's actually more to this in practice, but this should get you started. 
+ 
+ The usage pattern of your database (insert-heavy vs. reporting-heavy) will definitely affect your normalization.  Furthermore, you may want to look at your indexing, etc. if you are seeing a significant slowdown with normalized tables.  Which version of MySQL are you using? 
+ In general, an insert-heavy database should be  more  normalized than a reporting-heavy database.  However, YMMV of course... 
+ 
+ A normal design is the place to start; get it right, first, because you may not need to make it fast. 
+ The concern about time-costly joins are often based on experience with poor designs.  As  the design becomes more normal, the number of tables in the design usually increases while the number of columns and rows in each table decreases, the number of unions in the design increase as the number of joins decreases, indicies become more useful, &c.  In other words: good things happen. 
+ And normalization is only one way to end up with a normal design... 
+ 
+ 
+ Is "optimize last" the correct approach here? i.e. create a by-the-book normalized DB and then see what can be denormalized to achieve the optimal speed gain. 
+ 
+ I'd say, yes. I've had to deal with badly structured DBs too many times to condone 'flat table' ones without a good deal of thought. 
+ Actually, inserts usually behave well on fully normalized DBs so if it is insert heavy this shouldn't be a factor.  
+ 
+ On an insert-heavy database, I'd definitely start with normalized tables. If you have performance problems with queries, I'd first try to optimize the query and add useful indexes.  
+ Only if this does not help, you should try denormalized tables. Be sure to benchmark both inserts and queries before and after denormalization, since it's likely that you are slowing down your inserts. 
+ 
+ The general design approach for this issue is to first completely normalise your database to 3rd normal form, then denormalise as appropriate for performance and ease of access.  This approach tends to be the safest as you are making specific decision by design rather than not normalising by default.   
+ The 'as appropriate' is the tricky bit that takes experience.  Normalising is a fairly 'by-rote' procedure that can be taught, knowing where to denormalise is less precise and will depend upon the application usage and business rules and will consequently differ from application to application.  All your denormalisation decisions should be defensible to a fellow professional. 
+ For example if I have a one to many relations ship A to B I would in most circumstances leave this normalised, but if I know that the business only ever has, say, two occurrences of B for each A, this is highly unlikely to change, there is limited data in the B record. and they will be usually pulling back the B data with the A record I would most likely extend the A record with two occurrences of the B fields.  Of course most passing DBA's will then immediately flag this up as a possible design issue, so you must be able to convincingly argue your justification for denormalisation.  
+ It should be apparent from this that denormalisation should be the exception.  In any production database I would expect the vast majority of it - 95% plus - to be in 3rd normal form, with just a handful of denormalised structures. 
+ 
+ Where did you get the idea that "joins (and foreign key constraints, etc.) are very slow"? It's a very vague statement, and usually IMO there is no performance problems. 
+ 
+ Denormalisation is only rarely needed on an operational system.  One system I did the data model for had 560 tables or thereabouts (at the time it was the largest J2EE system built in Australasia) and had just 4 pieces of denormalised data.  Two of the items were denormalised search tables designed to facilitiate complex search screens (one was a materialised view) and the other two were added in response to specific performance requirements. 
+ Don't prematurely optimise a database with denormalised data.  That's a recipe for ongoing data integrity problems.  Also, always use database triggers to manage the denormalised data - don't rely on the application do do it. 
+ Finally, if you need to improve reporting performance, consider building a data mart or other separate denormalised structure for reporting.  Reports that combine requirements of a real-time view of aggregates calculated over large volumes of data are rare and tend to only occur in a handful of lines of business.  Systems that can do this tend to be quite fiddly to build and therefore expensive. 
+ You will almost certainly only have a small number of reports that genuinely need up-to-the minute data and they will almost always be operational reports like to-do-lists or exception reports that work on small amounts of data.  Anything else can be pushed to the data mart, for which a nightly refresh is probably sufficient. 
+ 
+ I don't know what you mean about creating a database  by-the-book  because most books I've read about databases include a topic about optimization which is the same thing as denormalizing the database design.  
+ It's a balance act so don't optimize prematurely. The reason is that denormalized database design tend to be become difficult to work with. You'll need some metrics so do some stress-testing on the database in order to decide wether or not you wan't to denormalize. 
+ So normalize for maintainability but denormalize for optimization. 
+ 

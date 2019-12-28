@@ -1,0 +1,82 @@
+*** extreme-wait-time-when-taking-a-sql-server-database-offline ***
+
+ I'm trying to perform some offline maintenance (dev database restore from live backup) on my dev database, but the 'Take Offline' command via SQL Server Management Studio is performing  **extremely**
+ slowly - on the order of 30 minutes plus now. I am just about at my wits end and I can't seem to find any references online as to what might be causing the speed problem, or how to fix it. 
+ Some sites have suggested that open connections to the database cause this slowdown, but the only application that uses this database is my dev machine's IIS instance, and the service is stopped - there are no more open connections. 
+ What could be causing this slowdown, and what can I do to speed it up? 
+ 
+ After some additional searching (new search terms inspired by gbn's answer and u07ch's comment on KMike's answer) I found this, which completed successfully in 2 seconds: 
+ 
+ **(Update)**
+
+ When this still fails with the following error, you can fix it as inspired by  this blog post : 
+ 
+ ALTER DATABASE failed because a lock could not be placed on database 'dbname' Try again later. 
+ 
+ you can run the following command to find out who is keeping a lock on your database: 
+ 
+ And use whatever   you find in the following command: 
+ 
+ Then run the   command again. It should now work. 
+ 
+ There is most likely a connection to the DB from somewhere (a rare example:  asynchronous statistic update ) 
+ To find connections, use  sys.sysprocesses 
+ 
+ To force disconnections, use  ROLLBACK IMMEDIATE 
+ 
+ 
+ Do you have any open SQL Server Management Studio windows that are connected to this DB? 
+ Put it in single user mode, and then try again. 
+ 
+ In my case, after waiting so much for it to finish I had no patience and simply closed management studio. Before exiting, it showed the success message, db is offline. The files were available to rename. 
+ 
+ execute the stored procedure
+sp_who2 
+ This will allow you to see if there is any blocking locks.. kill their  should fix it. 
+ 
+ In SSMS: right-click on SQL server icon, Activity Monitor. Open Processes. Find the processed connected. Right-click on the process, Kill. 
+ 
+ anytime you run into this type of thing you should always think of your transaction log.  The alter db statment with rollback immediate indicates this to be the case.  Check this out:  http://msdn.microsoft.com/en-us/library/ms189085.aspx 
+ Bone up on checkpoints, etc. You need to decide if the transactions in your log are worth saving or not and then pick the mode to run your db in accordingly.  There's really no reason for you to have to wait but also no reason for you to lose data either - you can have both. 
+ 
+ To get around this I stopped the website that was connected to the db in IIS and immediately the 'frozen' 'take db offline' panel became unfrozen. 
+ 
+ Closing the instance of SSMS (SQL Service Manager) from which the request was made solved the problem for me..... 
+ 
+ In my case I had looked at some tables in the DB prior to executing this action. My user account was holding an active connection to this DB in SSMS. Once I disconnected from the server in SSMS (leaving the 'Take database offline' dialog box open) the operation succeeded. 
+ 
+ I tried all the suggestions below and nothing worked. 
+ 
+ EXEC sp_who 
+ Kill < SPID > 
+ ALTER DATABASE  SET SINGLE_USER WITH Rollback Immediate 
+ ALTER DATABASE  SET OFFLINE WITH ROLLBACK IMMEDIATE 
+ Result: Both the above commands were also stuck. 
+ 
+ 4 . Right-click the database -> Properties -> Options
+   Set Database Read-Only to True
+   Click 'Yes' at the dialog warning SQL Server will close all connections to the database. 
+ Result: The window was stuck on executing. 
+ As a last resort, I restarted the SQL server service from configuration manager and then ran ALTER DATABASE  SET OFFLINE WITH ROLLBACK IMMEDIATE. It worked like a charm 
+ 
+ Also, close any query windows you may have open that are connected to the database in question ;) 
+ 
+ In SSMS, set the database to read-only then back. The connections will be closed, which frees up the locks. 
+ In my case there was a website that had open connections to the database. This method was easy enough: 
+ 
+ Right-click the database -> Properties -> Options 
+ Set   to True 
+ Click 'Yes' at the dialog warning SQL Server will close all connections to the database. 
+ Re-open Options and turn read-only back off 
+ Now try renaming the database or taking it offline. 
+ 
+ 
+ For me, I just had to go into the Job Activity Monitor and stop two things that were processing.  Then it went offline immediately.  In my case though I knew what those 2 processes were and that it was ok to stop them. 
+ 
+ In my case, the database was related to an old Sharepoint install. Stopping and disabling related services in the server manager "unhung" the take offline action, which had been running for 40 minutes, and it completed immediately. 
+ You may wish to check if any services are currently utilizing the database. 
+ 
+ Next time, from the Take Offline dialog, remember to check the 'Drop All Active Connections' checkbox.  I was also on SQL_EXPRESS on local machine with no connections, but this slowdown happened for me unless I checked that checkbox. 
+ 
+ In my case i stopped Tomcat server . then immediately the DB went offline . 
+ 

@@ -1,0 +1,129 @@
+*** what-is-the-difference-between-laravel-cursor-and-laravel-chunk-method ***
+
+ I would like to know what is the difference between laravel chunk and laravel cursor method. Which method is more suitable to use? What will be the use cases for both of them? I know that you should use cursor to save memory but how it actually works in the backend?  
+ A detailed explanation with example would be useful because I have searched on stackoverflow and other sites but I didn't found much information. 
+ Here is the code snippet's from the laravel documentation. 
+ **Chunking Results**
+
+ 
+ **Using Cursors**
+
+ 
+ 
+ Indeed This question might attract some opinionated answer, however the simple answer is here in  Laravel Docs 
+ Just for reference: 
+ This is chunk: 
+ 
+ This is Cursor: 
+ 
+ Chunk retrieves the records from the database, and load it into memory while setting a cursor on the last record retrieved so there is no clash. 
+ So the advantage here is if you want to reformat the  **large**
+ record before they are sent out, or you want to perform an operation on an nth number of records per time then this is useful. An example is if you are building a view out/excel sheet, so you can take the record in counts till they are done so that all of them are not loaded into the memory at once and thereby hitting the memory limit. 
+ Cursor uses PHP Generators, you can check the  php generators  page however here is an interesting caption: 
+ 
+ While I cannot guarantee that I understand fully the concept of Cursor, but for Chunk, chunk runs the query at every record size, retrieving it, and passing it into the closure for further works on the records. 
+ Hope this is useful. 
+ 
+ We have a comparison:   **chunk() vs cursor()**
+
+ 
+ cursor(): High Speed 
+ chunk(): Constant Memory Usage 
+ 
+ **10,000 records**
+: 
+ 
+ **100,000 records**
+: 
+ 
+ 
+ TestData: users table of Laravel default migration 
+ Homestead 0.5.0 
+ PHP 7.0.12 
+ MySQL 5.7.16 
+ Laravel 5.3.22 
+ 
+ 
+  is based on pagination, it maintains a page number, and do the looping for you. 
+ For example,   will do multiple queries until the result set is smaller than the chunk size( ): 
+ 
+  is based on   and Generator.  
+ 
+ will do issue a single query: 
+ 
+ But the driver doesn't fetch the result set at once. 
+ 
+ 
+ 
+ 
+ 
+ only single query 
+ fetch result by call  
+ by default buffered query is used and fetch all result at once. 
+ turned only current row into eloquent model 
+ 
+ **Pros**
+
+ 
+ minimize eloquent model memory overhead 
+ easy to manipulate 
+ 
+ **Cons**
+
+ 
+ huge result leads  **to out of memory**
+
+ buffered or unbuffered is a trade-off 
+ 
+ 
+ 
+ 
+ 
+ chunk query in to queries with limit and offset 
+ fetch result by call  
+ turned results into eloquent models batchly 
+ 
+ **Pros**
+
+ 
+ controllable used memory size 
+ 
+ **Cons**
+
+ 
+ turned results in to eloquent models batchly may cause some memory overhead 
+ queries and memory usage is a traid-off 
+ 
+ 
+ **TL;DR**
+
+ 
+ I used to think  **cursor()**
+ will do query each time and only keep one row result in memory. So when I saw @mohammad-asghari's comparison table I got really confused. It must be some  **buffer**
+ behind the scenes. 
+ By tracking Laravel Code as below  
+ 
+ I understood Laravel build this feature by wrap  **PDOStatement::fetch()**
+.
+And by search  **buffer PDO fetch**
+** and **
+**MySQL**
+, I found this document. 
+ https://www.php.net/manual/en/mysqlinfo.concepts.buffering.php 
+ 
+ Queries are using the buffered mode by default. This means that query results are immediately transferred from the MySQL Server to PHP and then are kept in the memory of the PHP process. 
+ 
+ so by doing PDOStatement::execute() we actually fetch  **whole result rows**
+ at ones and  **stored in the memory**
+, not only one row. So if the result is too huge, this will  **lead to out of memory**
+ exception. 
+ Though the Document shown we could use   to get rid of buffered query. But the drawback should be caution. 
+ 
+ Unbuffered MySQL queries execute the query and then return a resource while the data is still waiting on the MySQL server for being fetched. This uses less memory on the PHP-side, but can increase the load on the server. Unless the full result set was fetched from the server no further queries can be sent over the same connection. Unbuffered queries can also be referred to as "use result". 
+ 
+ 
+ I made some benchmark using cursor and where 
+ 
+ here is the result: 
+ 
+ 

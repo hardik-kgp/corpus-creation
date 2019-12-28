@@ -1,0 +1,73 @@
+*** database-design-how-to-model-generic-price-factors-of-a-product-service ***
+
+ I'm trying to create a generic data model that will allow for a particular product (indicated by the FK product_id in the sample table below) to specify 0 or more price "factors" (I define "factor" as a unit of price added or subtracted in order to get the total). 
+ So say there is this table: 
+ 
+ A book's price might be represented this way: 
+ 
+ This basically means: 
+ 
+ A few questions: 
+ 
+ Is there anything obviously wrong with the initial design? 
+ What if I wanted to create "templates" (e.g. "general merchandise" template that has "price", "discount" and "sales tax" fields; a "luxury merchandise" that has "price", "discount", "luxury tax" fields) - how would I model that? 
+ The above model works if each record applies to the total of the preceeding record. So, in the example, "sales tax" applies to the difference of "price" and "discount". What if total was not computed that simply? For example: A + B + (A + 10%) - (B - 5%). How would I model that? 
+ Also, what if the "percentage" type doesn't apply to the immediately preceeding row (as implied by question #3) and applied to more than 1 row? Do I need another table to itemize which price->price_id the percentage applies to? 
+ 
+ 
+ First of all you need a model of price labels, which is simple: 
+ 
+ Then a slightly modified version of the sample table that you've given: 
+ 
+ Here I just substituted the label with the corresponding  id  from the  price_labels  table as a foreign key. Additionally, I omitted the  type  field which is trivial since value can be positive or negative float number. I added the divider column to enable the percentage parameter. I think it is more easily read this way as well, since you say (and think) "minus twenty-five percent" not 0.25 .  
+ Now the expression "abstraction" part is a bit more complicated and there could be a lot of solutions.  
+ 
+ In the expression field you can store a complex SQL statement in which you can just replace the %PRODUCT_ID% placeholder with the product_id value from the same row: 
+ 
+ There are two possible variations of this the way I see it: 
+ 
+ You can change the product_id=%PRODUCT_ID% and label_id= N  condition with just a price_id=N since you already have it stored in the products_prices table 
+ You can use another expression format e.g. %PRICE_ID_1%*%PRICE_ID_2 and perform substitutions and calculations on the application level not directly in SQL 
+ 
+ Hope this helps. 
+ 
+ This seems a little over-engineered. 
+ 1) Wouldn't the sales tax percentage be a factor of where the item was purchased and not which item was purchased? I could see a field for "IsTaxable", but specifying the rate for each items seems incorrect. 
+ 2) Are you sure you need to incur the cost of making this generic? Are you already fairly certain there will be more factors in the future? If not, don't overcomplicate it. 
+ **Suggested Design**
+: 
+ - Add columns to the products table for IsTaxable, DiscountPct, and Unit Price. 
+ - Store the Sales tax percentage in another table. Probably the invoice table.   
+ 
+ **Regarding your **
+**question 1**
+**:**
+
+ There is a potential functional dependency between  ,   and  . For example, a  discount  might always imply  subtraction  and  percentage . If so, the data model can be normalized by moving these fields to a separate table with   as a PK. 
+ BTW, a de-normalized data model may be a legitimate tool for improving performance and/or simplicity. 
+ **Regarding your **
+**question 2**
+**:**
+
+ Here is a model that allows easy "templating": 
+ 
+ The final price of a product is calculated by applying the series of steps on PRICE, in order defined by STEP_NO. Multiple products can easily share the same "template" (i.e. the same PRICE_ADJUSTMENT_ID). 
+ **Regarding your **
+**questions 3 and 4**
+**:**
+
+ You'd need to model a full expression tree, not just a "linear" series of steps. There are several ways to do that, most of them fairly complicated in relational paradigm. Perhaps the simplest one is to keep the data model similar to above, but treat it as  Reverse Polish Notation . 
+ For example... 
+ 
+ ...could be represented as: 
+ 
+ Are you sure you actually need this kind of functionality? 
+ 
+ If some price factors are dependent on the type of the item, then you'd have a set of price factors linked to entities in an ItemType table, and ItemType would be a property of the item entity (foreign key referencing ItemType). If other price factors are linked to the locale in which the item is being sold or shipped (e.g. sales tax), then those factors would be linked to Locale and would be invoked based on the customer's address. You would typically apply item-type factors at the line-item level, and locale-driven factors to the invoice total.  Sin-tax would be linked to an ItemTypeLocale dyad, and applied at the line-item level. 
+ 
+ 1/  I think you also need to consider sequence 
+ e.g. Price - discount + sales tax is obviously acceptable but Price +sales tax - discount is not nor is Price - (discount + sales tax) 
+ 2/  I would consider having price in another table.  Is this not a detail of the item being sold?  E.g. Widget, blue, $20.00.  Whereas your factors are a detail of sales type.  Presumably you could have one set of factors for a walk-in retail sale, another for a on-line sale and a third for a wholesale sale.  You could calculate the actual price for these three sale types from the base price * factors. 
+ 3/  I think you need more tables; e.g. maybe Item, Sale type, and factor_details and factor_rules.  It may be that your sale type is covered by your example of Luxury item in which case (if an item is only ever one sale type) this could be in the item table.  Factor_rules would detail the calculation formula and factor_details the values. 
+ I find this quite interesting.  I would appreciate you updating this question with your experiences once you have worked this through. 
+ 

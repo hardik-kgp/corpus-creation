@@ -1,0 +1,94 @@
+*** best-design-for-a-changelog-auditing-database-table ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ I need to create a database table to store different change log/auditing
+(when something was added, deleted, modified, etc). I don't need to store particularly detailed info, so I was thinking something along the lines of: 
+ 
+ id (for event) 
+ user that triggered it 
+ event name 
+ event description 
+ timestamp of the event 
+ 
+ Am I missing something here? Obviously I can keep improving the design, although I don't plan on making it complicated (creating other tables for event types or stuff like that is out of the question since it's a complication for my need). 
+ 
+ In the project I'm working on, audit log also started from the very minimalistic design, like the one you described: 
+ 
+ The idea was the same: to keep things simple.  
+ However, it quickly became obvious that this minimalistic design was not sufficient. The typical audit was boiling down to questions like this:  
+ 
+ So, in order to be able to answer such questions quickly (using SQL), we ended up having two additional columns in the audit table 
+ 
+ That's when design of our audit log really stabilized (for a few years now). 
+ Of course, the last "improvement" would work only for tables that had surrogate keys. But guess what? All our tables that are worth auditing do have such a key!  
+ 
+ There are several more things you might want to audit, such as table/column names, computer/application from which an update was made, and more. 
+ Now, this depends on how detailed auditing you really need and at what level.  
+ We started building our own trigger-based auditing solution, and we wanted to audit everything and also have a recovery option at hand. This turned out to be too complex, so we ended up reverse engineering the trigger-based, third-party tool  ApexSQL Audit  to create our own custom solution. 
+ Tips: 
+ 
+ Include before/after values 
+ Include 3-4 columns for storing the primary key (in case it’s a composite key) 
+ Store data outside the main database as already suggested by Robert 
+ Spend a decent amount of time on preparing reports – especially those you might need for recovery  
+ Plan for storing host/application name – this might come very useful for tracking suspicious activities  
+ 
+ 
+ We also log old and new values and the column they are from as well as the primary key of the table being audited in an audit detail table. Think what you need the audit table for? Not only do you want to know who made a change and when, but when a bad change happens, you want a fast way to put the data back. 
+ While you are designing, you should write the code to recover data. When you need to recover, it is usually in a hurry, best to already be prepared. 
+ 
+ There are a lot of interesting answers here and in similar questions.  The only things that I can add from personal experience are: 
+ 
+ Put your audit table in another database.  Ideally, you want separation from the original data.  If you need to restore your database, you don't really want to restore the audit trail. 
+ Denormalize as much as reasonably possible.  You want the table to have as few dependencies as possible to the original data. The audit table should be simple and lightning fast to retrieve data from.  No fancy joins or lookups across other tables to get to the data. 
+ 
+ 
+ What we have in our table:- 
+ 
+ The generic id points at a row in the table that was updated and the table name is the name of that table as a string.  Not a good DB design, but very usable.  All our tables have a single surrogate key column so this works well. 
+ 
+ In general custom audit (creating various tables) is a bad option. Database/table triggers can be disabled to skip some log activities. Custom audit tables can be tampered. Exceptions can take place that will bring down application. Not to mentions difficulties designing a robust solution. So far I see a very simple cases in this discussion. You need a complete separation from current database and from any privileged users(DBA, Developers).
+Every mainstream RDBMSs provide audit facilities that even DBA not able to disable, tamper in secrecy. Therefore, provided audit capability by RDBMS vendor must be the first option. Other option would be 3rd party transaction log reader or custom log reader that pushes decomposed information into messaging system that ends up in some forms of Audit Data Warehouse or real time event handler.
+In summary: Solution Architect/"Hands on Data Architect" needs to involve in destining such a system based on requirements. It is usually too serious stuff just  to hand over to a developers for solution. 
+ 
+ There are many ways to do this.  My favorite way is: 
+ 
+ Add a   field to your source table (the one you want to log). 
+ Create a log table that contains the fields you want to log, plus a   and   field.    is the primary key. 
+ Build a trigger on the source table that inserts the current record into the log table whenever any monitored field is changed. 
+ 
+ Now you've got a record of every change and who made it. 
+ 
+ According to the principle of separation: 
+ 
+ Auditing data tables need to be separate from the main database. Because audit databases can have a lot of historical data, it makes sense from a memory utilization standpoint to keep them separate. 
+ Do not use triggers to audit the whole database, because you will end up with a mess of different databases to support. You will have to write one for DB2, SQLServer, Mysql, etc. 
+ 
+ 
+ Late to the party, but I highly recommend the  AutoAudit project . 
+It's 100% free and open source.  It's authored by SQL MVPs Paul Nielsen and John Sigouin.  It's very stable and is currently on version 3.30. 
+ Simple to install.  Just run the SP they provide.  It will create an Audit Schema, some maintenance SPs and the triggers necessary to do the auditing.  From there, just choose which tables you'd like to audit and with what detail.   
+ 

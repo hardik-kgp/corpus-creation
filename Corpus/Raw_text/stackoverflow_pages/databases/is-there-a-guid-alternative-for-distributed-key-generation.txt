@@ -1,0 +1,49 @@
+*** is-there-a-guid-alternative-for-distributed-key-generation ***
+
+ My situation is :  
+ 
+ I have a number of client applications, which is using local DB (MS SQL, MS Access - sorry, this is Enterprise system, I have to support legacy...) 
+ I don't know anything of trend among clients - now it's ~10 but it may
+be ~100 in a year. 
+ Data from those tables comes to my central server and is put into one common table 
+ Sometimes existing (client) data is changed - I have to perform update/delete operations 
+ I don't want use GUID's (.NET type  ) - It's hard to simply implement and support on MS Access. Besides, it's  not good for performance 
+ I need a fast search on that common table, so it would be nice to use   or   as a PK 
+ 
+ So, I want: 
+ 
+ Something unique to avoid collisions (it will be used as a PK)  
+ It should hopefully be   or    
+ Must be assignable client-side before being inserted 
+ 
+ My current solution is to take the CRC from a concatenation of:  
+ 
+ ProcessodID 
+ Bios date 
+ User name (strings, hardware\user related data) 
+ DateTime.Now (UNC) 
+ 
+ Currently it works for me, but maybe there is a better approach to achieve my goals?
+Any comments, suggestions, examples, or experience of your own?  
+ UPDATE : synchronization between client and server is periodic action, so it can occurs 2-3 times per day (it's config variable) 
+ 
+ If data from multiple tables comes to one central table and you need to address changes to these records then my suggestion is to use two columns as PK of you central table. One column could be the Identity field from clients (not unique) and one column could be a client code (not unique) assigned by you to your client apps. The aggregate from ID and client code will be your PK  
+ This solution has the advantage to not require any changes on the client side apps (perhaps some identity code to send to your central server where you could use for some security measure)
+Of course, if the customer base grows (hopefully) you need to keep a centralized table of code assigned to each client. The search on the central table should not be a problem because you are using two numbers (or short string for the identity code). 
+ 
+ You can always just add a PK column that is a number, and (depending on the DB you are using) setup a sequence or identity to handle it. 
+ You could also create an index over the multiple columns your currently have to help speed up your searching. 
+ 
+ You could implement a  key table . 
+ Basically, the key table is just a table with one record: the next available integer key. When your program needs to generate a key, it increments the key in the key table. It has now reserved the previously available key. It can assign that key to whatever it likes and will be assured that it will not conflict with any other key pulled in the same manner. This is how the  LightSpeed ORM  works by default. Its benefit over using the built-in identity column is that you can assign item ids before inserting them to the database, and therefor can define item relationships before inserting all items at once. 
+ If you're worried about conflicts, you can lock/unlock the key table before reading and incrementing the next available key. If you know you need to insert more than one item at a time, you can increment the key by that much instead of by one multiple times. If you are guessing that sometime in the future of your application you will need a certain number of keys, you can reserve a block of sequential keys, and keep track of them internally. This may possibly waste keys if you don't assign them all, but prevents excessive calls to the database. 
+ 
+ Just use a int64 key, on the client side use negatively incrementing numbers away from 0 (starting at -1) and then on the server side after the sync use positive incrementing numbers, when you sync data from the client to the server you then just return the new positive server side numbers. I trust updating the key on a record is simple enough, if not then just delete the old and insert a new one with the values. 
+ This is a really simple way to have client side unique keys and updateble data without really needing to worry about the problems caused by your solution which at very best will just be randomly clashing depending how large your crc check is. 
+ If you're dead set against using a GUID ( MSDN  for System.Guid.NewGuid() indicates that  MAC address as part of the value and make them highly unique) then you're answer is either a composite key (and NOT one based on a crc of a composite key!); Please do not fall into the mistake of thinking that your CRC solution is less likely for a collision than a GUID unless you have more entropy than a 128 bit GUID, you're only making more work for yourself. 
+ As I point out, there's the whole negative spectrum of int64 space that you could use to identify unsynchronised and hence temporary unique ID numbers. You then even get the added potential benefits of a clustered index when writing to the central server. 
+ So suppose your client side data keys look like this: 
+ 
+ that means -4 and -5 need to be inserted into the central location and then get their ids updated to the new value (likely   and   in this example). 
+ If you want further reading on the uniqueness on GUIDs and the likelihood of a collision I suggest you read Eric Lippert's  recent  blog  posts  on the  topic . And as for the Access side, you can just .ToString() and convert them over to a text key. But since I have provided a solution that would work for int / int64 space this would not be required. 
+ 

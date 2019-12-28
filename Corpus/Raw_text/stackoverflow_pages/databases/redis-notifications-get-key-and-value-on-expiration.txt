@@ -1,0 +1,41 @@
+*** redis-notifications-get-key-and-value-on-expiration ***
+
+ we have the following use case: Every time a certain key expires, we need to get notified and do something, based on it's value. But when redis fires the   event, the key was already removed from the db when we try to access it later on, which is expected of course. 
+ Now is there a way to access the entry again, after it expired? I guess not. 
+ So second option: Is there a way to tell redis to publish the whole value object instead of just the key when sending those events? I guess it could be added through Lua, but I'd interested in an easier option, if possible. We also need this behaviour for other events, we basically need all notifications to publish the value, not the key (we could do a   once the event was received, but we want to get around the second call, primarily to have an atomic process, since the value could have changed between publishing the event and doing the   to retrieve the value). 
+ Hope it's understandable. Maybe we can't see the obvious, so thanks in advance! 
+ 
+ The feature that Eli linked to allows you to listen when a key expires.  However, it does not give you the value of the key.  Futhermore, based on the filed github issue it does not look like you can expect to have this feature built in anytime soon if ever ( https://github.com/antirez/redis/issues/1876 ).  The solution I use is to create a special "shadow" expiration key that is linked to the key where you have an actual value. 
+ So lets say you have a key called   and it has an integer value of  .  Furthermore, the key will expire after 10 seconds at which point you want to get the value of the key. (Maybe you were incrementing the key during the 10 seconds it existed). 
+ First you need to setup listening for keyspace events.  In particular you want to listen for   events. You can do this from your config or use the   command in redis.  (see here for more info:  http://redis.io/topics/notifications ) 
+ 
+ Now you can subscribe to a special   channel where you will be notified that the key expired. 
+ 
+ The format of the channel to subscribe to is  .  In our example we're assuming we're working with the default database 0 and we want to listen for the   event. 
+ When the   expires you will now get a message in the   channel where the message is the name of the key that expired.  Of course at this point the key is gone so we can no longer access the value!  The solution is to use a special expiration key.   
+ When you create your   also create a special expiring "shadow" key (don't expire the actual  ).  For example: 
+ 
+ Now in the   channel you will get a message telling you that the key   expired.  Take the value of the message (which is the name of the key), split on the colon (or whatever separator you decide to use), and then manually get the value of the key and delete it. 
+ 
+ Note that the value of the shadowkey isn't used so you want to use the smallest possible value which according to this answer   ( Redis store key without a value ) is an empty string  . It's a little more work to setup but the above system does exactly what you need.  The overhead is a few extra commands to actually  retrieve and delete your key plus the storage cost of an empty key.     
+ 
+ If you're on 2.8, you can try out  this new feature  (also referenced at  this page ). It's definitely unstable and doesn't seem well tested, but if you're on 2.8 anyway... 
+ Short intro from the issue page: 
+ 
+ An interesting feature in databases with a key-value data model (Redis
+  does not perfectly fit this definition as the values are complex data
+  structure, but the outer layer of Redis is definitely a key-value
+  business) is the ability to subscribe in some way to the stream of
+  events targeting a given key. 
+ For instance I may be interested to see when the key foo is deleted or
+  modified in some way, or to get the names of all the keys with an
+  expire set (using the EXPIRE command) that Redis is evicting from the
+  dataset because their time to live dropped to zero. 
+ This feature was requested many times by the Redis user base, however
+  so far we never reached a point where the proposed API (including
+  proposals made by myself) seemed to fit well into the Redis design.
+  This feature request will try to describe a new design that is
+  extremely simple to use, to implement, and that fits well in the Redis
+  story. 
+ 
+ 

@@ -1,0 +1,32 @@
+*** advantages-of-using-hibernate-callback ***
+
+ I am not able to understand advantages of using Hibernate Callback method, are there any advantages or specific use case where we should go for it.  
+ 
+ Also one more important question is that does HibernateCallback method close session everytime after query returns values? I have use case where am calling this function multiple times on every refresh of status page and so will it everytime open session and query database or will it store query results in memory and then everytime I make call to this function, results would be popped out from memory.  
+ I have read( Reference ): 
+ The spring HibernateTemplate.execute() by default closes any open sessions upon completion. When used with lazy initialization you may get a LazyInitializationException like the following 
+ 
+ org.hibernate.LazyInitializationException: could not initialize proxy - no Session 
+ 
+ Any reference to relevant documentation part would be highly appreciated.  
+ **Update:**
+
+ In my case am using ejb transactions and setting it to "support" and i believe in that case as transaction is set to support, it's optional and so everytime new session will be created and hibernate will query database to get results and so that's were am having bottleneck, will that an right assumptions to make? 
+ 
+ To your point about why use  .  Short answer - it allows you to access the current transactionally bound session in order to do perform more complex hibernate functions.  Most of the time the simple methods on   are sufficient, but sometimes you need to go down to the  . 
+ There's two parts to the puzzle. 
+ The first is the transaction scope which is defined either by using   /   OR  annotations.  See the spring docs/google for more info. 
+ The second is that when you are within a transaction   will interact with the current transaction using a bit of magic. 
+ So a simple operation like   will participate in the transaction.  A more complex like your example will also participate in the transaction.  In fact pretty much any method on hTemplate will participate. 
+ So know to your question about when does the session get closed 
+ 
+ If you are using transactions explicitly, see first point above, then when the transaction scope closes the transaction will be committed and the session will be closed. 
+ Without transactions spring creates a session for you each time you call a   method and closes it immediately afterwards.  This is not the preferred approach as unless you are doing something very simple the results will be detached from the session and you will get LazyInit exceptions. 
+ 
+ An important point to note in the second case above there is NO explicit transaction.  You are at the mercy of the auto-commit mode of the connection so you might do, in a callback, save, save, throw exception.  The first save MAY have been committed, without a transaction there's no guarantee. 
+ My advice, when doing any updates, use a transaction. 
+ If all the transaction stuff is new to you check the spring docs for the transaction chapter. 
+ 
+ If you're using Spring anyway, you should just use  declarative transaction management  around your Repository or Service layer to deal with this transparently. The PlatformTransactionManager implementation will do what's appropriate for the given persistence provider.  
+ It's considered bad practice to rely on lazy collections being initialised after you're out of data access code - it usually means you've got some business logic in the controller / view layers of your app which should be moved into the service layer. 
+ 

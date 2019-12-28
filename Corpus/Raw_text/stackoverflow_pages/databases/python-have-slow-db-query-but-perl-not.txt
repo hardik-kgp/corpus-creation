@@ -1,0 +1,56 @@
+*** python-have-slow-db-query-but-perl-not ***
+
+ I use python (Django) for my web-shop.  
+ When I tested high loading (db access) got interesting results: 
+ 
+ Centos 6, python 2.6, mysql 5.5, standard libraries, mysql-server on other server. 
+Table product_cars have 70 000 000 records. 
+ **Why python-program so slow?**
+
+ Python program: 
+ 
+ Perl program: 
+ 
+ 
+ **update1**
+
+ **Interesting thing:**
+  
+ **select always row with id=1:**
+
+ Сlear that MYSQL use cache and query will be very fast, but again slow and 100% CPU utilisation. But same perl or ruby code work quick. 
+ if replace string in python code: 
+ 
+ Same code in perl: 
+ 
+ Code in ruby: 
+ 
+ 
+ **update 2**
+
+ 
+ MySQL-server on other machine. 
+ 
+ **update 3**
+
+ Tried use oursql and pymysql - worse results. 
+ 
+ As people have pointed out, the way you're preparing and executing statements between the two is not the same and is not the recommended practice.  Both should be taking advantage of prepared statements, and both should be preparing  outside  the loop. 
+ However, it looks like that Python MySQL driver does not take advantage of  server side prepared statements  at all.  This probably accounts for the poor performance. 
+ Server side prepared statements were added in MySQL 4.1, but some drivers have been very slow to adapt.  The  MySQLdb users guide  makes no mention of prepared statements and thinks "there are no cursors in MySQL, and no parameter substitution" which hasn't been true since MySQL 4.1.  It also says "MySQLdb's Connection and Cursor objects are written in Python" rather than taking advantage of the MySQL API. 
+ You may want to look at the  oursql   driver .  It looks like it was written to take advantage of the "new" MySQL API and let the database optimize itself. 
+ DBD::mysql (the Perl MySQL driver)  can  take advantage of prepared statements, but it  does not by default  according to the documentation.  You have to turn it on by adding   to your dsn.  That should make the Perl example run even faster.  Or the documentation is lying and they're on by default. 
+ As an aside, one thing that will throw off benchmarks, though not account for anything like 2 minutes difference, is generating random numbers.  They have significant cost. 
+ Python code 
+ 
+ Perl code 
+ 
+ Python time 
+ 
+ Perl time 
+ 
+ To keep this from becoming an issue in more sensitive benchmarks, increment a counter instead. 
+ 
+ In theory, your Perl code should speed up significantly if you execute   before the loop and simply reexecute the same prepared query repeatedly.  I suspect either DBI or MySQL has simply cached and ignored your repeated identical query preparations. 
+ Your Python code, on the other hand, demands that different queries be recompiled each time because you aren't using a prepared query.  I'd expect the speed difference to evaporate if you prepare both queries properly before their loop.  There are security benefits for to using prepared queries as well, by the way. 
+ 

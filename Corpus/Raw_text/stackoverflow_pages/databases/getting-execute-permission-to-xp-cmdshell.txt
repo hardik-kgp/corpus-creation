@@ -1,0 +1,87 @@
+*** getting-execute-permission-to-xp-cmdshell ***
+
+ I am seeing an error message when trying to execute xp_cmdshell from within a stored procedure. 
+ xp_cmdshell  **is enabled**
+ on the instance. And  **the execute permission was granted**
+ to my user, but I am still seeing the exception. 
+ The EXECUTE permission was denied on the object ‘xp_cmdshell’, database ‘mssqlsystemresource’, schema ‘sys’ 
+ Part of the issue is that this is a shared cluster, and we have a single database on the instance, so we don't have a full range of admin permissions. So I can't go in and grant permissions, and what-not. 
+ 
+ For users that are not members of the sysadmin role on the SQL Server instance you need to do the following actions to grant access to the xp_cmdshell extended stored procedure. In addition if you forgot one of the steps I have listed the error that will be thrown. 
+ 
+ **Enable the xp_cmdshell procedure**
+
+ 
+ Msg 15281, Level 16, State 1, Procedure xp_cmdshell, Line 1
+  SQL Server blocked access to procedure 'sys.xp_cmdshell' of component 'xp_cmdshell' because this component is turned off as part of the security configuration for this server. A system administrator can enable the use of 'xp_cmdshell' by using sp_configure. For more information about enabling 'xp_cmdshell', see "Surface Area Configuration" in SQL Server Books Online.* 
+ 
+ **Create a login for the non-sysadmin user that has public access to the master database**
+
+ 
+ Msg 229, Level 14, State 5, Procedure xp_cmdshell, Line 1
+  The EXECUTE permission was denied on the object 'xp_cmdshell', database 'mssqlsystemresource', schema 'sys'.* 
+ 
+ **Grant EXEC permission on the xp_cmdshell stored procedure**
+
+ 
+ Msg 229, Level 14, State 5, Procedure xp_cmdshell, Line 1
+  The EXECUTE permission was denied on the object 'xp_cmdshell', database 'mssqlsystemresource', schema 'sys'.* 
+ 
+ **Create a proxy account that xp_cmdshell will be run under using sp_xp_cmdshell_proxy_account**
+  
+ 
+ Msg 15153, Level 16, State 1, Procedure xp_cmdshell, Line 1
+  The xp_cmdshell proxy account information cannot be retrieved or is invalid. Verify that the '##xp_cmdshell_proxy_account##' credential exists and contains valid information.* 
+ 
+ 
+ It would seem from your error that either step 2 or 3 was missed. I am not familiar with clusters to know if there is anything particular to that setup. 
+ 
+ I want to complete the answer from tchester. 
+ (1) Enable the xp_cmdshell procedure: 
+ 
+ (2) Create a login 'Domain\TestUser' (windows user) for the non-sysadmin user that has public access to the master database 
+ (3) Grant EXEC permission on the xp_cmdshell stored procedure: 
+ 
+ (4) Create a proxy account that xp_cmdshell will be run under using sp_xp_cmdshell_proxy_account 
+ 
+ (5) Grant control server permission to user 
+ 
+ 
+ tchester said : 
+ (2) Create a login for the non-sysadmin user that has public access to the master database 
+ I went to my user's database list (server/security/connections/my user name/properties/user mapping, and wanted to check the box for master database.  I got an error message telling that the user already exists in the master database.  Went to master database, dropped the user,  went back to "user mapping" and checked the box for master.  Check the "public" box below. 
+ After that, you need to re-issue the grant execute on xp_cmdshell to "my user name" 
+ Yves 
+ 
+ To expand on what has been provided for automatically exporting data as csv to a network share via SQL Server Agent. 
+ (1) Enable the xp_cmdshell procedure: 
+ 
+ (2) Create a login 'Domain\TestUser' (windows user) for the non-sysadmin user that has public access to the master database. Done through user mapping 
+ (3) Give log on as batch job: Navigate to Local Security Policy -> Local Policies -> User Rights Assignment. Add user to "Log on as a batch job" 
+ (4) Give read/write permissions to network folder for domain\user 
+ (5) Grant EXEC permission on the xp_cmdshell stored procedure: 
+ 
+ (6) Create a proxy account that xp_cmdshell will be run under using sp_xp_cmdshell_proxy_account 
+ 
+ (7) If the sp_xp_cmdshell_proxy_account command doesn't work, manually create it 
+ 
+ (8) Enable SQL Server Agent. Open SQL Server Configuration Manager, navigate to SQL Server Services, enable SQL Server Agent. 
+ (9) Create automated job. Open SSMS, select SQL Server Agent, then right-click jobs and click "New Job".  
+ (10) Select "Owner" as your created user. Select "Steps", make "type" = T-SQL. Fill out command field similar to below. Set delimiter as ',' 
+ 
+ (11) Fill out schedules accordingly. 
+ 
+ Time to contribute now. I am sysadmin role and worked on getting two public access users to execute xp_cmdshell. I am able to execute xp_cmdshell but not the two users. 
+ I did the following steps: 
+ 
+ create new role: 
+ use master 
+CREATE ROLE [CmdShell_Executor] AUTHORIZATION [dbo] 
+GRANT EXEC ON xp_cmdshell TO [CmdShell_Executor] 
+ add users in master database: Security --> Users. Membership checks only [CmdShell_Executor] that is just created 
+ set up proxy account: 
+ EXEC sp_xp_cmdshell_proxy_account 'domain\user1','users1 Windows password' 
+EXEC sp_xp_cmdshell_proxy_account 'domain\user2','users2 Windows password' 
+ 
+ Then both users can execute the stored procedure that contains xp_cmdshell invoking a R script run. I let the users come to my PC to type in the password, execute the one line code, then delete the password.  
+ 

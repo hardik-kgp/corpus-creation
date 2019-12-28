@@ -1,0 +1,71 @@
+*** need-advice-is-this-a-good-use-case-for-a-nosql-database-if-so-which-one ***
+
+ I have recently been researching NoSql options. My scenario is as follows: 
+ We collect and store data from custom hardware at remote locations around the world. We record data from every site every 15 minutes. We would eventually like to move to every 1 minute. Each record has between 20 and 200 measurements. Once set up the hardware records and reports the same measurements every time. 
+ The biggest issue we are facing is that we get a different set of measurements from every project. We measure about 50-100 different measurement types, however any project can have any number of each type of measurement. There is no preset set of columns that can accommodate the data. Because of this we create and build each projects data table with the exact columns it needs as we set up and configure the project on the system. 
+ We provide tools to help analyze the data. This typically includes more calculations and data aggregation, some of which we also store. 
+ We are currently using a mysql database with a table for each client. There are no relations between tables. 
+ NoSql seems promising because we could store a project_id, timestamp then the rest would not be preset. This means one table, more relationships in the data, yet still handling the variety of measurements. 
+ Is a 'NoSql' solution right for this job? If so which ones? 
+ I have been investigation MongoDB and it seems promising... 
+ Example for Clarification: 
+ Project 1 has 5 data points recorded, the mysql table columns look like:
+timestamp, temp, wind speed, precipitation, irradiance, wind direction 
+ Project 2 has 3 data points recorded mysql table columns:
+timestamp, temp, irradiance, temp2 
+ 
+ The simple answer is that there is no simple answer to these sort of problems, the only way to find out what works for your scenario is to invest R&D time into it.  
+ The question is hard to answer because the performance requirements aren't spelled out by the OP. It appears to be  75M/year records over a number of customers with a write rate of num_customers*1minute (which is low), but I don't have figures for the required read / query performance.  
+ Effectively you have already a  sharded  database using  horizontal partitioning  because you're storing each customer in a seperate table. This is good and will increase performance. However you haven't yet established that you have a performance problem, so this needs to be measured and the problem size assessed before you can fix it. 
+ A NoSQL database is indeed a good way of fixing performance problems with traditional RDBMS, but it will not provide automatic scalabity and is not a general solution. You need to find your performance problem fix and then design the (nosqL) data model to provide the solution. 
+ Depending on what you're trying to achieve I'd look at  MongoDB ,  Apache Cassandra ,  Apache HBase  or  Hibari . 
+ Remember that NoSQL is a vague term typically encompassing 
+ 
+ Applications that are either performance intensive in read or write. Often sacrificing read or write performance at the expense of the other. 
+ Distribution and scalability 
+ Different methods of persistency (RAM/Disk) 
+ A more structured/defined access pattern making ad-hoc queries harder. 
+ 
+ So, in the first instance I'd see if a traditional RDBMS can achieve the required performance, using all available techniques, get a copy of  High Performance MySQL  and read  MySQL Performance Blog . 
+ **Rev1:**
+
+ In light of your comments I think it is fair to say that you could achieve what you want with one of the above NOSQL engines.  
+ My primary recommendation would be to get your data model designed and implemented, what you're using at the moment isn't really right. 
+ So look at  Entity-attribute-value model  as I think it is exactly right for what you need.  
+ You need to get your data model right before you can consider which technology to use, being honest modifying schemas dynamically isn't a datamodel. 
+ I'd use a traditional SQL database to validate and test the new datamodel as the management tools are better and it's generally easier to work with the schemas as you refine the datamodel. 
+ 
+ Ok, I might get flamed for not answering your question directly but I'm going to say it anyway because I think it's something you should consider. I don't have experience with NOSQL databases so I can't recommend one but as far as relational databases go there might be a better design for your situation. 
+ First of all - drop the 1 table per customer. Instead, I would architect a many to many schema in which there would be the following tables: 
+ 
+ Customers 
+ MeasurementTypes 
+ Measurements 
+ 
+ The Customers table will contain customer information, and a unique CustomerID field: 
+ 
+ The MeasurementTypes table would describe each type of measurement that you support, and assign a unique name (the MeasurementType field) to refer to it: 
+ 
+ The Measurements table is where all the data is aggregated. You would have one record for each data point collected, stamped with the customer id, the measurement type, a time stamp, and a unique "batch" identifier (to be able to group data points from each measurement together) - and of course the measurement value. If you need different types of values for your measurements you may need to get a little creative with the design but most likely the measurement values can all be represented by a single data type. 
+ 
+ This way, you can have a very flexible design that would allow you to add as many data points for each customer independently from other customers. And you get the benefits of relational databases.. 
+ If your SQL engine supports this feature you could even partition the Measurements table by the customer column. 
+ Hope this helps.. 
+ **EDIT**
+
+ I must mention that I'm not in any way affiliated with Microsoft nor am I trying to give them free advertising - it just so happens I'm most familiar with their SQL server. 
+ Based on Alan's comment - regarding whether a SQL database can support a data volume of a few thousand million records per year with the possibility of growing up to a billion records per year - there is a nice summary of limitations/specs for MS SQL server available here: 
+ http://msdn.microsoft.com/en-us/library/ms143432.aspx 
+ It seems that the only limitation to how many records you can have per table is the available size on disk (and probably RAM if you're going to want to run certain reports on that data).  
+ 
+ FWIW: After a year and a half of working and scaling the EAV schema in MySQL we got the the point where our choices were: 
+ 
+ Move the DB to an expensive bare metal set up. 
+ Re-investigate NoSQL solutions. 
+ 
+ We have ended up choosing Cassandra and using a schema heavily influenced by the OpenTSDB project. 
+ Cassandra is a very strong choice for storing Time Series data and has met our requirements nicely. 
+ 
+ I am assuming if you have a lot of clients you will end up having a lot of tables. I would first remove this restriction and move to a single table model or having a table for clients and data with appropriate relations. This way you could keep mysql. Don't assume mysql is bad for everything.  
+ In terms of NOSQL this depends on your data model and usage patterns but if you have lots of clients and you prefer this model then couchdb views could solve that problem as couchdb can support thousands of views. You can store all the data in one database in couchdb but have a view for each client. I have no idea how mongodb could solve this problem. 
+ 

@@ -1,0 +1,49 @@
+*** is-it-a-good-idea-to-handle-deadlock-retry-from-stored-procedure-catch-block ***
+
+ From what i undertand it is impossible to completely prevent a transaction from deadlocking. 
+ I would like to have transaction that neverfail from the perpective of application code.
+So i have seen this pattern in use for Microsoft SQL and I wonder if this is a good idea? 
+ 
+
+    DECLARE @retry  tinyint
+    SET @retry  = 5
+    WHILE @retry >0
+    BEGIN
+      BEGIN TRANSACTION
+      BEGIN TRY
+        // do transaction her
+        COMMIT
+        BREAK
+      END TRY
+      BEGIN CATCH
+        ROLLBACK
+
+        if (ERROR_NUMBER() = 1205 OR ERROR_NUMBER() = 1222)
+        BEGIN
+          SET @retry = @retry - 1
+          IF @retry = 0
+             RAISEERROR('Could not complete transaction',16,1);
+          WAITFOR DELAY '00:00:00.05' -- Wait for 50 ms
+          CONTINUE
+        END
+        ELSE
+        BEGIN
+          RAISEERROR('Non-deadlock condition encountered',16,1);
+          BREAK;
+        END
+      END CATCH;
+    END
+ 
+ 
+ Retry logic for recoverable errors should be in the client code. 
+ For deadlocks,  MSDN states to do it there 
+ If you retry in SQL, then you may hit CommandTimeout eventually. 
+ There are other errors too so you can  write a generic handler 
+ 
+ The implementation you have is  **not**
+ a good idea, as it blindly retries without finding out the actual error. If the error was a timeout, for example, you might end up tying up a connection for 5 times the timeout amount, without ever resolving a thing. 
+ A much better approach is to detect that it was Error 1205 - a deadlock victim and retry only in that case. 
+ You can use: 
+ 
+ See the documentation for  . 
+ 

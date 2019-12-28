@@ -1,0 +1,47 @@
+*** mysql-docker-container-is-not-saving-data-to-new-image ***
+
+ I'm trying to create a MySQL Docker container that is preset with a certain schema and seed data so that I can have other containers connect to it as a db. I'm using the  trusted dockerfile/mysql image  as a base, and I wrote a Dockerfile to create a new image from that base and add my schema.sql into it. After building that image (mysql:base), I've been trying to run bash in new container, then go into mysql and create my database and then import the schema. I then exit the container and try to commit the container to a new Docker image.  However, the resulting image does not persist any of the changes I made to the MySQL db. It does persist other files that I wrote in the container, but not the db. 
+ Here is the Dockerfile I use to build the initial image (myorg/mysql:base). 
+ 
+ After building that, I go into the image: 
+ 
+ And run MySQL to import the schema: 
+ 
+ I can go into mysql and verify the schema has been imported successfully: 
+ 
+ Also, if I go into   I can see that there is a   directory that contains .frm files corresponding to the db. 
+ But when I exit and try to commit that container to a new image: 
+ 
+ And then go into the new image: 
+ 
+ The db files are no longer in /var/lib/mysql, and running   does not show the   database, only the default  ,  , and   dbs. I found that if I created a new textfile in the container ( ), that file would be present in the committed image, but not the db. 
+ I wonder if this has something to do with the fact that the trusted image Dockerfile has   so it mounts the db directory as a volume. My Dockerfile does not have this command, but I don't know if it's inherited anyway (I don't really understand how volumes work well enough to know how this might affect my build). I don't need the db mounted as a volume because I need another container to connect to it over a network connection (I'm going to use docker links for that). 
+ FWIW, I am running boot2docker 1.3.2 on OS X 10.9.5. 
+ 
+ As another answer and you have stated volumes cannot be committed and child containers do in fact inherit volume definitions from parents. Hence any changes to the volume will be discarded. I would like to add data such as mysql database files should always be in volumes for several reasons and you should not be trying to commit it into your image.  
+ 
+ If you have to migrate containers there is no easy way to extract data from containers if its not in a volume. 
+ If you want to start multiple containers that share data you have to have data in a volume. 
+ If you want to change your container definition with say new volumes or ports you have to delete and recreate it. If you have data in the container you will loose it. (See  this question  for an example of this case.) 
+ The union file system is slower than normal file systems which will slow down your application or database. 
+ 
+ So what should you do instead? 
+ 
+ Use a data only container that can be linked with any instance of the service container. Then you can use volumes-from to get your data into the service container. 
+ Use a host mounted volume so that you can restart containers and mount the same location into new containers. 
+ 
+ 
+ You are probably better off rolling your own mysql.   That way there are no surprises, no hidden "magic" in there. 
+ If you look at an example  dockerfile  for mysql core, you can see the VOLUME declaration for /var/lib/mysql.   
+ Docs on docker volumes. 
+ **Data volumes**
+
+ A data volume is a specially-designated directory within one or more containers that bypasses the Union File System to provide several useful features for persistent or shared data: 
+ 
+ Data volumes can be shared and reused between containers 
+ Changes to a data volume are made directly 
+ **Changes to a data volume will not be included when you update an image**
+
+ Volumes persist until no containers use them 
+ 
+ 

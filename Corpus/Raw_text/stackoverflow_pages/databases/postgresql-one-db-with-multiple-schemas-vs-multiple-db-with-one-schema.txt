@@ -1,0 +1,25 @@
+*** postgresql-one-db-with-multiple-schemas-vs-multiple-db-with-one-schema ***
+
+ I've been reading this  question , but it doesn't help me. Considering db administration, I think one db with multiple schemas is easier to maintain than the other option, but in terms of  **performance**
+, which one is better?, is there any advantage from one over the other?  
+ TIA. 
+ 
+ If performance is important, there is no substitute for benchmarking your specific use case. If it isn't that important, then go with easier to administer! Hardware is cheap compared to programmer/DBA time, and compared to the expected higher accident rate on a more complex setup. Not to mention computers follow Moore's law, but the day stubbornly refuses to get longer. 
+ If I had to  guess , having not benchmarked your specific use case (since I can't), I'd guess one database with multiple schemas will be better performing because: 
+ 
+ Each connection is to one database, AFAIK. Connection setup/teardown is expensive in PostgreSQL. 
+ Many schemas is closer to many tables than many databases is, and I'd expect many tables to be optimized for more than I'd expect many databases to be. 
+ 
+ However, I can see a counterexample which may apply. Each database is stored in a single directory. This makes splitting databases across filesystems—and thus disk arrays—really easy using normal filesystem tools (e.g., mount points and/or symbolic links). Splitting databases across multiple arrays is very unlikely to outperform one, larger RAID10 array with the same number of disks, but will provide better isolation (database A doing a huge query will not affect database B as much). Do, however, check your OS's IO scheduler documentation; remember that each PostgreSQL connection gets its own backend process, so per-process fairness queuing may accomplish this better. 
+ Note that you can also segment the data across filesystems using PostgreSQL's   and friends, so the above can actually be done with schemas as well. 
+ 
+ Performance-wise, it's going to depend completely on your application. 
+ For example, multiple databases requires connection-pooling per database. If you have hundreds or thousands of databases, that pretty much means you can't do connection pooling. That'll cost you  performance for anything except say a client application with a single persistent connection to the database. 
+ However, if you only access "one database at a time" (and not within seconds of each other either), keeping things in separate databases will only need to load the system table cache for the databases that are actively being used, leaving more memory to cache user tables (since the system tables in each database will be significantly smaller). 
+ In most cases, schemas in one database will win out. A fairly common solution is a hybrid, of X databases and Y schemas. 
+ 
+ I don't think it matters either way. Each table will be stored in a separate file, the only question is what directory the file lives in. Since performance is impacted primarily by read and write operations on individual files, organization of files in directories should have little effect. 
+ 
+ Multiple databases have no performance advantage over multiple schemas (namespaces) that I can see (except perhaps if you have an incredibly large number of tables).   allows you to put whatever you want wherever you want on the filesystem, so the physical storage can be controlled by you in either case. 
+ The main difference will be when you query across multiple schemas, it's much better than querying across multiple databases. Also, you may be able to share more connections via a connection pooler if it's all in the same database. 
+ 

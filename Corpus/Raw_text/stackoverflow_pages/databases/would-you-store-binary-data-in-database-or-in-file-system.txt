@@ -1,0 +1,76 @@
+*** would-you-store-binary-data-in-database-or-in-file-system ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ This is a question which has been asked before ( large-text-and-images-in-sql ) but mainly for data which will be changed. In my case the data will be stored and never changed. Just seems sensible to keep everything together.  
+ Are there any reasons why I should not store static binary data in a database? 
+ Assuming it is a sensible thing to do, are there any advantages to storing such data in separate tables? (You might begin to realise now that I'm not a DB expert...) 
+ Clarify:
+There will probably be no more than 10-20 users but these will be in the US and in the UK. The binary data will have to be transfered in any case. 
+ 
+ The advantage of storing data in the DB is taking advantage of DB security mechanisms and reducing maintanence cost (backups, ...). The disadvantage of it is increasing DB load and consuming connections (which might be expensive for per-connection licensed database servers). If you are using SQL Server 2008,   might be a nice alternative. 
+ By the way, for Web apps (or any other apps that might need streaming the data), it's usually more sensible to store data outside DB. 
+ 
+ All this talk about doing a "select * from table" causing huge memory and/or bandwidth issues when the table has a LOB in it is a non-issue.   All that is returned is a pointer to the LOB in question.  Not enough reputation to put the comment in-context, but people looking at this should know it's NOT an issue. 
+ 
+ The biggest dissadvantage if you are storing BLOBS is memory consumption. 
+Can you imagine what select * from x would do for thousands of records with a  45k image in each? 
+ As Mehrdad said there are also advantages. So if you decide to go with that approach you should try to design your database so that most queries return less results with BLOB data in them. Maybe for example make one to one relationships for this purpose. 
+ 
+ Addressing the issue from a principles point of view, a relational database is (mainly) there for storing structured data. If you cannot make a query condition or join on a data element it probably doesn't belong in the database. I don't see an image BLOB being used in a WHERE clause, so I'd say keep it outside the database. A CLOB on the other hand can be used in queries. 
+ 
+ I'm familiar with a fairly good-sized OSS project that made the decision at its inception to store images in the MySQL database, and it's proven to be among the top 3 bad ideas they have been coping with ever since. (Exacerbated by the fact the "refactor mercilessly" is anathema, but that's another story.) 
+ Among the serious problems this has caused: 
+ 
+ Exceeding maximum efficient database size (mysql). (The total space required for images exceeds all others by a at least 2 orders of magnitude). 
+ Image files lose their "fileness". No dates sizes etc. unless stored (redundantly) as dates (which require code for management). 
+ Arbitrary byte sequences don't process nicely all the time, for either storage or manipulation. 
+ "We'll never need to access the images externally" is a dangerous assumption. 
+ Fragility. Because the whole arrangement is unnatural and touchy, and you don't know where it will bite next (contributing to the anti-refactor mentality). 
+ 
+ The benefits? None that I can think of, except it might have been the path of least resistance at the time. 
+ 
+ I think this depends on the application your building. If you're building a CMS system, and the usage of the data is going be to display images within a web browser, it might make sense to save the images to disk as opposed to being put into the database. Although honestly I would do both, which could allow adding a server to a farm without having to copy files all over the place. 
+ Another use case might be a complex object, such as a workflow, or even a business object with lots of interdependancies. You could serialize both of these into a binary or text based format, and save them in the DB. Then you get the benefit of the DB: ATOMIC, Backups, etc... 
+ I don't think people should be using   queries in the first place. What you do is provide two ways to get the data, One methods returns the summary information, the second would return the blob. I can't imagine why you would need to return thousands of images all at once.  
+ 
+ Whoever had the idea of storing an image (or other binary document) in a database is not someone I'm very happy with. Databases are meant for storage of [mostly?] INDEXABLE, DISCRETE data. Not BLOBs of meaningless binary data. If you've worked with BLOBs for binary data first-hand, you already know this. 
+ You should store a reference to the file in the filesystem. Best practice of which is a filename, not an absolute (or even relative) path. 
+ 
+ We store attachments in our system, and you cannot change an attachment, so I think we're on the same page w/data that "will be stored and never changed." We specifically decided  not  to store it in the database. We did this for two reasons, simplicity, and backup/recovery time.  
+ Simplicity first: In our case these attachments are uploaded from the end-user's browser, and it's simpler to just write them to a directory (on the DB server) than it is to then stream them down the SQL pipe. There is a record of them in the DB, but the DB just contains meta-information about the attachment, and the name of the file on disk (a guid in our case) 
+ On the backup/recovery side: These blobs will likely become one of the largest pieces of your database. Whenever you run a full backup you'll be copying these bits over and over, even though you know then can never change. To us it just seemed much simpler to have (much) smaller backups, and do an xcopy of the attachment directory to a secondary server as the backup. 
+ 
+ Isn't this exactly what LOBs or CLOBs or .... were designed? 
+ We used CLOBs to store large encryptions of credit card card transactions for a major airline system. 
+ Memory consumption is your greatest culprit though. 
+ HTH 
+ cheers, 
+ 
+ Some database(e.g. Postgresql) automatically compress fields, perhaps it is faster when reading them directly from db. And also, the program can read all the fields and image in one swoop. 
+ 
+ The performance issue here as been address above, so I won't repeat it. But I think a good tip if you are storing things that will be streamed out a lot (such as images/documents on a web-site) is to build in a caching system.  
+ By this I mean store all the data in your database, but when someone requests that file, check if it exists on disk (based on a known filename, in a temp folder), if not, grab it from the DB and write it to the folder, and then stream that to the user. For the next request to the same file, since it exists on disk, it can be served from there without hitting the DB. But if you need to delete these files (or your web-server goes kapput!), it doesn't matter as they will be rebuilt again from the DB as people request them. This should be much quicker than serving each request for the same file from the DB. 
+ 

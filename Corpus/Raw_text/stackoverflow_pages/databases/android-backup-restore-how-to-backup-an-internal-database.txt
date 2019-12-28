@@ -1,0 +1,85 @@
+*** android-backup-restore-how-to-backup-an-internal-database ***
+
+ I have implemented a   using the provided   to backup and restore the native database I have. This is the database you typically use along with   and which resides in  . 
+ One would think this is a common case. However the docs aren't clear on what to do:  http://developer.android.com/guide/topics/data/backup.html .  **There is no **
+** specifically for these typical databases. Hence I used the **
+, pointed it to my .db file in " ", introduced locks around any db operation (such as  ) in my  , and even tried creating the " " directory before   because it does not exist after install. 
+ I have implemented a similar solution for the   successfully in a different app in the past. However when I test my new implementation in the emulator-2.2, I see a backup being performed to   from the logs, as well as a restore being performed (and   called).  **Yet, the db file itself is never created.**
+
+ Note that this is all after an install, and before first launch of the app, after the restore has been performed. Apart from that my test strategy was based on  http://developer.android.com/guide/topics/data/backup.html#Testing . 
+ Please also note I'm not talking about some sqlite database I manage myself, nor about backing up to SDcard, own server or elsewhere.  
+ I did see a mention in the docs about databases advising to use a custom   but it does not seem related: 
+ 
+ However, you might want to extend
+  BackupAgent directly if you need to:
+      * Back up data in a database. If you have an SQLite database that you
+  want to restore when the user
+  re-installs your application, you need
+  to build a custom BackupAgent that
+  reads the appropriate data during a
+  backup operation, then create your
+  table and insert the data during a
+  restore operation. 
+ 
+ **Some clarity please.**
+
+ If I really need to do it myself up to the SQL level, then I'm worried about the following topics: 
+ 
+ Open databases and transactions. I have no idea how to close them from such a singleton class outside of my app's workflow. 
+ How to notify the user that a backup is in progress and the database is locked. It might take a long time, so I might need to show a progress bar. 
+ How to do the same on restore. As I understand, the restore might happen just when the user has already started using the app (and inputting data into the database). So you can't presume to just restore the backupped data in place (deleting the empty or old data). You'll have to somehow join it in, which for any non-trivial database is impossible due to the id's. 
+ How to refresh the app after the restore is done without getting the user stuck at some - now - unreachable point. 
+ Can I be sure the database has already been upgraded on backup or restore? Otherwise the expected schema might not match. 
+ 
+ 
+ A cleaner approach would be to create a custom  : 
+ 
+ and then add it to  : 
+ 
+ 
+ After revisiting my question, I was able to get it to work after looking at  how ConnectBot does it . Thanks Kenny and Jeffrey! 
+ It's actually as easy as adding: 
+ 
+ to your  . 
+ The point I was missing was the fact that you'd have to use a relative path with " ". 
+ Still, this is by no means a perfect solution. The docs for   mention for instance: "  should be used only with small configuration files, not large binary files. ", the latter being the case with SQLite databases. 
+ I'd like to get more suggestions, insights into what is expected of us (what is the proper solution), and advice on how this might break. 
+ 
+ Here's yet cleaner way to backup databases as files. No hardcoded paths. 
+ 
+ Note: it overrides  getFilesDir  so that FileBackupHelper works in databases dir, not files dir. 
+ Another hint: you may also use  databaseList  to get all your DB's and feed names from this list (without parent path) into FileBackupHelper. Then all app's DB's would be saved in backup. 
+ 
+ Using   to backup/restore sqlite db raises some serious questions: 
+1. What happens if the app uses cursor retrieved from   and backup agent tries to override the whole file? 
+2. The  link  is a nice example of perfect (low entrophy ;) testing. You uninstall app, install it again and the backup is restored. However life can be brutal. Take a look at  link . Let's imagine scenario when a user buys a new device. Since it doesn't have its own set, the backup agent uses other device's set. The app is installed and your backupHelper retrieves old file with db version schema lower than the current.   calls   with the default implementation:  
+ 
+ No matter what the user does he/she can't use your app on the new device. 
+ I'd suggest using   to get data -> serialize (without  s) for backup and deserialize -> insert data for restore.  
+ Note: get/insert data is done through ContentResolver thus avoiding cuncurrency issues. Serializing is done in your backupAgent. If you do your own cursor<->object mapping serializing an item can be as simple as implementing   with   field _id on the class representing your entity. 
+ I'd also use bulk insert i.e.    example  and   so that the app is not stuck with restarting loader on data change during backup restore process. 
+ If you happen do be in a situation of a downgrade, you can choose either to abort restore data or restore and update ContentResolver with fields relevant to the downgraded version. 
+ I agree that the subject is not easy, not well explained in docs and some questions still remain like bulk data size etc. 
+ Hope this helps. 
+ 
+ As of Android M, there is now a full-data backup/restore API available to apps. This new API includes an XML-based specification in the app manifest that lets the developer describe which files to back up in a direct semantic way: 'back up the database called "mydata.db"'.  This new API is much easier for developers to use -- you don't have to keep track of diffs or request a backup pass explicitly, and the XML description of which files to back up means you often don't need to write any code at all. 
+ (You  can  get involved even in a full-data backup/restore operation to get a callback when the restore happens, for example.  It's flexible that way.) 
+ See the  Configuring Auto Backup for Apps  section on developer.android.com for a description of how to use the new API. 
+ 
+ One option will be to build it in application logic above the database.  It actually screams for such levell I think.
+Not sure if you are doing it already but most people (despite android content manager cursor approach) will introduce some ORM mapping - either custom or some orm-lite approach. And what I would rather do in this case is: 
+ 
+ to make sure your application works
+fine when the app/data is added in
+the background with new data
+added/removed while the application
+already started 
+ to make some
+Java->protobuf or even simply java
+serialization mapping and write your
+own BackupHelper to read the data
+from the stream and simply add it to
+database.... 
+ 
+ So in this case rather than doing it on db level do it on application level. 
+ 

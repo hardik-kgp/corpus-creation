@@ -1,0 +1,54 @@
+*** is-it-a-good-idea-to-create-a-custom-type-for-the-primary-key-of-each-data-table ***
+
+ We have a lot of code that passes about “ Ids ” of data rows; these are mostly ints or guids.  I could make this code safer by creating a  different struct  for the id of each database table.    **Then the type checker will help to find cases when the wrong ID is passed.**
+
+ E.g the Person table has a column calls PersonId and we have code like: 
+ 
+ Would it be better to have: 
+ 
+ 
+ Has anyone got real life experience
+of dong this? 
+ Is it worth the overhead? 
+ Or more pain then it is worth? 
+ 
+ (It would also make it easier to change the data type in the database of the primary key, that is way I thought of this ideal in the first place) 
+ 
+ Please don’t say use an ORM some other big change to the system design as I know an ORM would be a better option, but that is not under my power at present.  However I can make minor changes like the above to the module I am working on at present. 
+ **Update:**
+
+Note this is not a web application and the Ids are kept in memory and passed about with WCF, so there is no conversion to/from strings at the edge.   There is no reason that the WCF interface can’t use the PersonId type etc. The PersonsId type etc could even be used in the WPF/Winforms UI code.    
+ The only inherently  "untyped"  bit of the system is the database.  
+ 
+ This seems to be down to the cost/benefit of spending time writing code that the compiler can check better, or spending the time writing more unit tests.   I am coming down more on the side of spending the time on testing, as I would like to see at least some unit tests in the code base. 
+ 
+ I wouldn't make a special id for this.  This is mostly a testing issue.  You can test the code and make sure it does what it is supposed to.   
+ You can create a standard way of doing things in your system than help future maintenance (similar to what you mention) by passing in the whole object to be manipulated.  Of course, if you named your parameter (int personID) and had documentation then any non malicious programmer should be able to use the code effectively when calling that method.  Passing a whole object will do that type matching that you are looking for and that should be enough of a standardized way. 
+ I just see having a special structure made to guard against this as adding more work for little benefit.  Even if you did this, someone could come along and find a convenient way to make a 'helper' method and bypass whatever structure you put in place anyway so it really isn't a guarantee. 
+ 
+ It's hard to see how it could be worth it: I recommend doing it only as a last resort and only if people are actually mixing identifiers during development or reporting difficulty keeping them straight. 
+ In web applications in particular it won't even offer the safety you're hoping for: typically you'll be converting strings into integers anyway. There are just too many cases where you'll find yourself writing silly code like this: 
+ 
+ Dealing with complex state in memory certainly improves the case for strongly-typed IDs, but I think  Arthur's idea  is even better: to avoid confusion, demand an entity instance instead of an identifier. In some situations, performance and memory considerations could make that impractical, but even those should be rare enough that code review would be just as effective without the negative side-effects (quite the reverse!). 
+ I've worked on a system that did this, and it didn't really provide any value. We didn't have ambiguities like the ones you're describing, and in terms of future-proofing, it made it slightly harder to implement new features without any payoff. (No ID's data type changed in two years, at any rate - it's could certainly happen at some point, but as far as I know, the return on investment for that is currently negative.) 
+ 
+ You can just opt for GUIDs, like you suggested yourself. Then, you won't have to worry about passing a person ID of "42" to DeleteCar() and accidentally delete the car with ID of 42. GUIDs are unique; if you pass a person GUID to DeleteCar in your code because of a programming typo, that GUID will not be a PK of any car in the database. 
+ 
+ You could create a simple   class which can help differentiate in code between the two: 
+ 
+ Used like so: 
+ 
+ Assuming your values would only be retrieved from the database, unless you explicitly cast the value to an integer, it is not possible to use the two in each other's place. 
+ 
+ I don't see much value in custom checking in this case. You might want to beef up your testing suite to check that two things are happening: 
+ 
+ Your data access code always works as you expect (i.e., you aren't loading inconsistent Key information into your classes and getting misuse because of that). 
+ That your "round trip" code is working as expected (i.e., that loading a record, making a change and saving it back isn't somehow corrupting your business logic objects).  
+ 
+ Having a data access (and business logic) layer you can trust is crucial to being able to address the bigger pictures problems you will encounter attempting to implement the actual business requirements. If your data layer is unreliable you will be spending a lot of effort tracking (or worse, working around) problems at that level that surface when you put load on the subsystem. 
+ If instead your data access code is robust in the face of incorrect usage (what your test suite should be proving to you) then you can relax a bit on the higher levels and trust they will throw exceptions (or however you are dealing with it) when abused.  
+ The reason you hear people suggesting an ORM is that many of these issues are dealt with in a reliable way by such tools. If your implementation is far enough along that such a switch would be painful, just keep in mind that your low level data access layer needs to be as robust as an good ORM if you really want to be able to trust (and thus forget about to a certain extent) your data access. 
+ Instead of custom validation, your testing suite could inject code (via dependency injection) that does robust tests of your Keys (hitting the database to verify each change) as the tests run and that injects production code that omits or restricts such tests for performance reasons. Your data layer will throw errors on failed keys (if you have your foreign keys set up correctly there) so you should also be able to handle those exceptions.  
+ 
+ My gut says this just isn't worth the hassle.  My first question to you would be whether you actually have found bugs where the wrong int was being passed (a Car ID instead of a Person ID  in your example).  If so, it is probably more of a case of worse overall architecture in that your Domain objects have too much coupling, and are passing too many arguments around in method parameters rather than acting on internal variables. 
+ 

@@ -1,0 +1,102 @@
+*** are-prepared-statements-a-waste-for-normal-queries-php ***
+
+ Nowadays, "Prepared statements" seem to be the only way anyone recommends sending queries to a database. I even see recommendations to use prepared statements for stored procs. However, do to the extra query prepared statements require - and the short time they last - I'm persuaded that they are only useful for a line of INSERT/UPDATE queries.  
+ I'm hoping someone can correct me on this, but it just seems like a repeat of the whole "Tables are evil" CSS thing. Tables are only evil if used for layouts - not tabular data. Using DIV's for tabular data is a style violation of WC3. 
+ Like wise, plain SQL (or that generated from AR's) seems to be much more useful for 80% of the queries used, which on most sites are a single SELECT not to be repeated again that page load (I'm speaking about scripting languages like PHP here). Why would I make my over-taxed DB prepare a statement that it is only to run once before being removed? 
+ MySQL: 
+ 
+ A prepared statement is specific to
+  the session in which it was created.
+  If you terminate a session without
+  deallocating a previously prepared
+  statement, the server deallocates it
+  automatically. 
+ 
+ So at the end of your script PHP will auto-close the connection and you will lose the prepared statement only to have your script re-created it on the next load. 
+ Am I missing something or is this just a way to decrease performance? 
+ :UPDATE: 
+ It dawned on me that I am assuming new connections for each script. I would assume that if a persistent connection is used then these problems would disappear. Is this correct? 
+ :UPDATE2: 
+ It seems that even if persistent connections are the solution - they are  not a very good option  for most of the web - especially if you use transactions. So I'm back to square one having nothing more than the benchmarks below to go on... 
+ :UPDATE3: 
+ Most people simply repeat the phrase "prepared statements protect against SQL injection" which doesn't full explain the problem. The provided "escape" method for each DB library  also protects against SQL injection . But it is more than that: 
+ 
+ When sending a query the normal way,
+  the client (script)  converts the data
+  into strings  that are then passed to
+  the DB server. The DB server then uses
+  CPU power to  convert them back  into
+  the proper binary datatype. The
+  database engine then parses the
+  statement and looks for syntax errors. 
+ When using prepared statements... the
+  data are sent in a native binary form,
+  which saves the conversion-CPU-usage,
+  and makes the data transfer more
+  efficient. Obviously, this will also
+  reduce bandwidth usage if the client
+  is not co-located with the DB server. 
+ ...The variable types are predefined,
+  and hence MySQL take into account
+  these characters, and they do not need
+  to be escaped. 
+ http://www.webdesignforums.net/showthread.php?t=18762 
+ 
+ Thanks to OIS for finally setting me strait on this issue. 
+ 
+ unlike the CSS tables debate, there are clear security implications with prepared statements. 
+ if you use prepared statements as the ONLY way to put user-supplied data in to a query, then they are absolutely bullet-proof when it comes to SQL injection. 
+ 
+ When you execute a sql statement on the database, the sql parser needs to analyse it beforehand, which is the exact same process as the preparation. 
+ So, comparing executing sql statements directly to preparing and executing has no disadvantages, but some advantages: 
+ 
+ First of all, as longneck already stated, passing user input into a prepared statement escapes the input automatically. It is as if the database has prepared filters for the values and lets in only those values that fit. 
+ Secondly, if use prepared statements thoroughly, and you come in the situation where you need to execute it multiple times, you don't need to rewrite the code to prepare and execute, but you just execute it. 
+ Thirdly: The code becomes more readable, if done properly: 
+ 
+ 
+ 
+ 
+ Instead of  
+ 
+ 
+ 
+ Imagine you had to change the sql statement, which code would be your favourite? ;-) 
+ 
+ Prepared Statements come in handy in several situations: 
+ 
+ Great separation of query data from untrusted user data.  
+ Performance increase when the same query is executed multiple times 
+ Performance increase when binary data is being transmitted as the prepared statement can use the binary protocol, whereas a traditional query will end up doing encoding and such. 
+ 
+ There is a performance hit under normal circumstances (not repeated, no binary data) as you now have to do two back and forths. The first to "prepare" the query, and the second to transmit the token along with the data to be inserted. Most people are willing to make this sacrifice for the security benefit.  
+ With regards to persistent connections:
+MySQL has one of the fastest connection build up times on the market. It's essentially free for most set ups, so you're not going to see too much of a change using persistent connections or not. 
+ 
+ The answer has to do with security and abstraction. Everyone else has already mentioned security, but the real upside is that your input is completely abstracted from the query itself. This allows for a true database agnosticism when using an abstraction layer, whereas inlining the input is usually a database-dependent process. If you care anything for portability, prepared statements are the way to go.  
+ In the real world, I rarely ever write DML queries. All of my INSERTS / UPDATES are automatically built by the abstraction layer and are executed by simply passing an input array. For all intents and purposes, there really is no "performance hit" for preparing queries and then executing them (save for connection latency in the initial PREPARE). But when using a UDS (Unix Domain Socket) connection, you're not going to notice (or even be able to benchmark) a difference. It's usually on the order of a few microseconds. 
+ Given the security and abstraction upsides, I'd hardly call it wasteful. 
+ 
+ The performance benefit doesn't come from less parsing - it comes from only having to calculate access paths once rather than repeatedly.  This helps a lot when you're issuing thousands of queries. 
+ Given mysql's very simple optimizer/planner this may be less of an issue than with a more mature database with much more sophisticated optimizers. 
+ However, this performance benefit can actually turn into a detriment if you've got a sophisticated optimizer that is aware of data skews.  In that case you can often be better off with getting a different access path for the same query using different literal values rather than reusing a preexisting path. 
+ 
+ When using sql queries like   the server has to parse the sql statement including the data + you have to sanitize the "mary had..." part (a call to mysql_real_escape() or similar for each parameter).
+Using prepared statements the server has to parse the statement, too, but without the the data and sends back only an identifier for the statement (a tiny tiny data packet). Then you send the actual data without first sanitizing it. I don't see the overhead here, though I freely admit I've never tested it. Have you? ;-)   
+ edit: And using prepared statements can eliminate the need to convert each and every parameter (in/out) to strings. Probably even more so if your version of php uses  mysqlnd  (instead of the "old" libmysql client library). Haven't tested the performance aspect of that either. 
+ 
+ I don't seem to be finding any good benefits to use persistent connections - or prepared statements for that mater. Look at these numbers - for 6000 select statements (which will never happen in a page request!) you can barely tell the difference. Most of my pages use less than 10 queries. 
+ 
+ UPDATED  I just revised my test to
+  include 4k SELECT and 4k INSERT
+  statements! Run it yourself and let me
+  know if there are any design errors. 
+ 
+ Perhaps the difference would be greater if my MySQL server wasn't running on the same machine as Apache. 
+ 
+ Here is my test code: 
+ 
+ 
+ Cassy is right. If you don't prepare/compile it, the dbms would have to in any case before able to run it. 
+ Also, the advantage is you could check the prepare result and if prepare fail your algo can branch off to treat an exception without wasting db resources to run the failing query. 
+ 

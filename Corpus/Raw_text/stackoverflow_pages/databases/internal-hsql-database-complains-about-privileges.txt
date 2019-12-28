@@ -1,0 +1,72 @@
+*** internal-hsql-database-complains-about-privileges ***
+
+ I'm setting up a standalone Java service with an in-process, in-memory HSQL database. 
+ **Persistence.xml**
+
+ 
+ **Code**
+
+ 
+ It would seem to me that since the database is in memory, and Hibernate should generate tables, that I don't need to do anything else. However, upon calling   I get the exception: 
+ 
+ 
+ You need to use Hibernate 3.5.6 or later, together with HSQLDB version 2.2.x or later. Otherwise, older Hibernte jars work with HSQLDB 1.8.x. The name of the table is not a problem.
+I have developed the dialect and run the Hibernate tests for this version, but Pascal knows a lot more about Hibernate usage than I do and has helped a lot of people here. 
+ 
+ I run into the same issue and none of solutions provided (really) helped me (and there are quite a few more posts here on Stackoverflow which are closely related), but I finally figured it out. Therefore I thought I share my findings (sorry for the slightly lengthy post): 
+ In my case I converted some existing UnitTests using a MySQL database to HSQLDB so that the external dependency can be removed. This all looks kind of easy if you look at descriptions like:  http://eskatos.wordpress.com/2007/10/15/unit-test-jpa-entities-with-in-memory-database/ 
+But it turned out to be a bit more tricky.  
+ I experimented with  
+ 
+ different versions (as suggested above),  
+ the   and   parameters (see:  http://hsqldb.org/doc/2.0/guide/dbproperties-chapt.html ),  
+ specifying different user credentials (username="sa", password="" is correct),  
+ specifying update, create and create-drop as hibernate.hbm2ddl.auto (see  http://docs.jboss.org/hibernate/orm/3.3/reference/en/html/session-configuration.html ), 
+ using different types of DataSources: c3p0, dbcp, ... 
+ ... 
+ 
+ But none of those really made any difference (the errors differed btw.). Apart from the   error message, the most informative one I could get was the following:
+ 
+(which translates to "Driver does not support this function") And even more explicitly I found this in the logs: 
+ 
+ So something clearly was broken. It turns out that biggest issue turns out to be a combination of two things:
+ 1. Me not properly looking through the log output, since it actually contained the clue
+ 2. An erroneous annotation 
+ **Regarding 1:**
+
+ The issue was that the output contains a huge amount of lines that looked like the following ( which can apparently be ignored , and there is even a  ticket for H2 ): 
+ 
+ **Regarding 2:**
+
+ Between all those lines were hidden the following lines, which actually gives away what the error is: 
+ 
+ So the issue is that the BaseEntity that is defined has an erroneous annotation for the id: 
+ 
+ The field is already identified as an ID (i.e. as a primary key), and therefore can not have a unique annotation (and also the   is kind of superfluous). Changing this to: 
+ 
+ and everything works fine :-) 
+ 
+ I ran into a similar problem, but in my case the problem occurred because of column definitions. I used MySQL definitions in this way: 
+ 
+ This seems to not be supported by HSQL, and I changed the definition to this: 
+ 
+ And then the tests worked again. 
+ 
+ As per the above post, I was using Hibernate 3.5.6 together with HSQLDB 2.0.1 but it was still throwing the error. I also corrected the url but of no help. Finally changed HQSL jar to 1.8.1 version from  http://sourceforge.net/projects/hsqldb/files/hsqldb/hsqldb_1_8_1/hsqldb_1_8_1_3.zip/download  and it worked 
+ 
+ I too have faced the same error. It got resolved when i gave the absolute path of script file in "connection.url". 
+ < property name="connection.url">jdbc:hsqldb:file:C:\Hibernate-example\database\mydb;shutdown=true < /property> 
+ 
+ When I had this error, I realised that I was using the wrong provider class in  
+ For Hibernate it should be 
+ 
+ And for EclipseLink it should be 
+ 
+ You should also note that different names are used in   and when creating  
+ 
+ Try explicitly specifying the SCHEMA name for the table/sequence being referenced. 
+ I just faced a similar issue where in my sequence was not being recognized and then I realized that in my Hibernate @SequenceGenerator annotation I didn't prefix the schema to the sequence ref. 
+ 
+ 
+ HSQL does not use the   but the   type. Changing it solved a similar issue for me, where it complained about required privileges. 
+ 

@@ -1,0 +1,26 @@
+*** mysql-disable-enable-keys ***
+
+ In my MySQL database,  there is a table which has 2,000,000 records. Now, I would like to insert another 6,000,000 new records into this table. 
+ To speed up the insertion, I though I should use disable/enable keys like following: 
+ 
+ But I somehow feel that, the disable/enable keys would make more sense to be used for empty table insertion.  
+ While in my case, I have already 2,000,000 records in the table, when  , mysql will re-create all the indexes (including the existing records and new added records) which probably won't produce a efficient data insertion as a whole in my case.  **As re-create all the indexes will take long time**
+ and probably so does  
+ I would like to ask your opinion about am I right and how can I have a efficent data insertion in my case? 
+ 
+ You definitely have to pick your approach based on the engine type... optimizing  for MyISAM  or  for InnoDB . 
+ We recently ran a benchmark comparing different ways to insert data and measured the time from before insertion and until all indices are fully restored. It was on an empty table, but we used up to 10 million rows. 
+ MyISAM with   and   won hands down in our test (on a Windows 7 system, MySQL 5.5.27 - now we're trying it on a Linux system). 
+ ENABLE and DISABLE KEYS does not work for InnoDB, it's MyISAM only. For InnoDB, use   if you are sure your data doesn't contain duplicates (don't forget to set them to   after the upload is complete). 
+ I don't think you need   after a bulk insert - MySQL rows are ordered by insertion and the index is rebuilt anyway. There's no "extra fragmentation" by doing a bulk insert. 
+ Feel free to comment if I made factual errors. 
+ **UPDATE:**
+ According to our more recent and complete test results, the advice to DISABLE / ENABLE keys is wrong. 
+ A coworker had a program run multiple different tests - a table with InnoDB / MyISAM prefilled and empty, selection and insertions speeds with  ,  ,   and  , on "dense" and "fragmented" tables (I'm not quite sure how, I think it was along the lines of   with a fixed seed so it's still comparable) and enabled and diasabled indices. 
+ We tested it with many different MySQL versions (5.0.27, 5.0.96, 5.1.something, 5.5.27, 5.6.2) on Windows and Linux (not the same versions on both OS, though). MyISAM only won when the table was empty. InnoDB was faster when data was present already and generally performed better (except for hdd-space - MyISAM is smaller on disk). 
+ Still, to really benefit from it, you have to test it yourself - with different versions, different configuration settings and a lot of patience - especially regarding weird inconsistencies (5.0.97 was a lot faster than 5.5.27 with the same config - we're still searching the cause).  **What we did find was**
+ that   and   are next to worthless and sometimes harmfull if you don't start with an empty table. 
+ 
+ Indexing the new keys will take up some time. It's up to you to decide if you want it to be done all at once (disabling it first) or one at a time (by keeping it as-is and letting it index as each record is being added) 
+ I'd go for the latter, not disabling your keys. If you fear stressing the server to much, you could try inserting in batches, e.g. only a certain amount of inserts per minute. 
+ 

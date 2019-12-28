@@ -1,0 +1,33 @@
+*** whats-the-best-strategy-to-sync-redis-data-to-mysql ***
+
+ 
+ The use case is to use Redis to be local cache of MySQL 
+ The data format in MySQL is: a single primary key and several other fields. There will not be queries cross table of db 
+ Redis key is primary key in MySQL, and value is hash containing other fields in MySQL 
+ When power off, less than one minute data lose is acceptable. 
+ 
+ My solution is: 
+ 
+ Redis writes AOF file, some process will monitor this file and sync the updated datas to MySQL 
+ Hack Redis to write AOF in several files, just like MySQL binlog 
+ The data interface will only read and write through Redis 
+ 
+ Is this solution OK?  
+And what's the best strategy to do this job? 
+ 
+ You don't need to hack anything ;) 
+ I am not entirely sure why you need the data on mysql. If I knew, maybe there would be a more suitable answer. In any case, as a generic answer you can use  redis keyspace notifications 
+ You could subscribe to the commands HSET, HMSET, HDEL and DEL on your keys, so you would get a notification everytime a key is deleted or a hash value is set or removed. 
+ Note if you miss any notification you would have an inconsistency. So once in a while you could just use the SCAN command to go through all your keys and check on mysql if they need to be updated. 
+ Another strategy could be maintaining two separate structures. One would be the hash with the values, and the other would be a ZSET of all the values sorted by timestamp of update. The best way to keep both structures up to date would be to write two or three lua scripts (insert/update and delete) that would operate on the hash and the zset atomically. 
+ Then you can just periodically query the ZSET for the elements with a timestamp higher than your last sync operation, get all the keys that were updated (it would include deleted keys, unless you want to keep a second ZSET exclusively for those) and then just retrieve all the elements by key and sync to mysql. 
+ Hope it will work for you! 
+ 
+ you can implement redis  replication  protocol. 
+but there is a  github project  for your demands.   
+ the stable version is 2.5.0   
+ 
+ 
+ When you update values in Redis,you can put the values in other 'Queue', such as List in Redis.Then consuming the values in Queue and update Mysql. 
+ If the Redis data isn't too much,just using a Scheduler to batch flush all data to Mysql. 
+ 

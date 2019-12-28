@@ -1,0 +1,54 @@
+*** c-sharp-working-with-entity-framework-in-a-multi-threaded-server ***
+
+ What is the best practice for working with entity framework in a multi threaded server?
+I'm using entity framework   to manage all my database actions, now I know this context isn't thread safe, so for now when I need to use it to perform some db actions I surround it with   statement to be safe. Is this how I should do it?? 
+ 
+ Some quick advices for Entity Framework in a multi-threaded environment: 
+ 
+ Don't use a unique context with   (no singleton pattern) 
+ Provide  stateless services  (you need to instantiate and dispose  **one context per request**
+) 
+ **Shorten the context lifetime as much as possible**
+
+ Do implement a  concurrency-control system . Optimistic concurrency can be easily implemented with Entity Framework ( how-to ). This will ensure you don't overwrite changes in the DB when you use an entity that is not up-to-date 
+ 
+ 
+ 
+ I'm a bit confused, I thought that using one context is good because
+  it does some catching I believe, so when I'm dealing with the same
+  entity in consecutive requests it be much faster to use the same
+  context then creating a new context every time. So why does it good to
+  use it like this if It slower and still not thread safe? 
+ 
+ You  could  use only one context, but it's strongly discouraged  **unless you really know what you are doing**
+. 
+ I see two main problems that often happen with such an approach: 
+ 
+ you'll use a lot of memory as your context will never be disposed and all manipulated entities will be cached in memory (each entity that appears in the result of a query is cached). 
+ you'll face lots of concurrency issues if you modify you data from another program/context. For example, if you modify something directly in your database and the associated entity was already cached in your unique context object, then your context  **won't ever know about the modification**
+ that was made directly in the database. You'll work with a cached entity that is not up-to-date, and trust me, it'll lead to hard-to-find-and-fix issues. 
+ 
+ **Also don't worry about performances of using multiple contexts**
+: the overhead of creating/disposing a new context per request is almost insignificant in 90% of use cases. Remember that creating a new context does not necessarily create a new connection to the database (as the database generally uses  a connection pool). 
+ 
+ 
+ Is this how I should do it?? 
+ 
+ No. At a minimum, use a context per thread but I strongly encourage you to think of a context as unit of work, and thus use a context per unit of work per thread. 
+ It's up to you to define "unit of work" for your application. But don't use   to use a context across multiple threads. It doesn't scale. 
+ 
+ You are treating ObjectContext like it is an extremely expensive entity, so you are instantiating once and then treating it as a "facade". There is no need to do this. If, for no other reason, the connections are pooled underneath the hood and cost very little (microsecond? - probably less?) to completely set up the "chain of objects" to use the ObjectContext abstraction. 
+ The ObjectContext, much like direct use of SqlConnection, etc., is designed to be used with an "instantiate as late a possible and dump as soon as possible" methodology. 
+ EF gives you some safety in that you have the ability to test whether you have the latest objects prior to committing (Optimistic Concurrency). This does not mean "thread safe", per se, but it accomplishes the same thing if you respect the rules.  
+ 
+ Typically the ObjectContext shouldn't be used globally throughout the application.  You should create new ObjectContexts frequently and dispose old ones.  They certainly aren't threadsafe either.  If you continue to use the same ObjectContext (depending on the lifetime of your application) it is easy to get an out of memory exception if you modify massive amounts of data since references to entities that you change are held by the object context. 
+ 
+ I create a new Context for each atomic operation and dispose the context. As far as i know from books and articles, i prefer to keep life time of Context as short as possible. (but it depend on you approach and you application type, winform or web) 
+ Please find more information at great article.
+ http://www.west-wind.com/weblog/posts/2008/Feb/05/Linq-to-SQL-DataContext-Lifetime-Management 
+ Good books:  http://books.google.co.th/books?id=Io7hHlVN3qQC&pg=PA580&lpg=PA580&dq=DbContext+lifetime+for+desktop+application&source=bl&ots=ogCOomQwEE&sig=At3G1Y6AbbJH7OHxgm-ZvJo0Yt8&hl=th&ei=rSlzTrjAIovOrQeD2LCuCg&sa=X&oi=book_result&ct=result&resnum=2&ved=0CCgQ6AEwAQ#v=onepage&q&f=false 
+ Existing discussion at  Datacontext Lifetime in WinForm Binding Scenario 
+ 
+ I use entity framework in a multi-threaded environment, where any thread, ui and background (both STA and MTA), can concurrently update the same database. I resolved this problem by re-creating the entity connection from scratch at the start of usage on any new background thread. Examining the entity connection instance ConnectionString shows a reader guid which I assume is used to link common connection instances. By recreating the entity connection from scratch the guid values are different for each thread and no conflict appears to occur. Note the assembly is only required to be the same assembly as the model resides. 
+ 
+ 

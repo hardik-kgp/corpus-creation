@@ -1,0 +1,42 @@
+*** is-there-a-performance-hit-using-decimal-data-types-mysql-postgres ***
+
+ I understand how integer and floating point data types are stored, and I am guessing that the variable length of decimal data types means it is stored more like a string.  
+ Does that imply a performance overhead when using a decimal data type and searching against them? 
+ 
+ Pavel has it quite right, I'd just like to explain a little. 
+ Presuming that you mean a performance impact as compared to floating point, or fixed-point-offset integer (i.e. storing thousandsths of a cent as an integer): Yes, there is very much a performance impact. PostgreSQL, and by the sounds of things MySQL, store   /   in binary-coded decimal. This format is more compact than storing the digits as text, but it's still not very efficient to work with. 
+ If you're not doing many calculations in the database, the impact is limited to the greater storage space requried for BCD as compared to integer or floating point, and thus the wider rows and slower scans, bigger indexes, etc. Comparision operations in b-tree index searches are also slower, but not enough to matter unless you're already CPU-bound for some other reason. 
+ If you're doing lots of calculations with the   /    values in the database, then performance can really suffer. This is particularly noticeable, at least in PostgreSQL, because Pg can't use more than one CPU for any given query. If you're doing a huge bunch of division & multiplication, more complex maths, aggregation, etc on numerics you can start to find yourself CPU-bound in situations where you would never be when using a float or integer data type. This is particularly noticeable in OLAP-like (analytics) workloads, and in reporting or data transformation during loading or extraction (ETL). 
+ Despite the fact that there  is  a performance impact (which varies based on workload from negligible to quite big) you should generally use   /   when it is the most appropriate type for your task - i.e. when very high range values must be stored and/or rounding error isn't acceptable. 
+ Occasionally it's worth the hassle of using a bigint and fixed-point offset, but that is clumsy and inflexible. Using floating point instead is very rarely the right answer due to all the challenges of working reliably with floating point values for things like currency. 
+ (BTW, I'm quite excited that some new Intel CPUs, and IBM's Power 7 range of CPUs, include hardware support for IEEE 754 decimal floating point. If this ever becomes available in lower end CPUs it'll be a huge win for databases.) 
+ 
+ A impact of decimal type (Numeric type in Postgres) depends on usage. For typical OLTP this impact could not be significant - for OLAP can be relative high. In our application a aggregation on large columns with numeric is more times slower than for type double precision.  
+ Although a current CPU are strong, still is rule - you should to use a Numeric only when you need exact numbers or very high numbers. Elsewhere use float or double precision type.  
+ 
+ You are correct: fixed-point data is stored as a ( packed BCD ) string. 
+ To what extent this impacts performance depends on a range of factors, which include: 
+ 
+ Do queries utilise an index upon the column? 
+ Can the CPU perform BCD operations in hardware, such as through  Intel's BCD opcodes ? 
+ Does the OS harness hardware support through library functions? 
+ 
+ Overall, any performance impact is likely to be pretty negligable relative to other factors that you may face: so  don't worry about it .  Remember Knuth's maxim, "premature optimisation is the root of all evil". 
+ 
+ 
+ I am guessing that the variable length of decimal data types means it
+  is stored more like a string. 
+ 
+ Taken from MySql document  here   
+ The document says 
+ 
+ as of MySQL 5.0.3
+  Values for DECIMAL columns no longer are represented as strings that
+  require 1 byte per digit or sign character. Instead, a binary format
+  is used that packs nine decimal digits into 4 bytes. This change to
+  DECIMAL storage format changes the storage requirements as well. The
+  storage requirements for the integer and fractional parts of each
+  value are determined separately. Each multiple of nine digits requires
+  4 bytes, and any remaining digits require some fraction of 4 bytes. 
+ 
+ 

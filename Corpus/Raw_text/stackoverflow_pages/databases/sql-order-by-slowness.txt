@@ -1,0 +1,149 @@
+*** sql-order-by-slowness ***
+
+ Is it true that   is generally pretty slow? I am trying to run some sql statements where the   clause is pretty simple, but then I am trying an   on a   indexed column. 
+ I need to sort alphabetically for display reasons. I figured that getting the database to do it for me is the most efficient.  
+ At this point, I am looking to either  
+ 
+ optimize the sql query 
+ sort the result set in code  
+ 
+ Here is the actual query I am trying to run: 
+ 
+ The size of table A is ~2000 rows and B is about ~500. 
+ I should probably also mention that I cannot do much database specific optimization since we support multiple databases. Also, the application is deployed at a customer site. 
+ I am expecting hundreds of records to be returned (less than 1000). 
+ What would you do? Any tips are appreciated. Thanks. 
+ 
+ Order by on an indexed field should  not  be slow as it can pull the data in index order.  You might want to put up information about the database structure (the DDL) and the actual query so people can take a look. 
+ You absolutely should use a SQL sort rather than a code sort where possible so you are on the right track there. 
+ **UPDATE:**
+ 
+Ok, a few things.  First, you should not use the " +loadedModuleName+" construct as it makes each query unique and screws up the optimizer.  Use a parameter.  Second, your Order by clause is ambiguous as to whether it is table A or B - make this explicit and choose the table with the Index (even if both have indices, make it explicit).  Finally, your "Previous" field can still be indexed even as a char(1).  I would do everything but the last suggested index, test speed and, if still slow, go for the index and check again. 
+ **UPDATE**
+ So you'll be returning <1000 records but what is the size of the table in total?  
+ **UPDATE**
+ Oh, man, I'm sorry I didn't catch this before.  If you want to deploy it correctly on SQL Server, your query should be: 
+ 
+ Try this and I will almost guarantee you'll see a huge speed-up. 
+ 
+  is not generally slow, provided that the database can find an index that corresponds with the   expression. 
+ However, your SQL statement might include other things that force the database to scan the entire table before returning the results, like  
+ 
+ If your filter looks like this: 
+ 
+ , then you'll need to create an index on  . 
+ The optimizer will use the index both to filter on the first three values and to order by the fourth one. 
+ If you don't have such an index, then one of the following will happen: 
+ 
+ Optimizer will use an index on to filter on the   condition, but it will still have to   remaining rows.  
+ Optimizer will use an index to   the values, but ALL values will need to be looked upon to filter them out. 
+ Optimizer will not use an index at all, so both cons from 2 "ALL values will need to be looked upon to filter them out" and 1 "all remaining rows have to be ordered" are true.  
+ 
+ 
+ **UPDATE**
+: As the query you posted, I think the best option is to consider the query as good because: 
+ 
+ For few rows, don't care about who do the work. Then the easier for you is use the  . 
+ For a lot of rows, don't leave the client do the work: The RDMBS it's more specialized and sure the server have more memory and CPU. 
+ 
+ 
+ The tips for orders you have to consider are: 
+ 
+  is the  **ONLY**
+ way to warranty sort on a SQL query.  
+ The  **best**
+  worker  on sorting is the database in any case: BE SURE ON THIS! 
+ Try to minimize the cardinality for returned rows. 
+ Create indexes according the query. It means put the ordered columns last on the index.  
+ Avoid indexing if the query is fast. 
+ You can consider that the indexes are sorted, then if you sort for only a table and have good indexes the sort can have cost near zero. 
+ 
+ For more rules of thumb about indexes look for  this other SO question . 
+ 
+  is not particularly slow, especially if there is an index on that column. In particular, if you have a  clustered  index on that column, the data is already sorted. 
+ You can also use paging (  or  ) etc to help. 
+ 
+ Keep in mind that many query editors will show results after just the first 50 or so have come back from the database. 
+ Adding an ORDER BY will force it to wait on the database for  all  results, which will reveal the real speed of the query. 
+ In those cases, the original query and the ORDERed one are the same speed; you were just fooled into thinking the first one was fast, because your editor was quick to get the top 50 or so rows. 
+ 
+ I did some performance testing last night on a more production-type database (not the developer one) and here is what I found: 
+ Total rows in table A:  13000 
+ Total rows in table B:  5000 
+ Rows returned by join query : 5000 
+ Time taken if using with ORDER BY clause: ~5.422 seconds 
+ Time taken if not using ORDER BY clause: ~5.345 seconds. 
+ So it looked like the ORDER BY wasnt making much of a difference. (I am okay with the few milliseconds added). 
+ I also tested by setting all B.SYNTAX values to NULL to make sure that it wasnt just the network latency with transferring so much data.   
+ **Now I removed the B.SYNTAX from the SELECT clause and the query took only 0.8 seconds!**
+
+ So it seems that the whole CLOB column is the bottleneck. Which doesnt mean that I have gotten the solution to making this query faster, but at least I wont spend time writing a sorting algorithm. 
+ Thanks to all who replied. I learned quite a bit and it led me to try a few different things out. 
+ 
+ If you are selecting few enough rows to display, it's not conceivable that the   clause would take any perceptible amount of time unless you are limiting the number of rows returned with   or  . 
+ We need more info. What dbms? What does the query plan look like? Have you looked at query plans with and without  ? What differences do you see? 
+ 
+ EDIT: 
+ 
+ Is   the  ?
+Is there an   on  ?  By itself, or with other fields? In what sequence? 
+How many rows are returned for one loadedModuleName? 
+I suspect slowness comes from "   Try using   which I think is equivalent and may help a bit. 
+Time the query with and without the   and see if the timing is at all different. It shouldn't be. 
+ 
+EDIT:
+
+ If   is not unique in either   or  , your join is going to go partially ballistic when every   instance becomes cross-joined on  . If 50 A rows match and 50 B rows match, you'll end up with 2500 result rows, which may not be what you intend. 
+ 
+ It shouldn't be slow. Optimize your query and database structure (at least indexes and statistcs if it's SQL Server). Maybe there is some other thing in your query other than   which causes this slowness? 
+ 
+ **Option 1**
+
+ If you're quering just a few simple columns (2-4), you can include them into the index as well. This way your query will be ran faster. Also make sure that sorting order on that index column matches sorting order in your query. 
+ 
+ **Option 3**
+
+ Create a   and bind it to the  . Then query data from that  . 
+ **Option 3**
+
+ If you use   and obove, you can also try to run you query in  **SQL Server Profiler**
+ and it will recommend to you the best index and statistics which you can apply to your table in order to optimize this particular query's performance. 
+ **Option 4**
+
+ Try to rebuild your indexes and statistics. 
+ **Option 5**
+
+ You can try putting you index/table into separate filegroup on different hard drive. 
+ 
+ It's not a fair statement to say that "order by" is slow in and of itself. You have many RDBM's to consider as far as their own implementation, and the data type and indexing scheme. I would, however, doubt that you can sort it faster client-side than you can on the server, but that isn't to say that sorting it on the server is the right thing to do. 
+ 
+ There are a  lot  of issues at play here. 
+ In terms of pure performance and  assuming things like indexes are set up correctly , databases are very good at sorting.   For one query in isolation , sorting at the the database is probably fastest. 
+ Unfortunately, in practice the database often becomes the bottleneck for an app.  Anything you can do to move work away from the database will improve your overall application throughput.  That includes moving sort operations to a less-busy business, web, or presentation tier.  The presentation tier may not be able to sort one query as efficiently, but it might be better positioned to handle that overall load.  This is especially true when you can reliably push that work all the way to individual end-user machines, though that can be problematic. 
+ On the other hand, there's more to consider here than pure performance.  You also want to think about future maintenance.  What's more maintainable than a simple "ORDER BY" clause?  That's only one line of code, compared to who knows how much extra programmer work to get a sort working elsewhere.  This might be a case where you're better off throwing some money at the problem to make sure your database is simply able to maintain an  acceptable  level of performance, sorts and all.   
+ Even here the issue isn't cut and dried.  There's a school of thought that believes sorting really should be considered a function of the presentation tier anyway, and that ultimately the presentation tier is also the more maintainable place to do this work.  I don't subscribe to that theory, but it is out there. 
+ 
+ ORDER BY forces the RDBMS to sort. 
+ Sorting requires resources that may not be present on your RDBMS server. 
+ In some cases (i.e., single-table queries) you can write an ORDER BY that matches the indexes -- and if your RDBMS guarantees that tables are kept in an index order -- it might be zero cost.  [A DB design which depends on a lot of single-table queries can be improved even more by discarding the RDBMS and using files.] 
+ Generally, ORDER BY is going to have to sort. 
+ "I figured that getting the database to do it for me is the most efficient."   
+ That assumption is faulty.  The database is not necessarily more efficient than your program outside the database.   
+ 
+ Sorting on the client, is in my opinion something you should not do. Database engines are optimized for sorting data. 
+ Like others said, if you can limit the number of rows you select, this will run faster. 
+ Answering the following questions could help go further: 
+ 
+ How many rows are returned by the
+query ?    
+ How many columns are being selected ?    
+ Do you join with any tables ?    
+ How long does it take with / without
+the ORDER BY ? 
+ 
+ 
+ There are a ton of really good suggestions here, but there is one minor thing I don't see that I'd like to comment on. 
+ What database are you using? As someone who spends a ton of time on MySQL the thing that jumps out at me is the OR statement. MySQL can be  really  stupid with ORs. I've seen it be faster to do two selects and UNION them together. 
+ If your row count is large (in the table, not returned) that could be a factor. 
+ Otherwise I'd agree with the other posts. Indexes should make it fast, and it's often better to let the DB do it rather than handle it yourself. The DB knows what it's doing. Unless you have a REALLY big data set and want to shift the sorting burden to the client (so the DB can take more queries), I'd let the DB do the sorting work. 
+ 

@@ -1,0 +1,90 @@
+*** how-can-i-analyse-13gb-of-data ***
+
+ I have ~300 text files that contain data on trackers, torrents and peers. Each file is organised like this: 
+ **tracker.txt**
+
+ 
+ I have several files per tracker and much of the information is repeated (same information, different time). 
+ I'd like to be able to analyse what I have and report statistics on things like 
+ 
+ How many torrents are at each tracker 
+ How many trackers are torrents listed on 
+ How many peers do torrents have 
+ How many torrents to peers have 
+ 
+ The sheer quantity of data is making this hard for me to. Here's What I've tried. 
+ **MySQL**
+
+ I put everything into a database; one table per entity type and tables to hold the relationships (e.g. this torrent is on this tracker). 
+ Adding the information to the database was slow (and I didn't have 13GB of it when I tried this) but analysing the relationships afterwards was a no-go. Every mildly complex query took over 24 hours to complete (if at all). 
+ An example query would be: 
+ 
+ I tried bumping up the memory allocations in my   file but it didn't seem to help. I used the   settings file. 
+ EDIT: Adding table details 
+ Here's what I was using: 
+ 
+ There are no foreign keys. I was confident in my ability to only use IDs that corresponded to existing entities, adding a foreign key check seemed like a needless delay. Is this naive? 
+ **Matlab**
+
+ This seemed like an application that was designed for some heavy lifting but I wasn't able to allocate enough memory to hold all of the data in one go. 
+ I didn't have numerical data so I was using cell arrays, I moved from these to tries in an effort to reduce the footprint. I couldn't get it to work. 
+ **Java**
+
+ My most successful attempt so far. I found an implementation of Patricia Tries provided by the people at Limewire. Using this I was able to read in the data and count how many unique entities I had: 
+ 
+ 13 trackers 
+ 1.7mil torrents 
+ 32mil peers 
+ 
+ I'm still finding it too hard to work out the frequencies of the number of torrents at peers. I'm attempting to do so by building tries like this: 
+ 
+ From what I've been able to do so far, if I can get this   trie built then I can easily find out how many torrents are at each peer. I ran it all yesterday and when I came back I noticed that the log file wan't being written to, I   the application and   reported the following: 
+ 
+ This doesn't look right to me, should user and sys be so low? I should mention that I've also increased the JVM's heap size to 7GB (max and start), without that I rather quickly get an out of memory error. 
+ I don't mind waiting for several hours/days but it looks like the thing grinds to a halt after about 10 hours. 
+ I guess my question is, how can I go about analysing this data? Are the things I've tried the right things? Are there things I'm missing? The Java solution seems to be the best so far, is there anything I can do to get it work? 
+ 
+ I would give MySQL another try but with a different schema: 
+ 
+ do not use id-columns here 
+ use natural primary keys here:  
+ 
+ **Peer**
+: ip, port 
+ **Torrent**
+: infohash 
+ **Tracker**
+: url 
+ **TorrentPeer**
+: peer_ip, torrent_infohash, peer_port, time 
+ **TorrentTracker**
+: tracker_url, torrent_infohash, time 
+ use innoDB engine for all tables 
+ 
+ This has several advantages: 
+ 
+ InnoDB uses clustered indexes for primary key. Means that all data can be retrieved directly from index without additional lookup when you only request data from primary key columns. So InnoDB tables are somewhat index-organized tables. 
+ Smaller size since you do not have to store the surrogate keys. -> Speed, because lesser IO for the same results. 
+ You may be able to do some queries now without using (expensive) joins, because you use natural primary and foreign keys. For example the linking table   directly contains the   as foreign key to the peer table. If you need to query the torrents used by peers in a subnetwork you can now do this without using a join, because all relevant data is in the linking table. 
+ 
+ If you want the torrent count per peer and you want the peer's ip in the results too then we again have an advantage when using natural primary/foreign keys here. 
+ With your schema you have to join to retrieve the ip: 
+ 
+ With natural primary/foreign keys: 
+ 
+ **EDIT**
+
+Well, original posted schema was not the real one. Now the   table has a   field. I would suggest to use primary key (ip, port) here and still drop the id column. This also means that the linking table needs to have multicolumn foreign keys. Adjusted the answer ... 
+ 
+ You state that your MySQL queries took too long. Have you ensured that proper indices are in place to support the kind of request you submitted? In your example, that would be an index for   (or even a nested index  ) and an index for  . 
+ As I understand you Java results, you have much data but not that many different strings. So you could perhaps save some time by assigning a unique number to each tracker, torrent and peer. Using one table for each, with some indexed value holding the string and a numeric primary key as the id. That way, all tables relating these entities would only have to deal with those numbers, which could save a lot of space and make your operations a lot faster. 
+ 
+ If you could use C++, you should take a look at  Boost flyweight . 
+ Using flyweight, you can write your code as if you had strings, but each instance of a string (your tracker name, etc.) uses only the size of a pointer. 
+ Regardless of the language, you should convert the IP address to an int (take a look at  this question ) to save some more memory. 
+ 
+ You most likely have a problem that can be solved by NOSQL  and distributed technologies. 
+ i) I would write a distributed system using Hadoop/HBase.  
+ ii) Rent several tens / hundred AWS machines, but only for a few seconds (It'll still cost you less than a $0.50) 
+ iii) Profit!!! 
+ 

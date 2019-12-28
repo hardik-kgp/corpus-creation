@@ -1,0 +1,44 @@
+*** sqliteopenhelper-onupgrade-confusion-android ***
+
+ I am doing my first app with a database and I am having a little trouble understanding the onUpgrade function.  My database has a table with an items and a favorite column so that the user can favorite an item.  Most implementations I see simply drop the table and reconstruct it but I don't want to do this. I want to be able to add more items to the table.   
+ When the app is upgraded through the android marketplace does the database know its version number?  So could I increment the version number in the code and then export it to the marketplace and when the user boots up the upgraded version for the first time then onUpgrade will be called?   
+ If this is the case my onUpgrade would simply pull from a file and add the database items in.  Is this a standard way of doing things or is there a better way of handling this in Android.  I am trying to stay as standard as possible. 
+ Thanks 
+ 
+ Ok, before you run into bigger problems you should know that SQLite is limited on the ALTER TABLE command, it allows   and   only no remove/drop which is done with recreation of the table.  
+ You should always have the new table creation query at hand, and use that for upgrade and transfer any existing data. Note: that the onUpgrade methods runs one for your sqlite helper object and you need to handle all the tables in it. 
+ **So what is recommended onUpgrade:**
+
+ 
+ beginTransaction 
+ run a table creation with   (we are doing an upgrade, so the table might not exists yet, it will fail alter and drop) 
+ put in a list the existing columns  
+ backup table ( ) 
+ create new table (the newest table creation schema) 
+ get the intersection with the new columns, this time columns taken from the upgraded table ( ) 
+ restore data ( ) 
+ remove backup table ( ) 
+ setTransactionSuccessful 
+ 
+ (This doesn't handle table downgrade, if you rename a column, you don't get the existing data transfered as the column names do not match). 
+ . 
+ 
+ 
+ Next to Pentium10's excellent answer, here are some good examples from living code: 
+ 
+ Android AOSP:  com.android.providers.calendar.CalendarDatabaseHelper.java 
+ Android AOSP:  com.android.browser.BrowserProvider.java 
+ OpenIntents Notepad:  org.openintents.notepad.NotePadProvider.java 
+ 
+ 
+ Thank you for clarifying that onUpgrade() will not support Remove/Drop statements @Pentium 10 
+ For those of you who would like to know the exact moment when onUpgrade() gets called, it is during a call to either getReadableDatabase() or getWriteableDatabase(). 
+ To those who are not clear how it ensure it gets triggered...the answer is:  It is triggered when the database version provided to the constructor of SqLiteOpenHelper is updated . Here is a example 
+ 
+ now to...onUpgrade() 
+ 
+ 
+ I've been using the solution proposed by @Pentium10 for a long time but today i had a problem, after doing alter table, getColumns from the original table still returns the same columns (in the new version of the db the table suffer mayor structure changes, some columns added some others), really i don't know why select statement does not reflect the structure changes, more over before creating my table again, select statement still returns the columns! When the table is not re-created yet! 
+ So i manage solving this issue updating getColumns method using  , like this: 
+ 
+ 

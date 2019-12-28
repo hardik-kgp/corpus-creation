@@ -1,0 +1,139 @@
+*** creating-a-spell-check-that-checks-against-a-database-with-a-reasonable-runtim ***
+
+ I'm not asking about implementing the spell check algorithm itself. I have a database that contains hundreds of thousands of records. What I am looking to do is checking a user input against a certain column in a table for all these records and return any matches with a certain hamming distance (again, this question's not about determining hamming distance, etc.). The purpose, of course, is to create a "did you mean" feature, where a user searches a name, and if no direct matches are found in the database, a list of possible matches are returned. 
+ I'm trying to come up with a way to do all of these checks in the most reasonable runtime possible. How can I check a user's input against all of these records in the most efficient way possible? 
+ The feature is currently implemented, but the runtime is exceedingly slow. The way it works now is it loads all records from a user-specified table (or tables) into  memory  and then performs the check. 
+ For what it's worth, I'm using NHibernate for data access. 
+ I would appreciate any feedback on how I can do this or what my options are. 
+ 
+ Calculating Levenshtein distance doesn't have to be as costly as you might think.  The code in the  Norvig article  can be thought of as psuedocode to help the reader understand the algorithm.  A much more efficient implementation (in my case, approx 300 times faster on a 20,000 term data set) is to walk a  trie .  The performance difference is mostly attributed to removing the need to allocate millions of strings in order to do dictionary lookups, spending much less time in the GC, and you also get better locality of reference so have fewer CPU cache misses.  With this approach I am able to do lookups in around 2ms on my web server.  An added bonus is the ability to return all results that start with the provided string easily. 
+ The downside is that creating the trie is slow (can take a second or so), so if the source data changes regularly then you need to decide whether to rebuild the whole thing or apply deltas.  At any rate, you want to reuse the structure as much as possible once it's built. 
+ 
+ As Darcara said, a BK-Tree is a good first take.  They are very easy to implement.  There are several free implementations easily found via Google, but a better introduction to the algorithm can be found here:  http://blog.notdot.net/2007/4/Damn-Cool-Algorithms-Part-1-BK-Trees . 
+ Unfortunately, calculating the Levenshtein distance is pretty costly, and you'll be doing it a lot if you're using a BK-Tree with a large dictionary.  For better performance, you might consider Levenshtein Automata.  A bit harder to implement, but also more efficient, and they can be used to solve your problem.  The same awesome blogger has the details:  http://blog.notdot.net/2010/07/Damn-Cool-Algorithms-Levenshtein-Automata .  This paper might also be interesting:  http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.16.652 . 
+ 
+ I guess the  Levenshtein distance  is more useful here than the  Hamming distance . 
+ Let's take an example: We take the word   and restrict ourselves to a Levenshtein distance of 1. Then we can enumerate all possible misspellings that exist: 
+ 
+ 1 insertion (208)
+
+ 
+ aexample 
+ bexample 
+ cexample 
+ ... 
+ examplex 
+ exampley 
+ examplez 
+ 
+ 1 deletion (7)
+
+ 
+ xample 
+ eample 
+ exmple 
+ ... 
+ exampl 
+ 
+ 1 substitution (182)
+
+ 
+ axample 
+ bxample 
+ cxample 
+ ... 
+ examplz 
+ 
+ 
+ You could store each misspelling in the database, and link that to the correct spelling,  . That works and would be quite fast, but creates a huge database. 
+ Notice how most misspellings occur by doing the same operation with a different character: 
+ 
+ 1 insertion (8)
+
+ 
+ ?example 
+ e?xample 
+ ex?ample 
+ exa?mple 
+ exam?ple 
+ examp?le 
+ exampl?e 
+ example? 
+ 
+ 1 deletion (7)
+
+ 
+ xample 
+ eample 
+ exmple 
+ exaple 
+ examle 
+ exampe 
+ exampl 
+ 
+ 1 substitution (7)
+
+ 
+ ?xample 
+ e?ample 
+ ex?mple 
+ exa?ple 
+ exam?le 
+ examp?e 
+ exampl? 
+ 
+ 
+ That looks quite manageable. You could generate all these "hints" for each word and store them in the database. When the user enters a word, generate all "hints" from that and query the database. 
+ Example: User enters   (notice missing  ). 
+ 
+  with 1 insertion ==   ==   with 1 substitution 
+ See also:  How does the Google “Did you mean?” Algorithm work? 
+ 
+ 
+ it loads all records from a user-specified table (or tables) into memory and then performs the check 
+ 
+ don't do that 
+ Either  
+ 
+ Do the match match on the back end
+and only return the results you need. 
+ 
+ or  
+ 
+ Cache the records into memory early
+on a take the working set hit and do
+the check when you need it. 
+ 
+ 
+ You will need to structure your data differently than a database can. Build a custom search tree, with all dictionary data needed, on the client. Although memory might become a problem if the dictionary is extremely big, the search itself will be very fast. O(nlogn) if I recall correctly. 
+ Have a look at  BK-Trees 
+ Also, instead of using the Hamming distance, consider the  Levenshtein distance 
+ 
+ The answer you marked as correct..  
+ 
+ Another way you can improve its performance by creating an inverted index of words.  
+ So rather than calculating the edit distance against whole db, you create 26 dictionary.. each has a key an alphabet. so english language has 26 alphabets.. so keys are "a","b".. "z" 
+ So assume you have word in your db "apple" 
+ So in the "a" dictionary : you add the word "apple" 
+ in the "p" dictionary: you add the word "apple" 
+ in the "l" dictionary: you add the word "apple" 
+ in the "e" dictionary : you add the word "apple" 
+ So, do this for all the words in the dictionary.. 
+ Now when the misspelled word is entered..  
+ lets say aplse 
+ you start with "a" and retreive all the words in "a" 
+ then you start with "p" and find the intersection of words between "a" and "p" 
+ then you start with "l" and find the intersection of words between "a", "p" and "l" 
+ and you do this for all the alphabetss. 
+ in the end you will have just the bunch of words which are made of alphabets "a","p","l","s","e" 
+ In the next step, you calculate the edit distance between the input word and the bunch of words returned by the above steps.. thus drastically reducing your run time.. 
+ now there might be a case when nothing might be returned..  
+ so something like "aklse".. there is a good chance that there is no word which is made of just these alphabets..
+In this case, you will have to start reversing the above step to a stage where you have finite numbers of word left. 
+ So somethng like start with *klse (intersection between words k, l,s,e) num(wordsreturned) =k1 
+ then a*lse( intersection between words a,l,s,e)... numwords = k2 
+ and so on..
+choose the one which have higher number of words returned.. in this case, there is really no one answer.. as a lot of words might have same edit distance.. you can just say that if editdistance is greater than "k" then there is no good match... 
+ There are many sophisticated algorithms built on top of this..  
+ like after these many steps, use statistical inferences (probability the word is "apple" when the input is "aplse".. and so on) Then you go machine learning way :) 
+ 

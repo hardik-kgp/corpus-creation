@@ -1,0 +1,162 @@
+*** how-does-database-indexing-work ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  last year . 
+ 
+ 
+ 
+ Given that indexing is so important as your data set increases in size, can someone explain how indexing works at a database-agnostic level? 
+ For information on queries to index a field, check out  How do I index a database column . 
+ 
+ **Why is it needed?**
+
+ When data is stored on disk-based storage devices, it is stored as blocks of data. These blocks are accessed in their entirety, making them the atomic disk access operation. Disk blocks are structured in much the same way as linked lists; both contain a section for data, a pointer to the location of the next node (or block), and both need not be stored contiguously. 
+ Due to the fact that a number of records can only be sorted on one field, we can state that searching on a field that isn’t sorted requires a Linear Search which requires   block accesses (on average), where   is the number of blocks that the table spans. If that field is a non-key field (i.e. doesn’t contain unique entries) then the entire tablespace must be searched at   block accesses. 
+ Whereas with a sorted field, a Binary Search may be used, which has   block accesses. Also since the data is sorted given a non-key field, the rest of the table doesn’t need to be searched for duplicate values, once a higher value is found. Thus the performance increase is substantial. 
+ **What is indexing?**
+
+ Indexing is a way of sorting a number of records on multiple fields. Creating an index on a field in a table creates another data structure which holds the field value, and a pointer to the record it relates to. This index structure is then sorted, allowing Binary Searches to be performed on it. 
+ The downside to indexing is that these indices require additional space on the disk since the indices are stored together in a table using the MyISAM engine, this file can quickly reach the size limits of the underlying file system if many fields within the same table are indexed. 
+ **How does it work?**
+
+ Firstly, let’s outline a sample database table schema;  
+ 
+Field name       Data type      Size on disk
+id (Primary key) Unsigned INT   4 bytes
+firstName        Char(50)       50 bytes
+lastName         Char(50)       50 bytes
+emailAddress     Char(100)      100 bytes
+ 
+ **Note**
+: char was used in place of varchar to allow for an accurate size on disk value. 
+This sample database contains five million rows and is unindexed. The performance of several queries will now be analyzed. These are a query using the  id  (a sorted key field) and one using the  firstName  (a non-key unsorted field). 
+ **Example 1**
+ -  sorted vs unsorted fields 
+ Given our sample database of   records of a fixed size giving a record length of   bytes and they are stored in a table using the MyISAM engine which is using the default block size   bytes. The blocking factor of the table would be   records per disk block. The total number of blocks required to hold the table is   blocks.  
+ A linear search on the id field would require an average of   block accesses to find a value, given that the id field is a key field. But since the id field is also sorted, a binary search can be conducted requiring an average of   block accesses. Instantly we can see this is a drastic improvement. 
+ Now the  firstName  field is neither sorted nor a key field, so a binary search is impossible, nor are the values unique, and thus the table will require searching to the end for an exact   block accesses. It is this situation that indexing aims to correct. 
+ Given that an index record contains only the indexed field and a pointer to the original record, it stands to reason that it will be smaller than the multi-field record that it points to. So the index itself requires fewer disk blocks than the original table, which therefore requires fewer block accesses to iterate through. The schema for an index on the  firstName  field is outlined below;  
+ 
+Field name       Data type      Size on disk
+firstName        Char(50)       50 bytes
+(record pointer) Special        4 bytes
+ 
+ **Note**
+: Pointers in MySQL are 2, 3, 4 or 5 bytes in length depending on the size of the table. 
+ **Example 2**
+  -  indexing 
+ Given our sample database of   records with an index record length of   bytes and using the default block size   bytes. The blocking factor of the index would be   records per disk block. The total number of blocks required to hold the index is   blocks. 
+ Now a search using the  firstName  field can utilize the index to increase performance. This allows for a binary search of the index with an average of   block accesses. To find the address of the actual record, which requires a further block access to read, bringing the total to   block accesses, a far cry from the 1,000,000 block accesses required to find a  firstName  match in the non-indexed table. 
+ **When should it be used?**
+
+ Given that creating an index requires additional disk space (277,778 blocks extra from the above example, a ~28% increase), and that too many indices can cause issues arising from the file systems size limits, careful thought must be used to select the correct fields to index. 
+ Since indices are only used to speed up the searching for a matching field within the records, it stands to reason that indexing fields used only for output would be simply a waste of disk space and processing time when doing an insert or delete operation, and thus should be avoided. Also given the nature of a binary search, the cardinality or uniqueness of the data is important. Indexing on a field with a cardinality of 2 would split the data in half, whereas a cardinality of 1,000 would return approximately 1,000 records. With such a low cardinality the effectiveness is reduced to a linear sort, and the query optimizer will avoid using the index if the cardinality is less than 30% of the record number, effectively making the index a waste of space. 
+ 
+ Classic example  **"Index in Books"**
+
+ Consider a "Book" of 1000 pages, divided by 100 sections, each section with X pages. 
+ Simple, huh? 
+ Now, without an index page, to find a particular section that starts with letter "S", you have no other option than scanning through the entire book. i.e: 1000 pages 
+ But with an index page at the beginning, you are there. And more, to read any particular section that matters, you just need to look over the index page, again and again, every time. After finding the matching index you can efficiently jump to the section by skipping other sections. 
+ But then, in addition to 1000 pages, you will need another ~10 pages to display the index page, so totally 1010 pages. 
+ Thus, the index is a separate section that stores values of indexed column + pointer to the indexed row in a sorted order for efficient look-ups. 
+ Things are simple in schools, isn't it? :P 
+ 
+ The first time I read this it was very helpful to me. Thank you. 
+ Since then I gained some insight about the downside of creating indexes:
+if you write into a table (  or  ) with one index, you have actually two writing operations in the file system. One for the table data and another one for the index data (and the resorting of it (and - if clustered - the resorting of the table data)). If table and index are located on the same hard disk this costs more time. Thus a table without an index (a heap) , would allow for quicker write operations. (if you had two indexes you would end up with three write operations, and so on) 
+ However, defining two different locations on two different hard disks for index data and table data can decrease/eliminate the problem of increased cost of time. This requires definition of additional file groups with according files on the desired hard disks and definition of table/index location as desired. 
+ Another problem with indexes is their fragmentation over time as data is inserted.   helps, you must write routines to have it done. 
+ In certain scenarios a heap is more helpful than a table with indexes,  
+ e.g:- If you have lots of rivalling writes but only one nightly read outside business hours for reporting. 
+ Also, a differentiation between clustered and non-clustered indexes is rather important.  
+ Helped me:-  What do Clustered and Non clustered index actually mean? 
+ 
+ An index is just a data structure that makes the searching faster for a specific column in a database. This structure is usually a b-tree or a hash table but it can be any other logic structure. 
+ 
+ Now, let’s say that we want to run a query to find all the details of any employees who are named ‘Abc’? 
+ 
+ **What would happen without an index?**
+
+ Database software would literally have to look at every single row in the Employee table to see if the Employee_Name for that row is ‘Abc’. And, because we want every row with the name ‘Abc’ inside it, we can not just stop looking once we find just one row with the name ‘Abc’, because there could be other rows with the name  **Abc**
+. So, every row up until the last row must be searched – which means thousands of rows in this scenario will have to be examined by the database to find the rows with the name ‘Abc’. This is what is called a  **full table scan**
+
+ **How a database index can help performance**
+
+ The whole point of having an index is to speed up search queries by essentially cutting down the number of records/rows in a table that need to be examined. An index is a data structure (most commonly a B- tree) that stores the values for a specific column in a table.  
+ **How does B-trees index work?**
+
+ The reason B- trees are the most popular data structure for indexes is due to the fact that they are time efficient – because look-ups, deletions, and insertions can all be done in logarithmic time. And, another major reason B- trees are more commonly used is because the data that is stored inside the B- tree can be sorted. The RDBMS typically determines which data structure is actually used for an index. But, in some scenarios with certain RDBMS’s, you can actually specify which data structure you want your database to use when you create the index itself. 
+ **How does a hash table index work?**
+
+ The reason hash indexes are used is because hash tables are extremely efficient when it comes to just looking up values. So, queries that compare for equality to a string can retrieve values very fast if they use a hash index.  
+ For instance, the query we discussed earlier could benefit from a hash index created on the Employee_Name column. The way a hash index would work is that the column value will be the key into the hash table and the actual value mapped to that key would just be a pointer to the row data in the table. Since a hash table is basically an associative array, a typical entry would look something like “Abc => 0x28939″, where 0x28939 is a reference to the table row where Abc is stored in memory. Looking up a value like “Abc” in a hash table index and getting back a reference to the row in memory is obviously a lot faster than scanning the table to find all the rows with a value of “Abc” in the Employee_Name column. 
+ **The disadvantages of a hash index**
+
+ Hash tables are not sorted data structures, and there are many types of queries which hash indexes can not even help with. For instance, suppose you want to find out all of the employees who are less than 40 years old. How could you do that with a hash table index? Well, it’s not possible because a hash table is only good for looking up key value pairs – which means queries that check for equality  
+ **What exactly is inside a database index?**
+
+So, now you know that a database index is created on a column in a table, and that the index stores the values in that specific column. But, it is important to understand that a database index does not store the values in the other columns of the same table. For example, if we create an index on the Employee_Name column, this means that the Employee_Age and Employee_Address column values are not also stored in the index. If we did just store all the other columns in the index, then it would be just like creating another copy of the entire table – which would take up way too much space and would be very inefficient. 
+ **How does a database know when to use an index?**
+
+When a query like “SELECT * FROM Employee WHERE Employee_Name = ‘Abc’ ” is run, the database will check to see if there is an index on the column(s) being queried. Assuming the Employee_Name column does have an index created on it, the database will have to decide whether it actually makes sense to use the index to find the values being searched – because there are some scenarios where it is actually less efficient to use the database index, and more efficient just to scan the entire table. 
+ **What is the cost of having a database index?**
+
+ It takes up space – and the larger your table, the larger your index. Another performance hit with indexes is the fact that whenever you add, delete, or update rows in the corresponding table, the same operations will have to be done to your index. Remember that an index needs to contain the same up to the minute data as whatever is in the table column(s) that the index covers. 
+ As a general rule, an index should only be created on a table if the data in the indexed column will be queried frequently. 
+ See also  
+ 
+ What columns generally make good indexes? 
+ How do database indexes work 
+ 
+ 
+ **Simple Description!**
+
+ The index is nothing but a data structure that  **stores the values for a specific column**
+ in a table. An index is created on a column of a table.  
+ Example: We have a database table called   with three columns –  ,   and  . Assume that the   table has thousands of rows. 
+ Now, let’s say that we want to run a query to find all the details of any users who are named 'John'. 
+If we run the following query:  
+ 
+ The database software would literally have to look at every single row in the   table to see if the   for that row is ‘John’. This will take a long time. 
+ This is where   helps us:  index is used to speed up search queries by essentially cutting down the number of records/rows in a table that needs to be examined .   
+ How to create an index: 
+ 
+ An   consists of  **column values(Eg: John) from one table**
+, and those values are stored in a  **data structure**
+.   
+ 
+ So now the database will use the index to find employees named John
+  because the index will presumably be sorted alphabetically by the
+  Users name. And, because it is sorted, it means searching for a name
+  is a lot faster because all names starting with a “J” will be right
+  next to each other in the index! 
+ 
+ 
+ Just a quick suggestion.. As indexing costs you additional writes and storage space, so if your application requires more insert/update operation, you might want to use tables without indexes, but if it requires more data retrieval operations, you should go for indexed table. 
+ 
+ Just think of Database Index as Index of a book. 
+ If you have a book about dogs and you want to find an information about let's say, German Shepherds, you could of course flip through all the pages of the book and find what you are looking for  - but this of course is time consuming and not very fast.  
+ Another option is that, you could just go to the Index section of the book and then find what you are looking for by using the Name of the entity you are looking ( in this instance, German Shepherds) and also looking at the page number to quickly find what you are looking for.  
+ In Database, the page number is referred to as a pointer which directs the database to the address on the disk where entity is located. Using the same German Shepherd analogy, we could have something like this (“German Shepherd”, 0x77129) where   is the address on the disk where the row data for German Shepherd is stored.  
+ In short, an index is a data structure that stores the values for a specific column in a table so as to speed up query search. 
+ 

@@ -1,0 +1,57 @@
+*** speeding-up-a-group-by-date-query-on-a-big-table-in-postgres ***
+
+ I've got a table with around 20 million rows. For arguments sake, lets say there are two columns in the table - an id and a timestamp. I'm trying to get a count of the number of items per day. Here's what I have at the moment. 
+ 
+ Without any indices, this takes about a 30s to run on my machine. Here's the explain analyze output: 
+ 
+ Since I'm seeing a sequential scan, I tried to index on the date aggregate 
+ 
+ Which cuts the speed by about 50%. 
+ 
+ I'm new to this whole query-optimization business, and I have no idea what to do next. Any clues how I could get this query running faster? 
+ **--edit--**
+
+ It looks like I'm hitting the limits of indices. This is pretty much the only query that gets run on this table (though the values of the dates change). Is there a way to partition up the table? Or create a cache table with all the count values? Or any other options? 
+ 
+ 
+ Is there a way to partition up the table? 
+ 
+ Yes: 
+ http://www.postgresql.org/docs/current/static/ddl-partitioning.html 
+ 
+ 
+ 
+ Or create a cache table with all the count values? Or any other options? 
+ 
+ Create a "cache" table certainly is possible. But this depends on how often you need that result and how accurate it needs to be.  
+ 
+CREATE TABLE action_report
+AS
+SELECT DATE(timestamp) AS day, COUNT(*)
+    FROM actions
+   WHERE DATE(timestamp) >= '20100101'
+     AND DATE(timestamp) <  '20110101'
+GROUP BY day;
+ 
+ Then a   will give you what you want in a timely manner. You would then schedule a cron job to recreate that table on a regular basis.  
+ This approach of course won't help if the time range changes with every query or if that query is only run once a day.  
+ 
+ In general most databases will ignore indexes if the expected number of rows returned is going to be high.  This is because for each index hit, it will need to then find the row as well, so it's faster to just do a full table scan.  This number is between 10,000 and 100,000.  You can experiment with this by shrinking the date range and seeing where postgres flips to using the index.  In this case, postgres is planning to scan 17,301,674 rows, so your table is pretty large.  If you make it really small and you still feel like postgres is making the wrong choice then try running an analyze on the table so that postgres gets its approximations right. 
+ 
+ It looks like the range covers just about covers all the data available. 
+ This could be a design issue. If you will be running this often, you are better off creating an additional column timestamp_date that contains only the date.  Then create an index on that column, and change the query accordingly.  The column should be maintained by insert+update triggers. 
+ 
+ If I am wrong about the number of rows the date range will find (and it is only a small subset), then you can try an index on just the timestamp column itself, applying the WHERE clause to just the column (which given the range works just as well) 
+ 
+ 
+ Try running   to see if the aggregate is using a temp file. Perhaps increase   to allow more to be done in memory? 
+ 
+ Set   to say 2GB and see if that changes the plan.  If it doesn't, you might be out of options. 
+ 
+ What you really want for such DSS type queries is a date table that describes days.  In database design lingo it's called a date dimension.  To populate such table you can use the code I posted in this article:  http://www.mockbites.com/articles/tech/data_mart_temporal 
+ Then in each row in your actions table put the appropriate date_key. 
+ Your query then becomes: 
+ 
+ Assuming indices on the keys and full_date, this will be super fast because it operates on INT4 keys! 
+ Another benefit is that you can now slice and dice by any other date_dimension column(s). 
+ 

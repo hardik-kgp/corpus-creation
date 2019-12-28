@@ -1,0 +1,33 @@
+*** sql-server-simple-insert-statement-times-out ***
+
+ I have a simple table with 6 columns. Most of the time any insert statements to it works just fine, but once in a while I'm getting a DB Timeout exception:
+Timeout expired. The timeout period elapsed prior to completion of the operation or the server is not responding. The statement has been terminated. 
+ Timeout is set to 10 seconds. 
+ I should mention that I'm using NHibernate and that the statement also include a "select SCOPE_IDENTITY()" right after the insert itself. 
+ My thought was that the table was locked or something, but there were no other statements running on that table at that time. 
+ All the inserts are very simple, everything looks normal in sql profiler, the table has no indices but the PK (Page fullness: 98.57 %).  
+ Any ideas on what should I look for? 
+ Thanks. 
+ 
+ I think your most likely culprit is a blocking lock from another transaction (or maybe from a trigger or something else behind the scenes).  
+ The easiest way to tell is to kick off the  , and while it's hung, run   in another window on the same server. This will list all of the current database activity, and has a column called   that will show you if any processes are currently blocked. Check the   of your hung connection to see if it has anything in the   column, and if it does, that's the process that's blocking you. 
+ Even if you don't think there are any other statements running, the only way to know for sure is to list the current transactions using an SP like that one. 
+ 
+ This question seems like a good place for a code snippet which I used to see the actual SQL text of the blocked and blocking queries. 
+ The snippet below employs the convention that   returns "  ." text for   for the non-blocked queries, and so it filters them out and returns the SQL text of the remaining queries (both "victim" and "culprit" ones): 
+ 
+ 
+ Could be that the table is taking a long time to grow. 
+ If you have the table set to grow by a large amount, and don't have instant file initialization enabled, then the query could certainly timeout every once in a while. 
+ Check this mess out:  MSDN 
+ 
+ 
+ no other statements running on that table at that time. 
+ 
+ What about statements running against other tables as part of a transaction? That could leave locks on the problem table.  
+ Also check for log file or datafile growth happening at the time, if you're running SQL2005 it would show in the SQL error logs. 
+ 
+ Our QA had some Excel connections that returned big result sets, those queries got suspended with WaitType of ASYNC_NETWORK_IO for some time. During this time all other queries timed out, so that specific insert had nothing to do with it. 
+ 
+ look at fragmentation of the table, you could be getting page splits because of that 
+ 

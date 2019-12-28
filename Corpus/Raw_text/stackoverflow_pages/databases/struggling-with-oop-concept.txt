@@ -1,0 +1,92 @@
+*** struggling-with-oop-concept ***
+
+ I'm really struggling with a recurring OOP / database concept. 
+ Please allow me to explain the issue with pseudo-PHP-code. 
+ Say you have a "user" class, which loads its data from the   table in its constructor: 
+ 
+ Simple, awesome. 
+ Now, we have a "group" class, which loads its data from the   table joined with the   table and creates   objects from the returned  s: 
+ 
+ A group can have any number of users. 
+ Beautiful, elegant, amazing... on paper.  In reality, however, making a new group object... 
+ 
+ ...performs 5 queries instead of 1.  (1 for the group and 1 for each user.)  And worse, if I make a   class, which has many groups in it that each have many users within them, an ungodly number of queries are ran! 
+ **The Solution, Which Doesn't Sit Right To Me**
+
+ For years, the way I've got around this, is to not code in the above fashion, but instead, when making a   for instance, I would join the   table to the   table to the   table as well and create an array of user-object-like arrays within the   object (never using/touching the   class): 
+ 
+ ...but then, of course, if I make a "community" class, in its constructor I'll need to join the   table with the   table with the   table with the   table with the   table. 
+ ...and if I make a "city" class, in its constructor I'll need to join the   table with the   table with the   table with the   table with the   table with the   table with the   table. 
+ What an unmitigated disaster! 
+ **Do I have to choose between beautiful OOP code with a million queries VS. 1 query and writing these joins by hand for every single superset?  Is there no system that automates this?**
+
+ I'm using CodeIgniter, and looking into countless other MVC's, and projects that were built in them, and cannot find a single good example of anyone using models without resorting to one of the two flawed methods I've outlined. 
+ It appears this has never been done before. 
+ One of my coworkers is writing a framework that does exactly this - you create a class that includes a model of your data.  Other,  **higher**
+ models can  **include**
+ that single model, and it crafts and automates the table joins to create the  **higher**
+ model that includes object instantiations of the  **lower**
+ model, all in a  **single query**
+.  He claims he's never seen a framework or system for doing this before, either. 
+ **Please Note:**
+
+I do indeed always use separate classes for logic and persistence.  (VOs and DAOs - this is the entire point of MVCs).  I have merely combined the two in this thought-experiment, outside of an MVC-like architecture, for simplicity's sake.  Rest assured that this issue persists regardless of the separation of logic and persistence.  I believe  this article , introduced to me by James in the comments below this question, seems to indicate that my proposed solution (which I've been following for years) is, in fact, what developers currently do to solve this issue.  This question is, however, attempting to find ways of  **automating**
+ that exact solution, so it doesn't always need to be coded by hand for every superset.  From what I can see, this has never been done in PHP before, and my coworker's framework will be the first to do so, unless someone can point me towards one that does. 
+ And, also, of course I never load data in constructors, and I only call the load() methods that I create when I actually need the data.  However, that is unrelated to this issue, as in this thought experiment (and in the real-life situations where I need to automate this), I  **always**
+ need to eager-load the data of  **all subsets of children**
+ as far down the line as it goes, and  **not**
+ lazy-load them at some future point in time as needed.  The thought experiment is concise -- that it doesn't follow best practices is a moot point, and answers that attempt to address its layout are likewise missing the point. 
+ **EDIT :  Here is a database schema, for clarity.**
+
+ 
+ (Also note that I originally used the concepts of  s and  s, but that was foolish, and this example is much clearer.) 
+ **SOLUTION:**
+
+ I ended up finding a PHP ORM that does exactly this.  It is  Laravel's Eloquent .  You can specify the relationships between your models, and it intelligently builds optimized queries for eager loading using syntax like this: 
+ 
+ It is an absolute life saver.  I haven't had to write a single query.  It also doesn't work using joins, it intelligently compiles and selects based on foreign keys. 
+ 
+ ActiveRecord in Rails implements the concept of lazy loading, that is deferring database queries until you actually need the data. So if you instantiate a   object, it only queries the cars table for that one row. If later you want   then it queries the wheels table. 
+ My suggestion for your pseudo code above is to not load every associated object in the constructor. The car constructor should query for the car only, and should have a method to query for all of it's wheels, and another to query it's dealership, which only queries for the dealership and defers collecting all of the other dealership's cars until you specifically say something like  
+ **Postscript**
+
+ ORMs are database abstraction layers, and thus they must be tuned for ease of querying and not fine tuning. They allow you to rapidly build queries. If later you decide that you need to fine tune your queries, then you can switch to issuing raw sql commands or trying to otherwise optimize how many objects you're fetching. This is standard practice in Rails when you start doing performance tuning - look for queries that would be more efficient when issued with raw sql, and also look for ways to avoid eager loading (the opposite of lazy loading) of objects before you need them. 
+ 
+ 
+ Say you have a "wheel" class, which loads its data from the wheels table in its constructor 
+ 
+ Constructors should not be doing any work. Instead they should contain only assignments. Otherwise you make it very hard to test the behavior of the instance. 
+ 
+ Now, we have a "car" class, which loads its data from the cars table joined with the cars_wheels table and creates wheel objects from the returned wheel_ids: 
+ 
+ No. There are two problems with this. 
+ Your   class should not contain both code for implementing "car logic" and "persistence logic". Otherwise you are breaking  SRP . And wheels are a dependency for the class, which means that the wheels should be injected as parameter for the constructor (most likely - as a collection of wheels, or maybe an array). 
+ Instead you should have a mapper class, which can retrieve data from database and store it in the   instance. And a mapper for car, which will store data in   instance. 
+ 
+ Something like this. The mapper in this case are responsible for performing the queries. And you can have several source for them, for example: have one mapper that checks the cache and only, if that fails, pull data from SQL. 
+ 
+ Do I really have to choose between beautiful OOP code with a million queries VS. 1 query and disgusting, un-OOP code? 
+ 
+ No, the ugliness comes from fact that  active record  pattern is only meant for the simplest of usecases (where there is almost no logic associated, glorified value-objects with persistence). For any non-trivial situation it is preferable to apply  data mapper  pattern. 
+ 
+ ..and if I make a "city" class, in its constructor I'll need to join the cities table with the cities_dealerships table with the dealerships table with the dealerships_cars table with the cars table with the cars_wheels table with the wheels table. 
+ 
+ Jut because you need data about  "available cares per dealership in Moscow"  does not mean that you need to create   instances, and you definitely will not care about wheels there. Different parts of site will have different scale at which they operate. 
+ The other thing is that you should stop thinking of classes as table abstractions.  **There is no rule that says "you must have 1:1 relation between classes and tables"**
+. 
+ Take the   example again. If you look at it, having separate   (or even  ) class is just stupid. Instead you should just have a   class which already contains all it's  parts. 
+ 
+ The mapper can easily fetch data not only from "Cars" table but also from "Wheel" and "Engines" and other tables and populate the   object. 
+ **Bottom line: stop using active record.**
+
+ 
+ **P.S.:**
+ also, if you care about code quality, you should start reading  **PoEAA**
+ book. Or at least start watching  lectures listed  **here**
+. 
+ 
+ my 2 cents 
+ 
+ In general, I'd recommend having a constructor that takes effectively a query row, or a part of a larger query.  How do do this will depend on your ORM.  That way, you can get efficient queries but you can construct the other model objects after the fact. 
+ Some ORMs (django's models, and I believe some of the ruby ORMs) try to be clever about how they construct queries and may be able to automate this for you.  The trick is to figure out when the automation is going to be required.  I do not have personal familiarity with PHP ORMs. 
+ 

@@ -1,0 +1,55 @@
+*** postgresql-query-not-using-index-in-production ***
+
+ I'm noticing something strange/weird: 
+ The exact same query in development/production are not using the same query path. In particular, the development version is using indexes which are omitted in production (in favor of seqscan). 
+ The only real difference is that the dataset is production is significantly larger--the index size is 1034 MB, vs 29 MB in production. Would PostgreSQL abstain from using indexes if they (or the table) are too big?  
+ EDIT:   for both queries: 
+ Development: 
+ 
+ Production: 
+ 
+ 
+ **Disclaimer**
+  
+ I have used PostgreSQL very little. I'm answering based on my knowledge of SQL Server index usage and execution plans. I ask the PostgreSQL gods for mercy if I get something wrong. 
+ **Query Optimizers are Dynamic**
+
+ You said your query plan has changed from your development to production environments. This is to be expected. Query optimizers are designed to generate the optimum execution plan based on the current data conditions. Under different conditions the optimizer may decide it is more efficient to use a table scan vs an index scan. 
+ **When would it be more efficient to use a table scan vs an index scan?**
+
+ 
+ Let's say you have a non-clustered index on column  . In this case you are filtering on column  , which could potentially take advantage of the index. This would be efficient if the index is selective enough - basically, how many distinct values make up the index? The database keeps statistics on this selectivity info and uses these statistics when calculating costs for execution plans. 
+ If you have a million rows in a table, but only 10 possible values for  , then your query would likely return about 100K rows. Because the index is non-clustered, and you are returning columns not included in the index,  , a lookup will need to be performed for each row returned. These look-ups are random-access lookups which are much more expensive then sequential reads used by a table scan. At a certain point it becomes more efficient for the database to just perform a table scan rather than an index scan.  
+ This is just one scenario, there are many others. It's hard to know without knowing more about what your data is like, what your indexes look like and how you are trying to access the data. 
+ **To answer the original question**
+: 
+ Would PostgreSQL abstain from using indexes if they (or the table) are too big? No. It is more likely that in the way that you are accessing the data, it is less efficient for PostgreSQL to use the index vs using a table scan. 
+ The PostgreSQL FAQ touches on this very subject (see:  **Why are my queries slow? Why don't they use my indexes?**
+):  https://wiki.postgresql.org/wiki/FAQ#Why_are_my_queries_slow.3F_Why_don.27t_they_use_my_indexes.3F 
+ 
+ Postgres' query optimizer comes up with multiple scenarios (e.g. index vs seq-scan) and evaluates them using statistical information about your tables and the relative costs of disk/memory/index/table access set in configuration. 
+ Did you use the   command to see why index use was omitted? Did you use   to find out if the decision was in error? Can we see the outputs, please? 
+ edit: 
+ As hard as analyzing two different singular queries on different systems are, I think I see a couple of things. 
+ The production environment has a actual/cost rate of around 20-100 milliseconds per cost unit. I'm not even a DBA, but this seems consistent. The development environment has 261 for the main query. Does this seem right? Would you expect the raw speed (memory/disk/CPU) of the production environment to be 2-10x faster than dev? 
+ Since the production environment has a  much more  complex query plan, it looks like it's doing its job. Undoubtedly, the dev environment's plan and  many more  have been considered, and deemed too costly. And the 20-100 variance isn't that much in my experience (but again, not a DBA) and shows that there isn't anything way off the mark. Still, you may want to run a   on the DB just in case. 
+ I'm not experienced and patient enough to decode the full query, but could there be a denormalization/NOSQL-ization point for optimization? 
+ The biggest bottleneck seems to be the disk merge at 90 MB. If the production environment has enough memory, you may want to increase the relevant setting (working memory?) to do it in-memory. It seems to be the   parameter  here , though you'll want to read through the rest. 
+ I'd also suggest having a  look  at the  index usage statistics . Many options with partial and functional indices exist. 
+ 
+ Try  
+ 
+ before  
+ 
+ It seems to me that your dev data is much "simpler" than the production data. As an example: 
+ Development: 
+ 
+ Production: 
+ 
+ This means, that in dev 27447 matching row have been estimated upfront and 16528 rows were indeed found. That't the same ballpark and OK. 
+ In production 317174 matching rows have been estimated upfront and 431770 rows were found. Also OK. 
+ But comparing dev to prod means that the numbers are 10 times different. As already other answers indicate, doing 10 times more random seeks (due to index access) might indeed be worse than a plain table scan. 
+ Hence the interesting question is: How many rows does this table contain both in dev and in prod? Is   comparable between dev and prod? 
+ **Edit**
+ Don't forget: I have picked  one  index access as an example. A quick glance shows that the other index accesses have the same symptoms. 
+ 

@@ -1,0 +1,79 @@
+*** why-isnt-string-or-binary-data-would-be-truncated-a-more-descriptive-error ***
+
+ **To start: I understand what this error means - I'm not attempting to resolve an instance of it.**
+
+ This error is notoriously difficult to troubleshoot, because if you get it inserting a million rows into a table 100 columns wide, there's virtually no way to determine what column of what row is causing the error - you have to modify your process to insert one row at a time, and then see which one fails. That's a pain, to put it mildly. 
+ Is there any reason that the error doesn't look more like this? 
+ 
+ That would make it a lot easier to find and correct the value, if not the table structure itself. If seeing the table data is a security concern, then maybe something generic, like giving the length of the attempted value and the name of the failing column? 
+ 
+ It turns out there's an open "feature request" for this on MS Connect - I'd encourage you to vote for it if you'd like the functionality changed. 
+ https://connect.microsoft.com/SQLServer/feedback/details/339410/ 
+ **ADDED:**
+
+ It actually looks like there's another request for this same feature (though poorly named) that's been outstanding since Yukon's development in 2005 that I'd encourage people to vote for as well: 
+ https://connect.microsoft.com/SQLServer/feedback/details/125347/ 
+ **Update 2016**
+
+ It seems Microsoft has tried to delete evidence of this bug's true age. Fair enough. Find the  old site archived here. 
+ 
+ After not finding an acceptable answer anywhere I came up with the following: 
+ 
+ Get the query that is causing the problems (you can also use SQL Profiler if you dont have the source) 
+ Remove all WHERE clauses and other unimportant parts until you are basically just left with the SELECT and FROM parts 
+ Add WHERE 0 = 1 (this will select only table structure) 
+ Add INTO [MyTempTable] just before the FROM clause 
+ 
+ You should end up with something like  
+ 
+ This will create a table called MyTempTable in your DB that you can compare to your target table structure to see where they differ i.e. you can compare the columns on both tables.  
+ EDIT: You can compare the data types and column sizes of each column on the original table and MyTempTable to see where they differ.All column names in your new table will be the same as the old, and the data types and sizes will be the same EXCEPT where the offending column is. In other words, with this query, SQL will automatically create columns that are large enough to handle the largest possible entry from the source table 
+ 
+ Answering a DUP that got closed, so answering here instead.  This pattern can be used, if somewhat elaborate, but it can be useful when it is not trivial to change the application, or set up profiler to see what is happening.  Sometimes, you just need the error to propagate to the APP itself so you can see right from the APP, the correct and useful error message. 
+ In those cases, a quick poke into the DB with this solution will save you lots of time.  Save it as a template, and make quick changes to it to solve this problem on any table. 
+ **The problem**
+
+ Sample table 
+ 
+ Sample statement 
+ 
+ The dreaded useless error 
+ 
+ The example shows only 2 columns where it could overflow, but imagine if it were 20 columns, or 40. 
+ **The solution**
+
+ 
+ **Test it**
+
+ 
+ Result 
+ 
+ Msg 50000, Level 16, State 1, Procedure trig_ioi_StringTruncation, Line 18 
+ **Data too long for Column [D] Size 10: 0s123456789**
+
+ 
+  (1 row(s) affected) 
+ 
+ 
+ 
+ It needs a mirror trigger for UPDATEs 
+ It will currently only report on the first offending record-column.  It is possible to report more than one record-column, but I believe that is actually counter-productive. 
+ 
+ 
+ Microsoft is lazy? 
+ You don't have to try each row insert separately, by the way. Just query for max(len(field)) for each text column, starting with the ones you suspect might be the culprit. 
+ 
+ Short Answer:
+That's just how it is. 
+ Longer Answer:
+I could see value in showing the row number and column, maybe but it probably wouldn't make sense to show the actual information being truncated.  With the VARCHAR(10) scenario, it's probably not a big deal, but excessively large size data would be a whole lot useful.  But hopefully no one here is inserting anything more than a VARCHAR(MAX) can hold ;) 
+ 
+ Descriptive error messages in software systems are as good as non-existant. 
+ That holds not only for DBMS's but for as good as any kind of software one can imagine. 
+ I think the underlying reason is that "good descriptive error messages" take too much time to implement.  It is not part of the average software developer's culture to spend much time thinking about "which information would the user want to see if this particular kind of exception occurs" ?  The programmers who have to write down the code for giving "good descriptive error messages" only see the cost (their time), not the benefit. 
+ One of the most recent error messages I got from a software system is "Something wrong has happened.  Please try again later.".  No kidding. 
+ 
+ I had this error too, but I found what was causing: 
+ 
+ My MVC application recivies "value" as empty strig ant that causes exception 
+ 

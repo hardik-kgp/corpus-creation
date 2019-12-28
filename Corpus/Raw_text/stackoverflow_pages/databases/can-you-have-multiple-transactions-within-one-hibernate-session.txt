@@ -1,0 +1,28 @@
+*** can-you-have-multiple-transactions-within-one-hibernate-session ***
+
+ Can you have multiple transactions within one Hibernate Session? 
+ I'm unclear if this is an allowable desirable. In my code I have a long running thread and takes items from a Blocking Queue, depending on what is on the queue, it may need to create and save a hibernate object, or it may not need to do anything.  
+ Each item is distinct so if item 1 is saved and item 2 fails to save whatever reason I don't want to that to prevent item 1 being added to the database.  
+ So the simplest way to do this is for each item that needs to be created to create a new session, open transaction, save new object, commit transaction, close session 
+ However, that means a new session is created for each item, which seems to go against Hibernates own recommendations to not do Session Per Request Pattern. So my alternative was to create one session in the thread, then just open and commit a new transaction as required when needed to create a new object. But I've seen no examples of this approach and I'm unsure if it actually works.  
+ 
+ The session-per-request pattern uses one JDBC connection per session if you run local transactions. For JTA, the connections are aggressively released after each statement only to be reacquired for the next statement. 
+ The  Hibernate transaction API delegates the begin/commit/rollback to the JDBC Connection for local transactions and to the associated UserTransaction for JTA . Therefore, you can run multiple transactions on the same Hibernate Session, but there's a catch. Once an exception is thrown you can no longer reuse that Session. 
+ My advice is to divide-and-conquer. Just split all items, construct a Command object for each of those and send them to an  . Use the returned List to iterate and call   to make sure the original thread waits after all batch jobs to complete.  
+ The   will make sure you run all Commands concurrently and each Command should use a Service that uses its own  . Because transactions are thread-bound you will have all  batch jobs run in isolation . 
+ 
+ Obviously, you can. A hibernate session is more or less a database connection and a cache for database objects. And you can have multiple successive transactions in a single database connection. More, when you use a connection pool, the connection is not closed but is recycled. 
+ Whether you should or not is a matter of reusing objects from session. If there is a good chance but you can reuse objects that a preceding transaction has put in session, you should keep one single session for multiple transactions. But if once an object has been committed, it will never be re-used, it is certainly better to close the session and re-open a new one, or simply clear it. 
+ How to do it : 
+ If you have a Session object, you create transactions with : 
+ 
+ 
+ From hibernates documentation  
+ "A Session is an inexpensive, non-threadsafe object that should be used once and then discarded for: a single request, a conversation or a single unit of work. A Session will not obtain a JDBC Connection, or a Datasource, unless it is needed. It will not consume any resources until used." 
+ so if you are creating sessions again and again it will not burden the system much. If you are continuing a session for too long it may create problems as session is not thread safe .In my opinion you simplest solution is the best "So the simplest way to do this is for each item that needs to be created to create a new session, open transaction, save new object, commit transaction, close session" 
+ By the way if you are creating single record of anything you dont need transaction too much. creating single record is inherently " all or none" thing for which we use transaction 
+ 
+ Short answer is yes, you can use same session for transaction. Take a look at org.hibernate.Transaction., it has required method to manage transaction. 
+ 
+ 
+ 

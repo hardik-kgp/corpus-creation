@@ -1,0 +1,30 @@
+*** creating-a-table-using-explicit-create-table-statement-versus-select-into ***
+
+ Are there any performance differences between using an explicit create table statement and loading data versus selecting into. This example just shows 2 columns, but the question is geared towards using very large tables. The example below also uses temporary tables, though I'm wondering the effects upon using regular tables as well. I think they would be the same regardless of table type though. 
+ Temp table scenario: 
+ 
+ or regular tables: 
+ 
+ What are everyone's thoughts on this? I think that explicitly creating the table and loading must have better performance than selecting into as select into must evaluate the expressions within the statement in order to create a table. 
+ Our organization usually creates temp tables explicitly as a standard practice, and we're wondering what everything thinks is actually the best practice. 
+ http://msdn.microsoft.com/en-us/library/ms188029.aspx 
+ 
+  gives you a better control over your table's definition prior to inserting the data, like  , constraints, etc. things that you cannot do using  . 
+  is a minimally logged operation, but   can also be minimally logged, at some conditions.
+ See  The Data Loading Performance Guide , especially the section:  **Summarizing Minimal Logging Conditions**
+. 
+ Briefly, if you do not care about the constraints, etc. (e.g. you want to quickly create a copy of a table) the advantage of   IMHO is a shorter code .
+ Otherwise, you should use the other way, and you would still be able to have it minimally logged. 
+ 
+ Select into has logging benefits (doesn't do as much), so the performance is actually better in most cases.  However, it errors if the table exists, and doesn't build things such as indexes or constraints, just columns. 
+ Depends what you need it for.  I know we have some actions that   then rename because it is faster than updating the old table (obviously with a lot of fluff around to rebuild table objects etc). 
+ Bear in mind that our usage isn't with temp tables, which I've just noticed in your question is the case. 
+ In the case of tables with indexes, insert into will have to maintain the indexes as part of the insert process.  There are then other table objects that can cause more processing, such as triggers.  In the case of select into, the table is bare-bones, so far as I'm aware, so initial insert performance is great.  Plus transaction log impact is minimal (mentions this in that link on your question). 
+ It really depends on the usage, for temporary tables, I'd assume they are going to be relatively short-lived, so select into followed by a truncate/drop can work well.  If they have longer spans, but are otherwise throw-away, again select into followed by an eventual drop can work. 
+ If they need to live long after being created and are not throw-away, then other than the initial creation and insert of data (which will be fast) you will then be back and square one in terms of subsequent inserts - you would be best placed just tuning the table to accept fast inserts, for example by having minimal indexes or by disabling indexes prior and re-enabling post insert. 
+ In the case of large tables that happen to have clustered indexes, I've also seen a trick where data being inserted is ordered by the clustered index on insert. 
+ 
+ In my case, doing an explicit CREATE and then INSERT INTO performed noticeably better both in actual run time and estimated cost by the optimizer. 
+ My temp table was not large (8 rows), but one of the values was a calculated string value. In some cases, this temp table was joined with a result set with hundreds of thousands of rows. It is my belief that when I did a SELECT INTO for my temp table, it did not optimally choose a data type for the calculated value. So, when I explicitly defined the column data types using a CREATE, SQL Server was able to perform the join more efficiently. Of course, this effect was exaggerated because so many rows were involved. 
+ So, it would seem in some cases, notably when one of your columns is a computed value, CREATE and INSERT may be the better option. Your mileage may vary of course, so be sure to runs some tests! 
+ 

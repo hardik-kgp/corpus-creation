@@ -1,0 +1,49 @@
+*** database-performance-filtering-on-column-vs-separate-table ***
+
+ I was wondering what the best approach would be for the following situation: 
+ I have an Orders table in a database that obviously contains all orders. But these are literally ALL orders, so including the complete/finished ones that are just flagged as 'complete'. From all the open orders I want to calculate some stuff (like open amount, open items, etc). What would be better performance wise: 
+ Keep 1 Orders table with ALL orders, including the complete/archived ones, and do calculations by filtering the 'complete' flag? 
+ Or should I create another table, e.g. 'Orders_Archive', so that the Orders table would only contain open orders that I use for the calculations? 
+ Is there any (clear) performance difference in these approaches? 
+ (B.T.W. I'm on a PostgreSQL db.) 
+ 
+ 
+ Or should I create another table, e.g. 'Orders_Archive', so that the Orders table would only contain open orders that I use for the calculations? 
+ 
+ Yes.  They call that data warehousing.  Folks do this because it speeds up the transaction system to eliminate the hardly-used history.  First, tables are physically smaller and process faster.  Second, a long-running history report doesn't interfere with transactional processing.  
+ 
+ Is there any (clear) performance difference in these approaches? 
+ 
+ Yes.  Bonus.  You can restructure your history so that it's no longer in 3NF (for updating) but in a Star Schema (for reporting).  The advantages are huge. 
+ Buy Kimball's The Data Warehouse Toolkit book to learn more about star schema design and migrating history out of active tables into warehouse tables. 
+ 
+ This is a common problem in database design: The question of whether to separate or "archive" records that are no longer "active".  
+ The most common approaches are: 
+ 
+ Everything in one table, mark orders as "complete" as appropriate. Pros: Simplest solution (both code- and structure-wise), good flexibility (e.g. easy to "resurrect" orders). Cons: Tables can get quite large, a problem both for queries and for e.g. backups. 
+ Archive old stuff to separate table. Solves the problems from the first approach, at the cost of greater complexity. 
+ Use table with value-based partitioning. That means logically (to the application) everything is in one table, but behind the scenes the DBMS puts stuff into separate areas depending on the value(s) on some column(s). You'd probably use the "complete" column, or the "order completion date" for the partitioning.  
+ 
+ The last approach kind of combines the good parts of the first two, but needs support in the DBMS and is more complex to set up. 
+ Note: 
+ Tables that only store "archived" data are commonly referred to as "archive tables". Some DBMS even provide special storage engines for these tables (e.g. MySQL), which are optimized to allow quick retrieval and good storage efficiency, at the cost of slow changes/inserts. 
+ 
+ **Never**
+ split off or separate current/archived data. It is simply incorrect.  It may be called "data warehousing" or a bucket of fish, but it is wrong, unnecessary, and  creates  problems which were not otherwise present.  The result is: 
+ 
+ everyone who queries the data now has to look for it in two places rather than one 
+ and worse, do the addition of aggregated values manually (in Excel or whatever) 
+ you introduce anomalies in the key, the integrity is lost (which would otherwise be unique by a single db constraint) 
+ when a Completed Order (or many) needs to be changed, you have to fish it out of the "warehouse" and put it back in the "database" 
+ 
+ If, and only if the response on the table is slow, then address that, and enhance the speed. Only.  Nothing else.  This (in every case I have seen) is an indexing error (a missing index or the incorrect columns or the incorrect sequence of columns are all errors).  Generally, all you will need is the IsComplete column in an index, along with whatever your users use to search most frequently, to in/exclude Open/Complete Orders. 
+ Now, if your dbms platform cannot handle large tables, or large result sets, that is a different problem, and you have to use whatever methods are available in the tool.  But as a database design issue, it is simply wrong; there is no need to create a duplicate, populate it, and maintain it (with all the ensuing problems) except if you are limited by your platform. 
+ Both last year and this, as part of an ordinary performance assignment, I have consolidated such split tables with billions of rows (and had to resolve all the duplicate row problems that allegedly "did not exist", yeah right, 2 days just for that).  The consolidated tables with the corrected indices were faster than the split tables; the excuse that "billions of rows slowed the table down" was completely false.  The users love me because they no longer have to use two tools and query two "databases" to get what they need. 
+ 
+ Since you are using postgresql, you can take advantage of  partial index . Suppose for unfinished order you often use  orderdate , you can specify index like this: 
+ 
+ When you put that condition, postgresql will not index the completed orders, thus saving harddisk space and make the index much faster because it contains only small amount of data. So you get the benefit without the hassles of table separation. 
+ When you separate data into ORDERS and ORDERS_ARCHIVE, you will have to adjust existing reports. If you have lots of reports, that can be painful. 
+ See full description of partial index in this page:  http://www.postgresql.org/docs/9.0/static/indexes-partial.html 
+ EDIT: for archiving, I prefer to create another database with identical schema, then move the old data from transaction db to this archive db. 
+ 

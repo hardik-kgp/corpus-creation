@@ -1,0 +1,99 @@
+*** multi-currency-what-to-store-and-when-to-convert ***
+
+ I have read different Q&A on SO regarding multi currency but none of them are clear to me or do not provide enough details with regards to my use case. 
+ **Scenario:**
+
+ Company Raddo has 3 branch locations, UK, France and USA. Raddo has base currency US dollars. Budgets are created in US dollars. Raddo stores supported curencies exchange rates in the database. 
+ Employees in UK create purchase orders in GBP and in France create purchase orders in Euros.  
+ Q1: What should be stored in Purchase Orders/Order items database table - Branch location currency and current exchange rate or converted amounts in base currency US dollars? Please keep in mind that exchange rate must be the one at the time of PO created. 
+ Q2: What to convert and when, to be able to generate reports in US dollars/base currency? 
+ Q3: what is the impact on the exising data if someone say after 2 years change the base currency from US dollars to AUS Australian dollar? 
+ Q4: What is the best way to deal with multi currencies so application handles minimum amount of conversions? 
+ 
+ Bear in mind that the answers you receive will be subjective. With that disclaimer out of the way, this is how I would go about setting up such a system.  
+ **TL;DR**
+: Use a currency rates table to store currency rates for different currencies and dates when they are applicable. Store amounts in both the local currency and a calculated USD value.  
+ 
+ **A Currency Rates Table**
+  
+ Create a currency table (FX rates) of the form:  
+ 
+ 
+ The combination of the first 4 columns will represent a unique record.  
+ It is recommended that whenever a record for a pair of currencies (USD -> GBP) is entered, the equivalent reverse record is also inserted (GBP -> USD), either with the true exchange rate (conversions one way might use a different rate than the other way), or with the inverse of the original record.  
+ For a pair of currencies, successive rows must exhibit continuity of dates (i.e. for a pair of currencies, there should never be a date that does not fall between   and   in exactly one row).  
+ For convenience, also enter a single row   with the smallest and largest dates supported by the databases. This makes it easier to handle cases when entries are made in the base currency itself.  
+ You will need to determine a source of currency FX rates that feeds this table, as well as a frequency of updation. For example, your financial team might issue a  weekly  FX rates table (even if the values in the currency market changes daily).  
+ 
+ A sample table would look like the following. Although it appears there are overlaps between the end date of one row and the start date of the next, the lookup operation checks for equality only on one column (i.e.  )  
+ 
+ **Columns in PO Table**
+  
+ In the purchase orders table, keep the following fields:  
+ 
+ **Populating the PO Columns**
+  
+ There will already be a process that populates the PO table, which will have to be extended to populate the following fields:  
+ 
+  is the date of the financial transaction on the PO. Based on your business rules, this may or may not be the date the PO is created/raised.  
+  is the value of the transaction in the local currency.  
+  is the currency code for the local currency.  
+ These three fields will be used to look up the FX rates table.  
+  is populated by looking up the exchange rate in the   table:  
+ 
+ Populating   is demonstrated by the following pseudo-code  
+ 
+ 
+ **Answers to OP's Questions**
+  
+ 
+ Q1: What should be stored in Purchase Orders/Order items database
+  table - Branch location currency and current exchange rate or
+  converted amounts in base currency US dollars? Please keep in mind
+  that exchange rate must be the one at the time of PO created. 
+ 
+ As mentioned, within the purchase orders table store the local currency value, transaction date, local currency name; also calculate and store the value in the base currency (USD). The exchange rate can be looked up again if required, there's no need to redundantly store it here.  
+ The USD value is stored here to allow easier aggregation in a single currency (e.g. to generate a report that shows total value of outstanding POs to send to the head office). If the need for such a use case is low, then there's no need to store the USD value, it can be calculated from the FX rates table for the times it is required. However, the following question implies that there will be a reasonable need for getting the value in the base currency (USD).  
+ 
+ Q2: What to convert and when, to be able to generate reports in US
+  dollars/base currency?  
+ 
+ By storing the values in both the base currency and USD, such reporting will be greatly simplified. This is the reason we take the one-time cost of calculating and storing the USD value, so it can be read many times.  
+ 
+ Q3: What is the impact on the existing data if someone - say after 2
+  years - changes the base currency from US dollars to AUD Australian
+  dollar? 
+ 
+ Technically, if such a change is expected, then don't name any database structures with  , instead use something generic like  . :-)  
+ If such a change is done, the finance division of the company will instruct you how to restate the financial data - e.g. should you recalculate the base values based on the prevailing FX rate at the time of the transaction, or just use a flat conversion factor? In any case, once this decision is given to you, you just need to enter the appropriate conversion factors into the   table, and run a one-off process to repopulate the   column. Apart from the FX rate, all the other information for this lookup is already present and unchanged in the   table.  
+ 
+ Q4: What is the best way to deal with multiple currencies so application
+  handles minimum amount of conversions? 
+ 
+ This will again be driven by your business needs, it will not be a technical decision. If there is a need to frequently report on both the local currency as well as the base (USD) currency, it helps to store the relevant transaction values in both currencies. By calculating it once and storing it, you can benefit from accessing stored data thereafter.  
+ Also, since you're not discarding any data, you can always recalculate the financials if required. Some scenarios where this might be required are:  
+ 
+ A corporate decision is made that the base currency is calculated using the prevailing exchange rate at the time of the PO being raised, but the base (USD) currency is to be recalculated when the PO is closed or invoiced. In such a case, you'd use a different date to look up the   table at the time of closing the PO.  
+ If the pound suddenly tanks, and changes from 1 GBP = 1.25 USD to 1.5 GBP = 1 USD, you might be required to calculate the dollar impact of such a change. Then, you can get the difference between the stored value   and a re-calculated value using today's exchange rate from the   table, to determine the dollar impact of such a shift.  
+ 
+ 
+ Q5: Can't the exchange rate at the time of transaction be stored in the
+  purchase orders table? This way, system wont need to look up the
+  exchange rate in FX rates table.  (Asked via a follow-up comment) 
+ 
+ The exchange rate can definitely be stored in the PO table, instead of the USD amount. There is nothing intrinsically "wrong" about storing exchange rates in the PO table, nor is there anything "right" about storing the USD amount instead.  
+ Of course, that then will lead on to a question of - where do you get the exchange rate from in order to populate it into the PO table, if you don't store it in some lookup table in the first place. Bear in mind that in large/global corporations, FX rates will in all likelihood not be populated via the LOB application itself, it will be some external source, such as a FX rates team that determines FX rates to be used across the company. In such a case, storing the FX rates in a separate table is more convenient.  
+ I've listed some of the benefits of different approaches below. You'd need to pick the one(s) you use based on your needs.  
+ 
+ Benefit of Storing USD in the PO Table : Amounts in USD are directly available without needing any further calculation (i.e. no need to calculate   when running a report).  
+ Benefit of a separate FX Rates table : FX rates are centrally stored in a single table, making it easier to update & review ( remember large corporations might have a separate team fixing the FX rates for company-wide use ), as well as validate ( e.g. to check for continuity of FX rates - in the above example, it is trivially simple to check that there no gaps for FX rates by stringing together the valid from/to dates on successive rows ). FX rates are not scattered around multiple tables.  
+ Benefit of Storing FX Rate in the PO Table : No need for a separate   table.  
+ 
+ Of course, you could redundantly store additional information (trading off storage) to gain a benefit (for example, in the PO table you store the local currency amount, FX rate and USD amount, as well as keep a separate FX rates table. This allows you to easily print out PO documents that displays the local currency amount, and the FX rate used to convert it to the USD amount. At the same time, the FX rates table remains as an authoritative source of exchange rates).  
+ Remember, the question - and its answers - are subjective, so there's no right nor wrong. Tailor all these recommendations to your requirements, and your company's standards.  
+ 
+ Usually you use the currency of the country where the company has its base and pay its taxes. So you should convert the other currencies to US$ with valid exchange rate at the time of transaction. 
+Conversions takes place as soon as you get all the data.
+The impact of changing currency is unknown as it can change multitude of things not only the currency.
+I dont know what is the best way, but it seems logical to keep track of all the exchange rates whenever any transaction happens, so you can give appropriate data. 
+ 

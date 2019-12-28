@@ -1,0 +1,101 @@
+*** the-job-failed-in-copying-database-sql-server-2012 ***
+
+ I'm trying to copy a database. When going through the Copy Database Wizard, I'm getting a Execute SQL Server Agent Job error. The error states  
+ 
+ The job failed. Check the event log on the destination server for details 
+ 
+ Performing operation 
+ 
+ Add log for package (Success) 
+ Add task for transferring database objects (Success) 
+ Create package (Success) 
+ Start SQL Server Agent Job (Success) 
+ Execute SQL Server Agent Job (Error) 
+ 
+ Error: 
+ 
+ The job failed.  Check the event log on the destination server for details. (Copy Database Wizard) 
+ 
+ I can't seem to find what causing this problem. Am I using the correct approach? I just need to copy this database. Thanks in advance. 
+ 
+ if you are trying to Clone your database on the same server try this: 
+ 
+ Create a backup of the database you want to copy 
+ right-click on   and select  
+ Select the database you want to copy from the  
+drop-down list in the   section 
+ Enter the name of the new database in the   field in the
+  section - this cannot be the name of an
+existing database. 
+ Click OK 
+ 
+ 
+ Check the Windows Event Log.  
+ 
+ Event Viewer 
+ Windows Logs 
+ Application 
+ Look for Warning/Error messages associated with any of the following:
+
+ 
+ SQLAgent 
+ SQLISPackage 
+ 
+ Read the error. 
+ 
+ Here is an example. 
+ 
+ Here are some of the errors and resolutions we encountered. 
+ 
+ Unable to determine if the owner (...) of job ... has server access (reason: Could not obtain information about Windows NT group/user '...', error code 0x54b. [SQLSTATE 42000] (Error 15404)). 
+ 
+ We needed to make sure that during the Copy Database Wizard, the account with which we signed in to the destination server had the appropriate privileges and that those privilege were obtainable (we eventually used the   account.) That resolved the above warning.  
+ 
+ Access is denied 
+ 
+ We needed to make sure that the local SQL Server Agent has appropriate privileges on the local server. So, we made the SQL Server Agent logon as Local System. That worked because Local System is a sysadmin in our SQL Server instance. 
+ 
+ Could not read metadata, possibly due to insufficient access rights. 
+ 
+ We needed to give the Local System account further privileges. 
+ 
+ From SSMS 
+ Right click on the server name and click properties 
+ Click on the Permissions tab 
+ Click the user Local System 
+ On the Explicit Permissions almost at the bottom there is "View Any Definition" grant that. See if that will work. 
+ 
+ 
+ xp_regread() returned error 5, 'Access is denied.' 
+ 
+ This stymied us and we asked another question:  xp_regread() returned error 5, 'Access is denied.' 
+ 
+ It usually because your account  **(NT Service\SQLSERVERAGENT**
+) don't have permission on data folder (..Microsoft SQL Server\MSSQL13.MSSQLSERVER\MSSQL\DATA). Set it to full controll is ok 
+ Account above is default, if you want to check which account running agent, go to services.msc . check account logon 
+ 
+ For My issue with Copy Database Wizard: Error: Value cannot be null. Parameter name: database StackTrace: at Microsoft.SqlServer.Dts.Tasks.TransferObjectsTask.TransferObjectsTask.CheckLocalandDestinationStatus 
+ I had tried everything in trying to get my Copy Database wizard to work through a schedule from SQL 2012 to SQL2017
+1.  I had set the SQL Agent account to an administrator, even though I had already set up a proxy that was a sysadmin
+2.  I had gone into data tools, and tried to change the max errors to more than one. 
+ The final steps I took that worked were as follows:
+A.  I installed data tools on the 2017 server (just in case I needed them)
+B.  I added a dummy database on the 2017 server just so I could get to Copy Database wizard from inside SSMS.
+C.  I started the opy database wizard from my NEWER system from the dummy database, but changed my source to the source server(instead of the default of the local SQL instance), and respectively changed my target to my local machine SQL instance. 
+ D.  I went through the wizard for each item (for my case, it was a copy and replace option, using SSMS (not detach and re-attach as I couldn't bring down the source on production), and I clicked REFRESH on each database copy wizard screen AFTER changing the destination directory. 
+ (ONE CAVIAT IF MIGRATING DATABASES ON SSMS 2017 for SQL 2017.  Make sure you have the latest cumulative update for the SQL version:   https://support.microsoft.com/en-us/help/4342123  vs. select @@version in a query 
+ Also make sure youre SQL agent and SQL server accounts have permission to the target directory) 
+ Following that, my script finally worked running from the SQL2017 server, having been added to SQL Agent Jobs 
+ 
+ For me, I was copying a db to my localhost. 
+ 
+ I changed the agent service to run as myself. 
+ Added a missing role on my localhost since the eventlog said "Cannot alter the server role 'Developer', because it does not exist or you do not have permission" 
+ saw this "InnerException --> The procedure 'sys.sp_procoption' cannot be executed within a transaction.". So, I changed the wizard setting to not copy stored procedures. 
+ Next error was "Property HasMemoryOptimizedObjects is not available for Database '[TCCPortal_UAT]'. This property may not exist for this object, or may not be retrievable due to insufficient access rights" which I couldn't fix quickly & easily by myself.  
+ 
+ At that point, I gave up & used the SQL Server Import and Export wizard which seemed to work ok for what I needed.
+ https://docs.microsoft.com/en-us/sql/integration-services/import-export-data/import-and-export-data-with-the-sql-server-import-and-export-wizard?view=sql-server-2017 
+ Note that using the import and export wizard works great with the tables. I did have to copy the views, stored procedures and functions separately by rightclick database->Tasks->generate scripts and then the wizard will walk you through which objects you can select. 
+ Good luck, I hope this helps someone. 
+ 

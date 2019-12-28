@@ -1,0 +1,43 @@
+*** sqlite-simultaneous-reading-and-writing ***
+
+ I've read a lot of topics, but can't figure out answer for question: is it possible to read and write simultaneous? 
+ I have background thread that updates some data and UI needs small piece of data stored in DB. So in UI thread SELECT operation is performed. But it blocks when update is in progress. As result, UI freezes for several seconds. 
+ Does anyone has success in reading from DB when writing? 
+ 
+ Its possible to read and write to DB on iPhone. Does the reason of such difference is in synchronious implementation of wrapper on native sqlite functions? 
+ 
+ On Android 3.0 and higher SQLiteDatabases support WAL mode (write-ahead logging): 
+ 
+ When write-ahead logging is not enabled (the default), it is not
+  possible for reads and writes to occur on the database at the same
+  time. Before modifying the database, the writer implicitly acquires an
+  exclusive lock on the database which prevents readers from accessing
+  the database until the write is completed. 
+ In contrast, when write-ahead logging is enabled, write operations
+  occur in a separate log file which allows reads to proceed
+  concurrently. While a write is in progress, readers on other threads
+  will perceive the state of the database as it was before the write
+  began. When the write completes, readers on other threads will then
+  perceive the new state of the database. 
+ http://developer.android.com/reference/android/database/sqlite/SQLiteDatabase.html#enableWriteAheadLogging() 
+ 
+ To start a transaction in WAL mode use beginTransactionNonExclusive() instead of beginTransaction().
+While beginTransaction() starts a transaction in EXCLUSIVE mode, beginTransactionNonExclusive() starts one in IMMEDIATE mode 
+ 
+ EXCLUSIVE mode uses exclusive locks ( http://www.sqlite.org/lockingv3.html#excl_lock ) meaning no other database connection except for read_uncommitted connections will be able to read the database and no other connection without exception will be able to write the database until the transaction is complete 
+ IMMEDIATE mode uses reserved locks ( http://www.sqlite.org/lockingv3.html#reserved_lock ) meaning no other database connection will be able to write to the database or do a BEGIN IMMEDIATE or BEGIN EXCLUSIVE, other processes can continue to read from the database, however. 
+ 
+ In simpler words: call beginTransactionNonExclusive() for IMMEDIATE mode and we can read while another thread is writing (the state before the write transaction started because we won't use read_uncommitted connections ->  http://en.wikipedia.org/wiki/Isolation_%28database_systems%29#Dirty_reads ). 
+ 
+ Starting with API 11 Android has support for WAL mode. It keeps original data untouched during transaction, so other threads can read when transaction is running. You can check my article for more details about WAL mode:  
+ http://www.skoumal.net/en/parallel-read-and-write-in-sqlite/ 
+ You should also avoid running database queries in UI thread. It could always become sluggish and block your UI.  
+ 
+ You cannot read and write at the same time.  SQLite is a serverless, file-based database. 
+ From the  SQLite FAQ: 
+ "When any process wants to write, it must lock the entire database file for the duration of its update. But that normally only takes a few milliseconds. Other processes just wait on the writer to finish then continue about their business. Other embedded SQL database engines typically only allow a single process to connect to the database at once." 
+ 
+ It is not possible to read & write simultaneously.  However, if you have your SQLite database classes set up correctly (single instance of your DB & helper classes), different threads should be able to grab the DB connection synchronously so that there is not any noticeable lag. 
+ It also sounds like you're trying to do backend work (write to the db) with your UI thread.  You should not be doing this.   Create an AsyncTask to handle this instead of having your UI thread handle it. 
+ Refer to the  SQLiteOpenHelper  documentation.  Here's a previous post that talks about this as well:   What are the best practices for SQLite on Android? 
+ 

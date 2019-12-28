@@ -1,0 +1,72 @@
+*** fastest-hash-for-non-cryptographic-uses ***
+
+ I'm essentially preparing phrases to be put into the database, they may be malformed so I want to store a short hash of them instead (I will be simply comparing if they exist or not, so hash is ideal). 
+ I assume MD5 is fairly slow on 100,000+ requests so I wanted to know what would be the best method to hash the phrases, maybe rolling out my own hash function or using   would be faster in the end? 
+ I know MySQL has MD5(), so that would complement a bit of speed on the query end, but maybe there's further a faster hashing function in MySQL I don't know about that would work with PHP.. 
+ 
+ CRC32 is pretty fast and there's a function for it:  http://www.php.net/manual/en/function.crc32.php 
+ But you should be aware that CRC32 will have more collisions than MD5 or even SHA-1 hashes, simply because of the reduced length (32 bits compared to 128 bits respectively 160 bits). But if you just want to check whether a stored string is corrupted, you'll be fine with CRC32. 
+ 
+ 
+ And the code used to generate this is:  
+ 
+ 
+ Ranked list where each loop shares the same thing to crypt as all the others. 
+ 
+ And the output  
+ 
+ 
+ There's a speed comparison on xxhash site. Copy pasting it here: 
+ 
+ So it seems xxHash is by far the fastest one, while many others beat older hashes, like CRC32, MD5 and SHA. 
+ https://code.google.com/p/xxhash/ 
+ Note that this is the ordering on a 32-bit compilation. On a 64-bit compilation the performance order is likely very different. Some of the hashes are heavily based on 64-bit multiplications and fetches. 
+ 
+ 
+ It seems that crc32 is faster for small messages(in this case 26 characters) while md5 for longer messages(in this case >852 characters). 
+ 
+ 2019 update: This answer is the most up to date. Libraries to support murmur are largely available for all languages. 
+ **The current recommendation is to use the **
+**Murmur Hash Family**
+ (see specifically the  **murmur2**
+ or  **murmur3**
+ variants). 
+ Murmur hashes were designed for fast hashing with minimal collisions (much faster than CRC, MDx and SHAx). It's perfect to look for duplicates and very appropriate for HashTable indexes. 
+ In fact it's used by many of the modern databases (Redis, ElastisSearch, Cassandra) to compute all sort of hashes for various purposes. This specific algorithm was the root source of many performance improvements in the current decade. 
+ It's also used in implementations of  Bloom Filters . You should be aware that if you're searching for "fast hashes", you're probably facing a typical problem that is solved by Bloom filters. ;-) 
+ **Note**
+: murmur is a general purpose hash, meaning NON cryptographic. It doesn't prevent to find the source "text" that generated a hash. It's NOT appropriate to hash passwords. 
+ Some more details:  MurmurHash - what is it?   
+ 
+ Instead of assuming that MD5 is "fairly slow", try it. A simple C-based implementation of MD5 on a simple PC (mine, a 2.4 GHz Core2, using a single core) can hash 6  millions  of small messages  per second . A small message is here anything up to 55 bytes. For longer messages, MD5 hashing speed is linear with the message size, i.e. it crunches data at about 400 megabytes per second. You may note that this is four times the maximum speed of a good harddisk or a gigabit ethernet network card. 
+ Since my PC has four cores, this means that hashing data as fast as my harddisk can provide or receive uses at most 6% of the available computing power. It takes a very special situation for hashing speed to become a bottleneck or even to induce a noticeable cost on a PC. 
+ On much smaller architectures where hashing speed  may  become somewhat relevant, you may want to use MD4. MD4 is fine for non-cryptographic purposes (and for cryptographic purposes, you should not be using MD5 anyway). It has been reported that MD4 is even faster than CRC32 on ARM-based platforms. 
+ 
+ Step One:  Install libsodium  (or make sure you're using PHP 7.2+) 
+ Step Two: Use one of the following: 
+ 
+ , which is  BLAKE2b , a hash function more secure than MD5 but faster than SHA256. (Link has benchmarks, etc.) 
+ , which is  SipHash-2-4 , which is appropriate for hash tables but should not be relied on for collision resistance. 
+ 
+  is about 3x as fast as  , but you need a key and you have a small-but-realistic risk of collisions. With  , you probably don't need to worry about collisions, and don't need to use a key (but may want to anyway). 
+ 
+ I suggest urlencode() or base64_encode() for these reasons: 
+ 
+ You don't need cryptography 
+ You want speed 
+ You want a way to identify unique strings while cleaning up 'malformed' strings 
+ 
+ Adapting the benchmark code elsewhere in these replies, I've demonstrated that either of these are way faster than any hash algorithm. Depending on your application, you might be able to use urlencode() or base64_encode() to clean up any 'malformed' strings you want to store. 
+ 
+ If you're looking for fast and unique, I recommend xxHash or something that uses newer cpu's crc32c built-in command, see   https://stackoverflow.com/a/11422479/32453 .  It also links there to possibly even faster hashes if you don't care about the possibility of collision as much. 
+ 
+ Adler32 performs best on my machine.
+And   turned out faster than  . 
+ 
+ The implementation for md5 inside hash is a little bit faster than md5().
+So this can be an option or some else, please try: 
+ 
+ You can see at  http://www.dozent.net/Tipps-Tricks/PHP/hash-performance 
+ 
+ CRC32  is faster, but less secure than MD5 and SHA1. There is not that much speed difference between MD5 and SHA1. 
+ 

@@ -1,0 +1,83 @@
+*** how-to-store-data-with-dynamic-number-of-attributes-in-a-database ***
+
+ I have a number of different objects with a varying number of attributes. Until now I have saved the data in XML files which easily allow for an ever changing number of attributes. But I am trying to move it to a database. 
+ What would be your preferred way to store this data? 
+ A few strategies I have identified so far: 
+ 
+ Having one single field named "attributes" in the object's table and store the data serialized or json'ed in there. 
+ Storing the data in two tables (objects, attributes) and using a third to save the relations, making it a true n:m relation. Very clean solution, but possibly very expensive to fetch an entire object and all its attributes 
+ Identifying attributes all objects have in common and creating fields for these to the object's table. Store the remaining attributes as serialized data in another field. This has an advantage over the first strategy, making searches easier. 
+ 
+ Any ideas? 
+ 
+ If you  ever  plan on searching for specific attributes, it's a bad idea to serialize them into a single column, since you'll have to use per-row functions to get the information out - this rarely scales well. 
+ I would opt for your second choice. Have a list of attributes in an attribute table, the objects in their own table, and a many-to-many relationship table called object attributes. 
+ For example: 
+ 
+ Your concern about performance is noted but, in my experience, it's always more costly to split a column than to combine multiple columns. If it turns out that there are performance problems, it's perfectly acceptable to break 3NF for performance reasons. 
+ In that case I would store it the same way but also have a column with the raw serialized data. Provided you use insert/update triggers to keep the columnar and combined data in sync, you won't have any problems. But you shouldn't worry about that until an actual problem surfaces. 
+ By using those triggers, you minimize the work required to  only  when the data changes. By trying to extract sub-column information, you do unnecessary work on  every  select. 
+ 
+ A variation on your 2d solution is just two tables (assuming all attributes are of a single type): 
+ T1: |Object data columns|Object_id| 
+ T2: |Object id|attribute_name|attribute value| (unique index on first 2 columns) 
+ This is even more efficient when combined with 3rd solution, e.g. all of the common fields go into T1. 
+ Sstuffing >1 attribute into the same blob is no recommended - you can not filter by attributes, you can not efficiently update them 
+ 
+ Let me give some concreteness to what DVK was saying. 
+ Assuming values are of same type the table would look like (good luck, I feel you're going to need it): 
+ 
+dynamic_attribute_table
+------------------------
+id         NUMBER
+key        VARCHAR
+value      SOMETYPE?
+ 
+ example (cars): 
+ 
+|id|    key   |   value   |
+---------------------------
+| 1|'Make'    |'Ford'     |
+| 1|'Model'   |'Edge'     |
+| 1|'Color'   |'Blue'     |
+| 2|'Make'    |'Chevrolet'|
+| 2|'Model'   |'Malibu'   |
+| 2|'MaxSpeed'|'110mph'   |
+ 
+ Thus,  
+entity 1 = { ('Make', 'Ford'), ('Model', 'Edge'), ('Color', 'Blue') } 
+and, 
+entity 2 = { ('Make', 'Chevrolet'), ('Model', 'Malibu'), ('MaxSpeed', '110mph') }. 
+ 
+ If you are using a relational db, then I think you did a good job listing the options.  They each have their pros and cons.  YOU are in the best position to decide what works best for your circumstances. 
+ The serialized approach is probably the fastest (depending on your code for de-serializing), but it means that you won't be able to query the data with SQL.    If you say that you don't need to query the data with SQL, then I agree with @longneck, maybe you should use a key/value style db instead of a relational db. 
+ EDIT - reading more of your comments, WHY are you switching to a db if speed is your main concern.  What's BAD about your current XML implementation? 
+ 
+ I used to implement  **this scheme**
+: 
+ 
+  is where   holds  s 
+ If you want to select all properties for an object, you issue: 
+ 
+  hold stuff you normally don't search on (like, text descriptions etc.) 
+ Fast properties are in fact normal tables you have in the database, to make the queries efficient. They hold values only for the instances of a certain class or its descendants. This is to avoid extra joins. 
+ You don't have to use fast tables and limit all your data to these four tables. 
+ 
+ sounds like you need something lick  couchdb , not an RDBMS. 
+ 
+ if you are going to edit/manipulate/delete the attributes in later point, making a true n:m (second option) will be the one which I go for. (Or try to make it 2 table where the same attribute repeats.But data size will be high) 
+ If you are not dealing with attributes(just capturing and showing the data) then you can  go ahead and store in one field with some separator(Make sure the separator wont occur in the attribute value) 
+ 
+ I am assuming you do not have digital attribute soup, but that there is some order to your data. 
+ Otherwise, an RDBMS might not be the best fit. Something along NO SQL might work better. 
+ If your objects are of different types, you should generally have one table per type. 
+ Especially if you want to connect them using primary keys. It also helps to bring order and sanity if you have Products, Orders, Customers, etc tables, instead of just an Object and Attribute table. 
+ Then look at your attributes. Anything that exists more than, say for 50% of the objects in that type category, make it a column in the object's table and use   when it's not being used. 
+ Anything that is mandatory, should, of course, be defined as a   column. 
+ The rest, you can either have one or several "extra attributes" tables for. 
+ You could put the attribute names into the table with the values, or normalize them out in a separate table and only use the primary key in the value table. 
+ You may also find that you have combinations of data. For instance, a variant of an object type always has a certain set of attributes while another variant of the same object type has another set of attributes. 
+ In that case, you might want to do something like: 
+ 
+ I think the hard work, that will pay off, in the long run, is to analyze the data, find the objects and the commonly used attributes and make it into a good "object/ERD/DB" model. 
+ 

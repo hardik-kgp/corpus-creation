@@ -1,0 +1,34 @@
+*** auto-sharding-postgresql ***
+
+ I have a problem where I need to load alot of data (5+ billion rows) into a database very quickly (ideally less than an 30 min but quicker is better), and I was recently suggested to look into postgresql (I failed with mysql and was looking at hbase/cassandra). My setup is I have a cluster (currently 8 servers) that generates alot of data, and I was thinking of running databases locally on each machine in the cluster it writes quickly locally and then at the end (or throughout the data generating) data is merged together. The data is not in any order so I don't care which specific server its on (as long as its eventually there). 
+ My questions are , is there any good tutorials or places to learn about PostgreSQL auto sharding (I found results of firms like sykpe doing auto sharding but no tutorials, I want to play with this myself)?  Is what I'm trying to do possible? Because the data is not in any order I was going to use auto-incrementing ID number, will that cause a conflict if data is merged (this is not a big issue anymore)? 
+ Update: Frank's idea below kind of eliminated the auto-incrementing conflict issue I was asking about. The question is basically now, how can I learn about auto sharding and would it support distributed uploads of data to multiple servers? 
+ 
+ First: Do you really need to insert the generated data from your cluster straight into a relational database? You don't mind merging it at the end anyway, so why bother inserting into a database at all? In your position I'd have your cluster nodes write flat files, probably gzip'd CSV data. I'd then bulk import and merge that data using a tool like  pg_bulkload . 
+ If you do need to insert directly into a relational database: That's (part of) what  PgPool-II  and (especeially)  PgBouncer  are for. Configure PgBouncer to load-balance across different nodes and you should be pretty much sorted. 
+ Note that PostgreSQL is a transactional database with strong data durability guarantees. That also means that if you use it in a simplistic way, doing lots of small writes can be slow. You have to consider what trade-offs you're willing to make between data durability, speed, and cost of hardware.  
+ At one extreme, each   can be its own transaction that's synchronously committed to disk before returning success. This limits the number of transactions per second to the number of fsync()s your disk subsystem can do, which is often only in the tens or hundreds per second (without battery backup RAID controller). This is the default if you do nothing special and if you don't wrap your  s in a   and  . 
+ At the other extreme, you say "I really don't care if I lose  all  this data" and use  unlogged tables  for your inserts. This basically gives the database permission to throw your data away if it can't guarantee it's OK - say, after an OS crash, database crash, power loss, etc. 
+ The middle ground is where you will probably want to be. This involves some combination of  asynchronous commit ,  group commits  ( commit_delay  and  commit_siblings ), batching inserts into groups wrapped in explicit   and  , etc. Instead of INSERT batching you could do   loads of a few thousand records at a time. All these things trade data durability off against speed. 
+ For fast bulk inserts you should also consider inserting into tables without any indexes except a primary key. Maybe not even that. Create the indexes once your bulk inserts are done. This will be a hell of a lot faster. 
+ 
+ Here are a few things that might help: 
+ 
+ The DB on each server should have a small meta data table with that server's unique characteristics.  Such as which server it is; servers can be numbered sequentially.  Apart from the contents of that table, it's probably wise to try to keep the schema on each server as similar as possible. 
+ With billions of rows you'll want bigint ids (or UUID or the like).  With bigints, you could allocate a generous range for each server, and set its sequence up to use it.  E.g. server 1 gets 1..1000000000000000, server 2 gets 1000000000000001 to 2000000000000000 etc. 
+ If the data is simple data points (like a temperature reading from exactly 10 instruments every second) you might get efficiency gains by storing it in a table with columns   rather than the more correct  .  This is an explicit denormalisation in aid of efficiency.  (I  blogged  about my own experience with this scheme.) 
+ 
+ 
+ Sorry I don't have a tutorial at hand, but here's an outline of a possible solution: 
+ 
+ Load one eight of your data into a PG instance on each of the servers 
+ For optimum load speed, don't use inserts but the  COPY  method 
+ When the data is loaded, do not combine the eight databases into one. Instead, use  plProxy  to launch a single statement to query all databases at once (or the right one to satisfy your query) 
+ 
+ As already noted, keys might be an issue. Use non-overlapping sequences or uuids or sequence numbers with a string prefix, shouldn't be too hard to solve. 
+ You should start with a COPY test on one of the servers and see how close to your 30-minute  goal you can get. If your data is not important and you have a recent Postgresql version, you can try using  unlogged tables  which should be a lot faster (but not crash-safe). Sounds like a fun project, good luck. 
+ 
+ Use  citus  for PostgreSQL auto sharding. Also  this link  is helpful. 
+ 
+ You could use mySQL - which supports auto-sharding across a cluster. 
+ 

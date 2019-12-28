@@ -1,0 +1,47 @@
+*** implementing-audit-trail-spring-aop-vs-hibernate-interceptor-vs-db-trigger ***
+
+ I found couple of discussion threads on this- but nothing which brought a comparison of all three mechanism under one thread. 
+ So here is my question... 
+ I need to audit DB changes- insert\updates\deletes to business objects. 
+ I can think of three ways to do this 
+ 1) DB Triggers 
+ 2) Hibernate interceptors 
+ 3) Spring AOP 
+ (This question is specific to a Spring\Hibernate\RDBMS- I guess this is neutral to java\c# or hibernate\nhibernate- but if your answer is dependent upon C++ or Java or specific implementation of hibernate- please specify) 
+ What are the pros and cons of selecting one of these strategies ? 
+ I am not asking for implementation details.-This is a design discussion.  
+ I am hoping we can make this as a part of community wiki  
+ 
+ I only can talk about Triggers and NHibernate, because I don't know enought abou tSpring AOP. 
+ It depends on, as always, what is most important for you. 
+ DB triggers  
+ 
+ are fast 
+ are always called, even from native SQL, Scripts, external apps. 
+ write data in the DB of which NH doesn't know about. It will be missing in the current session. (Which could lead to unexpected results) 
+ do usually not know anything about your session (say: login name). 
+ 
+ NHibernate interceptors / events 
+ 
+ are not DBMS specific.  
+ allow you easy access to you business information, like the user session, client machine name, certain calculations or interpretations, localization, etc. 
+ allow you declarative configuration, like attributes on the entity, which define if the entity needs to be logged and how. 
+ allow you turning off logging, this could be important for upgrades, imports, special actions that are not triggered by the user. 
+ allow you an entity view to the business model. You are probably closer to the users point of view. 
+ 
+ 
+ I understand this is not 100% related to the question but it does add value with new options. 
+ There are two more ways you can audit what’s going on. 
+ Reading transaction log: If database is in full recovery mode then all details about INSERT, UPDATE, DELETE and DDL statements are logged into transaction log.  
+ Problem is that it’s very complex to read because it’s not natively supported and that you’ll need a third party transaction log reader such as  ApexSQL Log  or  SQL Log Rescue  (the latter one is free but only supports sql 2000).  
+ Advantage of this method is that you literally don’t have to make any changes except to put your database in full recovery mode.  
+ SQL Server traces: Traces will capture everything in trace files including select statements which also may be needed for some compliance scenarios. The downside is that traces are text files that need to be parsed and organized. 
+ 
+ I can't think of any good reason for not using database triggers to audit changes to the database.  Inserts, updates and deletes can potentially hit the database from various sources - triggers will catch all these; Hibernate etc. will not. 
+ 
+ I tink when you consider auditing, you need to consider what it is for. First, it is to havea record of who changed what and what changed so you can back out bad changes, you can identify problems with the system (we can see which of several differnt applications casued the change which helps identify quickly which one is broken)  and so you can identify who made the change. The last can be really critical when it comes to detecting fraud. If you do everything from the user interface, you will never see the user committing fraud who changes the data in the backend to write himself a check. If you do everything from the interface, likely you have to have permissions set at the tabel level, thus opening the door for fraud to begin with. If you do everything from the interface you won't know which disgruntled employee deleted the entire user table for the pure annoyance value. If you do everything from the front end you won't know which incompetent dba accidentally updated all customer orders to the same customer. I can't support using anything except triggers for auditing as you lose a good part of why you need auditing in the first place. 
+ 
+ Using Hibernate interceptors to perform Audit logs is deeply flawed. I'm stunned by the number of blogs that recommend this method without pointing out its most obvious flaw - the interceptor HAS to use a new transaction to record the audit. Which means you could successfully save the main transaction and have a system crash that fails to record the audit transaction! 
+ 
+ an old question that i chanced upon now.There is one more option available and that is Envers which is available along with hibernate starting from ver 3.6 onwards.. 
+ 

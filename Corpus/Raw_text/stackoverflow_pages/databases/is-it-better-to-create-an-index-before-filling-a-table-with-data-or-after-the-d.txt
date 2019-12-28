@@ -1,0 +1,27 @@
+*** is-it-better-to-create-an-index-before-filling-a-table-with-data-or-after-the-d ***
+
+ I have a table of about 100M rows that I am going to copy to alter, adding an index.  I'm not so concerned with the time it takes to create the new table, but will the created index be more efficient if I alter the table before inserting any data or insert the data first and then add the index? 
+ 
+ Creating  index after data insert is more efficient way (it even often recomended to drop index before batch import and after import recreate it). 
+ Syntetic example (PostgreSQL 9.1, slow development machine, one million rows): 
+ 
+ Insert and then create index - about 12 sec 
+ 
+ Create index and then insert - about 25.5 sec (more than two times slower)   
+ 
+ It is probably better to create the index after the rows are added.  Not only will it be faster, but the tree balancing will probably be better. 
+ **Edit**
+ "balancing" probably is not the best choice of terms here.  In the case of a b-tree, it is balanced by definition.  But that does not mean that the b-tree has the optimal layout. Child node distribution within parents can be uneven (leading to more cost in future updates) and the tree depth can end up being deeper than necessary if the balancing is not performed carefully during updates.  If the index is created after the rows are added, it is will more likely have a better distribution. In addition, index pages on disk may have less fragmentation after the index is built.   A bit more information here 
+ 
+ This doesn't matter on this problem because: 
+ 
+ If you add data first to the table and after it you add index. Your index generating time will be   longer (where   is a rows added). Because tree gerating time is   then if you split this into old data and new data you get   this can be simply converted to   and in this format you can simply see what you will wait additional. 
+ If you add index and after it put data. Every row (you have   new rows) you get longer insert additional time   needed to regenerate structure of the tree after adding new element into it (index column from new row, because index already exists and new row was added then index must be regenerated to balanced structure, this cost   where   is a index power  [elements in index] ). You have   new rows then finally you have   then   summary additional time. 
+ 
+ 
+ Indexes created after are much faster in most cases. Case in point: 20 million rows with full text on varchar(255) - (Business Name)
+Index in place whilst importing rows - a match against taking up to 20 seconds in worst cases.
+Drop index and re-create - match against taking less than 1 second every time 
+ 
+ I'm not sure it'll really matter for index efficiency's sake, since in both cases you are inserting new data into the index.  The server wouldnt know how unbalanced an index would be until after its built, basically.  Speed wise, obviously, do the inserts without the index. 
+ 

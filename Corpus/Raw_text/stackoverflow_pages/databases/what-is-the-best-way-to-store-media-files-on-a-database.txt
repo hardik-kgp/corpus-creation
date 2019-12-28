@@ -1,0 +1,80 @@
+*** what-is-the-best-way-to-store-media-files-on-a-database ***
+
+ I want to store a large number of sound files in a database, but I don't know if it is a good practice. I would like to know the pros and cons of doing it in this way. 
+ I also thought on the possibility to have "links" to those files, but maybe this will carry more problems than solutions. Any experience in this direction will be welcome :) 
+ Note: The database will be MySQL. 
+ 
+ Every system I know of that stores large numbers of big files stores them externally to the database. You store all of the queryable data for the file (title, artist, length, etc) in the database, along with a partial path to the file. When it's time to retrieve the file, you extract the file's path, prepend some file root (or URL) to it, and return that. 
+ So, you'd have a "location" column, with a partial path in it, like "a/b/c/1000", which you then map to:
+" http://myserver/files/a/b/c/1000.mp3 " 
+ Make sure that you have an easy way to point the media database at a different server/directory, in case you need that for data recovery. Also, you might need a routine that re-syncs the database with the contents of the file archive. 
+ Also, if you're going to have thousands of media files, don't store them all in one giant directory - that's a performance bottleneck on some file systems. Instead,break them up into multiple balanced sub-trees. 
+ 
+ I think storing them in the database is ok, as long as you use a good implementation.  You can read this older but good article for ideas on how to keep the larger amounts of data in the database from affecting performance. 
+ http://www.dreamwerx.net/phpforum/?id=1 
+ I've had literally 100's of gigs loaded in mysql databases without any issues.  The design and implementation is key, do it wrong and you'll suffer. 
+ More DB Advantages (not already mentioned):
+- Works better in a load balanced environment
+- You can build in more backend storage scalability 
+ 
+ Advantages of using a database: 
+ 
+ Easy to join sound files with other
+data bits. 
+ Avoiding file i/o operations that
+bypass database security. 
+ No need for separation operations to
+delete sound files when database
+records are deleted. 
+ 
+ Disadvantages of using a database: 
+ 
+ Database bloat 
+ Databases can be more expensive than file systems 
+ 
+ 
+ I've experimented in different projects with doing it both ways and we've finally decided that it's easier to use the file system as well. After all, the file system is already optimized for storing, retrieving, and indexing files.  
+ The one tip that I would have about that is to only store a "root relative" path to the file in the database, then have your program or your queries/stored procedures/middle-ware use an installation specific root parameter to retrieve the file. 
+ For example, if you store XYZ.Wav in C:\MyProgram\Data\Sounds\X\ the full path would be 
+ 
+ But you would store the path and or filename in the database as: 
+ 
+ Elsewhere, in the database or in your program's configuration files, store a root path like SoundFilePath equal to  
+ C:\MyProgram\Data\Sounds\ 
+ Of course, where you split the root from the database path is up to you. That way if you move your program installation, you don't have to update the database.  
+ Also, if there are going to be  lots  of files, find some way of hashing the paths so you don't wind up with one directory containing hundreds or thousands of files (in my little example, there are subdirectories based on the first character of the filename, but you can go deeper or use random hashes). This makes search indexers happy as well. 
+ 
+ You could store them as BLOBs (or LONGBLOBs) and then retrieve the data out when you want to actually access the media files. 
+ or 
+ You could simply store the media files on a drive and store the metadata in the DB. 
+ I lean toward the latter method.  I don't know how this is done overall in the world, but I suspect that many others would do the same. 
+ You can store links (partial paths to the data) and then retrieve this info.  Makes it easy to move things around on drives and still access it. 
+ I store off the relative path of each file in the DB along with other metadata about the files.  The base path can then be changed on the fly if I need to relocate the actual data to another drive (either local or via UNC path). 
+ That's how I do it.  I'm sure others will have ideas too. 
+ 
+ Some advantages of using blobs to store files 
+ 
+ Lower management overhead - use a single tool to backup / restore etc 
+ No possibility for database and filesystem to be out of sync 
+ Transactional capability (if needed) 
+ 
+ Some disadvantages 
+ 
+ blows up your database servers' RAM with useless rubbish it could be using to store rows, indexes etc 
+ Makes your DB backups very large, hence less manageable 
+ Not as convenient as a filesystem to serve to clients (e.g. with a web server) 
+ 
+ 
+ What about performance? Your mileage may vary. Filesystems are extremely varied, so are databases in their performance. In some cases a filesystem will win (probably with fewer larger files). In some cases a DB might be better (maybe with a very large number of smallish files). 
+ In any case, don't worry, do what seems best at the time. 
+ Some databases offer a built-in web server to serve blobs. At the time of writing, MySQL does not. 
+ 
+ Store them as external files. Then save the path in a varchar field. Putting large binary blobs into a relational database is generally very inefficient - they only use up space and slow things down as caches are filled are unusable. And there's nothing to be gained - the blobs themselves cannot be searched.  You might want to save media meta data into the the database though. 
+ 
+ A simple solution would be to just store the relative locations of the files as strings and let the filesystem handle it.  I've tried it on a project (we were storing office file attachments to a survey), and it worked fine. 
+ 
+ The best way to storing audio/video files, you can use any distributed storage that can be local or on cloud. 
+ https://min.io/ 
+ for cloud:
+AWS S3 
+ 

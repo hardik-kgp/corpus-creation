@@ -1,0 +1,35 @@
+*** golang-sqlite-database-connection-pooling ***
+
+ I'm having trouble with SQLite throwing a wrench in my machinery when I call a database write at the same exact time as a read. This happens when different methods happen to attempt to access the database at the same exact time. 
+ What I'm doing is similar to what is being done in  this thread , the accepted answer explains how to use database transactions to avoid database locks. 
+ Here is some of my code: 
+ 
+ The confusing thing is the program exists after outputting this: 
+ 
+ I don't want my program to halt on a database lock, I want it to store the data in memory and continue about its business until the database is unlocked and I can try again.  
+ Is there some standard way I can achieve this, maybe a queue or data structure of some sort, or is there a database-specific way to go about solving this issue? 
+ Why does the program exit after outputting  ? 
+ **Edit:**
+
+ I believe I've fixed the problem, but I can't be sure. I'm using goroutines and a package-wide DB connection. Previously, each func within my code was initializing a database connection when it was called. Now, I have a "global" variable for the DB connection defined at the top of the package and initialized before any routines begin. Here's the code in a nutshell: 
+ 
+ Later in the main func... 
+ 
+  is defined as the following: 
+ 
+ So,   scans an online resource for data periodically and stores it into the database when there is a change (once every few seconds).   listens for HTTP requests so data can be read from the running program and transmitted over-the-wire to the requestor of the data, whether it is a local or external request. I haven't had a problem yet. 
+ 
+ The  documentation  says: 
+ 
+ A single connection instance and all of its derived objects (prepared statements, backup operations, etc.) may NOT be used concurrently from multiple goroutines without external synchronization. 
+ 
+ (This is a different SQLite driver, but this restriction also applies to yours.) 
+ When you are using goroutines, you  must  use separate database connections. 
+ By default, SQLite aborts immediately when it encounters a database that is locked by another transaction.
+To allow more concurrency, you can tell it to wait for the other transaction to finish by setting a busy timeout. 
+ Use the  BusyTimeout  function, if your SQLite driver has it, or execute the  PRAGMA busy_timeout  SQL command directly. 
+ 
+ Please post more of your code, so that we can get a fuller idea of what's going down.  
+ However, here are a couple of thoughts. Golang pools db connections by default (although, CENTOS seems to perhaps not..). Also, your program is 'halting' because it's waiting for an open connection from the db connection pool. If you want the rest of your program to continue during this time, you should run this as an asynchronous function - check out  goroutines here . That will effectively cause your program to queue, as you want it to, since connections will be assigned in the order that they were requested whenever they become available.  Read more over here  if you're interested in the internals. 
+ If you need some code snippets for how your goroutine might look, let us know. 
+ 

@@ -1,0 +1,85 @@
+*** storing-business-hours-in-a-database ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  11 months ago . 
+ 
+ 
+ 
+ I'm currently trying to work out the best way to store a business' hours of operation in a database. 
+ For example: 
+ Business A has the following hours of operation 
+ 
+ Monday: 9am - 5pm 
+ Tuesday: 9am - 5pm 
+ Wednesday: 9am - 5pm 
+ Thursday: 9am - 5pm 
+ Friday: 9am - 5pm 
+ Saturday: 9am - 12 Midday 
+ Sunday: Closed 
+ 
+ Currently I'm have a data model similar to the following 
+ 
+ where the "day" is restricted to a choice of the 7 days of the week in code (through the ORM). To test if a business is closed on a certain day it checks if the open_time and close_time are NULL. It is related to the business through a intermediate table (Many To Many Relationship). 
+ Does any one have any suggestions for this database scheme? Something about it doesn't seem right to me. 
+ 
+ Overall, I see nothing wrong with this. Except... 
+ 
+ I would store the day of week as an integer using whatever numbering system your native programming language uses (in its libraries). This will decrease the size of the database and remove string comparisons from your code. 
+ I would probably put the foreign key to the business table right here in this table. That way you won't need a link table. 
+ 
+ So I guess I would do: 
+ 
+ In my business logic, I would enforce a constraint that every "business" has  **at least**
+ 7 "business hours". ( At least  because Jon Skeet is right, you might want holiday hours.) Though you may want to relax this constraint by simply leaving off "business hours" for days that the business is closed. 
+ 
+ One situation that isn't covered by this schema is several opening periods in a day. For example, the local pub is open 12:00-14:30 and 17:00-23:00. 
+ Maybe a theatre box office is open for a matinee and an evening performance. 
+ At that point you need to decide if you can have several entries for the same day, or if you need to represent different hours in the same row. 
+ What about opening times that cross midnight. Say a bar is open 19:00-02:00. You couldn't just compare the opening and closing times with the time you want to test. 
+ 
+ It sort of depends on what you need to store it for and what the real-world data could look like. 
+If you need to be able to determine if the business is open at a certain point then it may be a bit awkward to query the scheme as laid out. More importantly, though, is: Would you ever need to cater for a mid-day closure?   
+ Some options include;   
+ 
+ A scheme like what you have, but with the option to have multiple periods for the same day. It would cater for the lunch break, but would make it awkward to run a query that gives you the opening hours for a given day, say for presentation to a user. 
+ A bitmap style approach; "000000000111111110000000" for 9-5. The downside to this approach is that you have to choose a specific granularity, i.e. whole hours or half-hours or, indeed, minutes. The finer the granularity, the harder the data is to read for a human. You could use bitwise operators to store this value as a single number rather than a string of integers, but again it hurts legibility. 
+ 
+ 
+ I have learned that if you want to have google data markup recognize your data you should follow these guidelines:  
+ https://schema.org/openingHours 
+ http://schema.org/OpeningHoursSpecification  Contains "valid dates", which is very useful for some businesses. 
+ https://schema.org/docs/search_results.html#q=hours 
+ You should be fine without a primary key, unless you are allowing businesses to share the same hours with the join table - interestingly eventually you would have a finite amount of combinations; I'm not sure how many that would be :p 
+ With one of my projects I used the columns: 
+ 
+ [uInt]business_id, [uTinyInt]day, [char(11)]timeRange 
+ 
+ If you want to support OpeningHoursSpecification then you'll need to add validFrom and validThrough. 
+ Time Range is formatted like:  hh:mm-hh:mm 
+ Here's a function that parses it, 
+you can also modify this function to parse just a single open/close, if you keep them as separate columns in the DB. 
+ Out of my experience I would recommend that you allow multiple times within a day, allow for a way to tell if they are explicitly closed on that day, or opened 24 hours or 24/7.
+I had mine say that if there was a day missing in the DB then the business was closed that day. 
+ 
+ 
+ Might think about factoring in holidays by including additional fields for month of year/day of month/week of month.  Week of month has some minor subtlties "last" could for example be week 4 or 5 depending on the year. 
+ 

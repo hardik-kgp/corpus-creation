@@ -1,0 +1,23 @@
+*** why-is-ef-code-first-generating-an-extraneous-foreign-key-column ***
+
+ I'm using entity framework code-first to create my database schema automatically, and one of my entities looks like this: 
+ 
+ When EF auto-generates my database, it generates a table with the following columns: 
+ 
+ This is all fine apart from the   column.  Why has that been generated?  What is it for?  How can I stop it being generated?  My suspicion is that EF can no longer automatically match up  's   with the   column, so it creates its own column to link the two together for that navigation property. 
+ 
+ Because you have  **two**
+ navigation properties of type   in your   entity and an   collection in your   entity EF cannot decide which of the two   navigation properties this collection refers to. Both could be possible and both options would result in a valid but different entity model and database schema. 
+ In such an ambiguous situation the EF convention is to create actually  **three**
+ relationships, i.e. your collection in   does not refer to any of the two   navigation properties but has a third (but not exposed and "invisible") endpoint in  . This third relationship is the reason for the third foreign key your are seeing in the database - the one with the underscore. (The underscore is always a strong indication that something happend by mapping convention and not by your explicit configuration or data annotations.) 
+ To fix the problem and to override the convention you can apply the   attribute, thereby specifying the   navigation property the   collection belongs to: 
+ 
+ You can also (alternatively, you don't need both) put the attribute on the collection side: 
+ 
+ 
+ For some reason, Slauma's   attribute suggestion didn't work.  What did work was me specifying the relationship between the two   navigation properties in  , and the   entity, via the Fluent API in my database context's   method: 
+ 
+ Once that's added, the migration code that's generated when I   no longer tries to add the   column and I just get the   column added, with the appropriate foreign key relationship. 
+ 
+ For anyone else landing here looking for a solution, if you've tried the previous answers and are still getting an extra foreign key column, look for any properties you may have defined further down your POCO class that you did not intend to map to DB fields.  Even if they contain code blocks, as with complex get accessors, Entity Framework will try to map them to the database somehow.  This may result in extra foreign key columns if your properties return entities.  To be safe, either decorate such properties with the   attribute or convert them to methods. 
+ 

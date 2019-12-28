@@ -1,0 +1,43 @@
+*** postgresql-dump-each-table-into-a-different-file ***
+
+ I need to extract SQL files from multiple tables of a PostgreSQL database. This is what I've come up with so far: 
+ 
+ However, as you see, all the tables that start with the prefix   are being exported to a single unified file ( ). I have almost 90 tables in total to extract SQL from, so it is a must that the data be stored into separate files.  
+ How can I do it? Thanks in advance.  
+ 
+ If you are happy to hard-code the list of tables, but just want each to be in a different file, you could use a shell script loop to run the   command multiple times, substituting in the table name each time round the loop: 
+ 
+ **EDIT**
+: This approach can be extended to get the list of tables dynamically by running a query through psql and feeding the results into the loop instead of a hard-coded list: 
+ 
+ Here   runs   and outputs the results with no header or footer; since there is only one column selected, there will be a table name on each line of the output captured by  , and your shell will loop through them one at a time. 
+ 
+ Since version 9.1 of PostgreSQL (Sept. 2011), one can use the  directory format  output when doing backups 
+ and 2 versions/2 years after (PostgreSQL 9.3), the --jobs/-j makes it even more efficient to backup every single objects in parallel 
+ but what I don't understand in your original question, is that you use the -s option which dumps only the object definitions (schema), not data. 
+ if you want the data, you shall not use -s but rather -a (data-only) or no option to have schema+data 
+ so, to backup all objects (tables...) that begins with 'th' for the database dbName on the directory dbName_objects/ with 10 concurrent jobs/processes (increase load on the server) : 
+ 
+ pg_dump -Fd -f dbName_objects -j 10 -t 'thr_*' -U userName dbName 
+ 
+ (you can also use the -a/-s if you want the data or the schema of the objects) 
+ as a result the directory will be populated with a toc.dat (table of content of all the objects) and one file per object (.dat.gz) in a compressed form 
+ each file is named after it's object number, and you can retrieve the list with the following pg_restore command: 
+ 
+ pg_restore --list -Fd dbName_objects/ | grep 'TABLE DATA' 
+ 
+ in order to have each file not compressed (in raw SQL) 
+ 
+ pg_dump --data-only --compress=0 --format=directory --file=dbName_objects --jobs=10 --table='thr_*' --username=userName --dbname=dbName 
+ 
+ 
+ This bash script will do a backup with one file per table: 
+ 
+ 
+ (not enough reputation to comment the right post)
+I used your script with some corrections and some modifications for my own use, may be usefull for others:  
+ 
+ (I think you forgot to add $DB in the pg_dumb command, and I added a -w, for an automated script, it is better not to have a psw prompt I guess, for that, I created a ~/.pgpass file with my password in it
+I also gave the user for the command to know which password to fetch in .pgpass)
+Hope this helps someone someday. 
+ 

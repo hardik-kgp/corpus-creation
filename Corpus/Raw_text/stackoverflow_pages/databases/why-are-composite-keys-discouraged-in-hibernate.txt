@@ -1,0 +1,102 @@
+*** why-are-composite-keys-discouraged-in-hibernate ***
+
+ This is from  Hibernate official tutorial : 
+ 
+ There is an alternative   declaration that allows access to legacy data with composite keys. Its use is strongly discouraged for anything else. 
+ 
+ Why are composite keys discouraged? I am considering using a 3-column table where all of the columns are foreign keys and together form a primary key that is a meaningful relationship in my model. I don't see why this is a bad idea, espicially that I will be using an index on them. 
+ What's the alternative? Create an additional automatically generated column and use it as a primary key? I still need to query my 3 columns anyways!? 
+ In short, why is this statement true? and what's the better alternative? 
+ 
+ They discourage them for several reasons: 
+ 
+ they're cumbersome to use. Each time you need to reference an object (or row), for eexample in your web application, you need to pass 3 parameters instead of just one. 
+ they're inefficient. Instead of simply hashing an integer, the database needs to hash a composite of 3 columns. 
+ they lead to bugs: developers inevitably implement the equals and hashCode methods of the primary key class incorrectly. Or they make it mutable, and modify their value once stored in a HashSet or HashMap 
+ they pollute the schema. If another table needs to reference this 3-column table, it will need to have a 3 columns instead of just one as a foreign key. Now suppose you follow the same design and make this 3-column foreign key part of the primary key of this new table, you'll quickly have a 4-column primary key, and then a 5-column PK in the next table, etc. etc., leading to duplication of data, and a dirty schema. 
+ 
+ The alternative is to have a single-column, auto-generated primary key, in addition to the other three columns. If you want to make the tuple of three columns unique, then use a unique constraint. 
+ 
+ Even if it is - maybe - too late to answer your question, I want here to give another point of view (more moderate I hope) on the need (Is it really an advise ?) of Hibernate to use surrogate keys. 
+ **First of all**
+, I want to be clear on the fact that  **both**
+ surrogate keys (artificial auto-generated ones) and natural keys (composed of column(s) with domain meaning) have  **pros**
+ and  **cons**
+. I am not trying to say that one key type is better than the other. I am trying to say that depending on your requirements, natural keys might be a better choice than surrogate ones and vice versa. 
+ Myths on natural keys 
+ 
+ Composite keys are less efficient than surrogate keys. No! It depends on the used database engine:
+
+ 
+ Oracle 
+ MySQL 
+ 
+ Natural keys don't exist in real-life. Sorry but they do exist! In aviation industry, for example, the following tuple will be always unique regarding a given  **scheduled**
+ flight (airline, departureDate, flightNumber, operationalSuffix). More generally, when a set of business data is guaranteed to be unique by a given  **standard**
+ then this set of data is a [good] natural key candidate. 
+ Natural keys "pollute the schema" of child tables. For me this is more a feeling than a real problem. Having a 4 columns primary-key of 2 bytes each might be more efficient than a single column of 11 bytes. Besides, the 4 columns can be used to query the child table directly (by using the 4 columns in a where clause) without joining to the parent table.   
+ 
+ Disadvantages of surrogate keys 
+ Surrogate keys are: 
+ 
+ Source of performance problems:
+
+ 
+ They are usually implemented using auto-incremented columns which mean:
+
+ 
+ A round-trip to the database each time you want to get a new Id (I know that this can be improved using caching or [seq]hilo alike algorithms but still those methods have their own drawbacks). 
+ If one-day you need to move your data from one schema to another (It happens quite regularly in my company at least) then you might encounter Id collision problems. And Yes I know that you can use UUIDs but those lasts requires 32 hexadecimal digits! (If you care about database size then it can be an issue). 
+ If you are using one sequence for all your surrogate keys then - for sure - you will end up with contention on your database. 
+ 
+ 
+ Error prone. A sequence has a max_value limit so - as a developer - you have to put attention to the following facts:
+
+ 
+ You must cycle your sequence ( when the max-value is reached it goes back to 1,2,...). 
+ If you are using the sequence as an ordering (over time) of your data then you must handle the case of cycling (column with Id 1 might be newer than row with Id max-value - 1). 
+ Make sure that your code (and even your client interfaces which should not happen as it supposed to be an internal Id) supports 32b/64b integers that you used to store your sequence values.   
+ 
+ They don't guarantee non duplicated data. You can always have 2 rows with all the same column values but with a different generated value. For me this is  **THE**
+ problem of surrogate keys from a database design point of view. 
+ More in Wikipedia... 
+ 
+ Why Hibernate prefers/needs surrogate keys ? 
+ As stated in  **Java Persistence with Hibernate**
+ reference: 
+ 
+ More experienced Hibernate users use saveOrUpdate() exclusively; it’s
+  much easier to let Hibernate decide what is new and what is old,
+  especially in a more complex network of objects with mixed state. The
+  only (not really serious) disadvantage of exclusive saveOrUpdate() is
+  that it sometimes can’t guess whether an instance is old or new
+  without firing a SELECT at the database—for example, when a class is
+  mapped with a natural composite key and no version or timestamp
+  property. 
+ 
+ Some manifestations of the  **limitation**
+ (This is how, I think, we should call it) can be found  here . 
+ Conclusion 
+ Please don't be too squared on your opinions. Use natural keys when it is relevant to do so and use surrogate keys when it is better to use them. 
+ Hope that this helped someone! 
+ 
+ I would consider the problem from a design point of view. It's not just if Hibernate considers them good or bad. The real question is:  are natural keys good candidates to be good identifiers for my data? 
+ In your business model, today it can be convenient to identify a record by some of its data, but business models evolves in time. And when this happens, you'll find that your natural key doesn't fit anymore to uniquely identify your data. And with referential integrity in other tables, this will make things  **MUCH**
+ harder to change. 
+ Having a surrogate PK is convenient because it doesn't chain  how your data is identified in your storage  with  your business model structure . 
+ Natural keys cannot be generated from a sequence, and the case of data which cannot be identified by its data is  much  more frequent. This is an evidence that natural keys differ from a storage key, and they cannot be taken as a general (and good) approach. 
+ Using surrogate keys simplifies the design of the application and database. They are easier to use, are more performant, and do a perfect job.  
+ Natural keys bring only disadvantages: I cannot think of a single advantage for using natural keys. 
+ That said, I think hibernate has no real issues with natural (composed) keys. But you'll probably find some problems (or bugs) sometimes, and issues with the documentation or trying to get help, because the hibernate community widely acknowledges the benefits of surrogate keys. So, prepare a good answer for  why you did choose a composite key . 
+ 
+ If Hibernate documentation is properly understood: 
+ "There is an alternative   declaration that Allows access to legacy data with composite keys. Its use is strongly discouraged for anything else." 
+ on topic 5.1.4. id tag xml   which enables the primary key mapping made too soon we can conclude that the hibernate documentation discourages the use of   instead of   xml tag for composite primary key mapping and  **NOT**
+ make any reference negative to use composite primary keys. 
+ 
+ Applications developed with the database as a tool are definitely more beneficial to keep work flow on surrogate keys, using clustered indices for query optimization. 
+ Special care does need to be made for Data Warehousing and OLAP style systems however, that utilize a massive Fact Table to tie surrogate keys of dimensions together.  In this case the data dictates the dashboard/application that can be used to maintain records. 
+ So instead of one method being preferable to another, perhaps it is one directive is advantageous to another, for key construction : You won't be developing a Hibernate app very easily to harness direct access to an SSAS system instance. 
+ I develop using both key mixtures, and feel to implement a solid star or snowflake pattern a surrogate with clustered index is typically my first choice. 
+ So, to the regards of the OP and others looking by: if you want to stay db invariant with your development (which Hibernate specializes in) -- utilize the surrogate method, and when data reads tend to slow, or you notice certain queries drain performance, revert to your specific database, and add composite, clustered indices that optimize query order. 
+ 

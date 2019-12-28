@@ -1,0 +1,22 @@
+*** idiomatic-haskell-for-database-abstraction ***
+
+ In OOP languages I might write a database wrapper which encapsulates database connection, manages schema and provides few core operations, such as  ,  ,  . I might even have a separate database helper class which would handle the database schema, leaving the database abstraction only to handle connections. This would then be used by model wrappers/factories which use the database abstraction class to create instances of model classes. Something along the line like this UML diagram: 
+ 
+ What would be the preferred way to design such a system in idiomatic haskell? 
+ 
+ The most used database abstraction library in Haskell is  HDBC . It means that queries are simply represented as  s with placeholders. Fewer people use  HaskellDB  which provides a type-safe way to build queries. Nothing forbids to have user data types to represent common queries and custom functions to build them. 
+ Values in Haskell are immutable, that means that it is not useful to have a mutable object corresponding to a record in the database. Instead, I think it is more common to define user data types and functions that marshall and push/pull values of these types to/from the database. 
+ Whenever database updates are necessary, they are likely to be run in some stateful monad under  . This would allow to keep the connection open, for example, or do something  between  the requests. 
+ Finally, functions are first class, so it is possible to construct all functions on the fly. So a function itself may encapsulate whatever information you want. 
+ So, I think, the usual Haskell approach consists of 
+ 
+ algebraic data types to represent actual data (as  immutable  values) 
+ the rest of the application to transform these values 
+ functions which generate queries (encapsulate schema details, marshal data to/from Haskell data types) 
+ (optionally) a stateful monad to run queries (hide details of database access) 
+ functions which run the queries (hide details of database access) 
+ 
+ 
+ The most idiomatic way of using Haskell for databases, and the most efficient one, IMHO, is to cache the records in memory and use STM in memory transactions, so that you use the database for storage. Then, you can use transactional variables (TVar´s) for your record management. But you must define your own query language and you need a mechanism for caching/uncaching and synchronization. That is after all what java EJB3 and Hybernate does.   
+ The package TCache define DBRefs, that are persistent  STM variables with TVar semantics . They may be part of a record and point to another record and are lightweight, so you can develop your own abstraction over it. It also has a SQL like query language, including  field search, joins  and full text search.  It has default persistence in files. You only need to define a key for your Haskell record and you have file persistence. For database persistence there is a IResource class where you define the read, write and delete operations for your records. Each record may have its own persistence.  So all the database interaction are in a single location of the source code, and transactions in memory are orders of magnitude faster. TCache writes a coherent state each time that it asynchronously writes in the database. It can write synchronously too. 
+ 

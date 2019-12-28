@@ -1,0 +1,36 @@
+*** will-laravel-database-transaction-lock-table ***
+
+ I use laravel5.5's database transaction for online payment application. I have a  company_account table to record each payment( ,  ,  ,  ). I need to access the last record's  , when a new record created. So I need to lock the table when the transaction with read and write table lock to avoid many payments at the same time. 
+ I've refer to laravel's doc, but I don't sure if the transaction will lock the table. If the transaction will lock the table, what's the lock type(read lock, write lock or both)? 
+ 
+ 
+ Code: 
+ 
+ references: 
+      How to pass parameter to Laravel DB::transaction() 
+ 
+ Since you are updating 2 tables, you still need to use transaction to keep changes in sync. Consider the following code: 
+ 
+ There are 2 atomic queries. First one upsert a record into   table, another one insert a record into  . 
+ You need the transaction to guarantee that no changes are applied if something terrible happened between these 2 queries. The terrible thing is not a concurrent request, but a sudden death of the php application, network partition, or anything else that prevents second query to be executed. In this case changes from the first query rolled back, so the database remain in consistent state. 
+ Both queries are atomic, which guarantee the math in each query is done in isolation, and no other queries change the table at this time. Saying that it is possible that 2 concurrent requests process 2 payments for the same user at the same time. The first one will insert or update a record in the   table and the second query will update the record, both will add a record to the  , and all changes will permanently set in the db when each transaction is committed. 
+ Few assumptions I made:  
+ 
+  is a primary key in   table. 
+ There is at least 1 record in  . The one called   in the OP code, as it is not clear what's expected behaviour when there is nothing in the db. 
+ All money fields are integers, not floats. 
+ It is MySQL DB. I use MySQL syntax to illustrate the approach. Other SQL flavours may have slightly different syntax. 
+ All table names and column names in the raw queries. Don't remember illuminate naming conventions. 
+ 
+ **A word of warning**
+. These are raw queries. You should take extra care on refactoring models in the future, and write few more integration tests, as some application logic shifted from imperative PHP to declarative SQL. I believe it is a fair price to guarantee no race conditions, yet I want to make it crystal clear it does not come for free. 
+ 
+ I came across this  answer  of the question  MySQL: Transactions vs Locking Tables , which explain transaction and locking table. It shows both the transaction and locking should used here. 
+ I refer to  Laravel lockforupdate (Pessimistic Locking)  and  How to pass parameter to Laravel DB::transaction() , then get below code. 
+ **I don't know if it's a well implementation**
+, at least it works now. 
+ 
+ 
+ In my opinion, if you calculate the gross income on-the-fly for each record, separately, you don't even need to lock the table, you know locking a table will directly slow down your website. 
+ 
+ 

@@ -1,0 +1,44 @@
+*** hybrid-db-system-nosql-for-data-sql-for-relationships-best-practice ***
+
+ I'm building an app whose DB system will be crucial, and needs to be scalable since all its value will be in the data. 
+ I'm making a live voting system. 
+ I am comfortable with SQL and MongoDB, so it's almost not a factor of decision (though I tend to like MongoDB structure and JS more these times :) ) 
+ But from everything I've read on the web, I still feel uncomfortable with my decision. 
+ What I want to do is to combine the advantage of both: 
+ 
+ Having noSQL Documents for objects (Users, Items, Comments etc.) 
+ Having SQL tables for relationships (table User-Items, User-Comments etc.) 
+ Duplicating the vote results in a noSQL document whenever there is a vote or in a regular interval (to gain speed also on vote results display) 
+ 
+ Great advantages I see are: 
+ 
+ When querying a document (eg. a user to display his profile), I have all the NoSQL benefits (speed, all in one place, schema flexibility etc.) 
+ When doing stats (eg. number of vote), I have all the SQL benefits 
+ Parallelisation: I can fetch the vote in SQL and the documents in aSync mode 
+ Read fast, write slowish (and it doesn't matter in my case) 
+ Relationship integrity is always preserved 
+ 
+ My questions are : 
+ 
+ Is it a good practice to do so ? The web seems pretty shy about it 
+ Am I optimizing peanuts, even with high DB load ? (comparing document fetching to full SQL and queries like select * from table where primary_key = XXX) 
+ 
+ 
+ If the only reason you like to use a NoSQL database along with a RDBMS is to gain speed and flexibility, I'd suggest to use a caching server instead (such as Memcache). You could build a document/result using sql statements and store it using a single key value in memcache for retrieving it later. Its much easier to implement than say MongoDB. But it of course depends on your requirements if you really only intend to do document lookups by using a key or plan to use more complex queries for your documents. 
+ 
+ "Best practice" is a horrible term - it is often used to justify gut instinct, "this is how we've always done it", or other prejudice.  
+ However, the solution you describe has a bunch of benefits (you mention a few), but also some significant drawbacks, mostly because you are splitting knowledge of your problem domain among two incompatible data stores, and this opens up lots of opportunities for duplication - but also for inconsistency.  
+ For instance, the knowledge that a given user is identified by a certain identifier would be shared between your NoSQL system and your database. If one system deletes that user, the other is left in an inconsistent state. A given user's profile would be split across two systems, and neither would have a complete picture; you'd need lots of housekeeping synchronization code. 
+ Developers working on your platform would need expertise in both technology stacks - imagine trying to debug why a given user's comment count appears to be incorrect.  
+ You now have two points of failure - if either the NoSQL or SQL databases fail, your entire system breaks. And failure may not mean crashing - it may also mean performance issues, or problems with upgrades, or problems with backups. 
+ It's not uncommon for software solutions to have multiple systems each owning a part of the data, the split is usually along business domain lines (the CRM system knows your profile, the payment system your credit card details, the ecommerce system knows what you ordered); splitting the division along technical lines would create a complex architecture with multiple points of failure.  
+ I don't think the benefits outweigh those drawbacks. 
+ 
+ I would like to throw out another suggestion for modeling objects and relationships that would scale. 
+ Some food for thought: 
+ 
+ As you said, model the entities/objects in a document database like MongoDB. 
+ Store the relationships in a graph database like Titan or Neo4j. These systems are more appropriate in my opinion for storing complex relationships. You can easily do traversals over many complex relationships and then when you find a destination node/vertex in the graph, you can load the document from Mongo. 
+ Consider something like Riak, which is a NoSQL document store that  also  has links between documents (relationships). They recommend not making the relationships too complex, but it's possible to link together documents without the need for another system. 
+ 
+ 

@@ -1,0 +1,117 @@
+*** what-algorithms-compute-directions-from-point-a-to-point-b-on-a-map ***
+https://stackoverflow.com/questions/430142/what-algorithms-compute-directions-from-point-a-to-point-b-on-a-map
+
+ How do map providers (such as Google or Yahoo! Maps) suggest directions? 
+ I mean, they probably have real-world data in some form, certainly including distances but also perhaps things like driving speeds, presence of sidewalks, train schedules, etc.  But suppose the data were in a simpler format, say a very large directed graph with edge weights reflecting distances.  I want to be able to quickly compute directions from one arbitrary point to another.  Sometimes these points will be close together (within one city) while sometimes they will be far apart (cross-country). 
+ Graph algorithms like Dijkstra's algorithm will not work because the graph is enormous.  Luckily, heuristic algorithms like A* will probably work.  However, our data is very structured, and perhaps some kind of tiered approach might work?  (For example, store precomputed directions between certain "key" points far apart, as well as some local directions.  Then directions for two far-away points will involve local directions to a key points, global directions to another key point, and then local directions again.) 
+ What algorithms are actually used in practice? 
+ PS.  This question was motivated by finding quirks in online mapping directions.  Contrary to the triangle inequality, sometimes Google Maps thinks that  X-Z  takes longer and is farther than using an intermediate point as in  X-Y-Z .  But maybe their walking directions optimize for another parameter, too? 
+ PPS.  Here's another violation of the triangle inequality that suggests (to me) that they use some kind of tiered approach:  X-Z  versus  X-Y-Z .  The former seems to use prominent Boulevard de Sebastopol even though it's slightly out of the way. 
+ **Edit**
+: Neither of these examples seem to work anymore, but both did at the time of the original post. 
+ 
+ Speaking as someone who spent 18 months working at a mapping company, which included working on the routing algorithm... yes,  Dijkstra's  does work, with a couple of modifications: 
+ 
+ Instead of doing  Dijkstra's  once from source to dest, you start at each end, and expand both sides until they meet in the middle. This eliminates roughly half the work (2*pi*(r/2)^2 vs pi*r^2). 
+ To avoid exploring the back-alleys of every city between your source and destination, you can have several layers of map data: A 'highways' layer that contains only highways, a 'secondary' layer that contains only secondary streets, and so forth. Then, you explore only smaller sections of the more detailed layers, expanding as necessary. Obviously this description leaves out a lot of detail, but you get the idea. 
+ 
+ With modifications along those lines, you can do even cross-country routing in a very reasonable timeframe. 
+ 
+ This question has been an active area of research in the last years. The main idea is to do a  **preprocessing**
+ on the graph  **once**
+, to  **speed up**
+ all  **following queries**
+. With this additional information itineraries can be computed very fast. Still,  **Dijkstra's Algorithm**
+ is the basis for all optimisations. 
+ Arachnid  described the usage of bidirectional search and edge pruning based on hierarchical information. These speedup techniques work quite well, but the most recent algorithms outperform these techniques by all means. With current algorithms a shortest paths can be computed in considerable less time than  **one millisecond**
+ on a continental road network. A fast implementation of the unmodified algorithm of Dijkstra needs about  **10 seconds**
+. 
+ The article  Engineering Fast Route Planning Algorithms  gives an overview of the progress of research in that field. See the references of that paper for further information. 
+ The fastest known algorithms do not use information about the hierarchical status of the road in the data, i.e. if it is a highway or a local road. Instead, they compute in a preprocessing step an own hierarchy that optimised to speed up route planning. This precomputation can then be used to prune the search: Far away from start and destination slow roads need not be considered during Dijkstra's Algorithm. The benefits are very good  **performance**
+ and a  **correctness**
+ guarantee for the result. 
+ The first optimised route planning algorithms dealt only with static road networks, that means an edge in the graph has a fixed cost value. This not true in practice, since we want to take dynamic information like traffic jams or vehicle dependent restrictrions into account. Latest algorithms can also deal with such issues, but there are still problems to solve and the research is going on. 
+ If you need the shortest path distances to compute a solution for the  **TSP**
+, then you are probably interested in matrices that contain all distances between your sources and destinations. For this you could consider  Computing Many-to-Many Shortest Paths Using Highway Hierarchies . Note, that this has been improved by newer approaches in the last 2 years. 
+ 
+ Just addressing the triangle inequality violations, hopefully the extra factor they're optimising for is common sense. You don't necessarily want the shortest or fastest route, as it can lead to  chaos   and   destruction . If you want your directions to prefer the major routes that are truck-friendly and can cope with having every sat-nav-following driver sent down them, you quickly discard the triangle inequality[1]. 
+ If Y is a narrow residential street between X and Z, you probably do only want to use the shortcut via Y if the user explicitly asks for X-Y-Z. If they ask for X-Z, they should stick to major roads even if it's a bit further and takes a bit longer. It's similar to  Braess's paradox  - if everyone tries to take the shortest, fastest route, the resulting congestion means that it's not the fastest route for anyone any more. From here we stray from graph theory into game theory. 
+ [1] In fact, any hope that the distances produced will be a distance function in the mathematical sense dies when you allow one-way roads and lose the symmetry requirement. Losing the triangle inequality too is just rubbing salt in the wound. 
+ 
+ Here's the world's fastest routing algorithms compared and proven for correctness: 
+ http://algo2.iti.uka.de/schultes/hwy/schultes_diss.pdf 
+ Here's a google tech talk on the subject: 
+ http://www.youtube.com/watch?v=-0ErpE8tQbw 
+ Here's a implementation of the highway-hierarchies algorithm as discussed by schultes (currently in berlin only, I'm writing the interface and a mobile version is being developed as well): 
+ http://tom.mapsforge.org/ 
+ 
+ I've not worked on Google or Microsoft or Yahoo Maps before, so I can't tell you how they work. 
+ However, I did architect a custom supply chain optimization system for an energy company which included a scheduling and routing application for their fleet of trucks.  However, our criteria on routing was far more business-specific than where is construction or traffic slows or lane closures. 
+ We employed a technique called ACO (Ant colony optimization) to schedule and route trucks.  This technique is an AI technique that was applied to the traveling salesman problem to solve routing problems.  The trick with ACO is to build an error calculation based upon known facts of the routing so that the graph solving model knows when to quit (when is the error small enough). 
+ You can google ACO or TSP to find more on this technique.  I've not used any of the open-source AI tools for this however, so cannot suggest one (though I heard SWARM was pretty comprehensive). 
+ 
+ 
+ Graph algorithms like Dijkstra's algorithm will not work because the graph is enormous. 
+ 
+ This argument doesn't necessarily hold because Dijkstra will not usually look at the complete graph but rather just a very small subset (the better interconnected the graph, the smaller this subset). 
+ Dijkstra may actually perform rather well for well-behaved graphs. On the other hand, with careful parametrization A* will always perform just as good, or better. Have you already tried how it would perform on your data? 
+ That said, I'd also be very interested to hear about other peoples' experiences. Of course, prominent examples like Google Map's search are particularly interesting. I could imagine something like a directed nearest neighbour heuristic. 
+ 
+ The current state of the art in terms of query times for static road networks is the Hub labelling algorithm proposed by Abraham et al.  http://link.springer.com/chapter/10.1007/978-3-642-20662-7_20  . A through and excellently written survey of the field was recently published as a Microsoft technical report  http://research.microsoft.com/pubs/207102/MSR-TR-2014-4.pdf  . 
+ The short version is... 
+ The Hub labelling algorithm provides the fastest queries for static road networks but requires a large amount of ram to run (18 GiB). 
+ Transit node routing is slightly slower, although, it only requires around 2 GiB of memory and has a quicker preprocessing time. 
+ Contraction Hierarchies provide a nice trade off between quick preprocessing times, low space requirements (0.4 GiB) and fast query times. 
+ No one algorithm is completely dominate... 
+ This Google tech talk by Peter Sanders may be of interest  
+ https://www.youtube.com/watch?v=-0ErpE8tQbw 
+ Also this talk by Andrew Goldberg 
+ https://www.youtube.com/watch?v=WPrkc78XLhw 
+ An open source implementation of contraction hierarchies is available from Peter Sanders research group website at KIT.  http://algo2.iti.kit.edu/english/routeplanning.php 
+ Also an easily accessible blog post written by Microsoft on there usage of the CRP algorithm...  http://blogs.bing.com/maps/2012/01/05/bing-maps-new-routing-engine/ 
+ 
+ I am a little suprised to not see  Floyd Warshall's algorithm  mentioned here. This algorithm work's very much like Dijkstra's. It also has one very nice feature which is it allows you to compute as long as you would like to continue allowing more intermediate vertices. So it will naturally find the routes which use interstates or highways fairly quickly. 
+ 
+ I've done this quite a lot of times, actually, trying several different methods. Depending on the size (geographical) of the map, you might want to consider using the haversine function as a heuristic. 
+ The best solution I've made was using A* with a straight line distance as a heuristic function. But then you need some sort of coordinates for each point (intersection or vertex) on the map. You can also try different weightings for the heuristic function, i.e.  
+ 
+ where k is some constant greater than 0. 
+ 
+ Probably similar to the answer on pre-computed routes between major locations and layered maps, but my understanding is that in games, to speed up A*, you have a map that is very coarse for macro navigation, and a fine-grained map for navigation to the boundary of macro directions.  So you have 2 small paths to calculate, and hence your search space is much much smaller than simply doing a single path to the destination.  And if you're in the business of doing this a lot, you'd have a lot of that data pre-computed so at least part of the search is a search for pre-computed data, rather than a search for a path. 
+ 
+ This is pure speculation on my part, but I suppose that they may use an influence map data structure overlaying the directed map in order to narrow the search domain.  This would allow the search algorithm to direct the path to major routes when the desired trip is long. 
+ Given that this is a Google app, it's also reasonable to suppose that a lot of the magic is done via extensive caching. :)  I wouldn't be surprised if caching the top 5% most common Google Map route requests allowed for a large chunk (20%? 50%?) of requests to be answered by a simple look-up. 
+ 
+ I had some more thoughts on this:   
+ 1)  Remember that maps represent a physical organization.  Store the latitude/longitude of every intersection.  You don't need to check much beyond the points that lie in the direction of your target.  Only if you find yourself blocked do you need to go beyond this.  If you store an overlay of superior connections you can limit it even more--you will normally never go across one of those in a way that goes away from your final destination. 
+ 2)  Divide up the world into a whole bunch of zones defined by limited connectivity, define all connectivity points between the zones.  Find what zones your source and target are in, for the start and end zone route from your location to each connection point, for the zones between simply map between connection points.  (I suspect a lot of the latter is already pre-calculated.) 
+ Note that zones can be smaller than a metropolitan area.  Any city with terrain features that divide it up (say, a river) would be multiple zones. 
+ 
+ I was very curious about the heuristics used, when a while back we got routes from the same starting location near Santa Rosa, to two different campgrounds in Yosemite National Park.  These different destinations produced quite different routes (via I-580 or CA-12) despite the fact that both routes converged for the last 100 miles (along CA-120) before diverging again by a few miles at the end.  This was quite repeatable.  The two routes were up to 50 miles apart for around 100 miles, but the distances/times were pretty close to each other as you would expect. 
+ Alas I cannot reproduce that - the algorithms must have changed.  But it had me curious about the algorithm.  All I can speculate is that there was some directional pruning which happened to be exquisitely sensitive to the tiny angular difference between the destinations as seen from far away, or there were different precomputed segments selected by the choice of final destination. 
+ 
+ Speaking of  GraphHopper , 
+a fast Open Source route planner based on OpenStreetMap, I have read a bit literature and implemented some methods. The simplest solution is a Dijkstra and a simple improvement is a bidirectional Dijkstra which explores roughly only the half of the nodes. With bidirctional Dijkstra a route through entire Germany takes already 1sec (for car mode), in C it would be probably only 0.5s or so ;) 
+ I've created an animated gif of a real path search with bidirectional Dijkstra  here . Also there are some more ideas to  make Dijkstra faster  like doing A*, which is a "goal-oriented Dijkstra". Also I've create a  gif-animation  for it. 
+ **But how to do it (a lot) faster?**
+
+ The problem is that for a path search all nodes between the locations have to be explored and this is really costly as already in Germany there are several millions of them. But an additional pain point of Dijkstra etc is that such searches uses lots of RAM. 
+ There are heuristic solutions but also exact solutions which organzize the graph (road network) in hierarchical layers, both have pro&cons and mainly solve the speed and RAM problem. I've listed some of them in  this answer .  
+ For GraphHopper I decided to use  Contraction Hierarchies  because it is relative 'easy' to implement and does not take ages for preparation of the graph. It still results in very fast response times like you can test at our online instance  GraphHopper Maps . E.g.  from south Africa to east China  which results in a 23000km distance and nearly 14 days driving time for car and took only ~0.1s on the server. 
+ 
+ I have worked on routing for a few years, with a recent burst of activity prompted by the needs of my clients, and I've found that A* is easily fast enough; there is really no need to look for optimisations or more complex algorithms. Routing over an enormous graph is not a problem. 
+ But the speed depends on having the entire routing network, by which I mean the directed graph of arcs and nodes representing route segments and junctions respectively, in memory. The main time overhead is the time taken to create this network. Some rough figures based on an ordinary laptop running Windows, and routing over the whole of Spain: time taken to create the network: 10-15 seconds; time taken to calculate a route: too short to measure. 
+ The other important thing is to be able to re-use the network for as many routing calculations as you like. If your algorithm has marked the nodes in some way to record the best route (total cost to current node, and best arc to it) - as it has to in A* - you have to reset or clear out this old information. Rather than going through hundreds of thousands of nodes, it's easier to use a generation number system. Mark each node with the generation number of its data; increment the generation number when you calculate a new route; any node with an older generation number is stale and its information can be ignored. 
+ 
+ I see what's up with the maps in the OP: 
+ Look at the route with the intermediate point specified:  The route goes slightly backwards due to that road that isn't straight. 
+ If their algorithm won't backtrack it won't see the shorter route. 
+ 
+ An all-pairs shortest path algorithm will compute the shortest paths between all vertices in a graph.  This will allow paths to be pre-computed instead of requiring a path to be calculated each time someone wants to find the shortest path between a source and a destination.  The Floyd-Warshall algorithm is an all-pairs shortest path algorithm. 
+ 
+ Maps never take into consideration the whole map. 
+My guess is:-
+1. According to your location, they load a place and the landmarks on that place.
+2. When you search the destination, thats when they load the other part of the map and make a graph out of two places and then apply the shortest path algorithms. 
+ Also, there is an important technique Dynamic programming which i suspect is used in the calculation of shortest paths. You can refer to that as well. 
+ 

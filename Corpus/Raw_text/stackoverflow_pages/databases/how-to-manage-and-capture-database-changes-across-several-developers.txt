@@ -1,0 +1,38 @@
+*** how-to-manage-and-capture-database-changes-across-several-developers ***
+
+ We have three developers and one tester all working against the same database. We change the schema of the database quite often, and every time we do it tends to have a ripple effect of headaches for everyone else.  
+ Are there good practices in place for .NET oriented development against MS SQL Server 2008 for managing this? I am thinking something similar to Rails Migrations and each dev and tester has their own local database. Or is that overkill? It'd at least be nice to have separate test and dev databases, but currently manually keeping two databases in sync is probably worse than our current predicament. 
+ LiquiBase  seems promising, has anyone successfully used it in a similar environment? Or are there better approaches? 
+ We are using SQL Server 2008, VS 2008 and .NET 3.5 if that matters at all. 
+ 
+ We have scripts to generate DB from scratch and this is what is sitting in the source control.
+Each developer (20 of them) is using script to generate 2 databases on their workstations. One for “work” – manual testing with sample data in it (there is script to populate sample data). Another DB is empty and used in unit tests (open transaction – do unit test – roll back). 
+ Unit test are mandatory in multi developer environment.
+Also we always build “old” database and apply schema changes on it. Each developer is changing schema by creating upgrade procedures (this is how we have rebuild and upgrade ready at the same time). 
+ For performance testing we have “loaders” – C# code to simulate users and populate millions of records over night on developer workstations. 
+ 
+ We don't use a tool per se, but we do keep all of our schema under source control and then have a script that will update or rebuild the databse from source.  This way when changes are made we can all update and stay in synch.  This just becomes part of the daily morning routine, takes about 5 minutes just like synching up your code.  This isn't perfect but it works for us. 
+ Oh and I forgot to add if you make changes to schema you are also responsible for writing the migration script if any is needed.  This tends to be needed anyway when something gets to production. 
+ Hope that helps. 
+ 
+ Visual Studio Team System  Database Edition  (aka "Data Dude") is worth looking into. It can track database diffs and generate scripts of the changes so you can prepare a test/prod environment prior to deployment etc. I think its features are also available in the Development edition (see previous link) and in VS 2010 will be more visible. Take a look at this blog post:  First Experience with Visual Studio 2008 Database Edition, I love it!!! 
+ That, along with TFS, gives you the ability to version control the SQL files and run them against the database. 
+ 
+ A good link to some good links:  http://www.codinghorror.com/blog/2008/02/get-your-database-under-version-control.html 
+ 
+ I'm in the "one development database" camp. 
+ Unlike traditional OO source code, the database is often going to have tables supporting multiple users' features.  When multiple developers are going to make similar changes, you can have them work it out in advance or try to sync two build scripts.  The problem with build scripts and migrations is that most situations are non-trivial.  Want to dis-allow NULLs in the DB? - you need to decide what the data should be defaulted to and if the data should be populated from elsewhere.  Need to refactor to normalize a table into two? - you need to decide how to assign the keys.  And then with two users making a change to the same table... 
+ That's not saying that it shouldn't be under source control, because it should. 
+ Ultimately as you have more developers and more communication channels, you are going to want your database changes going through a development DBA - this allows the changes to be coordinated and avoids a lot of the problems with communication channels in a team - it turns the communication channels into a star. 
+ In addition, if you limit yourself programming against an explicit database services layer like views and stored procs, your application developers are going to be well insulated against database changes and refactoring. 
+ After a certain time into development, database changes become pretty manageable, since the changes to the underlying base table schema are fewer (although views and stored procs may remain volatile). 
+ 
+ Sounds like you need a database diff tool to create and store your database changes... 
+ Red Gate SQL Compare 
+ Visual Studio Team Database Edition 
+ 
+ I personally think it's best to have separate databases. All working against one database can cause a lot of pain and waste time. 
+ For example, say I'm looking into a performance issue and I'm running some benchmark tests to test out some optimisations on the database - the only way you can do this reliably is if you are consistent with your tests. If someone else makes a change to the DB midway through, that could skew your findings. 
+ Plus, if I'm in the middle of something and the DB changes without me knowing causing errors/unexpected behaviour for me, I could spend x amount of time just working through before finding out it's due to a change someone else has made. 
+ Instead, I think it's much better to have your own dev/test databases which you can each be responsible for updating. Then have a Continuous Integration server that automatically pulls out the latest code from source control and builds it every x hours. 
+ 

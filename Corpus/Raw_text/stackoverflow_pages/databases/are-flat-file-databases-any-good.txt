@@ -1,0 +1,93 @@
+*** are-flat-file-databases-any-good ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question is  opinion-based . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it can be answered with facts and citations by  editing this post .
+                         
+ Closed  3 years ago . 
+ 
+ 
+ 
+ Informed options needed about the merits of flat file database.  I'm considering using a flat file database scheme to manage data for a custom blog.  It would be deployed on Linux OS variant and written in Java.   
+ What are the possible negatives or positives regarding performance for reading and writing of both articles and comments? 
+ Would article retrieval crap out because of it being a flat file rather than a RDBMS if it were to get slash-doted? (Wishful thinking) 
+ I'm not against using a RDBMS, just asking the community their opinion on the viability of such a software architecture scheme. 
+ **Follow Up:**
+
+In the case of this question I would see “Flat file == file system–based” For example each blog entry and its accompanying metadata would be in a single file. Making for many files organized by date structure of the file folders (blogs\testblog2\2008\12\01) == 12/01/2008 
+ 
+ Flat file databases have their place and are quite workable for the right domain. 
+ Mail servers and NNTP servers of the past really pushed the limits of how far you can really take these things (which is actually quite far -- files systems can have millions of files and directories).  
+ Flat file DBs two biggest weaknesses are indexing and atomic updates, but if the domain is suitable these may not be an issue. 
+ But you can, for example, with proper locking, do an "atomic" index update using basic file system commands, at least on Unix. 
+ A simple case is having the indexing process running through the data to create the new index file under a temporary name. Then, when you are done, you simply rename (either the system call rename(2) or the shell mv command) the old file over the new file. Rename and mv are atomic operations on a Unix system (i.e. it either works or it doesn't and there's never a missing "in between state"). 
+ Same with creating new entries. Basically write the file fully to a temp file, then rename or mv it in to its final place. Then you never have an "intermediate" file in the "DB". Otherwise, you might have a race condition (such as a process reading a file that is still being written, and may get to the end before the writing process is complete -- ugly race condition). 
+ If your primary indexing works well with directory names, then that works just fine. You can use a hashing scheme, for example, to create directories and subdirectories to locate new files. 
+ Finding a file using the file name and directory structure is very fast as most filesystems today index their directories. 
+ If you're putting a million files in a directory, there may well be tuning issues you'll want to look in to, but out of that box most will handle 10's of thousands easily. Just remember that if you need to SCAN the directory, there's going to be a lot of files to scan. Partitioning via directories helps prevent that. 
+ But that all depends on your indexing and searching techniques. 
+ Effectively, a stock off the shelf web server serving up static content is a large, flat file database, and the model works pretty good. 
+ Finally, of course, you have the plethora of free Unix file system level tools at your disposal, but all them have issues with zillions of files (forking grep 1000000 times to find something in a file will have performance tradeoffs -- the overhead simply adds up). 
+ If all of your files are on the same file system, then hard links also give you options (since they, too, are atomic) in terms of putting the same file in different places (basically for indexing).  
+ For example, you could have a "today" directory, a "yesterday" directory, a "java" directory, and the actual message directory. 
+ So, a post could be linked in the "today" directory, the "java" directory (because the post is tagged with "java", say), and in its final place (say /articles/2008/12/01/my_java_post.txt). Then, at midnight, you run two processes. The first one takes all files in the "today" directory, checks their create date to make sure they're not "today" (since the process can take several seconds and a new file might sneak in), and renames those files to "yesterday". Next, you do the same thing for the "yesterday" directory, only here you simply delete them if they're out of date. 
+ Meanwhile, the file is still in the "java" and the ".../12/01" directory. Since you're using a Unix file system, and hard links, the "file" only exists once, these are all just pointers to the file. None of them are "the" file, they're all the same. 
+ You can see that while each individual file move is atomic, the bulk is not. For example, while the "today" script is running, the "yesterday" directory can well contain files from both "yesterday" and "the day before" because the "yesterday" script had not yet run. 
+ In a transactional DB, you would do that all at once. 
+ But, simply, it is a tried and true method. Unix, in particular, works VERY well with that idiom, and the modern file systems can support it quite well as well. 
+ 
+ (answer copied and modified from  here ) 
+ I would advise against using a flat file for anything besides read-only access, because then you'd have to deal with concurrency issues like making sure only one process is writing to the file at once. Instead, I recommend  SQLite , a fully functional SQL database that's stored in a file. SQLite already has built-in concurrency, so you don't have to worry about things like file locking, and it's really fast for reads. 
+ If, however, you are doing lots of database changes, it's best to do them all at once inside a  transaction . This will only write the changes to the file once, as opposed to every time an change query is issued. This dramatically increases the speed of doing multiple changes. 
+ When a change query is issued, whether it's inside a tranasction or not, the whole database is locked until that query finishes. This means that extremely large transactions could adversely affect the performance of other processes because they must wait for the transaction to finish before they can access the database. In practice, I haven't found this to be that noticeable, but it's always good practice to try to minimize the number of database modifying queries you issue, and it's certainly faster then trying to use a flat file. 
+ 
+ This has been done with asp.net with Dasblog.  It uses file based storage. 
+ A few details are listed on this older link.
+ http://www.hanselman.com/blog/UpcomingDasBlog19.aspx 
+ You can also get more details on  http://dasblog.info/Features.aspx 
+ I've heard some mixed opinions on the performance.  I'd suggest you research that a bit more to see if that type of system would work well for you.  This is the closest thing I have heard about yet. 
+ 
+ Writing your own engine in native code can outperform a general purpose database. 
+ However, the quality of the engine and the feature level will never approach that.  All the things that databases give you as core features - indexing, transactions, referential integrity - you would have to implement all them yourself. 
+ There's nothing wrong than reinventing the wheel (after all, Linux was just that), but keep in mind your expectations and time commitment. 
+ 
+ I'm answering this not to answer why flat file databases are good or bad, others have done an ample job at that. 
+ However, some have been pointing at SQLite which does it's job just fine. Since you are using Java, your best option would be to use  HSQLDB , which does precisely the same as SQLite, but is implemented in Java and embeds into your application. 
+ 
+ Most of the time a flat file database is enough  **now**
+. But you will thank your younger self if you start your project with a database. This could be  SQLite , if you don't want to set up a whole database system like  PostgreSQL . 
+ 
+ Horrible idea.  Appending would involve seeking to the end of the file every time you want to add something.  Updating would require rewriting the entire file each time.  Reading involves a table scan (or maintaining a separate index, which would have the same problems with writing/updating).  Just use a database unless, of course, you re-implement all the stuff that an RDBMS already provides to make your solution even moderately scalable. 
+ 
+ They seem to work quite well for high-write, low-read, no-update databases, where new data is appended.   
+ Web servers and their cousins rely on them heavily for log files.   
+ DBMS software as well use them for logs.   
+ If your design falls within these limits, you're in good company, it seems. You might want to keep metadata and pointers in a database, and set up some kind of fast asynchronous queue-writer to buffer the comments, but the filesystem is already pretty good at that level of buffering and write-locking. 
+ 
+ Flat file databases are possible but consider the following. 
+ Databases need to attain all the ACID elements (atomicity, consistency, isolation, durability) and, if you're going to ensure that's all done in a flat file (especially with concurrent access), you've basically written a full-blown DBMS. 
+ So why not use a full-blown DBMS in the first place? 
+ You'll save yourself the time and money involved with writing (and re-writing many times, I'll guarantee) if you just go with one of the free options (SQLite, MySQL, PostgresSQL, and so on). 
+ 
+ You can use fiat file databases if it is small enough does not have lost of random access. Big file with lot of random access will be very slow. And no complex queries. No joins, no sum, group by etc. You also can not expect to fetch hierarchical data from flat file. XML format is much better for complex structures. 
+ 
+ Check this out  http://jsondb.io  a opensource Java based database has most of what you are looking for.
+Saves data as flat .json files, Multithreading Support, Encryption Support, ORM support, Atomicity Support, XPATH based advanced query support. 
+ Disclaimer: I created this database. 
+ 

@@ -1,0 +1,46 @@
+*** how-to-store-60-booleans-in-a-mysql-database ***
+
+ I'm building a mobile App I use PHP & MySQL to write a backend - REST API. 
+ If I have to store around 50-60 Boolean values in a table called "Reports"(users have to check things in a form) in my mobile app I store the values (0/1) in a simple array. In my MySql Table should I create a different column for each Boolean value or is it enough if I simply use a string or an Int to store it as a "number" like "110101110110111..."? 
+ I get and put the data with JSON.  
+ UPDATE 1: All I have to do is check if everything is 1, if one of them is 0 then that's a "problem". In 2 years this table will have around 15.000-20.000 rows, it has to be very fast and as space-saving as possible. 
+ UPDATE 2: In terms of speed which solution is faster? Making separate columns vs store it in a string/binary type. What if I have to check which ones are the 0s? Is it a great solution if I store it as a "number" in one column and if it's not "111..111" then send it to the mobile app as JSON where I parse the value and analyse it on the user's device? Let's say I have to deal with 50K rows. 
+ Thanks in advance. 
+ 
+ A separate column per value is more flexible when it comes to searching. 
+ A separate key/value table is more flexible if different rows have different collections of Boolean values. 
+ And, if  
+ 
+ your list of Boolean values is more-or-less static 
+ all your rows have all those Boolean values 
+ your performance-critical search is to find rows in which any of the values are false 
+ 
+ then using text strings like '1001010010' etc is a good way to store them.  You can search like this 
+ 
+ to find the rows you need.  
+ You could use a BINARY column with one bit per flag. But your table will be easier to use for casual queries and eyeball inspection if you use text.  The space savings from using BINARY instead of CHAR won't be significant until you start storing many millions of rows. 
+ **edit**
+ It has to be said: every time I've built something like this with arrays of Boolean attributes, I've later been disappointed at how inflexible it turned out to be. For example, suppose it was a catalog of light bulbs. At the turn of the millennium, the Boolean flags might have been stuff like 
+ 
+ Then, things change and I find myself needing more Boolean flags, like, 
+ 
+ etc.  All of a sudden my data types aren't big enough to hold what I need them to hold.  When I wrote "your list of Boolean values is more-or-less static" I meant that you don't reasonably expect to have something like the light-bulb characteristics change during the lifetime of your application. 
+ So, a separate table of attributes  might  be a better solution.  It would have these columns: 
+ 
+ This is ultimately flexible. You can just add new flags. You can add them to existing items, or to new items, at any time in the lifetime of your application. And, every item doesn't need the same collection of flags. You can write the "what items have any false attributes?" query like this: 
+ 
+ But, you have to be careful because the query "what items have missing attributes" is a lot harder to write. 
+ 
+ For your specific purpose, when any zero-flag is a problen (an exception) and most of entries (like 99%) will be "1111...1111", i dont see any reason to store them all. I would rather create a separate table that only stores unchecked flags. The table could look like:  uncheked_flags (user_id, flag_id) . In an other table you store your flag definitions:  flags (flag_id, flag_name, flag_description) . 
+ Then your report is as simple as  . 
+ **Update**
+ - possible table definitions: 
+ 
+ 
+ You  may  get a better search out of using dedicated columns, for each boolean, but the cardinality is poor and even if you index each column it will involve a fair bit of traversal or scanning. 
+ If you are just looking for HIGH-VALUES 0xFFF.... then definitely bitmap, this solves your cardinality problem (per OP update).  It's not like you are checking parity...  The tree will however be heavily skewed to HIGH-VALUES if this is normal and can create a hot spot prone to node splitting upon inserts. 
+ Bit mapping and using bitwise operator masks will save space but will need to be aligned to a byte so there may be an unused "tip" (provisioning for future fields perhaps), so the mask must be of a maintained length or the field padded with 1s.   
+ It will also add complexity to your architecture, that may require bespoke coding, bespoke standards. 
+ You need to perform an analysis on the importance of any searching (you may not ordinarily expect to be searching all. or even any of the discrete fields). 
+ This is a very common strategy for denormalising data and also for tuning service request for specific clients. (Where some reponses are fatter than others for the same transaction).  
+ 

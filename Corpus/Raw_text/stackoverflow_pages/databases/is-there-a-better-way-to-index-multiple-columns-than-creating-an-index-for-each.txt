@@ -1,0 +1,79 @@
+*** is-there-a-better-way-to-index-multiple-columns-than-creating-an-index-for-each ***
+
+ Suppose I have a database table with columns a, b, and c.  I plan on doing queries on all three columns, but I'm not sure which columns in particular I'm querying.  There's enough rows in the table that an index immensely speeds up the search, but it feels wrong to make all the permutations of possible indexes (like this): 
+ 
+ Is there a better way to handle this problem?  (It's very possible that I'll be just fine indexing a, b, c alone, since this will cut down on the number of rows quickly, but I'm wondering if there's a better way.) 
+ If you need more concrete examples, in the real-life data, the columns are city, state, and zip code.  Also, I'm using a MySQL database. 
+ 
+ In MS SQL the index "a, b, c" will cover you for scenarios "a"; "a, b"; and "a, b, c". So you would only need the following indexes: 
+ 
+ Not sure if MySQL works the same way, but I would assume so. 
+ 
+ To use indexes for all possible equality conditions on   columns, you will need   indexes, that is  
+ See this article in my blog for detailed explanations: 
+ 
+ **Creating indexes**
+
+ 
+ You can also read the strict mathematical  **proof**
+ by Russian mathematician   ( **update:**
+ now in English). 
+ One can, however, get decent performance with less indexes using the following techniques: 
+ **Index merging**
+
+ If the columns  ,   and   are selective, then this query 
+ 
+ can use three separate indexes on  ,   and  , select the  's that match each condition separately and them find their intersection, like in: 
+ 
+ **Bitmap indexing**
+
+  can build temporary bitmap indexes in memory right during the query. 
+ A bitmap index is quite a compact contiguous bit array. 
+ Each bit set for the the array tells that the corresponging   should be selected from the table. 
+ Such an index can take but   of temporary storage for a table with   rows. 
+ The following query: 
+ 
+ will first allocate a zero-filled bitmap large enough to cover all possible  's in the table (that is large enough to take all  's from   to the last tid, not taking missing  's into account). 
+ Then it will seek the first index, setting the bits to   if they satisfy the first condition. 
+ Then it will scan the second index,  'ing the bits that satisfy the second condition with a  . This will leave   only for those bits that satisfy both conditions. 
+ Same for the third index. 
+ Finally, it will just select rows with the  's corresponding to the bits set. 
+ The  's will be fetched sequentially, so it's very efficient. 
+ 
+ The more the indexes you create the more your performance will be hit during update and delete operations. Because the index itself might get updated. 
+ Yes, you can use multiple-column indexes. Something like 
+ 
+ This type of index i.e. ind1 will surely help you in queries like  
+ 
+ Similarly, ind2 will help you in queries like  
+ 
+ But these indexes won't be used if the query is some thing like 
+ 
+ Here you will need separate indexes on a, b, and c. 
+ So instead of having so many indexes, I would agree with what John said i.e. have indexes on a,b,c and if you feel that your workload covers more multi-column queries then you can switch to multi-column indexes. 
+ cheers 
+ 
+ Given that your columns are actually City, State and Zip Code, I would suggest just the following indexes: 
+ **INDEX(ZipCode)**
+
+ If I am correct, Zip Codes are not duplicated across the USA, so it's pointless adding City or State information to the index as well because they will be the same value for all Zip Codes. E.g., 90210 is always Los Angeles, CA. 
+ **INDEX(City(5))**
+ or  **INDEX(City(5)), State)**
+
+ This is just an index on the first five letters of the city name. In many cases, this will be specific enough that having the   indexed wouldn't provide any useful filtering. E.g., 'Los A' will almost certainly be records from Los Angeles, CA. Maybe there is another small town in the USA starting with 'Los A', but there will be so few records it's not worth cluttering the index with State data as well. On the other hand, some city names appear in many states (Springfield comes to mind), so in those cases it is better to have the State indexed as well. You will need to figure out for yourself which index is most suited to your set of data. If in doubt, I would go with the second index (City and State). 
+ **INDEX(State, **
+**sort_field**
+**)**
+
+ State  is a pretty broad index (quite possibly NY and CA alone will have 30% of the records). If you plan displaying this information to the user, say, 30 records at a time, then you would have a query ending in  
+ 
+ To make  that  query efficient, you need to include the sorting column in the State index. So if you're showing pages ordered by Last Name (presuming you have that column), then you would use  **INDEX(State, LastName(3))**
+, otherwise MySQL has to sort  **all**
+ of the 'NY' records before it can give you the 30 you want. 
+ 
+ It's depend on your sql-query.  
+ **index (a, b, c)**
+ is different to  **index(b, c, a)**
+ or  **index(a, c, b)**
+
+ 

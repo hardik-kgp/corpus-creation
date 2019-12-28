@@ -1,0 +1,44 @@
+*** performance-issue-mysql-5-7 ***
+
+ I've migrated my MySQL Database from 5.6 to version 5.7. Now I got a performance issue. 
+ Specific statement are executed in both versions and I noticed that 5.7 is significant slower. Especially with large amount of Data.  
+ Even a simple select statement is much slower 
+ 
+ In my application i've got more complex statements that take way more time to execute so it get's unusable. 
+ I've also noticed that the field count of my table matters in 5.7 but not in 5.6. 
+ The configuration values in the my.ini didn't change. 
+ To test this issue you can use the following code: 
+ 
+ Here my statement: 
+ 
+ **EDIT**
+
+ EXPLAIN results: 
+ 5.6: 
+ 
++----+-------------+-------+--------+---------------+----------+---------+-------------------------------------------+---------+---------------------------------+
+| id | select_type | table |  type  | possible_keys |   key    | key_len |                    ref                    |  rows   |              Extra              |
++----+-------------+-------+--------+---------------+----------+---------+-------------------------------------------+---------+---------------------------------+
+|  1 | SIMPLE      | atest | ALL    | TODO01        | NULL     | NULL    | NULL                                      | 1000000 | Using temporary; Using filesort |
+|  1 | SIMPLE      | sTEST | eq_ref | S_VERK02      | S_VERK02 | 2       | obs_mysql_bergau_57test.atest.T_SACHBEARB |       1 | NULL                            |
++----+-------------+-------+--------+---------------+----------+---------+-------------------------------------------+---------+---------------------------------+
+ 
+ 5.7 
+ 
++----+-------------+-------+------------+--------+---------------+----------+---------+-------------------------------------------+---------+----------+---------------------------------+
+| id | select_type | table | partitions |  type  | possible_keys |   key    | key_len |                    ref                    |  rows   | filtered |              Extra              |
++----+-------------+-------+------------+--------+---------------+----------+---------+-------------------------------------------+---------+----------+---------------------------------+
+|  1 | SIMPLE      | atest | NULL       | ALL    | TODO01        | NULL     | NULL    | NULL                                      | 1000000 | 100.00   | Using temporary; Using filesort |
+|  1 | SIMPLE      | sTEST | NULL       | eq_ref | S_VERK02      | S_VERK02 | 2       | obs_mysql_bergau_57test.atest.T_SACHBEARB |       1 | 100.00   | NULL                            |
++----+-------------+-------+------------+--------+---------------+----------+---------+-------------------------------------------+---------+----------+---------------------------------+
+ 
+ My.ini: 
+ 
+ 
+ Without a SQLFiddle, I cannot be sure, but I think your problem is caused by a  change to the performance tuning of "group by" in  5.7 . 
+ I'm not totally sure, but I think this means that query optimizer decisions that used to make sense no longer work so well. In your sample query, for instance, the EXPLAIN shows the query is using an index on the smaller table. 
+ In the code you've posted, I don't think the "group by" clause does much - you're still retrieving every row because sysdate should be unique.  
+ In this specific case, you may get better results by creating an index on table atest with columns t_sachbearb, atest.sys_uid, t_datum DESC, t_zeit DESC. This should cause the query optimizer to pick the index on the larger column, and use that for the filtering and sorting.  
+ I'd consider rewriting without group by to support "distinct" requirements where possible.  
+ Where not, you may need to look at the individual "EXPLAIN" output and optimize the indexes.  
+ 

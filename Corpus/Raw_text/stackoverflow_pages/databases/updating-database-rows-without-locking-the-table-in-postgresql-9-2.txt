@@ -1,0 +1,65 @@
+*** updating-database-rows-without-locking-the-table-in-postgresql-9-2 ***
+
+ Trying to run an update statement like this on a table, using PostgreSQL 9.2: 
+ 
+ We need to be able to run this on a ~10M row table, and not have it lock up the table (so normal operations can still happen while the update is running).  I believe using a cursor will probably be the right solution, but I really have no idea if it is or how I should implement it using a cursor. 
+ I have come up with this cursor code, which I think might be good. 
+ **Edit: Added cursor function**
+
+ 
+CREATE OR REPLACE FUNCTION update_fields() RETURNS VOID AS $$
+DECLARE
+        cursor CURSOR FOR SELECT * FROM table ORDER BY id FOR UPDATE;
+BEGIN
+        FOR row IN cursor LOOP
+                UPDATE table SET
+                        a_col = array[col],
+                        a_col2= array[col2]
+                WHERE CURRENT OF cursor;
+        END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+ 
+ 
+ **MVCC**
+
+ First off, if "normal operations" consist of   queries, the  MVCC model  will take care of it automatically.   does not block   and vice versa.   only sees committed data (or what's been done in the same transaction), so the result of the big   remains invisible to other transactions until it's done (committed). 
+ **Performance / bloat**
+
+ If  you don't have other objects referencing that table, 
+ and  you don't have concurrent write operations (which would be lost!), 
+ and  you can afford a very short exclusive lock on the table, 
+ and  you have the additional disk space, of course: 
+You could keep the locking to a minimum by creating an updated version of the table in the background. Make sure it has  everything  to be a drop-in replacement, then drop the original and rename the dupe. 
+ 
+ I am using  , because ( quoting the manual here ): 
+ 
+ Not-null constraints are always copied to the new table.  
+  constraints will only be copied if   is specified;
+  other types of constraints will never be copied. 
+ 
+ Make sure, the new table is ready. Then: 
+ 
+ Results in an very short time window, where the table is locked exclusively. 
+ This is really only about performance. It creates a new table without any bloat rather quickly. If you have foreign keys or views, you can still go that route, but you have to prepare a script to drop and recreate these objects, potentially creating additional exclusive locks. 
+ **Concurrent writes**
+
+ With concurrent write operations, really all you can do, is split your update in chunks. You can't do that in a single transaction, since locks are only released at the end of a transaction. 
+ You  could  employ  **dblink**
+, which can launch independent transactions on another database, including itself. This way you could do it all in a single   statement or a plpgsql function with a loop. Here is a loosely related answer with more information on dblink: 
+ 
+ Drop or create database from stored procedure in PostgreSQL 
+ 
+ **Your approach with cursors**
+
+ A cursor inside the function will not buy you  anything . Any function is enclosed in a transaction automatically, and all locks are only released at the end of the transaction. 
+Even if you used   (which you don't) it would only free some resources, but  not  release acquired locks on the table. I quote the manual: 
+ 
+  closes the portal underlying an open cursor. This can be used to
+  release resources earlier than end of transaction, or to free up the
+  cursor variable to be opened again. 
+ 
+ You would need to run  **separate**
+** transactions**
+ or (ab)use  dblink  which does that for you. 
+ 

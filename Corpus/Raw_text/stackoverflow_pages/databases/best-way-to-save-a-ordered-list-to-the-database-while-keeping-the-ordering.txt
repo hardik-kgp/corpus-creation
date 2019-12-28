@@ -1,0 +1,63 @@
+*** best-way-to-save-a-ordered-list-to-the-database-while-keeping-the-ordering ***
+
+ I was wondering if anyone has a good solution to a problem I've encountered numerous times during the last years. 
+ I have a shopping cart and my customer explicitly requests that it's order is significant. So I need to persist the order to the DB. 
+ The obvious way would be to simply insert some OrderField where I would assign the number 0 to N and sort it that way. 
+ But doing so would make reordering harder and I somehow feel that this solution is kinda fragile and will come back at me some day. 
+ (I use C# 3,5 with NHibernate and SQL Server 2005) 
+ Thank you  
+ 
+ FWIW, I think the way you suggest (i.e. committing the order to the database) is not a bad solution to your problem. I also think it's probably the safest/most reliable way. 
+ 
+ Ok here is my solution to make programming this easier for anyone that happens along to this thread. the trick is being able to update all the order indexes above or below an insert / deletion in one update. 
+ Using a numeric (integer) column in your table, supported by the SQL queries  
+ 
+ To delete the item at orderindex 6: 
+ 
+ To swap two items (4 and 7): 
+ 
+ i.e. 0 is not used, so use a it as a dummy to avoid having an ambiguous item. 
+ To insert at 3: 
+ 
+ 
+ Best solution is a  Doubly Linked list . O(1) for all operations except indexing. Nothing can index SQL quickly though except a where clause on the item you want. 
+ 0,10,20 types fail. Sequence column ones fail. Float sequence column fails at group moves.  
+ Doubly Linked list is same operations for addition, removal, group deletion, group addition, group move. Single linked list works ok too. Double linked is better with SQL in my opinion though. Single linked list requires you to have the entire list. 
+ 
+ How about using a linked list implementation? Having one column the will hold the value (order number) of the next item. I think it's by far the easiest to use when doing insertion of orders in between. No need to renumber. 
+ 
+ Unfortunately there is no magic bullet for this. You cannot guarentee the order of any   statement WITHOUT an order by clause. You need to add the column and program around it. 
+ I don't know that I'd recommend adding gaps in the order sequence, depending on the size of your lists and the hits on the site, you might gain very little for the over head of handling the logic (you'd still need to cater for the occasion where all the gaps have been used up). I'd take a close look to see what benifits this would give you in your situation. 
+ Sorry I can't offer anything better, Hope this helped. 
+ 
+ I wouldn't recommend the A, AA, B, BA, BB approach at all. There's a lot of extra processing involved to determine hierarchy and inserting entries in between is not fun at all. 
+ Just add an OrderField, integer. Don't use gaps, because then you have to either work with a non-standard 'step' on your next middle insert, or you will have to resynchronize your list first, then add a new entry. 
+ Having 0...N is easy to reorder, and if you can use Array methods or List methods outside of SQL to re-order the collection as a whole, then update each entry, or you can figure out where you are inserting into, and +1 or -1 each entry after or before it accordingly.  
+ Once you have a little library written for it, it'll be a piece of cake. 
+ 
+ I would just insert an order field. Its the simplest way. If the customer can reorder the fields or you need to insert in the middle then just rewrite the order fields for all items in that batch. 
+ If down the line you find this limiting due to poor performance on inserts and updates then it is possible to use a varchar field rather than an integer. This allows for quite a high level of precision when inserting. eg to insert between items 'A' and 'B' you can insert an item ordered as 'AA'. This is almost certainly overkill for a shopping cart though. 
+ 
+ On a level of abstraction above the cart Items let's say CartOrder (that has 1-n with CartItem) you can maintain a field called itemOrder which could be just a comma - separated list of id(PK) of cartItem records relevant . It will be at application layer that you require to parse that and arrange your item models accordingly . The big plus for this approach will be in case of order reshufflings , there might not be changes on individual objects but since order is persisted as an index field inside the order item table rows you will have to issue an update command for each one of the rows updating their index field.
+   Please let me know your criticisms on this approach, i am curious to know in which ways this might fail.  
+ 
+ I solved it  **pragmatically**
+ like this: 
+ 
+ The order is defined in the UI. 
+ The backend gets a POST request that contains the IDs and the corresponding Position of every item in the list.  
+ I start a transaction and update the position for every ID. 
+ 
+ **Done.**
+
+ So ordering is expensive but reading the ordered list is super cheap. 
+ 
+ I would recommend keeping gaps in the order number, so instead of 1,2,3 etc, use 10,20,30...  If you need to just insert one more item, you could put it at 15, rather than reordering everything at that point. 
+ 
+ Well, I would say the short answer is: 
+ Create a primary key of autoidentity in the cartcontents table, then insert rows in the correct top-down order.  Then by selecting from the table with order by the primary key autoidentity column would give you the same list.  By doing this you have to delete all items and reinsert then in case of alterations to the cart contents.  (But that is still quite a clean way of doing it)  If that's not feasible, then go with the order column like suggested by others. 
+ 
+ When I use  , and need to save the order of a  , I use a   and not a  . 
+ 
+ In this Java example,   is an Integer property of   so the order is persisted that way. I guess in C# this would look rather similar. 
+ 

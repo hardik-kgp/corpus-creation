@@ -1,0 +1,42 @@
+*** int-vs-varchar-in-search ***
+
+ Which one of the following queries will be faster and more optimal (and why): 
+ 
+  (w and h are INT) 
+ (dimensions is VARCHAR) 
+ 
+ 
+ Here are some actual measurements.  (Using SQLite; may try it with MySQL later.) 
+ Data = All 1,000,000 combinations of w, h ∈ {1...1000}, in randomized order. 
+ 
+ Average time (of 20 runs) to execute   was 5.39±0.29 µs. 
+ 
+ Average time to execute   was 5.69±0.23 µs. 
+ There is no significant difference, efficiency-wise. 
+ But 
+ There is a huge difference in terms of usability.  For example, if you want to calculate the area and perimeter of the rectangles, the two-column approach is easy: 
+ 
+ Try to write the corresponding query for the other way. 
+ 
+ Intuitively, if you do not create  es on those columns, integer comparison seems faster. 
+ In integer comparison, you compare directly 32-bit values equality with logical operators. 
+ On the other hand, strings are character arrays, it will be difficult to compare them. Character-by-character. 
+ However,  another point is that, in 2nd query you have 1 field to compare, in 1st query you have 2 fields. If you have 1,000,000 records and no indexes on columns, that means you may have 1,000,000 string comparisons on worst case (unluckily last result is the thing you've looking for or not found at all) 
+ On the other hand you have 1,000,000 records and all are  , then you'll be comparing them for  ,too. That means 2,000,000 comparisons. However you create INDEXes on those fields IMHO they will be almost identical since VARCHAR will be hashed (takes   constant time) and will be compared using INT comparison and take   time. 
+ Conclusion, it depends. Prefer indexes on searchable columns and use ints. 
+ 
+ Probably the only way to know that is to run it.  I would suspect that if all columns used are indexed, there would be basically no difference.  If INT is 4 bytes, it will be almost the same size as the string. 
+ The one wrinkle is in how VARCHAR is stored.  If you used a constant string size, it might be faster than VARCHAR, but mostly because your   needs to go get it. 
+ The huge advantage of using INT is that you can do much more sophisticated filtering.  That alone should be a reason to prefer it.  What if you need a range, or just width, or you want to do math on width in the filtering?  What about constraints based on the columns, or aggregates?  
+ Also, when you get the values into your programming language, you won't need to parse them before using them (which takes time). 
+ EDIT: Some other answers are mentioning string compares.  If indexed, there won't be many string compares done.  And it's possible to implement very fast compare algorithms that don't need to loop byte-by-byte.  You'd have to know the details of what mysql does to know for sure. 
+ 
+ Second query, as the chances to match the exact string is smaller (which mean smaller set of records but with greater cardinality) 
+ First query, chances matching first column is higher and more rows are potentially matched (lesser cardinality) 
+ of course, assuming index are defined for both scenario 
+ 
+ first one because it is faster to compare numeric data. 
+ 
+ It depends on the data and the available indexes.  But it is quite possible for the VARCHAR version to be faster because searching a single index can be faster than two.  If the combination of values provides a unique (or "mostly" unique) result while each individual H/W value has multiple entries, then it could narrow the down to a much smaller set using the single index.   
+ On the other hand, if you have a multiple column index on the to integer columns, that would likely be the most efficient. 
+ 

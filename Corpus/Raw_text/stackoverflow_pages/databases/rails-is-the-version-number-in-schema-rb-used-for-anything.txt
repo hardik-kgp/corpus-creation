@@ -1,0 +1,26 @@
+*** rails-is-the-version-number-in-schema-rb-used-for-anything ***
+
+ Now that Rails has  timestamped migrations , the single version number at the top of   seems pointless.  Sometimes the version number ends up incorrect when dealing with multiple developers or multiple branches. 
+ Does Rails even utilize that   parameter anymore?   
+ And is there any harm in it being incorrect (as in: it doesn't reflect the timestamp of most recently applied commit)? 
+ Example: 
+ 
+ 
+ Actually, the version is much more important than this.  The code you've cited is actually only a small part of what assume_migrated_upto_version does.  The real effect of the migration version is that  **all prior migrations**
+  (as found in the db/migrate directory)   **are assumed to have been run.**
+  (So yes, it does what the function name suggests.) 
+ This has some interesting implications, particularly in the case where multiple people commit new migrations at the same time. 
+ If you version your schema.rb, which is what the Rails team recommends, you're okay.  You're 100% guaranteed to have a conflict (the schema version), and the committing/merging user has to resolve it, by merging their changes and setting the :version to the highest of the two.  Hopefully they do this merge correctly. 
+ Some projects choose to avoid this continual conflict issue by keeping the schema.rb out of version control.  They might rely solely on migrations, or keep a separate version-controlled copy of the schema that they occasionally update. 
+ The problem occurs if someone creates a migration with a timestamp  **prior**
+ to your schema.rb's :version.  If you db:migrate, you'll apply their migration, your schema.rb will be updated (but retain the same, higher :version), and everything is fine.  But if you should happen to db:schema:load (or db:reset) instead, you'll not only be missing their migration, but  **assume_migrated_upto_version will mark their migration as having been applied.**
+
+ The best solution at this point is probably to require that users re-timestamp their migrations to the time of their merge. 
+ Ideally, I would prefer if schema.rb actually contained a list of applied migration numbers rather than an assume-up-to-here :version.  But I doubt this will happen -- the Rails team seems to believe the problem is adequately solved by checking in the schema.rb file. 
+ 
+ I decided to investigate myself.  It turns out that because of the timestamped migrations, the  **only thing**
+ Rails does with that number is  **assume that the migration with that particular timestamp has already been applied**
+ and thus create the appropriate entry in the schema_migration table if it doesn't exist. 
+ from:  
+ 
+ 

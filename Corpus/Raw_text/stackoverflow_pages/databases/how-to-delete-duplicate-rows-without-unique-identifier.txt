@@ -1,0 +1,72 @@
+*** how-to-delete-duplicate-rows-without-unique-identifier ***
+
+ I have duplicate rows in my table and I want to delete duplicates in the most efficient way since the table is big. After some research, I have come up with this query: 
+ 
+ But it only works in SQL, not in Netezza. It would seem that it does not like the   after the   clause? 
+ 
+ I like @erwin-brandstetter 's solution, but wanted to show a solution with the   keyword: 
+ 
+ If you want to review the records before deleting them, then simply replace   with   and   with a comma  , i.e. 
+ 
+ Update: I tested some of the different solutions here for speed.  If you don't expect many duplicates, then this solution performs much better than the ones that have a   clause as those generate a lot of rows in the subquery. 
+ If you rewrite the query to use   then it performs similarly to the solution presented here, but the SQL code becomes much less concise. 
+ Update 2: If you have   values in one of the key columns (which you really shouldn't IMO), then you can use   in the condition for that column, e.g. 
+ 
+ 
+ If you have no other unique identifier, you can use  : 
+ 
+ It is a good idea to have a unique, auto-incrementing id in every table.  Doing a   like this is one important reason why. 
+ 
+ In a perfect world,  every  table has a unique identifier of some sort. 
+In the absence of any unique column (or combination thereof), use  the   column : 
+ 
+ The above query is short, conveniently listing column names only once.   is a tricky query style when NULL values can be involved, but the system column   is never NULL. See: 
+ 
+ Find records where join doesn't exist 
+ 
+ Using   as  demonstrated by @Gordon  is typically faster. So is a self-join with the   clause  like @isapir added later . Both should result in the same query plan.   
+ But note an  **important difference**
+: These other queries treat   values as  **not equal**
+, while   (or   or  ) treats NULL values as equal. Does not matter if key columns are defined  . Else, depending on your definition of "duplicate", you'll need one or the other approach.  **Or**
+ use   in comparison of values (which may not be able to use some indexes). 
+ Disclaimer: 
+  is an internal implementation detail of Postgres, it's not in the SQL standard and can be changed between major versions without warning (even if that's very unlikely). Its values can change between commands due to background processes or concurrent write operations (but not within the same command). 
+ Related: 
+ 
+ How do I (or can I) SELECT DISTINCT on multiple columns? 
+ How to use the physical location of rows (ROWID) in a DELETE statement 
+ 
+ Aside: 
+ The target of a   statement cannot be the CTE, only the underlying table. That's a spillover from SQL Server - as is your whole approach. 
+ 
+ Here is what I came up with, using a  
+ 
+ It deletes the duplicates, preserving the oldest record that has duplicates. 
+ 
+ We can use a window function for very effective removal of duplicate rows: 
+ 
+ Some PostgreSQL's optimized version (with ctid): 
+ 
+ 
+ If you want to keep one row out of duplicate rows in the table. 
+ 
+ This will create a table which you can copy.  
+ Before copying table please delete the column 'row_n'  
+ 
+ The valid syntax is specified at  http://www.postgresql.org/docs/current/static/sql-delete.html 
+ I would ALTER your table to add a unique auto-incrementing primary key id so that you can run a query like the following which will keep the first of each set of duplicates (ie the one with the lowest id). Note that adding the key is a bit more complicated in Postgres than some other DBs.  
+ 
+ 
+ From the documentation  delete duplicate rows 
+ A frequent question in IRC is how to delete rows that are duplicates over a set of columns, keeping only the one with the lowest ID.
+This query does that for all rows of tablename having the same column1, column2, and column3. 
+ 
+ Sometimes a timestamp field is used instead of an ID field. 
+ 
+ If you want a unique identifier for every row, you could just add one (a serial, or a guid), and treat it like a  **surrogate key**
+. 
+ 
+ 
+ 
+ 
+ 

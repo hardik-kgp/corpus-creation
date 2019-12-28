@@ -1,0 +1,71 @@
+*** homemade-vs-java-serialization ***
+
+ I have a certain POJO which needs to be persisted on a database, current design specifies its field as a single string column, and adding additional fields to the table is not an option. 
+ Meaning, the objects need to be serialized in some way. So just for the basic implementation I went and designed my own serialized form of the object which meant concatenating all it's fields into one nice string, separated by a delimiter I chose. But this is rather ugly, and can cause problems, say if one of the fields contains my delimiter. 
+ So I tried basic Java serialization, but from a basic test I conducted, this somehow becomes a very costly operation (building a ByteArrayOutputStream, an ObjectOutputStream, and so on, same for the deserialization). 
+ So what are my options? What is the preferred way for serializing objects to go on a database? 
+ **Edit:**
+ this is going to be a very common operation in my project, so overhead must be kept to a minimum, and performance is crucial. Also, third-party solutions are nice, but irrelevant (and usually generate overhead which I am trying to avoid) 
+ 
+ Elliot Rusty Harold wrote up a  nice argument  against using Java Object serialization for the objects in his XOM library. The same principles apply to you. The built-in Java serialization is Java-specific, fragile, and slow, and so is best avoided. 
+ You have roughly the right idea in using a String-based format. The problem, as you state, is that you're running into formatting/syntax problems with delimiters. The solution is to use a format that is already built to handle this. If this is a standardized format, then you can also potentially use other libraries/languages to manipulate it. Also, a string-based format means that you have a hope of understanding it just by eyeballing the data; binary formats remove that option. 
+ XML and JSON are two great options here; they're standardized, text-based, flexible, readable, and have lots of library support. They'll also perform surprisingly well (sometimes even  faster  than Java serialization). 
+ 
+ You might try  Protocol Buffers , it is a open-source project from Google, it is said to be fast (generates shorter serialized form than XML, and works faster). It also handles addition of new field gently (inserts default values). 
+ 
+ You need to consider versioning in your solution. Data incompatibility is a problem you will experience with any solution that involves the use of a binary serialization of the Object. How do you load an older row of data into a newer version of the object? 
+ So, the solutions above which involve serializing to a name/value pairs is the approach you probably want to use.  
+ One solution is to include a version number as one of field values. As new fields are added, modified or removed then the version can be modified. 
+ When deserializing the data, you can have different deserialization handlers for each version which can be used to convert data from one version to another.   
+ 
+ XStream  or  YAML  or  OGNL  come to mind as easy serialization techniques. XML has been the most common, but OGNL provides the most flexibility with the least amount of metadata. 
+ 
+ Consider putting the data in a   object and use its   serialization.  That's a text-based technique so it's still readable in the database: 
+ 
+ To load from string, do similar using a new   object and   the data. 
+ This is better than Java serialization because it's very readable and compact. 
+ If you need support for different data types (i.e. not just String), use  BeanUtils  to convert each field to and from a string representation. 
+ 
+ I'd say your initial approach is not all that bad if your POJO consists of Strings and primitive types. You could enforce escaping of the delimiter to prevent corruptions. Also if you use Hibernate you encapsulate the serialization in a  custom type .  
+ If you do not mind another dependency,  Hessian  is supposedly a more efficient way of serializing Java objects. 
+ 
+ How about the standard JavaBeans persistence mechanism: 
+ 
+ These are able to create Java POJOs from XML (which have been persisted to XML). From memory, it looks (something) like... 
+ 
+ You have to provide   classes so that it knows how to persist user-defined classes. Assuming you don't remove any public methods, it is resilient to schema changes. 
+ 
+ You can optimize the serialization by externalizing your object.  That will give you complete control over how it is serialized and improve the performance of process.  This is simple to do, as long as your POJO is simple (i.e. doesn't have references to other objects), otherwise you can easily break serialization. 
+ tutorial here 
+ EDIT:  Not implying this is the preferred approach, but you are very limited in your options if ti is performance critical and you can only use a string column in the table. 
+ 
+ If you are using a delimiter you could use a character which you know would never occur in your text such as \0, or special symbols  http://unicode.org/charts/symbols.html 
+ However the time spent sending the data to the database and persisting it is likely to be much larger than the cost of serialization. So I would suggest starting with some thing simple and easy to read (like XStream) and look at where your application is spending most of its time and optimise that. 
+ 
+ 
+ I have a certain POJO which needs to be persisted on a database, current design specifies its field as a single string column, and adding additional fields to the table is not an option. 
+ 
+ Could you create a new table and put a foreign key into that column!?!? :)
+I suspect not, but let's cover all the bases! 
+ **Serialization:**
+
+We've recently had this discussion so that if our application crashes we can resurrect it in the same state as previously. We essentially dispatch a persistance event onto a queue, and then this grabs the object, locks it, and then serializes it. This seems pretty quick. How much data are you serializing? Can you make any variables transient (i.e. cached variables)? Can you consider splitting up your serialization?
+Beware: what happens if your objects change (locking) or classes change (diferent serialization id)? You'll need to upgrade everything that's serialized to latest classes. Perhaps you only need to store this overnight so it doesn't matter? 
+ **XML:**
+
+You could use something like xstream to achieve this. Building something custom is doable (a nice interview question!), but I'd probably not do it myself. Why bother? Remember if you have cyclic links or if you have referencs to objects more than once. Rebuilding the objects isn't quite so trivial. 
+ **Database storage:**
+
+If you're using Oracle 10g to store blobs, upgrade to the latest version, since c/blob performance is massively increased. If we're talking large amounts of data, then perhaps zip the output stream?  
+ Is this a realtime app, or will there be a second or two pauses where you can safely persist the actual object? If you've got time, then you could clone it and then persist the clone on another thread. What's the persistance for? Is it critical it's done inside a transaction? 
+ 
+ Consider changing your schema. Even if you find a quick way to serialize a POJO to a string how do you handle different versions? How do you migrate the database from X->Y? Or worse from A->D? I am seeing issues where we stored a serialize object into a BLOB field and have to migrate a customer across multiple versions. 
+ 
+ Have you looked into  JAXB ? It is a mechanism by which you can define a suite of java objects that are created from an XML Schema. It allows you to marshal from an object hierarchy to XML or unmarshal the XML back into an object hierarchy. 
+ 
+ I'll second suggestion to use JAXB, or possibly XStream (former is faster, latter has more focus on object serialization part).
+Plus, I'll further suggest a decent JSON-based alternative, Jackson ( http://jackson.codehaus.org/Tutorial ), which can fully serializer/deserialize beans to JSON text to store in the column. 
+ Oh and I absolutely agree in that do not use Java binary serialization under any circumstances for long-term data storage. Same goes for Protocol Buffers; both are too fragile for this purpose (they are better for data transfer between tigtly coupled systems). 
+ 
+ You might try  Preon . Preon aims to be to binary encoded data what Hibernate is to relational databases and JAXB to XML. 
+ 

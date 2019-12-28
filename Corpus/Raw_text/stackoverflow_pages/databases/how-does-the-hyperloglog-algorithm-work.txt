@@ -1,0 +1,44 @@
+*** how-does-the-hyperloglog-algorithm-work ***
+
+ I've been learning about different algorithms in my spare time recently, and one that I came across which appears to be very interesting is called the HyperLogLog algorithm - which estimates how many unique items are in a list. 
+ This was particularly interesting to me because it brought me back to my MySQL days when I saw that "Cardinality" value (which I always assumed until recently that it was calculated not estimated). 
+ So I know how to write an algorithm in  O ( n ) that will calculate how many unique items are in an array. I wrote this in JavaScript: 
+ 
+ But the problem is that my algorithm, while  O ( n ), uses a lot of memory (storing values in  ). 
+ I've been reading  this paper  about how to count duplicates in a list in  O ( n ) time and using minimal memory. 
+ It explains that by hashing and counting bits or something one can estimate within a certain probability (assuming the list is evenly distributed) the number of unique items in a list. 
+ I've read the paper, but I can't seem to understand it. Can someone give a more layperson's explanation? I know what hashes are, but I don't understand how they are used in this HyperLogLog algorithm. 
+ 
+ The main trick behind this algorithm is that if you, observing a stream of random integers, see an integer which binary representation starts with some known prefix, there is a higher chance that the cardinality of the stream is 2^(size of the prefix). 
+ That is, in a random stream of integers, ~50% of the numbers (in binary) starts with "1", 25% starts with "01", 12,5% starts with "001". This means that if you observe a random stream and see a "001", there is a higher chance that this stream has a cardinality of 8. 
+ (The prefix "00..1" has no special meaning. It's there just because it's easy to find the most significant bit in a binary number in most processors) 
+ Of course, if you observe just one integer, the chance this value is wrong is high. That's why the algorithm divides the stream in "m" independent substreams and keep the maximum length of a seen "00...1" prefix of each substream. Then, estimates the final value by taking the mean value of each substream. 
+ That's the main idea of this algorithm. There are some missing details (the correction for low estimate values, for example), but it's all well written in the paper. Sorry for the terrible english. 
+ 
+ A HyperLogLog is a  probabilistic data structure . It counts the number of distinct elements in a list. But in comparison to a straightforward way of doing it (having a set and adding elements to the set) it does this in an approximate way. 
+ Before looking how the HyperLogLog algorithm does this, one has to understand why you need it. The problem with a straightforward way is that it consumes   of space. Why there is a big O notation here instead of just distinct elements? This is because elements can be of different sizes. One element can be   another element  . So if you have a huge list (or a huge stream of elements) it will take a lot memory. 
+ 
+ **Probabilistic Counting**
+
+ How can one get a reasonable estimate of a number of unique elements? Assume that you have a string of length   which consists of   with equal probability. What is the probability that it will start with 0, with 2 zeros, with k zeros? It is  ,   and  . This means that if you have encountered a string with   zeros, you have approximately looked through   elements. So this is a good starting point. Having a list of elements that are evenly distributed between   and   you can count the maximum number of the biggest prefix of zeros in binary representation and this will give you a reasonable estimate. 
+ The problem is that the assumption of having evenly distributed numbers from   t   is too hard to achieve (the data we encountered is mostly not numbers, almost never evenly distributed, and can be between any values. But using a  good hashing function  you can assume that the output bits would be evenly distributed and most hashing function have outputs between   and   ( SHA1  give you values between   and  ). So what we have achieved so far is that we can estimate the number of unique elements with the maximum cardinality of   bits by storing only one number of size   bits. The downside is that we have a huge variance in our estimate. A cool thing that we almost created  **1984's probabilistic counting**
+ paper (it is a little bit smarter with the estimate, but still we are close). 
+ **LogLog**
+
+ Before moving further, we have to understand why our first estimate is not that great. The reason behind it is that one random occurrence of high frequency 0-prefix element can spoil everything. One way to improve it is to use many hash functions, count max for each of the hash functions and in the end average them out. This is an excellent idea, which will improve the estimate, but  **LogLog paper**
+ used a slightly different approach (probably because hashing is kind of expensive). 
+ They used one hash but divided it into two parts. One is called a bucket (total number of buckets is  ) and another - is basically the same as our hash. It was hard for me to get what was going on, so I will give an example. Assume you have two elements and your hash function which gives values form   to   produced 2 values:   and  . You decided to have 16 buckets. So you have: 
+ 
+ By having more buckets you decrease the variance (you use slightly more space, but it is still tiny). Using math skills they were able to quantify the error (which is  ). 
+ **HyperLogLog**
+
+ **HyperLogLog**
+ does not introduce any new ideas, but mostly uses a lot of math to improve the previous estimate. Researchers have found that if you remove 30% of the biggest numbers from the buckets you significantly improve the estimate. They also used another algorithm for averaging numbers. The paper is math-heavy. 
+ 
+ And I want to finish with a recent paper, which shows an  improved version of hyperLogLog algorithm  (up until now I didn't have time to fully understand it, but maybe later I will improve this answer). 
+ 
+ The intuition is if your input is a large set of random number (e.g. hashed values), they should distribute evenly over a range. Let's say the range is up to 10 bit to represent value up to 1024. Then observed the minimum value. Let's say it is 10. Then the cardinality will estimated to be about 100 (10 × 100 ≈ 1024). 
+ Read the paper for the real logic of course. 
+ Another good explanation with sample code can be found here: 
+ Damn Cool Algorithms: Cardinality Estimation - Nick's Blog 
+ 

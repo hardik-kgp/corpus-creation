@@ -1,0 +1,55 @@
+*** delete-user-but-keep-records-foreign-keys ***
+
+ I have a table   with user accounts (user_id, username, ...). The user_id is related to multiple other tables - e.g. a table with his last actions, profile details, his products, his interests etc. 
+ Sometimes a user wants to be deleted, and then I set a field 'deleted' to 1. The records in most of the tables should be deleted, but the records in 2 tables (  and  ) should keep the reference to the user. Reason: For example, a message partner still wants to see the username of the account he recently talked to. What is the best way to do this? 
+ **1)**
+ In PHP store the ids of the records in   and   that should be kept in an array. Then delete the user. Automatically all the tables related to   delete their records with a reference to the deleted account. The reference in   and   should be:   so their records still exists after user delete. The database is clean now, then re-insert the user with the same user_id with the field 'deleted' to 1. Then update the data in the array to the user_id so the reference is set again. 
+ **2)**
+ Remove the references to the user in   and   (so there are no foreign keys). 
+ **3)**
+ ... (is there a better option?) 
+ Thanks! 
+ 
+ 1) I would  **never**
+ think to delete the user record and leave other tables that contain user data with no existent user_id in the user table.  As you mentioned there are plenty of reasons that you have to keep the user account.  
+ 
+ (So I would keep the foreign key and there would be no DELETE case on this table). 
+ 2) There would be some cases that you have to delete this data from your database (e.g. legal issues, millions of deleted users). An alternative to this would be to  **create a deleted_users table**
+, with user_id and username and create a function to check if user is deleted.  
+ But I think, this method in a production level environment would be error-prone and I would not recommend it at all. In this case  **foreign key**
+ is not kept 
+ 
+ To sum up: the option 1 ( **status: deleted**
+) is the best choice.  This way you can also recover the data when the user changes his mind.   
+ PS: In case you are in a development stage and you want to delete some users from a lot of tables, you can just create a delete function and a loop with the tables. Sth like this: 
+ 
+ **But, in this case, I wouldn't create a foreign key for just development level usability.**
+
+ 
+ The reason to use a foreign key constraint on the reports and messages tables is to enforce referential integrity; normally that's a good thing but in this case it's the source of your problem, because you actually WANT to violate referential integrity in order to maintain an audit trail after deleting a user record. I suggest you remove the foreign key constraint on the user_id columns in the reports and messages tables. That will allow you to delete a user without impacting the data in the reports or messages tables. Unfortunately, a user_id is not useful without a corresponding username, so instead of storing the user_id you'll be better off storing the username in the reports and messages tables directly. In this case I suggest that you alter the database schema as follows (this is pseudocode and may need to be adapted for MySQL syntax): 
+ 
+ Notice that the new username columns are not foreign keys on the user table. 
+ For performance reasons you may also want to add indexes to the username columns in these tables if you will be running select statements that include the username in the where clause. 
+ By the way, in my experience, it often makes sense to remove the "id" column from user tables altogether and make the username the primary key on the users table, assuming the username values are all unique.  
+ 
+ Yes, there is a better option.  
+ If you need the user for any reason don't delete it, basic rule. Do the deleted=1 update and remove any data in the tables that you need to delete. Keep the referential integrity as you have it right now, this will alert you if you try to delete more than you intended. A few delete from table_name where id_user = XXX will save you a lot of trouble now and in the future. You have those foreign keys for a reason. Trust me. 
+ Of course you need a backup policy in place just in case you were wrong about the "wont need it anymore" sentence. 
+ 
+ If you want all to be handled from the database level then you can use trigger to do the job.
+For kepping the data in   and   data even if the user is deleted = 1 meaning these data 
+will be there for other reference and when you add a new user details with the same   everything will
+be reset. The process looks more like a CRM application where the data is never deleted even users, only its set to  
+When a new user is introduced for that deleted record the other likned data are auto-matically get assigned to this user. 
+ However in your case you still want to delete some data. So using following trigger it could be done.
+Note that you are not deleting an user you are updating the user. 
+ 
+ 
+ I am giving two option first one is to stopping the row deleted from   and   table but i think this will not solve your problem because if the row deleted from user table you can't get his name email or anything else. 
+ **solution 1**
+
+Please delete the constraint on both   and   table by doing this is a referenced user is deleted from the user table no action will be perform on these table 
+ **solution 2**
+
+make status column in users table so instead of deleting the row set it false and this false means that further activity can be perform by this user. 
+ 

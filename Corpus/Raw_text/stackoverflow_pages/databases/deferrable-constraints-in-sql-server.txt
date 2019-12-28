@@ -1,0 +1,57 @@
+*** deferrable-constraints-in-sql-server ***
+
+ Do any versions of SQL Server support deferrable constraints (DC)?  
+ Since about version 8.0,  Oracle has supported deferrable constraints  - constraints that are only evaluated when you commit a statement group, not when you insert or update individual tables. Deferrable constraints differ from just disabling/enabling constraints, in that the constraints are still active - they are just evaluated later (when the batch is committed). 
+ The benefit of DC is that they allow updates that individually would be illegal to be evaluated that cummulatively result in a valid end state. An example is creating circular references in a table between two rows where each row requires a value to exist. No individual insert statement would pass the constraint - but the group can. 
+ To clarify my goal, I am looking to port an ORM implementation in C# to SQLServer - unfortunately the implementation relies on Oracle DC to avoid computing insert/update/delete orders amongst rows. 
+ 
+ So far SQL Server does not support them. What is the problem you are solving? 
+ 
+ OT: There are IMHO quite a few things SQL Server does not support, but would make sense in an enterprise environment: 
+ 
+ Deferrable constraints as mentioned here 
+ MARS: Just why do you need to set an option for something entirely natural? 
+ CASCADE DELETE constraints: SQL Server does only allow one single cascadation path for a given CASCADE DELETE constraint. Again, I don't see a reason why it shouldn't be allowed to cascade on deletion through multiple possible paths: In the end, at the time it really is executed, there will always be only one path being actually used, so why is this restriction? 
+ Prevention of parallel transactions on a single ADO.NET connection. 
+ Forcing of every command executed on a connection that has a transaction to be executed within this transaction. 
+ When creating a UNIQUE index, NULL is treated as if it was an actual value, and allowed to appear only once in the index. SQL's notion of NULL as an "unknown value" would, however, indicate, that NULL values be ignored altogether when creating the index... 
+ 
+ All these little things make many of the referential integrity and transactional features you would expect from a full-sized RDBMS nearly useless in SQL Server. For example, since deferrable constraints are not supported, the notion of a "transaction" as an externally consistent Unit Of Work is partly negated, the only viable solution - except fro some dirty workarounds - being to not define referential integrity constraints at all. I would expect, the natural behavior of a transaction be that you can work inside it in the way and order of operations you like, and the system will make sure it is consistent at the time you commit it.
+Similar problems arise from the restriction, that a referential integrity constraint with ON DELETE CASCADE may only be defined in a way that only one single constraint can lead to the cascaded deletion of an object. This really doesn't fit most real-world scenarios. 
+ 
+ Apparently not. 
+ I found about five different blog posts all saying SQLServer (in various versions) does not support Deferrable Constraints. 
+ On the other hand, I also found a post which attempts to mimic this feature by using  "persisted computed columns,"  (scroll to the last entry), but  caveat emptor 
+ 
+ It sounds like the problem you have is that SQL does not support what Date and Darwen call 'multiple assignment'. Standard SQL's response to this was 'deferrable constraints', which SQL Server does not support. A SQL Server FK or CHECK constraint can be flagged with NOCHECK but its not quite the same. For more details see MSDN:  ALTER TABLE (Transact-SQL) . 
+ 
+ There's a method to work around the missing deferred constraint enforcement  under certain conditions  (as of January 2017, there's no support for deferred constraints in SQL Server). Consider the following database schema: 
+ Disclaimer: The quality of the schema, or the use case, is not up for a debate here, it is given as a basic example for the workaround 
+ 
+ Where TYPE is some suitable data type for a surrogate key. The assumption is that the value for the surrogate key is assigned by the RDBMS during the INSERT operation (i.e. IDENTITY). 
+ The use case is to keep the "latest" version of the entity T with NextId = NULL, and store the previous versions by maintaining a single-linked list T.NextId -> T.Id. 
+ Obviously, the given schema is subject to the deferred constraint problem because the insert of the new-"latest" version must precede the update of the old-"latest" and during that time there will be two records in the database with the same NextId value. 
+ **Now, if:**
+
+ The data type of the primary key doesn't have to be numeric, and can be calculated in advance (i.e. UNIQUEIDENTIFIER), then the deferred constraint problem is sidestepped using MERGE statement, like so: 
+ 
+ Apparently, MERGE statement completes all data manipulations before checking the constraints. 
+ 
+ If you have your own ORM layer, one solution to your problem could be separating object update from reference update by the logic of your ORM layer.
+Your ORM would then work with transactions based on your client-side change set in several steps: 
+ 
+ Delete all foreign key references defined by your change set as being deleted, i.e. set corresponding foreign key columns to NULL, or, for relationships using mapping tables, DELETE entries from mapping tables as appropriate. 
+ Delete all objects defined as "deleted" by your change sets 
+ Create all new objects in your change set, but do not yet set foreign key columns 
+ Update all "primitive" value changes on any updated objects in the change set, i.e. do not update foreign key columns 
+ Set foreign key column values as defined in your change set. 
+ Add mapping table mappings for mapping table-based relationships 
+ Commit 
+ 
+ This should solve your problem, since all objects referenced exist at any time a foreign key value is set... 
+ 
+ You can use this method 
+ 
+ your action 
+ 
+ 

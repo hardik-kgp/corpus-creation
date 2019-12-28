@@ -1,0 +1,85 @@
+*** simulate-create-database-if-not-exists-for-postgresql ***
+
+ I want to create a database which does not exist through JDBC. Unlike MySQL, PostgreSQL does not support   syntax. What is the best way to accomplish this? 
+ The application does not know if the database exists or not. It should check and if the database exists it should be used. So it makes sense to connect to the desired database and if connection fails due to non-existence of database it should create new database (by connecting to the default   database). I checked the error code returned by Postgres but I could not find any relevant code that species the same. 
+ Another method to achieve this would be to connect to the   database and check if the desired database exists and take action accordingly. The second one is a bit tedious to work out. 
+ Is there any way to achieve this functionality in Postgres? 
+ 
+ **Restrictions**
+
+ You can ask the system catalog   - accessible from any database in the same database cluster. The tricky part is that   can only be executed as a single statement.  The manual: 
+ 
+  cannot be executed inside a transaction block. 
+ 
+ So it cannot be run directly inside a function or   statement, where it would be inside a transaction block implicitly. 
+ (SQL procedures, introduced with Postgres 11,  cannot help with this either .) 
+ **Workaround from within psql**
+
+ You can work around it from within psql by executing the DDL statement conditionally: 
+ 
+ The manual: 
+ 
+ 
+ Sends the current query buffer to the server, then treats each column of each row of the query's output (if any) as a SQL statement to be executed.  
+ 
+ **Workaround from the shell**
+
+ With   you only need to call psql  once : 
+ 
+ You may need more psql options for your connection; role, port, password, ... See: 
+ 
+ Run batch file with psql command without password 
+ 
+ The same cannot be called with   since   is a psql meta‑command and the   option expects a single  command  for which  the manual states: 
+ 
+  must be either a command string that is completely parsable by the server (i.e., it contains no psql-specific features), or a single backslash command. Thus you cannot mix SQL and psql meta-commands within a   option. 
+ 
+ **Workaround from within Postgres transaction**
+
+ You could use a   connection back to the current database, which runs outside of the transaction block. Effects can therefore also not be rolled back. 
+ Install the additional module dblink for this (once per database): 
+ 
+ How to use (install) dblink in PostgreSQL? 
+ 
+ Then: 
+ 
+ Again, you may need more psql options for the connection. See Ortwin's added answer: 
+ 
+ Simulate CREATE DATABASE IF NOT EXISTS for PostgreSQL? 
+ 
+ Detailed explanation for dblink: 
+ 
+ How do I do large non-blocking updates in PostgreSQL? 
+ 
+ You can make this a function for repeated use. 
+ 
+ another alternative, just in case you want to have a shell script which creates the database if it does not exist and otherwise just keeps it as it is: 
+ 
+ I found this to be helpful in devops provisioning scripts, which you might want to run multiple times over the same instance. 
+ 
+ I had to use a slightly extended version @Erwin Brandstetter used: 
+ 
+ I had to enable the   extension, plus i had to provide the credentials for dblink.
+Works with Postgres 9.4. 
+ 
+ PostgreSQL does not support   for   statement. It is supported only in  . Moreover   cannot be issued in transaction therefore it cannot be in   block with exception catching. 
+ When   is issued and schema already exists then notice (not error) with duplicate object information is raised. 
+ To solve these problems you need to use   extension which opens a new connection to database server and execute query without entering into transaction. You can reuse connection parameters with supplying empty string. 
+ Below is   code which fully simulates   with same behavior like in  . It calls   via  , catch   exception (which is issued when database already exists) and converts it into notice with propagating  . String message has appended   in the same way how it does  . 
+ 
+ This solution is without any race condition like in other answers, where database can be created by external process (or other instance of same script) between checking if database exists and its own creation. 
+ Moreover when   fails with other error than database already exists then this error is propagated as error and not silently discarded. There is only catch for   error. So it really behaves as   should. 
+ You can put this code into own function, call it directly or from transaction. Just rollback (restore dropped database) would not work. 
+ Testing output (called two times via DO and then directly): 
+ 
+ 
+ If you don't care about the data, you can drop database first and then recreate it: 
+ 
+ 
+ Just create the database using   CLI tool: 
+ 
+ If the database exists, it will return an error: 
+ 
+ 
+ Upgrade to PostgreSQL 9.5 or greater. If (not) exists was introduced in version 9.5. 
+ 

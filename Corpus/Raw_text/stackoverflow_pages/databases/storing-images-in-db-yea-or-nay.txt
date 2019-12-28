@@ -1,0 +1,212 @@
+*** storing-images-in-db-yea-or-nay ***
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Locked . This question and its answers are  locked  because the question is off-topic but has historical significance. It is not currently accepting new answers or interactions.
+                            
+                         
+ 
+ 
+ 
+ 
+ So I'm using an app that stores images heavily in the DB. What's your outlook on this? I'm more of a type to store the location in the filesystem, than store it directly in the DB. 
+ What do you think are the pros/cons?           
+ 
+ I'm in charge of some applications that manage many TB of images.  We've found that storing  **file paths**
+ in the database to be best. 
+ There are a couple of issues: 
+ 
+ database storage is usually more expensive than file system storage 
+ you can super-accelerate file system access with standard off the shelf products
+
+ 
+ for example, many web servers use the operating system's  **sendfile()**
+ system call to asynchronously send a file directly from the file system to the network interface. Images stored in a database don't benefit from this optimization. 
+ 
+ things like web servers, etc, need no special coding or processing to access images in the file system 
+ databases win out where transactional integrity between the image and metadata are important.
+
+ 
+ it is more complex to manage integrity between db metadata and file system data 
+ it is difficult (within the context of a web application) to guarantee data has been flushed to disk on the filesystem 
+ 
+ 
+ 
+ As with most issues, it's not as simple as it sounds. There are cases where it would make sense to store the images in the database.  
+ 
+ You are storing images that are
+changing dynamically, say invoices and you wanted
+to get an invoice as it was on 1 Jan
+2007? 
+ The government wants you to maintain 6 years of history 
+ Images stored in the database do not require a different backup strategy. Images stored on filesystem do 
+ It is easier to control access to the images if they are in a database. Idle admins can access any folder on disk. It takes a really determined admin to go snooping in a database to extract the images 
+ 
+ On the other hand there are problems associated 
+ 
+ Require additional code to extract
+and stream the images  
+ Latency may be
+    slower than direct file access     
+ Heavier load on the database server 
+ 
+ 
+ File store.  Facebook engineers had a great talk about it.  One take away was to know the practical limit of files in a directory. 
+ Needle in a Haystack: Efficient Storage of Billions of Photos 
+ 
+ This might be a bit of a long shot, but if you're using (or planning on using) SQL Server 2008 I'd recommend having a look at the new  FileStream  data type. 
+ FileStream solves most of the problems around storing the files in the DB: 
+ 
+ The Blobs are actually stored as files in a folder. 
+ The Blobs can be accessed using  either  a database connection  or  over the filesystem. 
+ Backups are integrated. 
+ Migration "just works". 
+ 
+ However SQL's "Transparent Data Encryption" does not encrypt FileStream objects, so if that is a consideration, you may be better off just storing them as varbinary. 
+ From the MSDN Article: 
+ 
+ Transact-SQL statements can insert, update, query, search, and back up FILESTREAM data. Win32 file system interfaces provide streaming access to the data. 
+  FILESTREAM uses the NT system cache for caching file data. This helps reduce any effect that FILESTREAM data might have on Database Engine performance. The SQL Server buffer pool is not used; therefore, this memory is available for query processing. 
+ 
+ 
+ File paths in the DB is  **definitely**
+ the way to go - I've heard story after story from customers with TB of images that it became a nightmare trying to store any significant amount of images in a DB - the performance hit alone is too much. 
+ 
+ In my experience, sometimes the simplest solution is to  **name the images according to the primary key**
+. So it's easy to find the image that belongs to a particular record, and vice versa. But at the same time you're not storing  anything  about the image in the database. 
+ 
+ The trick here is to not become a zealot.  
+ One thing to note here is that no one in the pro file system camp has listed a particular file system. Does this mean that everything from FAT16 to ZFS handily beats every database? 
+ No.  
+ The truth is that many databases beat many files systems, even when we're only talking about raw speed. 
+ The correct course of action is to make the right decision for your precise scenario, and to do that, you'll need some numbers and some use case estimates. 
+ 
+ In places where you MUST guarantee referential integrity and ACID compliance, storing images in the database is required. 
+ You cannot transactionaly guarantee that the image and the meta-data about that image stored in the database refer to the same file. In other words, it is impossible to guarantee that the file on the filesystem is only ever altered at the same time and in the same transaction as the metadata. 
+ 
+ As others have said SQL 2008 comes with a Filestream type that allows you to store a filename or identifier as a pointer in the db and automatically stores the image on your filesystem which is a great scenario. 
+ If you're on an older database, then I'd say that if you're storing it as blob data, then you're really not going to get anything out of the database in the way of searching features, so it's probably best to store an address on a filesystem, and store the image that way. 
+ That way you also save space on your filesystem, as you are only going to save the exact amount of space, or even compacted space on the filesystem. 
+ Also, you could decide to save with some structure or elements that allow you to browse the raw images in your filesystem without any db hits, or transfer the files in bulk to another system, hard drive, S3 or another scenario - updating the location in your program, but keep the structure, again without much of a hit trying to bring the images out of your db when trying to increase storage. 
+ Probably, it would also allow you to throw some caching element, based on commonly hit image urls into your web engine/program, so you're saving yourself there as well. 
+ 
+ Small static images (not more than a couple of megs) that are not frequently edited, should be stored in the database. This method has several benefits including easier portability (images are transferred with the database), easier backup/restore (images are backed up with the database) and better scalability (a file system folder with thousands of little thumbnail files sounds like a scalability nightmare to me). 
+ Serving up images from a database is easy, just implement an http handler that serves the byte array returned from the DB server as a binary stream. 
+ 
+ Here's an interesting white paper on the topic.   
+ To BLOB or Not To BLOB: Large Object Storage in a Database or a Filesystem 
+ The answer is "It depends."  Certainly it would depend upon the database server and its approach to blob storage.  It also depends on the type of data being stored in blobs, as well as how that data is to be accessed. 
+ Smaller sized files can be efficiently stored and delivered using the database as the storage mechanism.  Larger files would probably be best stored using the file system, especially if they will be modified/updated often.  (blob fragmentation becomes an issue in regards to performance.) 
+ Here's an additional point to keep in mind.  One of the reasons supporting the use of a database to store the blobs is ACID compliance.  However, the approach that the testers used in the white paper, (Bulk Logged option of SQL Server,) which doubled SQL Server throughput, effectively changed the 'D' in ACID to a 'd,' as the blob data was not logged with the initial writes for the transaction.   Therefore, if full ACID compliance is an important requirement for your system, halve the SQL Server throughput figures for database writes when comparing file I/O to database blob I/O. 
+ 
+ One thing that I haven't seen anyone mention yet but is definitely worth noting is that there are issues associated with storing large amounts of images in most filesystems too.  For example if you take the approach mentioned above and name each image file after the primary key, on most filesystems you will run into issues if you try to put all of the images in one big directory once you reach a very large number of images (e.g. in the hundreds of thousands or millions). 
+ Once common solution to this is to hash them out into a balanced tree of subdirectories. 
+ 
+ Something nobody has mentioned is that the DB guarantees atomic actions, transactional integrity and deals with concurrency. Even referentially integrity is out of the window with a filesystem - so how do you know your file names are really still correct? 
+ If you have your images in a file-system and someone is reading the file as you're writing a new version or even deleting the file - what happens? 
+ We use blobs because they're easier to manage (backup, replication, transfer) too. They work well for us. 
+ 
+ The problem with storing only filepaths to images in a database is that the database's integrity can no longer be forced. 
+ If the actual image pointed to by the filepath becomes unavailable, the database unwittingly has an integrity error. 
+ Given that the images are the actual data being sought after, and that they can be managed easier (the images won't suddenly disappear) in one integrated database rather than having to interface with some kind of filesystem (if the filesystem is independently accessed, the images MIGHT suddenly "disappear"), I'd go for storing them directly as a BLOB or such. 
+ 
+ At a company where I used to work we stored 155 million images in an Oracle 8i (then 9i) database. 7.5TB worth. 
+ 
+ Normally, I'm storngly against taking the most expensive and hardest to scale part of your infrastructure (the database) and putting all load into it. On the other hand: It greatly simplifies backup strategy, especially when you have multiple web servers and need to somehow keep the data synchronized. 
+ Like most other things, It depends on the expected size and Budget. 
+ 
+ We have implemented a document imaging system that stores all it's images in SQL2005 blob fields.  There are several hundred GB at the moment and we are seeing excellent response times and little or no performance degradation. In addition, fr regulatory compliance, we have a middleware layer that archives newly posted documents to an optical jukebox system which exposes them as a standard NTFS file system.   
+ We've been very pleased with the results, particularly with respect to: 
+ 
+ Ease of Replication and Backup 
+ Ability to easily implement a document versioning system 
+ 
+ 
+ If this is web-based application then there could be advantages to storing the images on a third-party storage delivery network, such as Amazon's S3 or the Nirvanix platform. 
+ 
+ Assumption: Application is web enabled/web based 
+ I'm surprised no one has really mentioned this ... delegate it out to others who are specialists ->  **use a 3rd party image/file hosting provider**
+. 
+ Store your files on a paid online service like 
+ 
+ Amazon S3 
+ Moso Cloud Storage 
+ 
+ Another StackOverflow threads talking about this  here . 
+ This thread  explains why you should use a 3rd party hosting provider.  
+ It's so worth it. They store it efficiently. No bandwith getting uploaded from your servers to client requests, etc. 
+ 
+ If you're not on SQL Server 2008 and you have some solid reasons for putting specific image files in the database, then you could take the "both" approach and use the file system as a temporary cache and use the database as the master repository.  
+ For example, your business logic can check if an image file exists on disc before serving it up, retrieving from the database when necessary. This buys you the capability of multiple web servers and fewer sync issues. 
+ 
+ I'm not sure how much of a "real world" example this is, but I currently have an application out there that stores details for a trading card game, including the images for the cards. Granted the record count for the database is only 2851 records to date, but given the fact that certain cards have are released multiple times and have alternate artwork, it was actually more efficient sizewise to scan the "primary square" of the artwork and then dynamically generate the border and miscellaneous effects for the card when requested. 
+ The original creator of this image library created a data access class that renders the image based on the request, and it does it quite fast for viewing and individual card. 
+ This also eases deployment/updates when new cards are released, instead of zipping up an entire folder of images and sending those down the pipe and ensuring the proper folder structure is created, I simply update the database and have the user download it again. This currently sizes up to 56MB, which isn't great, but I'm working on an incremental update feature for future releases. In addition, there is a "no images" version of the application that allows those over dial-up to get the application without the download delay. 
+ This solution has worked great to date since the application itself is targeted as a single instance on the desktop. There is a web site where all of this data is archived for online access, but I would in no way use the same solution for this. I agree the file access would be preferable because it would scale better to the frequency and volume of requests being made for the images. 
+ Hopefully this isn't too much babble, but I saw the topic and wanted to provide some my insights from a relatively successful small/medium scale application. 
+ 
+ SQL Server 2008 offers a solution that has the best of both worlds :  The filestream data type . 
+ Manage it like a regular table and have the performance of the file system. 
+ 
+ It depends on the number of images you are going to store and also their sizes. I have used databases to store images in the past and my experience has been fairly good.  
+ IMO, Pros of using database to store images are, 
+ A. You don't need FS structure to hold your images 
+B. Database indexes perform better than FS trees when more number of items are to be stored 
+C. Smartly tuned database perform good job at caching the query results 
+D. Backups are simple. It also works well if you have replication set up and content is delivered from a server near to user. In such cases, explicit synchronization is not required. 
+ If your images are going to be small (say < 64k) and the storage engine of your db supports inline (in record) BLOBs, it improves performance further as no indirection is required (Locality of reference is achieved).  
+ Storing images may be a bad idea when you are dealing with small number of huge sized images. Another problem with storing images in db is that, metadata like creation, modification dates must handled by your application. 
+ 
+ I have recently created a PHP/MySQL app which stores PDFs/Word files in a MySQL table (as big as 40MB per file so far). 
+ **Pros:**
+
+ 
+ Uploaded files are replicated to backup server along with everything else, no separate backup strategy is needed (peace of mind). 
+ Setting up the web server is slightly simpler because I don't need to have an uploads/ folder and tell all my applications where it is. 
+ I get to use transactions for edits to improve data integrity - I don't have to worry about orphaned and missing files 
+ 
+ **Cons:**
+
+ 
+ mysqldump now takes a looooong time because there is 500MB of file data in one of the tables. 
+ Overall not very memory/cpu efficient when compared to filesystem 
+ 
+ I'd call my implementation a success, it takes care of backup requirements and simplifies the layout of the project. The performance is fine for the 20-30 people who use the app. 
+ 
+ Im my experience I had to manage both situations: images stored in database and images on the file system with path stored in db. 
+ The first solution, images in database, is somewhat "cleaner" as your data access layer will have to deal only with database objects; but this is good only when you have to deal with low numbers.  
+ Obviously database access performance when you deal with binary large objects is degrading, and the database dimensions will grow a lot, causing again performance loss... and normally database space is much more expensive than file system space. 
+ On the other hand having large binary objects stored in file system will cause you to have backup plans that have to consider both database and file system, and this can be an issue for some systems.  
+ Another reason to go for file system is when you have to share your images data (or sounds, video, whatever) with third party access: in this days I'm developing a web app that uses images that have to be accessed from "outside" my web farm in such a way that a database access to retrieve binary data is simply impossible. So sometimes there are also design considerations that will drive you to a choice. 
+ Consider also, when making this choice, if you have to deal with permission and authentication when accessing binary objects: these requisites normally can be solved in an easier way when data are stored in db. 
+ 
+ I once worked on an image processing application. We stored the uploaded images in a directory that was something like /images/[today's date]/[id number]. But we also extracted the metadata (exif data) from the images and stored that in the database, along with a timestamp and such. 
+ 
+ In a previous project i stored images on the filesystem, and that caused a lot of headaches with backups, replication, and the filesystem getting out of sync with the database. 
+ In my latest project i'm storing images in the database, and caching them on the filesystem, and it works really well. I've had no problems so far. 
+ 
+ Second the recommendation on file paths. I've worked on a couple of projects that needed to manage large-ish asset collections, and any attempts to store things directly in the DB resulted in pain and frustration long-term. 
+ The only real "pro" I can think of regarding storing them in the DB is the potential for easy of individual image assets. If there are no file paths to use, and all images are streamed straight out of the DB, there's no danger of a user finding files they shouldn't have access to. 
+ That seems like it would be better solved with an intermediary script pulling data from a web-inaccessible file store, though. So the DB storage isn't REALLY necessary. 
+ 
+ The word on the street is that unless you are a database vendor trying to prove that your database can do it (like, let's say Microsoft boasting about Terraserver storing a bajillion images in SQL Server) it's not a very good idea. When the alternative - storing images on file servers and paths in the database is so much easier, why bother? Blob fields are kind of like the off-road capabilities of SUVs - most people don't use them, those who do usually get in trouble, and then there are those who do, but only for the fun of it. 
+ 
+ Storing an image in the database still means that the image data ends up somewhere in the file system but obscured so that you cannot access it directly.  
+ +ves: 
+ 
+ database integrity 
+ its easy to manage since you don't have to worry about keeping the filesystem in sync when an image is added or deleted 
+ 
+ -ves: 
+ 
+ performance penalty -- a database lookup is usually slower that a filesystem lookup 
+ you cannot edit the image directly (crop, resize) 
+ 
+ Both methods are common and practiced. Have a look at the advantages and disadvantages. Either way, you'll have to think about how to overcome the disadvantages. Storing in database usually means tweaking database parameters and implement some kind of caching. Using filesystem requires you to find some way of keeping filesystem+database in sync. 
+ 

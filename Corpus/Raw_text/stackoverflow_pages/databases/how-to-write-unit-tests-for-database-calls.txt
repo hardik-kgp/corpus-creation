@@ -1,0 +1,66 @@
+*** how-to-write-unit-tests-for-database-calls ***
+
+ I'm near the beginning of a new project and (gasp!) for the first time ever I'm trying to include unit tests in a project of mine. 
+ I'm having trouble devising some of the unit tests themselves.  I have a few methods which have been easy enough to test (pass in two values and check for an expected output).  I've got other parts of the code which are doing more complex things like running queries against the database and I'm not sure how to test them. 
+ 
+ This method essentially takes in all the necessary bits and pieces to extract some data from the database, and returns the data in a DataTable object. 
+ The first question is probably the most complex: What should I even test in a situation like this? 
+ Once that's settled comes the question of whether or not to mock out the database components or try to test against the actual DB. 
+ 
+ What are you testing? 
+ There are three possibilities, off the top of my head: 
+ 
+ A. You're testing the DAO (data access object) class, making sure it's correctly marshaling the values/parameters being passed to the database,, and correctly marshaling/transforming/packaging results gotten frm the database. 
+ 
+ In this case, you don't need to connect to the database at all; you just need a unit test that replaces the database (or intermediate layer, eg., JDBC, (N)Hibernate, iBatis) with a mock. 
+ 
+ B. You're testing the syntactic correctness of (generated) SQL. 
+ 
+ In this case, because SQL dialects differ, you want to run the (possibly generated) SQL against the correct version of your RDBMS, rather than attempting to mock all quirks of your RDBMS (and so that any RDBMS upgrades that change functionality are caught by your tests). 
+ 
+ C. You're testing the  semantic  correctness of your SQL, i.e, that for a given baseline dataset, your operations (accesses/selects and mutations/inserts and updates) produce the expected new dataset. 
+ 
+ For that, you want to use something like dbunit (which allows you to set up a baseline and compare a result set to an expected result set), or possibly do your testing wholly in the database, using the technique I outline here:  Best way to test SQL queries . 
+ 
+ This is why (IMHO) unit tests can sometimes create a false sense of security on the part of developers.  In my experience with applications that talk to a database, errors are commonly the result of data being in an unexpected state (unusual or missing values etc.).  If you routinely mock up data access in your unit tests, you will think your code is working great when it is in fact still vulnerable to this kind of error. 
+ I think your best approach is to have a test database handy, filled with gobs of crappy data, and run your database component tests against that.  All the while remembering that your users will be much much better than you are at screwing up your data. 
+ 
+ The whole point of a unit test is to  test a unit  (duh) in isolation. The whole point of a database call is to  integrate  with another unit (the database). Ergo: it doesn't make sense to unit test database calls. 
+ You should, however, integration test database calls (and you can use the same tools you use for unit testing if you want). 
+ 
+ For the love of God, don't test against a live, already-populated database. But you knew that. 
+ In general you already have an idea of what sort of data each query is going to retrieve, whether you're authenticating users, looking up phonebook/org chart entries, or whatever. You know what fields you're interested in, and you know what constraints exist on them (e.g.,  ,  , and so on). You're unit testing your code that interacts with the database, not the database itself, so think in terms of how to test those functions. If it's possible for a field to be  , you should have a test that makes sure that your code handles   values correctly. If one of your fields is a string ( ,  ,  , &c), test to be sure you're handling escaped characters correctly. 
+ Assume that users will attempt to put anything* into the database, and generate test cases accordingly. You'll want to use mock objects for this. 
+ * Including undesirable, malicious or invalid input. 
+ 
+ Strictly speaking, a test that writes/reads from a database or a file system is not a unit test.  (Although it may be an integration test and it may be written using NUnit or JUnit).  Unit-tests are supposed to test operations of a single class, isolating its dependencies.  So, when you write unit-test for the interface and business-logic layers, you shouldn't need a database at all. 
+ OK, but how do you unit-test the database access layer?  I like the advice from this book:  xUnit Test Patterns  (the link points to the book's "Testing w/ DB" chapter.  The keys are: 
+ 
+ use round-trip tests 
+ don't write too many tests in your data access test fixture, because they will run much slower than your "real" unit tests 
+ if you can avoid testing with a real database, test without a database 
+ 
+ 
+ You can unit test everything except:  
+ As soon as you execute  , you either have to mock/fake the database, or you are doing integration testing. 
+ I for one, don't see integration testing as being bad, it's just that it'll catch a different sort of bug, has different odds of false negatives and false positives, isn't likely to be done very often because it is so slow.   
+ If I was unit testing this code, I'd be validating that the parameters are build correctly, does the command builder create the right number of parameters? Do they all have a value? Do nulls, empty strings and DbNull get handled correctly? 
+ Actually filling the dataset is testing your database, which is a flaky component out of the scope of your DAL.   
+ 
+ For unit tests I usually mock or fake the database.  Then use your mock or fake implementation via dependency injection to test your method.  You'd also probably have some integration tests that will test constraints, foreign key relationships, etc. in your database. 
+ As to what you would test, you'd make sure that the method is using the connection from the parameters, that the query string is assigned to the command, and that your result set returned is the same as that you are providing via an expectation on the Fill method.  Note -- it's probably easier to test a Get method that returns a value than a Fill method the modifies a parameter. 
+ 
+ In order to do this properly though you would should use some dependency injection (DI), and for .NET there are several. I am currently using the Unity Framework but there are others that are easier. 
+ Here is one link from this site on this subject, but there are others:
+ Dependency Injection in .NET with examples? 
+ This would enable you to more easily mock out other parts of your application, by just having a mock class implement the interface, so you can control how it will respond.  But, this also means designing to an interface. 
+ Since you asked about best practices this would be one, IMO. 
+ Then, not going to the db unless you need to, as suggested is another. 
+ If you need to test certain behaviors, such as foreign key relationships with cascade delete then you may want to write database tests for that, but generally not going to a real database is best, esp since more than one person may run a unit test at a time and if they are going to the same database tests may fail as the expected data may change. 
+ Edit: By database unit test I mean this, as it is designed to just use t-sql to do some setup, test and teardown.
+ http://msdn.microsoft.com/en-us/library/aa833233%28VS.80%29.aspx 
+ 
+ On JDBC based project, JDBC connection can be mocked, so that tests can be executed without live RDBMS, with each test case isolated (no data conflict). 
+ It allow to verify, persistence code passes proper queries/parameters (e.g.  https://github.com/playframework/playframework/blob/master/framework/src/anorm/src/test/scala/anorm/ParameterSpec.scala ) and handle JDBC results (parsing/mapping) as expected ("takes in all the necessary bits and pieces to extract some data from the database, and returns the data in a DataTable object"). 
+ Framework like jOOQ or my framework Acolyte can be used for:  https://github.com/cchantep/acolyte  . 
+ 

@@ -1,0 +1,26 @@
+*** replace-into-query-syntax ***
+
+ I want to be able to update a table of the same schema using a "replace into" statement.  In the end, I need to be able to update a large table with values that may have changed. 
+ Here is the query I am using to start off: 
+ 
+ What I don't understand is how does the database engine know what is a duplicate row and what isn't?  This data is extremely important and I can't risk the data being corrupted.  Is it as simple as "if all columns listed have the same value, it is a duplicate row"? 
+ I am just trying to figure out an efficient way of doing this so I can update > 45,000 rows in under a minute. 
+ 
+ As the  documentation  says: 
+ 
+ REPLACE works exactly like INSERT, except that if an old row in the table has the same value as a new row for a PRIMARY KEY or a UNIQUE index, the old row is deleted before the new row is inserted. 
+ 
+ 
+  does work much like an   that just overwrites records that have the same   or   index, however, beware. 
+ Shlomi Noach writes about the problem with using    here : 
+ 
+ But weak hearted people as myself should be aware of the following: it is a heavyweight solution. It may be just what you were looking for in terms of ease of use, but the fact is that on duplicate keys, a DELETE and INSERT are performed, and this calls for a closer look. 
+ Whenever a row is deleted, all indexes need to be updated, and most importantly the PRIMARY KEY. When a new row is inserted, the same happens. Especially on InnoDB tables (because of their clustered nature), this means much overhead. The restructuring of an index is an expensive operation. Index nodes may need to be merged upon DELETE. Nodes may need to be split due to INSERT. After many REPLACE INTO executions, it is most probable that your index is more fragmented than it would have been, had you used SELECT/UPDATE or INSERT INTO ... ON DUPLICATE KEY 
+ Also, there's the notion of "well, if the row isn't there, we create it. If it's there, it simply get's updated". This is false. The row doesn't just get updated, it is completely removed. The problem is, if there's a PRIMARY KEY on that table, and the REPLACE INTO does not specify a value for the PRIMARY KEY (for example, it's an AUTO_INCREMENT column), the new row gets a different value, and this may not be what you were looking for in terms of behavior. 
+ Many uses of REPLACE INTO have no intention of changing PRIMARY KEY (or other UNIQUE KEY) values. In that case, it's better left alone. On a production system I've seen, changing REPLACE INTO to INSERT INTO ... ON DPLICATE KEY resulted in a ten fold more throughput (measured in queries per second) and a drastic decrease in IO operations and in load average. 
+ 
+ In summary,    may  be right for your implementation, but you might find it more appropriate (and less risky) to use   instead. 
+ 
+ or something like that: 
+ 
+ 

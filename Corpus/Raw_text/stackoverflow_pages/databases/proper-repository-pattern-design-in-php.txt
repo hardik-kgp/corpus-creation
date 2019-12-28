@@ -1,0 +1,196 @@
+*** proper-repository-pattern-design-in-php ***
+
+ Preface: I'm attempting to use the repository pattern in an MVC architecture with relational databases. 
+ I've recently started learning TDD in PHP, and I'm realizing that my database is coupled much too closely with the rest of my application. I've read about repositories and using an  IoC container  to "inject" it into my controllers. Very cool stuff. But now have some practical questions about repository design. Consider the follow example. 
+ 
+ **Issue #1: Too many fields**
+
+ All of these find methods use a select all fields ( ) approach. However, in my apps, I'm always trying to limit the number of fields I get, as this often adds overhead and slows things down. For those using this pattern, how do you deal with this? 
+ **Issue #2: Too many methods**
+
+ While this class looks nice right now, I know that in a real-world app I need a lot more methods. For example: 
+ 
+ findAllByNameAndStatus 
+ findAllInCountry 
+ findAllWithEmailAddressSet 
+ findAllByAgeAndGender 
+ findAllByAgeAndGenderOrderByAge 
+ Etc. 
+ 
+ As you can see, there could be a very, very long list of possible methods. And then if you add in the field selection issue above, the problem worsens. In the past I'd normally just put all this logic right in my controller: 
+ 
+ With my repository approach, I don't want to end up with this: 
+ 
+ **Issue #3: Impossible to match an interface**
+
+ I see the benefit in using interfaces for repositories, so I can swap out my implementation (for testing purposes or other). My understanding of interfaces is that they define a contract that an implementation must follow. This is great until you start adding additional methods to your repositories like  . Now I need to update my interface to also have this method, otherwise, other implementations may not have it, and that could break my application. By this feels insane...a case of the tail wagging the dog. 
+ **Specification Pattern?**
+
+ This leads me to believe that repository should only have a fixed number of methods (like  ,  ,  ,  , etc). But then how do I run specific lookups? I've heard of the  Specification Pattern , but it seems to me that this only reduces an entire set of records (via  ), which clearly has major performance issues if you're pulling from a database. 
+ **Help?**
+
+ Clearly, I need to rethink things a little when working with repositories. Can anyone enlighten on how this is best handled? 
+ 
+ I thought I'd take a crack at answering my own question. What follows is just one way of solving the issues 1-3 in my original question. 
+ Disclaimer: I may not always use the right terms when describing patterns or techniques. Sorry for that. 
+ **The Goals:**
+
+ 
+ Create a complete example of a basic controller for viewing and editing  . 
+ All code must be fully testable and mockable. 
+ The controller should have no idea where the data is stored (meaning it can be changed). 
+ Example to show a SQL implementation (most common). 
+ For maximum performance, controllers should only receive the data they need—no extra fields. 
+ Implementation should leverage some type of data mapper for ease of development. 
+ Implementation should have the ability to perform complex data lookups. 
+ 
+ **The Solution**
+
+ I'm splitting my persistent storage (database) interaction into two categories:  **R**
+ (Read) and  **CUD**
+ (Create, Update, Delete). My experience has been that reads are really what causes an application to slow down. And while data manipulation (CUD) is actually slower, it happens much less frequently, and is therefore much less of a concern. 
+ **CUD**
+ (Create, Update, Delete) is easy. This will involve working with actual  models , which are then passed to my   for persistence. Note, my repositories will still provide a Read method, but simply for object creation, not display. More on that later. 
+ **R**
+ (Read) is not so easy. No models here, just  value objects . Use arrays  if you prefer . These objects may represent a single model or a blend of many models, anything really. These are not very interesting on their own, but how they are generated is. I'm using what I'm calling  . 
+ **The Code:**
+
+ **User Model**
+
+ Let's start simple with our basic user model. Note that there is no ORM extending or database stuff at all. Just pure model glory. Add your getters, setters, validation, whatever. 
+ 
+ **Repository Interface**
+
+ Before I create my user repository, I want to create my repository interface. This will define the "contract" that repositories must follow in order to be used by my controller. Remember, my controller will not know where the data is actually stored. 
+ Note that my repositories will only every contain these three methods. The   method is responsible for both creating and updating users, simply depending on whether or not the user object has an id set. 
+ 
+ **SQL Repository Implementation**
+
+ Now to create my implementation of the interface. As mentioned, my example was going to be with an SQL database. Note the use of a  data mapper  to prevent having to write repetitive SQL queries. 
+ 
+ **Query Object Interface**
+
+ Now with  **CUD**
+ (Create, Update, Delete) taken care of by our repository, we can focus on the  **R**
+ (Read). Query objects are simply an encapsulation of some type of data lookup logic. They are  **not**
+ query builders. By abstracting it like our repository we can change it's implementation and test it easier. An example of a Query Object might be an   or  , or even  . 
+ You may be thinking "can't I just create methods in my repositories for those queries?" Yes, but here is why I'm not doing this: 
+ 
+ My repositories are meant for working with model objects. In a real world app, why would I ever need to get the   field if I'm looking to list all my users? 
+ Repositories are often model specific, yet queries often involve more than one model. So what repository do you put your method in? 
+ This keeps my repositories very simple—not an bloated class of methods. 
+ All queries are now organized into their own classes. 
+ Really, at this point, repositories exist simply to abstract my database layer. 
+ 
+ For my example I'll create a query object to lookup "AllUsers". Here is the interface: 
+ 
+ **Query Object Implementation**
+
+ This is where we can use a data mapper again to help speed up development. Notice that I am allowing one tweak to the returned dataset—the fields. This is about as far as I want to go with manipulating the performed query. Remember, my query objects are not query builders. They simply perform a specific query. However, since I know that I'll probably be using this one a lot, in a number of different situations, I'm giving myself the ability to specify the fields. I never want to return fields I don't need! 
+ 
+ Before moving on to the controller, I want to show another example to illustrate how powerful this is. Maybe I have a reporting engine and need to create a report for  . This could be tricky with my data mapper, and I may want to write some actual   in this situation. No problem, here is what this query object could look like: 
+ 
+ This nicely keeps all my logic for this report in one class, and it's easy to test. I can mock it to my hearts content, or even use a different implementation entirely. 
+ **The Controller**
+
+ Now the fun part—bringing all the pieces together. Note that I am using dependency injection. Typically dependencies are injected into the constructor, but I actually prefer to inject them right into my controller methods (routes). This minimizes the controller's object graph, and I actually find it more legible. Note, if you don't like this approach, just use the traditional constructor method. 
+ 
+ **Final Thoughts:**
+
+ The important things to note here are that when I'm modifying (creating, updating or deleting) entities, I'm working with real model objects, and performing the persistance through my repositories. 
+ However, when I'm displaying (selecting data and sending it to the views) I'm not working with model objects, but rather plain old value objects. I only select the fields I need, and it's designed so I can maximum my data lookup performance. 
+ My repositories stay very clean, and instead this "mess" is organized into my model queries. 
+ I use a data mapper to help with development, as it's just ridiculous to write repetitive SQL for common tasks. However, you absolutely can write SQL where needed (complicated queries, reporting, etc.). And when you do, it's nicely tucked away into a properly named class. 
+ I'd love to hear your take on my approach! 
+ 
+ **July 2015 Update:**
+
+ I've been asked in the comments where I ended up with all this. Well, not that far off actually. Truthfully, I still don't really like repositories. I find them overkill for basic lookups (especially if you're already using an ORM), and messy when working with more complicated queries. 
+ I generally work with an ActiveRecord style ORM, so most often I'll just reference those models directly throughout my application. However, in situations where I have more complex queries, I'll use query objects to make these more reusable. I should also note that I always inject my models into my methods, making them easier to mock in my tests. 
+ 
+ Based on my experience, here are some answers to your questions: 
+ **Q:**
+ How do we deal with bringing back fields we don't need? 
+ **A:**
+ From my experience this really boils down to dealing with complete entities versus ad-hoc queries. 
+ A complete entity is something like a   object. It has properties and methods, etc. It's a first class citizen in your codebase. 
+ An ad-hoc query returns some data, but we don't know anything beyond that. As the data gets passed around the application, it is done so without context. Is it a  ? A   with some   information attached? We don't really know. 
+ I prefer working with full entities.  
+ You are right that you will often bring back data you won't use, but you can address this in various ways: 
+ 
+ Aggressively cache the entities so you only pay the read price once from the database. 
+ Spend more time modeling your entities so they have good distinctions between them. (Consider splitting a large entity into two smaller entities, etc.) 
+ Consider having multiple versions of entities. You can have a   for the back end and maybe a   for AJAX calls. One might have 10 properties and one has 3 properties. 
+ 
+ The downsides of working with ad-hoc queries: 
+ 
+ You end up with essentially the same data across many queries. For example, with a  , you'll end up writing essentially the same   for many calls. One call will get 8 of 10 fields, one will get 5 of 10, one will get 7 of 10. Why not replace all with one call that gets 10 out of 10? The reason this is bad is that it is murder to re-factor/test/mock. 
+ It becomes very hard to reason at a high level about your code over time. Instead of statements like "Why is the   so slow?" you end up tracking down one-off queries and so bug fixes tend to be small and localized.  
+ It's really hard to replace the underlying technology. If you store everything in MySQL now and want to move to MongoDB, it's a lot harder to replace 100 ad-hoc calls than it is a handful of entities. 
+ 
+ **Q:**
+ I will have too many methods in my repository. 
+ **A:**
+ I haven't really seen any way around this other than consolidating calls. The method calls in your repository really map to features in your application. The more features, the more data specific calls. You can push back on features and try to merge similar calls into one. 
+ The complexity at the end of the day has to exist somewhere. With a repository pattern we've pushed it into the repository interface instead of maybe making a bunch of stored procedures. 
+ Sometimes I have to tell myself, "Well it had to give somewhere! There are no silver bullets." 
+ 
+ I use the following interfaces:  
+ 
+  - loads, inserts, updates and deletes entities 
+  - finds entities based on filters, in a repository 
+  - encapsulates the filtering logic 
+ 
+ My   is database agnostic; in fact it doesn't specify any persistence; it could be anything: SQL database, xml file, remote service, an alien from outer space etc.
+For searching capabilities, the   constructs an   which can be filtered,  -ed, sorted and counted. In the end, the selector fetches one or more   from the persistence. 
+ Here is some sample code: 
+ 
+ Then, one implementation: 
+ 
+ The ideea is that the generic   uses   but the implementation   uses  ; the   adapts a generic   to a concrete  .  
+ The client code creates   objects (that are generic filters) but in the concrete implementation of the selector those filters are transformed in SQL filters. 
+ Other selector implementations, like  , transform from   to   using their specific  ; so, every selector implementation comes with its own filter adapter. 
+ Using this strategy my client code (in the bussines layer) doesn't care about a specific repository or selector implementation. 
+ 
+ P.S. This is a simplification of my real code 
+ 
+ I'll add a bit on this as I am currently trying to grasp all of this myself.   
+ **#1 and 2**
+
+ This is a perfect place for your ORM to do the heavy lifting.  If you are using a model that implements some kind of ORM, you can just use it's methods to take care of these things.  Make your own orderBy functions that implement the Eloquent methods if you need to.  Using Eloquent for instance: 
+ 
+ What you seem to be looking for is an ORM.  No reason your Repository can't be based around one.  This would require User extend eloquent, but I personally don't see that as a problem. 
+ If you do however want to avoid an ORM, you would then have to "roll your own" to get what you're looking for. 
+ **#3**
+
+ Interfaces aren't supposed be hard and fast requirements. Something can implement an interface and add to it.  What it can't do is fail to implement a required function of that interface.  You can also extend interfaces like classes to keep things DRY. 
+ That said, I'm just starting to get a grasp, but these realizations have helped me. 
+ 
+ I can only comment on the way we (at my company) deal with this. First of all performance is not too much of an issue for us, but having clean/proper code is. 
+ First of all we define Models such as a   that uses an ORM to create   objects. When a   is loaded from a model all fields are loaded. For fields referencing foreign entities we use the appropriate foreign model to create the respective entities. For those entities the data will be loaded ondemand. Now your initial reaction might be ...???...!!! let me give you an example a bit of an example: 
+ 
+ In our case   is an ORM that is able to load entities. The model instructs the ORM to load a set of entities of a specific type. The ORM contains a mapping and uses that to inject all the fields for that entity in to the entity. For foreign fields however only the id's of those objects are loaded. In this case the   creates  s with only the id's of the referenced orders. When   gets called by the   the entity instructs it's model to lazy load all the fields into the  s. All the  s associated with one UserEntity are treated as one result-set and will be loaded at once. 
+ The magic here is that our model and ORM inject all data into the entities and that entities merely provide wrapper functions for the generic   method supplied by  . To summarize we always load all the fields, but fields referencing a foreign entity are loaded when necessary. Just loading a bunch of fields is not really a performance issue. Load all possible foreign entities however would be a HUGE performance decrease. 
+ Now on to loading a specific set of users, based on a where clause. We provide an object oriented package of classes that allow you to specify simple expression that can be glued together. In the example code I named it  . It's a wrapper for all possible options for a select query. It contains a collection of where clauses, a group by clause and everything else. Our where clauses are quite complicated but you could obviously make a simpler version easily. 
+ 
+ A simplest version of this system would be to pass the WHERE part of the query as a string directly to the model. 
+ I'm sorry for this quite complicated response. I tried to summarize our framework as quickly and clear as possible. If you have any additional questions feel free to ask them and I'll update my answer. 
+ EDIT: Additionally if you really don't want to load some fields right away you could specify a lazy loading option in your ORM mapping. Because all fields are eventually loaded through the   method you could load some fields last minute when that method is called. This is not a very big problem in PHP, but I would not recommend for other systems. 
+ 
+ These are some different solutions I've seen. There are pros and cons to each of them, but it is for you to decide. 
+ Issue #1: Too many fields 
+ This is an important aspect especially when you take in to account  Index-Only Scans . I see two solutions to dealing with this problem. You can update your functions to take in an optional array parameter that would contain a list of a columns to return. If this parameter is empty you'd return all of the columns in the query. This can be a little weird; based off the parameter you could retrieve an object or an array. You could also duplicate all of your functions so that you have two distinct functions that run the same query, but one returns an array of columns and the other returns an object. 
+ 
+ Issue #2: Too many methods 
+ I briefly worked with  Propel ORM  a year ago and this is based off what I can remember from that experience. Propel has the option to generate its class structure based off the existing database schema. It creates two objects for each table. The first object is a long list of access function similar to what you have currently listed;  . The next object inherits from this first object. You can update this child object to build in your more complex getter functions. 
+ Another solution would be using   to map non defined functions to something actionable. Your   method would be would be able to parse the findById and findByName into different queries. 
+ 
+ I hope this helps at least some what. 
+ 
+ I suggest  https://packagist.org/packages/prettus/l5-repository  as vendor to implement Repositories/Criterias etc ... in Laravel5 :D 
+ 
+ I agree with @ryan1234 that you should pass around complete objects within the code and should use generic query methods to get those objects.  
+ 
+ For external/endpoint usage I really like the GraphQL method. 
+ 
+ 

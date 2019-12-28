@@ -1,0 +1,110 @@
+*** what-is-the-best-way-to-keep-this-schema-clear ***
+
+ Currently I'm working on a RFID project where each tag is attached to an object. An object could be a person, a computer, a pencil, a box or whatever it comes to the mind of my boss.
+And of course each object have different attributes. 
+ So I'm trying to have a table tags where I can keep a register of each tag in the system (registration of the tag). And another tables where I can relate a tag with and object and describe some other attributes, this is what a have done. (No real schema just a simplified version) 
+ 
+ Suddenly, I realize that this schema could have the same tag in severals tables. 
+For example, the tag 123 could be in C and B at the same time. Which is impossible because each tag just could be attached to just a single object. 
+ To put it simple I want that each tag could not appear more than once in the database. 
+ My current approach
+ 
+ What I really want
+ 
+ **Update:**
+
+Yeah, the TagID is chosen by the end user. Moreover the TagID is given by a Tag Reader and the TagID is a 128-bit number. 
+ **New Update:**
+
+The objects until now are: 
+ -- Medicament(TagID, comercial_name, generic_name, amount, ...) 
+ -- Machine(TagID, name, description, model, manufacturer, ...) 
+ -- Patient(TagID, firstName, lastName, birthday, ...) 
+ All the attributes (columns or whatever you name it) are very different. 
+ **Update after update**
+
+ I'm working on a system, with RFID tags for a hospital. Each RFID tag is attached to an object in order keep watch them and unfortunately each object have a lot of different attributes. 
+ An object could be a person, a machine or a medicine, or maybe a new object with other attributes. 
+ So, I just want a flexible and cleaver schema. That allow me to introduce new object's types and also let me easily add new attributes to one object. Keeping in mind that this system could be very large. 
+ Examples: 
+ 
+ We must relate just one tag for just one object. 
+ Note: I don't really speak (or also write) really :P sorry for that. Not native speaker here. 
+ 
+ You can enforce these rules using relational constraints.  Check out the use of a persisted column to enforce the constraint  Tag:{Pencil or Computer} .  This model gives you great flexibility to model each child table (Person, Machine, Pencil, etc.) and at same time prevent any conflicts between tag. Also good that we dont have to resort to triggers or udfs via check constraints to enforce the relation.  The relation is built into the model. 
+ 
+ 
+ 
+ Have a Tag Table with PK identity insert of TagID.
+This will ensure that each TagID only shows up once no matter what... 
+ Then in the Tag Table have a TagType column that can either be free form (TableName) or better yet have a TagType table with entries A,B,C and then have a FK in Tag pointing TagType. 
+ I would move the Tag attributes into Table A,B,C to minimize extra data in Tag or have a series of Junction Tables between Tag and A,B, and C 
+ EDIT:
+Assuming the TagID is created when the object is created this will work fine (Insert into Tag first to get TagID and capture it using IDENTITY_INSERT)
+This assumes users cannot edit the TagID itself. 
+ If users can choose the TagID then still use a Tag Table with the TagID but have another field called DisplayID where the user can type in a number.  Just put on a unique constraint on Tag.DisplayID.... 
+ EDIT:
+What attributes are you needing and are they nullable?  If they are different for A, B, and C then it is cleaner to put them in A, B, and C especially if there might be some for A and B but not C... 
+ 
+ talked with Raz to clear up what he's trying to do.  What he's wanting is a flexable way to store attributes related to tags.  Tags can one of multiple types of objects, and each object has a specific list of attributes.  he also wants to be able to add objects/attributes without having to change the schema.  here's the model i came up with: 
+ 
+ 
+ if each tag can only be in a, b, or c only once, i'd just combine a, b, and c into one table.  it'd be easier to give you a better idea of how to build your schema if you gave an example of exactly what you're wanting to collect. 
+ to me, from what i've read, it sounds like you have a list of tags, and a list of objects, and you need to assign a tag to an object.  if that is the case, i'd have a tags table, and objects table, and a ObjectTag table.  in the object tab table you would have a foreign key to the tag table and a foreign key to the object table.  then you make a unique index on the tag foreign key and now you've enforced your requirement of only using a tag once. 
+ 
+ I would tackle this using your original structures. Relational databases are a lot better at aggregating/combining atomic data than they are at parsing complex data structures. 
+ 
+ Keep the design of each "tag-able" object type in its own table. Data types, check constraints, default values, etc. are still easily implemented this way. Also, continue to define a FK from each object table to the Tags table. 
+ I'm assuming you already have this in place, but if you place a unique constraint on the TagId column in each of the object tables (A, B, C, etc.) then you can guarantee uniqueness within that object type. 
+ There are no built-in SQL Server constraints to guarantee uniqueness among all the object types, if implemented as separate tables. So, you will have to make your own validation. An INSTEAD OF trigger on your object tables can do this cleanly.  
+ 
+ First, create a view to access the TagId list across all your object tables. 
+ 
+ Then, for each of your object tables, define an INSTEAD OF trigger to test your TagId. 
+ 
+ Keep in mind that you can also (and probably should) encapsulate that IF EXISTS test in a T-SQL function for maintenance and performance reasons.  
+ You can write supplementary stored procedures for doing things like finding what object type a TagId is associated with. 
+ **Pros**
+
+ 
+ You are still taking advantage of SQL Server's data integrity features, which are all quite fast and self-documenting. Don't underestimate the usefulness of data types. 
+ The view is an encapsulation of the domain that must be unique without combining the underlying sets of attributes. Now, you won't have to write any messy code to decipher the object's type. You can base that determination by which table contains the matching tag. 
+ Your options remain open... 
+ 
+ Because you didn't store everything in an EAV-friendly nvarchar(300) column, you can tweak the data types for whatever makes the most sense for each attribute.  
+ If you run into any performance issues, you can index the view. 
+ You (or your DBA) can move the object tables to different file groups on different disks if you need to balance things out and help with parallel disk I/O. Think of it as a form of horizontal partitioning. For example, if you have 8 times as many RFID tags applied to medicine containers as you have for patients, you can place the medicine table on a different disk without having to create the partitioning function that you would need for a monolithic table (one table for all types). 
+ If you need to eventually partition your tables vertically (for archiving data onto a read-only partition), you can more easily create a partitioning function for each object type. This would be useful where the business rules do  
+ **Most importantly**
+, implementing different business rules based on object type is  **much**
+ simpler. You don't have to implement any nasty conditional logic like "IF type = 'needle' THEN ... ELSE IF type = 'patient' THEN ... ELSE IF....".  If you need to apply different rules, then apply them to the relevant object table without having to test a "type" value. 
+ **Cons**
+
+ 
+ Triggers have to be maintained. However, this would have to be done in your application anyway, so you are performing the same data integrity checking at the database. That means that you will have no extra network overhead and this will be available for  **any**
+ application that uses this database. 
+ 
+ 
+ What you're describing is a classical "table-per-type" ORM mapping.  Entity Framework has built-in support of this, which you should look into. 
+ Otherwise, I don't think most databases have easy integrity constraints that are enforced over primary keys of multiple tables. 
+ However, is there any reason why you can't just use a single tags table to hold all the fields?  Use a type field to hold the type of object.  NULL all the irrelevant fields -- this way they don't consume disk space.  You'll end up with far fewer tables (only one) that you can maintain as one single coherent object; it also makes you write far fewer SQL queries to work on tags that may span multiple object types. 
+ Implementing it as one single table also saves you disk space because you can implement tiers of inheritance -- for example, "patient" and "doctor" and "nurse" can be three different object types, each having similar fields (e.g. firstname, lastname etc.) and some unique fields.  Right now you'll need three tables, with duplicated fields. 
+ It is also simpler when you add an object type.  Before, you need to add a new table, and duplicate some SQL statements that span multiple object types.  Now you only need to add new fields to the same table (maybe reuse some).  The SQL you need to change are far fewer. 
+ The only reason why you won't go with one single table is when the number of fields make a row too large to fit inside a SQL-Server page (which I believe is 8K).  Then SQL will complain and won't allow you to add any more fields.  The solution, in this case, is to adopt an ORM tool (like Entity Framework), and then "reuse" fields.  For example, if "Field1" is only used by object type #1, there is no reason why object type #3 can't use it to store something as well.  You only need to be able to distinguish it in your programs. 
+ 
+ You could have the Tags table such that it can have a pointer to any of those tables, and could include a Type that tells you which of the tables it is 
+ 
+Tags
+-
+ID
+Type (A,B, or C)
+A (nullable)
+B (nullable)
+C (nullable)
+
+A
+-
+ID
+(other attributes)
+ 
+ 

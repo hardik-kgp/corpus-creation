@@ -1,0 +1,89 @@
+*** is-there-a-mysql-option-feature-to-track-history-of-changes-to-records ***
+
+ I've been asked if I can keep track of the changes to the records in a MySQL database. So when a field has been changed, the old vs new is available and the date this took place. Is there a feature or common technique to do this? 
+ If so, I was thinking of doing something like this. Create a table called  . It would contain the same fields as the  **master**
+ table but prefixed with old and new, but only for those fields which were actually changed and a   for it. It would be indexed with an  . This way, a   report could be run to show the history of each record. Is this a good method? Thanks! 
+ 
+ It's subtle. 
+ If the business requirement is "I want to audit the changes to the data - who did what and when?", you can usually use audit tables (as per the trigger example Keethanjan posted). I'm not a huge fan of triggers, but it has the great benefit of being relatively painless to implement - your existing code doesn't need to know about the triggers and audit stuff.  
+ If the business requirement is "show me what the state of the data was on a given date in the past", it means that the aspect of change over time has entered your solution. Whilst you can, just about, reconstruct the state of the database just by looking at audit tables, it's hard and error prone, and for any complicated database logic, it becomes unwieldy. For instance, if the business wants to know "find the addresses of the letters we should have sent to customers who had outstanding, unpaid invoices on the first day of the month", you likely have to trawl half a dozen audit tables. 
+ Instead, you can bake the concept of change over time into your schema design (this is the second option Keethanjan suggests). This is a change to your application, definitely at the business logic and persistence level, so it's not trivial.  
+ For example, if you have a table like this:  
+ 
+ and you wanted to keep track over time, you would amend it as follows: 
+ 
+ Every time you want to change a customer record, instead of updating the record, you set the VALID_UNTIL on the current record to NOW(), and insert a new record with a VALID_FROM (now) and a null VALID_UNTIL. You set the "CUSTOMER_USER" status to the login ID of the current user (if you need to keep that). If the customer needs to be deleted, you use the CUSTOMER_STATUS flag to indicate this - you may never delete records from this table.  
+ That way, you can always find what the status of the customer table was for a given date - what was the address? Have they changed name? By joining to other tables with similar valid_from and valid_until dates, you can reconstruct the entire picture historically. To find the current status, you search for records with a null VALID_UNTIL date.  
+ It's unwieldy (strictly speaking, you don't need the valid_from, but it makes the queries a little easier). It complicates your design and your database access. But it makes reconstructing the world a lot easier.  
+ 
+ Here's a straightforward way to do this: 
+ First, create a history table for each data table you want to track (example query below). This table will have an entry for each insert, update, and delete query performed on each row in the data table.  
+ The structure of the history table will be the same as the data table it tracks except for three additional columns: a column to store the operation that occured (let's call it 'action'), the date and time of the operation, and a column to store a sequence number ('revision'), which increments per operation and is grouped by the primary key column of the data table.  
+ To do this sequencing behavior a two column (composite) index is created on the primary key column and revision column. Note that you can only do sequencing in this fashion if the engine used by the history table is MyISAM ( See 'MyISAM Notes' on this page) 
+ The history table is fairly easy to create. In the ALTER TABLE query below (and in the trigger queries below that), replace 'primary_key_column' with the actual name of that column in your data table. 
+ 
+ And then you create the triggers: 
+ 
+ And you're done. Now, all the inserts, updates and deletes in 'MyDb.data' will be recorded in 'MyDb.data_history', giving you a history table like this (minus the contrived 'data_columns' column) 
+ 
+ To display the changes for a given column or columns from update to update, you'll need to join the history table to itself on the primary key and sequence columns. You could create a view for this purpose, for example: 
+ 
+ Edit:
+Oh wow, people like my history table thing from 6 years ago :P  
+ My implementation of it is still humming along, getting bigger and more unwieldy, I would assume. I wrote views and pretty nice UI to look at the history in this database, but I don't think it was ever used much. So it goes. 
+ To address some comments in no particular order: 
+ 
+ I did my own implementation in PHP that was a little more involved, and avoided some of the problems described in comments (having indexes transferred over, signifcantly. If you transfer over unique indexes to the history table, things will break. There are solutions for this in the comments). Following this post to the letter could be an adventure, depending on how established your database is. 
+ If the relationship between the primary key and the revision column seems off it usually means the composite key is borked somehow. On a few rare occasions I had this happen and was at a loss to the cause. 
+ I found this solution to be pretty performant, using triggers as it does. Also, MyISAM is fast at inserts, which is all the triggers do. You can improve this further with smart indexing (or lack of...).  Inserting a single row into a MyISAM table with a primary key shouldn't be an operation you need to optimize, really, unless you have significant issues going on elsewhere. In the entire time I was running the MySQL database this history table implementation was on, it was never the cause of any of the (many) performance problems that came up. 
+ if you're getting repeated inserts, check your software layer for INSERT IGNORE type queries. Hrmm, can't remember now, but I think there are issues with this scheme and transactions which ultimately fail after running multiple DML actions. Something to be aware of, at least. 
+ It's important that the fields in the history table and the data table match up. Or, rather, that your data table doesn't have MORE columns than the history table. Otherwise, insert/update/del queries on the data table will fail, when the inserts to the history tables put columns in the query that don't exist (due to d.* in the trigger queries), and the trigger fails. t would be awesome if MySQL had something like schema-triggers, where you could alter the history table if columns were added to the data table. Does MySQL have that now? I do React these days :P 
+ 
+ 
+ You could create triggers to solve this.  Here is a tutorial to do so  (archived link). 
+ 
+ Setting constraints and rules in the database is better than writing
+  special code to handle the same task since it will prevent another
+  developer from writing a different query that bypasses all of the
+  special code and could leave your database with poor data integrity. 
+ For a long time I was copying info to another table using a script
+  since MySQL didn’t support triggers at the time. I have now found this
+  trigger to be more effective at keeping track of everything. 
+ This trigger will copy an old value to a history table if it is changed
+  when someone edits a row.   and   are stored in the
+  original table every time someone edits that row; the time corresponds
+  to when it was changed to its current form. 
+ 
+ 
+ Another solution would be to keep an Revision field and update this field on save. You could decide that the max is the newest revision, or that 0 is the most recent row. That's up to you.  
+ 
+ Here is how we solved it  
+ a Users table looked like this  
+ 
+ And the business requirement changed and we were in a need to check all previous addresses and phone numbers a user ever had.
+new schema looks like this 
+ 
+ To find the current address of any user, we search for UserData with revision DESC and LIMIT 1 
+ To get the address of a user between a certain period of time 
+we can use created_on bewteen (date1 , date 2) 
+ 
+ Just my 2 cents. I would create a solution which records exactly what changed, very similar to transient's solution. 
+ My ChangesTable would simple be: 
+ 
+ 1) When an entire row is changed in the main table, lots of entries will go into this table, BUT that is very unlikely, so not a big problem (people are usually only changing one thing)
+2) OldVaue (and NewValue if you want) have to be some sort of epic "anytype" since it could be any data, there might be a way to do this with RAW types or just using JSON strings to convert in and out. 
+ Minimum data usage, stores everything you need and can be used for all tables at once. I'm researching this myself right now, but this might end up being the way I go. 
+ For Create and Delete, just the row ID, no fields needed. On delete a flag on the main table (active?) would be good. 
+ 
+ Why not simply use bin log files? If the replication is set on the Mysql server, and binlog file format is set to ROW, then all the changes could be captured. 
+ A good python library called noplay can be used. More info  here . 
+ 
+ MariaDB supports System Versioning since 10.3 which is the standard SQL feature that does exactly what you want: it stores history of table records and provides access to it via   queries. MariaDB is an open-development fork of MySQL. You can find more on its System Versioning via this link: 
+ https://mariadb.com/kb/en/library/system-versioned-tables/ 
+ 
+ The direct way of doing this is to create triggers on tables. Set some conditions or mapping methods. When update or delete occurs, it will insert into 'change' table automatically.  
+ But the biggest part is what if we got lots columns and lots of table. We have to type every column's name of every table. Obviously, It's waste of time. 
+ To handle this more gorgeously, we can create some procedures or functions to retrieve name of columns.  
+ We can also use 3rd-part tool simply to do this. Here, I write a java program
+ Mysql Tracker 
+ 

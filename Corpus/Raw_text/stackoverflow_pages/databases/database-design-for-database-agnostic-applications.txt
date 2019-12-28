@@ -1,0 +1,90 @@
+*** database-design-for-database-agnostic-applications ***
+
+ What do I have to consider  **in database design**
+ for a new application which should be able to support the most common relational database systems (SQL Server, MySQL, Oracle, PostgreSQL ...)? 
+ Is it even worth the effort? What are the pitfalls? 
+ 
+ The short answer is to stick to features that are standardly, or close to standardly implemented. What this means in more detail is: 
+ 
+ Avoid anything that uses the database's procedural language (stored procedures or triggers) since this is where the huge differences between the systems come in. You may need to use them to emulate some features, but don't use them to create your own functionality. 
+ Separate auto-increment fields' sequences from the fields themselves. This will look a bit forced for MSSQL but will implement cleanly in Oracle, DB/2 etc without needing any emulation fixes. 
+ Keep char and varchar fields below the smallest maximum size for the set of engines you're aiming at. 
+ When you're writing queries use full JOIN syntax, and bracket the JOINs so that each join is between a single table and bracketed expression. 
+ Keep date handling logic in the code, not the queries, since a lot of the date functions are outside the standard. (For example: if you want to get stuff for the past two weeks calculate the date two weeks ago in code and use that in the query.) 
+ 
+ Beyond that the effort involved shouldn't be too intimidating, so it may well be worth it. 
+ 
+ I currently support Oracle, MySQL, and SQLite. And to be honest it's tough.
+Some recommendations would be: 
+ 
+ avoid stored procedures, but you may need them to emulate missing features on some platform (see below)  
+ learn how to use triggers, because you'll need them to emulate missing features (for example with Oracle you don't have auto-increment, so you need to emulate it, and a good choice is with triggers) 
+ have a decent test environment because you'll need to test lots of SQL before knowing for sure that it's doing what you wan on all your platforms. 
+ 
+ Is it worth it... well depends. Commercially it is worth it for enterprise level applications, but for a blog or say a website you might as well stick with one platform if you can. 
+ 
+ If I were you, I'd  **think hard about the return on your investment here**
+. 
+ It always  sounds  like a great idea to be able to hook up to any back end or to change back ends whenever you like, but this very rarely happens in The Real World in my experience. 
+ It might turn out that you may cover 95% of your potential customers by supporting just Oracle & SQL Server (or MySQL & SQL Server, or... etc.). 
+ **Do your research before going any further**
+, and good luck! 
+ 
+ One answer people will often tell you is to not use database specific sql and just code to  ansi standards. They will often say only talk to the database via stored procs to abstract out any sql. These are the wrong answers and only lead to pain. Coding to 'standard' sql is pretty much impossible because every vendor has such different interpretations. 
+ What you need to to is have some kind of database persistence layer the abstracts the differences between databases (sorry johnstock, this is almost exactly what you said). There are many other ORMs and similar products to do this for every platform, 
+ 
+ I'm going to plagerize johnstok's answer of 1) Don't use stored procedures and 2) Don't use vendor specific SQL, and add to it. 
+ You also asked, "Is it even worth the effort?".  I'd say... maybe.   I wrote a open source bug tracker, BugTracker.NET, that is based on SQL Server.   There are many developrs who simply wouldn't give it a try because they like to stick to the technologies they are comfortable with.   And, when I was considering starting a hosting service, I noticed that dedicated Linux virtual servers are much cheaper than Windows (non-virtual) services.  I could theoretically run the C# under mono, but my SQL is so SQL Server specific (even though I don't use stored procs) it would be a huge effort to port. 
+ If you are targeting a business/corporate market, you'll find that some shops are strickly Oracle, or strictly SQL Server, and that your app might be ruled out in the early rounds of the competition based on the technology it uses. 
+ So, maybe being open does matter, to you.   What kind of app is it?  Who will use it? 
+ You also asked, "What are the ptifalls".   Not testing as you go along.  If you plan to support the 4 dbs you listed, then you should be testing with them early and often rather than just target one while thinking it will be easy to convert over to the others.  By that time you might find yourself in an architectural cul-de-sac. 
+ 
+ In 2001, I worked on a product that had to support Oracle 8, MS SQL Server 2000 and MS Jet 3.51 (a.k.a. Access97). In theory we could have employed specialists for each of these products and a testing process that ensured all produced the same results. In practice, there was a tendency towards the lowest common denominator.  
+ One approach was to create linked tables in Access/Jet for Oracle and SQL Server then exclusively write Jet SQL. The problem here is that Jet SQL syntax is very limited.  
+ Another approach (commonly employed even on systems which have only ever used one DBMS product!) is to try to do more of the work that one really ought to in the front end, things which should be the domain of the DBMS. The problem here is it is often disastrous as regards data integrity. I'm sure you know the situation: the application  should  refrain from writing illegal data but without constraints in the DBMS itself it is wide open to application bugs. And then there are the user who know how to connect to the data via Excel, SQL Management Studio, etc, and thereby totally bypassing the application that is supposed to ensure data integrity...  
+ Personally, I found myself increasingly writing code on a sliding scale of what I only later discovered was called 'portability'. Ideally, in the first instance is 'vanilla' code understood by all DBMSs we supported and in doing so I discovered the SQL-89 and SQL-92 Standards. Next was SQL code that could easily be translated (perhaps using code) for each DBMS e.g. Oracle used that horrid infixed outer join syntax but the concept of an outer join was there; Oracle and SQL Server used SUBSTRING but Jet required the keyword to be MID$; etc.. Finally, there are things that simply have to be implementation specific, obviously avoided if at all possible while still paying due regard to data integrity, functionality and performance. 
+ Happily, in the intervening years the products have been moving closer to the ANSI SQL Standards (apart from Jet, which was deprecated by MS is now only kept alive by the MS Access team seemingly by cutting major features such as security and replication). So I've kept the habit of writing Standard SQL where possible. 
+ 
+ Keep field and table names short (<30 characters) and case insensitive. e.g. TABLE_NAME and FIELD_NAME 
+ 
+ 95% portable is nearly as good as portable if you can isolate the platform-dependent code into a specific layer.  Just as Java has been described as  'Write once test everywhere' , one still has to test the application on every platform you intend to run it on. 
+ If you are circumspect with your platform specific code you can use portable code for the 95+% of the functionality that can be done adequately in a portable way.  The remaining parts that need to be done in a stored procedure or other platform-dependent construct can be built into a series of platform-dependent modules to a standard interface.  Depending on the platform you use the module appropriate to that platform. 
+ This is the difference between 'Test everywhere' and 'Build platform specific modules and Test everywhere'.  You will need to test on all supported platforms anyway - you cannot get away from that.  The extra build is relatively minor, and probably less than making a really convoluted architecture to try and do these things completely portably. 
+ 
+ In complement to  this answer , and as a general rule, do not let the server generate or calculate data. Always send straight SQL instructions, excluding formulas. Do not use default value properties (or make them basic, not formulas). Do not use validation rules 
+Both default values and validation rules should be implemented on the client side. 
+ 
+ 
+ Don't use stored procedures 
+ Don't use vendor specific SQL 
+ 
+ Or, use a persistence technology such as hibernate / nHibernate that abstracts away the differences between different DBs. 
+ 
+ Research up front the lowest common denominator for data types.  For example, SQL Server has an integer but Oracle uses a number. 
+ 
+ I understand the other answers here but why not use stored procedures? Is it so that the logic is not hidden away? 
+ 
+ As well as taking into account the many good and sensible answers here, I'd also add that something like  ActiveRecord migrations  (from Ruby On Rails, but you can just use the library) might be useful. It abstracts stuff like table creation/alteration, appropriate column types, simpler index management and (to a certain amount) sequencing into a fairly simple descriptive language. 
+ Stored procedures and triggers are pretty much ignored, but if you're going cross-platform that kind of functionality should probably be in a code layer anyway. 
+ Out of curiosity I've switched between Oracle, MS SQL, MySQL and SQLite with the same set of migrations and the worst problem I had was discovering I had to ensure my column and table names were not in the union of reserved word lists across the DBs. 
+ 
+ Rule 1: Don't use database specific features 
+ Rule 2: Don't use stored procedures. 
+ Rule 3: If you break Rule 1, then break rule 2 as well. 
+ There have been a lot of comments about not using stored procedures.  This is because the syntax/semantics are very different and so porting them is difficult.  You do not want heaps of code that you have rewrite and retest. 
+ If you decide that you do need to use database specific features then you should hide those details behind a stored procedure.  Calling the stored procedures of different database is all fairly similar.  Inside the procedure, which is written in PL/SQL you can use any Oracle constructs that you find useful.  Then you need to write an equivalent for the other target databases.  This way, the parts that are database specific are in that database only. 
+ 
+ If at all possible I would avoid doing this. I have worked with several of these databases in the past and they were horribly slow (one particularly painful example I can think of was a call center application that took ten minutes to move from one screen to another on a busy day) due to the need to write generic sql and not use the performance tuning that was best for the particular backend. 
+ 
+ The first thing to consider is if the cost of doing it independent is lower that depend on database. I think some times is important for some products that whant to give choice to customers, but they are loosing a lot of database features (it means code to be written again). 
+ For big customers (big applications) they have to be fully dependent to database. For little customizes , is reallly a trouble to have an Oracle XE and a MySQL on one server (or two). 
+ Really, I prefer to use more than one database and that the application knows which database is that an "abastract" code.  
+ 
+ IMO it depends on the type of app you are developing: 
+ 
+ An app that fulfils some other need which happens to involve storing data, e.g. commercial websites, line of business apps, even home/lifestyle apps. 
+ An app specifically designed to manipulate or administer databases, e.g. design tools, modelling tools, ETL tools. 
+ 
+ For case 1, just pick one DBMS that's best suited to your needs, and code against that, using the full power of all its proprietary features. 
+ For case 2, you will likely find that it is quite feasible to stick to the common subset of operations supported by all DBMSs that you intend to support. 
+ 

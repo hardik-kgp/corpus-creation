@@ -1,0 +1,36 @@
+*** couchdb-backups-and-cloning-the-database ***
+
+ We're looking at CouchdDB for a CMS-ish application. What are some common patterns, best practices and workflow advice surrounding backing up our production database? 
+ I'm particularly interested in the process of cloning the database for use in development and testing. 
+ Is it sufficient to just copy the files on disk out from under a live running instance? Can you clone database data between two live running instances? 
+ Advice and description of the techniques you use will be greatly appreciated. 
+ 
+ CouchDB supports replication, so just replicate to another instance of CouchDB and backup from there, avoiding disturbing where you write changes to. 
+ http://wiki.apache.org/couchdb/FrequentlyAskedQuestions#how_replication 
+ You literally send a POST request to your CouchDB instance telling it where to replicate to, and it Works(tm) 
+ EDIT: You can just cp out the files from under the running database as long as you can accept the I/O hit. 
+ 
+ Another thing to be aware of is that you can copy files out from under a live database. Given that you may have a possibly large database, you could just copy it OOB from your test/production machine to another machine. 
+ Depending on the write load of the machines it may be advisable to trigger a replication after the copy to gather any writes that were in progress when the file was copied. But replication of a few records would still be quicker than replication the entire database. 
+ For reference see:  http://wiki.apache.org/couchdb/FilesystemBackups 
+ 
+ CouchDB also works very nicely with filesystem snapshots offered by modern filesystems like  ZFS . Since the database file always is in a consistent state you can take the snapshot of the file any time without weakening the integrity guarantees provided by CouchDB. 
+ This results in nearly no I/O overhead. In case you have e.g. accidentally deleted a document from the database you can move the snapshot to another machine and extract the missing data there. You might even be able to replicate back to the production database, but I never have tried that. 
+ But always make sure you use exactly the same couchdb revisions when moving around database files. The on-disk format is still evolving in incompatible ways. 
+ 
+ I'd like to second Paul's suggestion: Just   your database files from under the live server if you can take the I/O-load hit. If you run a replicated copy anyway, you can safely copy from that too, without impacting your master's performance. 
+ 
+ CouchDB replication is horrible. I generally do  tar  which is much better. 
+ 
+ Stop the CouchDB service on the source host 
+ tar.gz the data files. 
+ On my Ubuntu servers this is typically in /var/lib/couchdb (sometimes in a subdirectory based on the Couch version). If you aren’t sure where these files are, you can find the path in your CouchDb config files, or often by doing a ps -A w to see the full command that started CouchDb. Make sure you get the subdirectories that start with   when you archive the files. 
+ Restart the couchdb service on the source host. 
+  the tar.gz file to the destination host and unpack them in a  temporary location there. 
+  the files to the user and group that owns the files already in the database directory on the destination. This is likely couchdb:couchdb. This is important, as messing up the file permissions is the only way I’ve managed to mess up this process so far. 
+ Stop CouchDB on the destination host. 
+  the files into the destination directory. Again on my hosts this has been /var/lib/couchdb. 
+ Double check the file permissions in their new home. 
+ Restart CouchDB on the destination host. 
+ 
+ 

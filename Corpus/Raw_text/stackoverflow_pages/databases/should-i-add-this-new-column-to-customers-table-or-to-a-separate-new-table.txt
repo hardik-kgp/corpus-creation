@@ -1,0 +1,96 @@
+*** should-i-add-this-new-column-to-customers-table-or-to-a-separate-new-table ***
+
+ I have a customers table with information about our customers (ID, login, name, contacts info, different options, TS column, and so on, ~15 columns, ~few hundreds of customers).   
+ Now we need to send every-day-updates to our biggest customers (<10% of all customers). And I need to store timestamp of the latest update which were sent to the customer, so next time I will send only new updates (I mean updates in order lines with TS bigger than the stored TS).   
+ If I add a new column "LastUpdatesSentTS" to a customers table, then, as I understand, it will conform to normalization rules (if not, please give the link which proves it will break normalization).   
+ But, as I also know, from the physical database design point of view it is better to create a  new table with 2 columns [CustomerID, LastUpdatesSentTS] because only less than 10% of customers will have that TS information stored. I mean that if I add the column to customers table - most of customers will have null in that column. Also, if I create a separate new table, maybe it will be better to drop boolean column "SendUpdates" from customers table (because I will be able to understand which customers need updates to be sent by joining customers table to the new table). Also, in this case I am afraid that in a few years I will have a bunch of very small tables, when it all could be in customers table (without breaking normalization as I understand). 
+ In simple words, I see 2 possible table designs:   
+ 1)   
+ 
+ 2) 
+ 
+ What do you think? 
+ 
+ I would suggest that you should do this as a second, separate table. 
+ The reasoning is that, as you suggest in your question, only approximately 10% of your customers need these "updates" and therefore approximately 90% of the records from the "customers" table will have a field always containing a NULL value, if you do it as an additional field on the same customers table.  Implementing this as a second table avoids this issue. 
+ This isn't really a big issue since your customers table is very small, but the more important issue I would think about when designing something like this is  future-proofing . 
+ Basically I might ask myself: 
+ 
+ "Would I, at any point in the future,
+  need to know about the customer's
+   history  of updates rather than just the very last one?" 
+ 
+ Depending upon the application of this (and it sounds like a business-driven program from what you're saying) there may well be a need to examine customer update history.  Think Management Information, Reporting, Yearly summaries etc.) 
+ In pretty much all of the business applications I've ever wrote, I've had to retain pretty much everything for at least a few years (it then usually gets archived off to a data warehouse or separate database) for these exact purposes. 
+ Even if you're not interested in the customers history of updates, I personally, prefer the 2 table approach as it certainly allows for historical record keeping, and offers a better designed approach (as only some records from the customers table will need records in the 2nd "updates" table).  That said, however, see my EDIT below for further information.  If I knew that a history would  never  be required to this data, I'd implement as a single additional field on the existing customer's table. 
+ Also, don't worry about having a  "bunch of very small tables"  in your database.  There can usually be very good reason for having them, and is a part of the  object-relational impedance mismatch  and is usually overcome by a more "cohesive" object-oriented design in your application's code. 
+ **EDIT:**
+
+ (In response to the comments on my answer). 
+ Aaron Bertrand  makes a very valid point in that, if you were to have many instances of additional pieces of data just like this, and you continually used a separate table each time linked via primary key, you would end up with a plethora of very small tables to hold data about a single one of your customers.  In querying the database to extract a complete set of data for even one customer, this could become exceptionally cumbersome and overburdened with excessive and inefficient   over many tables. 
+ Depending upon the nature of the "additional" pieces of data, one has to make a pragmatic decision as to how it will be implemented.  Aaron suggests that, in the case of the "LastUpdate" date field, having lots of  's in 90% of the customer table is no bad thing, and I do agree with him here in that, from the perspective of  's, this isn't a bad thing.  My own suggestion to utilise a 2 table approach was not so much based upon the desire to remove the  's (although it does accomplish that), but rather to ensure that a  history  of "LastUpdate" dates can be maintained. 
+ Of course, if keeping a history is entirely not required (and bear in mind that what is not required today may well be required tomorrow) that implementing this "LastUpdate" date as an additional field on the same "Customer" table would be fine.  In fact, if there was only ever a direct one-to-one relationship between a single customer and a single "last update" date, splitting it out into 2 tables would be the wrong thing to do.  In this case, I'd implement it as an additional field on the customers table, as it's now a scalar valued property of that customer. 
+ Of course, you can always implement today as a single field on the customer table, and  **if**
+ it becomes a requirement (let's say a year down the line) to now keep a  history  of "last update" dates, you can always refactor your database to split this into a 2nd table, but bear in mind that you're only collecting historical data from that point on as you will have no record of the previous year's last update dates. 
+ If you  **do**
+ (or will) require a history of "last update" dates (i.e. one-to-many relationship between customer records and "last update" date records) then using a 2nd table approach, linked by primary key is your only choice. 
+ 
+ "When in doubt, do the simplest thing that could possibly work" - Ward Cunningham 
+ There's times where I'd say "add the second table" but in this case I don't feel it's justified.  As I understand it there's no requirement to maintain a history of values for this attribute.  The table is small.  And, ultimately, what you've got is an attribute of a customer.  Sure, not all of them will be populated but to me that's a secondary consideration.  Lots of fields have NULL values in the majority of cases, but that doesn't mean you should necessarily create a second table to hold them.  Keep it as simple as possible (and as normalized) as possible, but no simpler (or normal-er :-).  So if it was me I'd add these fields to the CUSTOMERS table.  YMMV. 
+ Share and enjoy. 
+ 
+ I would go with option 2.   
+ I don't like having columns like  .  IMO, it's better to have that stored in the existance of a row in a different table.   
+ 
+ is simpler and faster than  
+ 
+ Further thoughts in reaction to comment: 
+ Yes, I would advocate for creating additional tables for additional attributes  **provided that each attribute is associated with a different and unrelated task or action**
+.  Adding attributes that aren't associated with a separate task should be added to the first table (middle name of the buyer for example). 
+ In this case, the attribute (timestamp) is associated with a task (contacting the customer).  All information related to contacting the customer should go in that table.  (contact address for example).   
+ I'm not sure what you mean "you have to change the source query in every table."  A table is a set of information.  You don't save queries in tables.   
+ You aren't going to have big queries with 15 joins because you only need the join that has to do with whatever task you're currently doing.  Any time you're not sending out the letter, you don't need that information.  And when you  do  need that information, it's 1 join away. 
+ 
+ Because of the relatively small size of the database,  **the two-table approach seems more appropriate**
+ as it is a structure that is more normalized, and more likely to support possible extensions.  Would there be performance concerns, we'd tend to denormalize, i.e. use the one table approach. 
+ In general with this type of question one consideration, maybe the most important one, is the  **typical usage patterns for various parts of the data**
+. 
+A plausible guess is that the Customer table is heavily used for [mostly] read-only purposes; such usage can be supported by keeping the updated (and not frequently queried) data such as the timestamp of the last notification separately.  Would the info in the related table be more frequently included in queries, then it may be appropriate to place such info in the main table instead. 
+ **On concerns about the sparse usage of the update timestamp column**
+
+ (a mute point, since the two table approach will likely be choosen, but in general...) 
+The fact that only 10% of records would have some info in the timestamp column, hints at some "wastefulness" would we choose option 1. In actuality the sparse usage of this column have little bearing on the database size and performance in general.  For example, if the table readily includes variable length column, the size overhead is effectively zero;  if this is the first nullable or variable length column, a minimal size tax will be levied but should have little bearing.   (Also in more recent versions of SQL server, 2005, I think, one can use sparse column, although this is hardly worth with thousand or even tens-of-thousand-records sized database.) 
+ **On the "sendudpate" column**
+
+It is also a good idea to drop the "sendupdate" boolean column from the main table, putting all update related info in the related table.  I suggest however that the fact that a customer receives updates should not be implicit to the underlying customerid having a record in the related table.  Instead introduce the "sendupdate" column in the related, maybe not as a simple boolean, but as a frequency code for example  (eg 0 = no updates, 1 = update daily, 7 = update weekly etc.)   This doesn't mean that I suggest that all customers should have an entry in the related table, but that the fact that they have such a record be a necessary but not sufficient condition, for example allowing to temporarily disable updates etc. etc. 
+ **On whether the one table approach "breaks" and rules of normalization**
+
+It is important to distinguish between the physical and the logical database designs. It is quite possible to have a physical schema which doesn't break any normalization rules but which isn't logically normalized.  In very broad terms, one basic mantra of normalization is to store only one type of Entity per table. So long as there is no duplication of data, one could put in the same table, in one wide record, info actually pertaining to two logical entities. 
+Illustrated with the customer database in the question, one can decide that physical records will include the date of last update sent to a given customer.  Fair enough, physically no normalization rule broken...  Logically, however, one can argue that "Customer administrative info" (Name, address...) and "Update info" (date of last update sent) are two distinct entities, even though they seem to be on a 1-1 relationship  at the moment . 
+Hence the state of normalization of the  logical  model, where the entities are effectively defined, is often in the eyes of the beholder since one can (sometimes very fairly and reasonnably) argue that elements of data which all have a 1-1 relationship belong to the same concept (entity). 
+ 
+ Q:  What is logical and physical normalization? ... Aren't the normalization rules straight forward ? 
+I attempted to explain this above. 
+"physical normalization" (or rather normal form of the physical schema) looks at the very factual composition of the tables and their relationships, and applies simple rules to know what normal form such schema satisfies. 
+"logical normalization" (or rather normal form of the data model) looks at the effective entities found in the system. 
+So, to provide another example, when designing a simple database of house for sale listing one may decide to have a single concept of a "HOUSE" stored in a single table with columns like "Address", "Kitchen_area", "Living_Room_area" etc.  And such a table would "work" and be technically of a particular normal form; it would be somewhat impractical, preventing the listing of houses with two kitchen etc.  Alternatively one could see the house as a "Location"  (the address, and maybe other admin info), and "Rooms" (the type, the surface, the flooring info...), whereby each concept (location, room) is stored in a separate table, with one location being associated with several rooms. 
+Whereby both of these models may be put into a physical schema that is normal, the first model can be said to be denormalized (at logical level), because of the fact that it doesn't capture properly the entities effectively present. 
+ 
+ Q:  I don't understand how you suggest explicitly mark the fact that customer receives updates?  
+A: 
+ 
+ In the above, 
+ - the JOIN capture the first condition for a customer to be notified: there need to be a corresponding record in Notification table. 
+ - the  WHERE N.notificationFrequency > 0 predicate captures the very explicit condition, that of the notificaionFrequency column to be positive. 
+ 
+ I think you've made an excellent start on understanding the issue and coming up with options. Both are reasonably sound designs, which should work reasonably well. 
+ I've seen approach #1 grow out of control - with each new configuration value being added as a new field to the point where each user has many empty config values that apply to only a handful of the population. 
+ I would prefer option 2, as it seems the more intuitive method to me. 
+ 
+ I would want a simple way to have a daily record of what updates I sent. This is not another table of "customer" data, but a table of dates each customer was sent an update. The question you are going to be asked is, "Did Customer 'A' get their update on last Tuesday?" The only answer the single table solution can provide is, "I don't know, but they got it on Friday." May not be acceptable.
+Without a history, you can't resend an update that the customer didn't get. 
+ 
+ @CraigTP then again, on to your second point too. there are much better and more complete ways to mainatin history of records. As for that matter, it can be done (and should be done) on full Customer table. That is basically called Auditing. You have triggers for that. You have quite simple approaches in hibernate to do that out of the box for that. Lastly, I would go with adding a new column in existing table design 
+ **EDIT**
+ I came back to this and think that I missed SendUpdate part too. IMHO, that columns is also not justified (in any table as such) If you keep that, its a transitive dependecy which you should normalize in 3NF. But anyways I believe keeping the history out and keeping the extension out, adding a new column is the way to go w/o SendUpdate column. 
+ 

@@ -1,0 +1,97 @@
+*** starting-and-populating-a-postgres-container-in-docker ***
+
+ I have a Docker container that contains my Postgres database. It's using the official  Postgres image  which has a CMD entry that starts the server on the main thread. 
+ I want to populate the database by running   before it starts listening to queries. 
+ I don't understand how this is possible with Docker. If I place the   command after CMD, it will of course never be reached because Docker has finished reading the Dockerfile. But if I place it before the  , it will run before psql even exists as a process.  
+ How can I prepopulate a Postgres database in Docker? 
+ 
+ After a lot of fighting, I have found a solution ;-) 
+ For me was very useful a comment posted here:  https://registry.hub.docker.com/_/postgres/  from "justfalter" 
+ Anyway, I have done in this way:  
+ 
+  is a sql dump, useful to initialize the first tablespace. 
+ Then, the  
+ 
+ So finally: 
+ 
+ Hope it helps! 
+ 
+ Alternatively, you can just mount a volume to /docker-entrypoint-initdb.d/ that contains all your DDL scripts. You can put in  ***.sh, *.sql, or *.sql.gz**
+ files and it will take care of executing those on start-up. 
+ e.g. (assuming you have your scripts in /tmp/my_scripts) 
+ 
+ 
+ For those who want to initialize postgres DB with millions of records during first run. 
+ Import using *.sql dump 
+ You can do simple sql dump and copy the   file into  . The problem is  **speed**
+. My   script is about 17MB (small DB - 10 tables with 100k rows in only one of them) and the  **initialization takes over a minute (!)**
+. That is unacceptable for local development / unit test etc. 
+ Import using binary dump 
+ The solution is to make a binary postgres dump and use  shell scripts initialization support .
+Then the same DB is  **initialized in like 500ms**
+ instead of 1 minute :) 
+ **1. Create the **
+** binary dump of DB named "my-db"**
+
+ Directly from within container or your local DB 
+ 
+ Or from host from running container ( postgres-container ) 
+ 
+ **2. Create docker image with given dump and initialization script**
+
+ 
+ 
+ 
+ 
+ **3. Build image and run it**
+
+ 
+ 
+ There is yet another option available that  utilises Flocker : 
+ 
+ Flocker is a container data volume manager that is designed to allow databases like PostgreSQL to easily run in containers in production. When running a database in production, you have to think about things like recovering from host failure. Flocker provides tools for managing data volumes across a cluster of machines like you have in a production environment. For example, as a Postgres container is scheduled between hosts in response to server failure, Flocker can automatically move its associated data volume between hosts at the same time. This means that when your Postgres container starts up on a new host, it has its data. This operation can be accomplished manually using the Flocker API or CLI, or automatically by a container orchestration tool that Flocker is integrates with, for example Docker Swarm, Kubernetes or Mesos. 
+ 
+ 
+ I was able to load the data in by pre-pending the run command in the docker file with /etc/init.d/postgresql.  My docker file has the following line which is working for me: 
+ 
+ 
+ I Followed the same solution which @damoiser , The only situation which was different was I wanted to import all dump data. 
+ Please follow the solution below.(I have not done any kind of checks) 
+ Dockerfile 
+ 
+ then the doker-entrypoint-initdb.d script 
+ 
+ and then you can build your image as  
+ 
+ 
+ We for E2E test in which we need a database with structure and data already saved in the Docker image we have done the following: 
+ Dockerfile: 
+ 
+ database_restore.sh: 
+ 
+ To create the image: 
+ 
+ To start the container: 
+ 
+ This does  **not restore the database every time the container is booted**
+. The structure and data of the database is already contained in the created Docker image. 
+ We have based on this article, but eliminating the multistage:
+ Creating Fast, Lightweight Testing Databases in Docker 
+ 
+ **Edit**
+: With version 9.4-alpine does not work now because it does not
+  run the database_restore.sh scrips. Use version 9.4.24-alpine 
+ 
+ 
+ My solution is inspired by Alex Dguez's answer which unfortunately doesn't work for me because: 
+ 
+ I used pg-9.6 base image, and the   never ran through for me, which always complained with  
+ I don't want to pollute the   dir 
+ 
+ The following answer is originally from my reply in another post:  https://stackoverflow.com/a/59303962/4440427 . It should be noted that the solution is for restoring from a binary dump instead of from a plain SQL as asked by the OP. But it can be modified slightly to adapt to the plain SQL case 
+ Dockerfile: 
+ 
+ where the   is: 
+ 
+ The above scripts together with a more detailed README are available at  https://github.com/cobrainer/pg-docker-with-restored-db 
+ 

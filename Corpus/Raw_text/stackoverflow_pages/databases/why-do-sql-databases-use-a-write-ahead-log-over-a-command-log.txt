@@ -1,0 +1,134 @@
+*** why-do-sql-databases-use-a-write-ahead-log-over-a-command-log ***
+
+ I read about Voltdb's  command log . The command log records the transaction invocations instead of each row change as in a write-ahead log. By recording only the invocation, the command logs are kept to a bare minimum, limiting the impact the disk I/O will have on performance. 
+ Can anyone explain the database theory behind why Voltdb uses a command log and why the standard SQL databases such as Postgres, MySQL, SQLServer, Oracle use a write-ahead log? 
+ 
+ I think it is better to rephrase:  
+ 
+ Why does new distributed VoltDB use a command log over write-ahead log? 
+ 
+ Let's do an experiment and imagine you are going to write your own storage/database implementation.  Undoubtedly you are advanced enough to abstract a file system and use block storage along with some additional optimizations. 
+ Some basic terminology: 
+ 
+ State : stored information at a given point of time  
+ Command : directive to the storage to change its state 
+ 
+ So your database may look like the following: 
+   
+ Next step is to execute some command: 
+ 
+ Please note several important aspects: 
+ 
+ A command may affect many stored entities, so many blocks will get dirty 
+ Next state is a function of the current state and the command   
+ 
+ Some intermediate states can be skipped, because it is enough to have a chain of commands instead. 
+ 
+ Finally, you need to guarantee data integrity. 
+ 
+ **Write-Ahead Logging**
+ - central concept is that  **State**
+ changes should be logged before any heavy update to permanent storage. Following our idea we can log incremental changes for each block. 
+ **Command Logging**
+ - central concept is to log only  **Command**
+, which is used to produce the state. 
+ 
+ 
+ There are Pros and Cons for both approaches. Write-Ahead log contains all changed data, Command log will require addition processing, but fast and lightweight.  
+ VoltDB: Command Logging and Recovery 
+ 
+ The key to command logging is that it logs the invocations, not the
+  consequences, of the transactions. By recording only the invocation, 
+  the command logs are kept to a bare minimum, limiting the impact the disk I/O will 
+  have on performance. 
+ 
+ **Additional notes**
+
+ SQLite: Write-Ahead Logging 
+ 
+ The traditional rollback journal works by writing a copy of the
+  original unchanged database content into a separate rollback journal
+  file and then writing changes directly into the database file. 
+ A COMMIT occurs when a special record indicating a commit is appended
+  to the WAL. Thus a COMMIT can happen without ever writing to the
+  original database, which allows readers to continue operating from the
+  original unaltered database while changes are simultaneously being
+  committed into the WAL. 
+ 
+ PostgreSQL: Write-Ahead Logging (WAL) 
+ 
+ Using WAL results in a significantly reduced number of disk writes,
+  because only the log file needs to be flushed to disk to guarantee
+  that a transaction is committed, rather than every data file changed
+  by the transaction.  
+ The log file is written sequentially, and so the
+  cost of syncing the log is much less than the cost of flushing the
+  data pages. This is especially true for servers handling many small
+  transactions touching different parts of the data store. Furthermore,
+  when the server is processing many small concurrent transactions, one
+  fsync of the log file may suffice to commit many transactions.  
+ 
+ **Conclusion**
+
+ Command Logging: 
+ 
+ is faster 
+ has lower footprint 
+ has heavier "Replay" procedure 
+ requires frequent snapshot 
+ 
+ Write Ahead Logging is a technique to provide atomicity. Better Command Logging performance should also improve transaction processing.  Databases on 1 Foot 
+ 
+ **Confirmation**
+
+ VoltDB Blog: Intro to VoltDB Command Logging 
+ 
+ One advantage of command logging over ARIES style logging is that a
+  transaction can be logged before execution begins instead of executing
+  the transaction and waiting for the log data to flush to disk. Another
+  advantage is that the IO throughput necessary for a command log is
+  bounded by the network used to relay commands and, in the case of
+  Gig-E, this throughput can be satisfied by cheap commodity disks. 
+ 
+ It is important to remember VoltDB is distributed by its nature. So transactions are a little bit tricky to handle and performance impact is noticeable. 
+ VoltDB Blog: VoltDB’s New Command Logging Feature 
+ 
+ The command log in VoltDB consists of stored procedure invocations and
+  their parameters. A log is created at each node, and each log is
+  replicated because all work is replicated to multiple nodes. This
+  results in a replicated command log that can be de-duped at replay
+  time. Because VoltDB transactions are strongly ordered, the command
+  log contains ordering information as well. Thus the replay can occur
+  in the exact order the original transactions ran in, with the full
+  transaction isolation VoltDB offers. Since the invocations themselves
+  are often smaller than the modified data, and can be logged before
+  they are committed, this approach has a very modest effect on
+  performance. This means VoltDB users can achieve the same kind of
+  stratospheric performance numbers, with additional durability
+  assurances. 
+ 
+ 
+ From the description of Postgres' write ahead  http://www.postgresql.org/docs/9.1/static/wal-intro.html  and VoltDB's command log (which you referenced), I can't see much difference at all.  It appears to be the identical concept with a different name. 
+ Both sync only the log file to the disk but not the data so that the data could be recovered by replaying the log file. 
+ Section 10.4 of VoltDB explains that their community version does not have command log so it would not pass the ACID test.  Even in the enterprise edition, I don't see the details of their transaction isolation (e.g.  http://www.postgresql.org/docs/9.1/static/transaction-iso.html ) needed to make me comfortable that VoltDB is as serious as Postges. 
+ 
+ The way I read it is as follows: (My own opinion) 
+ Command Logging as described here logs only transactions as they occur and not what happens in or to them. Ok, so here is the magic piece... If you want to rollback you need to restore the last snapshot and then you can replay all the transactions that were applied after that (Described in the link above). So effectively you are restoring a backup and re-applying all your scripts, only VoltDB has now automated it for you. 
+ The real difference that i see with this is that you cannot rollback to a point in time logically as with a normal transaction log. Normal transaction logs (MSSQL, MySQL etc.) can easily rollback to a point in time (in the correct setup) as the transactions can be 'reversed'. 
+ Interresting question comes up - referring to the pos by pedz, will it always pass the ACID test even with the Command Log? Will do some more reading... 
+ Add: Did more reading and I don't think this is a good idea for very big and busy transactional databases. A DB snapshot is automatically created when the Command Logs fill up, to save you from big transaction logs and the IO used for this? You are going to incur large IO amounts with your snapshots being done at a regular interval and you are also using your memory to the brink. Alos, in my view you lose your ability to rollback easily to a point in time before the last automatic snapshot - think this will get very tricky to manage. 
+ I'll rather stick to Transaction Logs for Transactional systems. It's proven and it works. 
+ 
+ Its really just a matter of granularity. They log operations at the level of stored procedures, most RDBMS log at the level of individual statements (and 'lower'). Also their blurb regarding advantages is a bit of a red herring: 
+ 
+ One advantage of command logging over ARIES style logging is that a
+  transaction can be logged before execution begins instead of executing
+  the transaction and waiting for the log data to flush to disk. 
+ 
+ They have to wait for the command to be logged too, its just a much smaller record. 
+ If I'm not mistaken VoltDB's unit of transaction is a stored proc. Traditional RDBMS usually need to support ad-hoc transactions containing any number of statements, so procedure-level logging is out of the question. Furthermore stored procedures are often not truly deterministic in traditional RDBMS (i.e. given params+log+data always produce same output), which they would have to be for this to work. 
+ Nevertheless the performance improvements would be substantial for this constrained RDBMS model. 
+ 
+ With WAL, readers read from pages from unflushed logs.   No modification is made to the main DB.  With command logging, you have no ability to read from the command log. 
+ Command logging is therefore vastly different. VoltDB uses command logging to create recovery points and ensure durability, sure - but it is writing to the main db store (RAM) in real time - with all the attendant locking issues, etc.  
+ 

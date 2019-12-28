@@ -1,0 +1,99 @@
+*** google-analytics-database ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed.  This question is  off-topic . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?   Update the question  so it's  on-topic  for Stack Overflow.
+                         
+ Closed  5 months ago . 
+ 
+ 
+ 
+ Does anybody know how data in Google Analytics is organized? Difficult selection from large amounts of data they perform very-very fast, what structure of database is it? 
+ 
+ AFAIK Google Analytics is derived from Urchin. As it has been said it is possible that since now Analytics is part of the Google family it is using MapReduce/BigTable. I can assume that Google had integrated the old format of Urchin DB with the new BigTable/MapReduce. 
+ I found this links which talk about Urchin DB. Probably some of the things are still in use at the moment. 
+ http://www.advanced-web-metrics.com/blog/2007/10/16/what-is-urchin/ 
+ this says: 
+ 
+ [snip] ...still use a proprietary database to store reporting data, which makes ad-hoc queries a bit more limited, since you have to use Urchin-developed tools rather than the more flexible SQL tools. 
+ 
+ http://www.urchinexperts.com/software/faq/#ques45 
+ 
+ What type of database does Urchin use? 
+ 
+ Urchin uses a proprietary flat file database for report data storage. The high-performance database architecture handles very high traffic sites efficiently. Some of the benefits of the data base architecture include: 
+ 
+ More info about Urchin 
+ http://www.google.com/support/urchin45/bin/answer.py?answer=28737 
+ Long time ago I used to have a tracker and on their site they were discussing about data normalization:  http://www.2enetworx.com/dev/articles/statisticus5.asp 
+ There you can find a bit of info of how to reduce the data in DB and maybe it is a good start in research. 
+ 
+ BigTable 
+ Google Publication: Chang, Fay, et al. " Bigtable: A distributed storage system for structured data. "ACM Transactions on Computer Systems (TOCS) 26.2 (2008): 
+ 
+ Bigtable is used by more than sixty Google products and projects,
+  including  **Google Analytics**
+, Google Finance, Orkut, Personalized
+  Search, Writely, and Google Earth. 
+ 
+ 
+ I'd assume they use their ' Big Table '  
+ 
+ I can't know exactly how they implement it.
+But because I've made a product that extracts non-sampled, non-aggregated data from Google Analytics I have learned a thing or two about the structure. 
+ I makes sense that the data is populated via BigTable.
+BT offers localization data awareness and map/reduce querying across n-nodes. 
+ Distinct counts
+(Whether a data service can provide distinct counts or not is a simple measure of flexibility of a data model - but it's typically also a measure of cost and performance) 
+ Google Analytics is not built to do distinct counts even though GA can count users across almost any dimension - but it can't count e.g. Sessions per ga:pagePath?
+How so...
+Well they only register a session with the first pageView in a session.
+This means that we can only count how many landingpages that have had a session.
+We have no count for all the other 99% of pages on your site. :/ 
+ The reason for this is that Google made the choice NOT to count discount counts at all. It simply doesn't scale well economically when serving millions of sites for free.
+They needed an approach where they could avoid counting distinct. Distinct count is all about sorting, grouping lists of ids for every cell in data intersection.  
+ But...
+Isn't it simple to count the distinct number of session on a ga:pagePath value?
+I'll answer this in a bit 
+ The User and data partitioning
+The choice they made was to partition data on users (clientIds or userIds)
+Because when they know that clientId/userId X is only present in a certain table in BT, they can run a map/reduce function that counts users and they don't have to be concerned that the same user is present in another dataset and be forced to store all clientIds/userIds in a list - group them - and then count them - distinct.
+Since the current GA tracking script is called Universal Analytics they have to be able to count users correct. Especially when focusing on cross-device tracking. 
+ OK, but how does this affect session count?
+You have a set of users, each having multiple sets of sessions each having a list of page hits.
+When counting within a specific session looking for a pagePaths, you will find the same page multiple times but you will not count the page more than once.
+You need to write down you've already seen this page before. 
+When you have traversed all pages within that session you need only count the session once per page. This procedure requires a state/memory. And since the counting process is probably done in parallel on the same server. You can't be sure that a specific session is handled by the same process. Which makes the counting even more memory consuming.
+Google decided not to chase that rabit any longer and just ignore that the session count is wrong for pagePath and other hit scoped dimensions. 
+ "Cube" storage
+The reason I write "cube" is that I don't know exactly if they use traditional a OLAP cube structure, but I know they have up to 100 cubes populated for answering different dimension/metric combinations. 
+ By isolation/grouping dimensions in smaller cubes, data won't explode exponentially like it would if they put all data in a single cube.
+The drawback is that not all data combinations are allowed. Which we know is true.
+E.g. ga:transactionId and ga:eventCategory can't be queried together. 
+ By choosing this structure the dataset can scale well economical and performance-wise 
+ 
+ Many places and applications in the Google portfolio use the  **MapReduce**
+ algorithm for storage and processing of large quantities of data. 
+ See the  Google Research Publications on MapReduce  for further information and also have a look at  page 4  and  page 5  of  this  Baseline article. 
+ 
+ Google analytics runs on ' **Mesa: Geo-Replicated, Near Real-Time, Scalable DataWarehousing**
+'.
+ https://storage.googleapis.com/pub-tools-public-publication-data/pdf/42851.pdf 
+ "Mesa is a highly scalable analytic data warehousing systemthat stores critical measurement data related to Google’sInternet advertising business." 
+ 

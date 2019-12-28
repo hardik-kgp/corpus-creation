@@ -1,0 +1,60 @@
+*** weekly-schedules-how-can-you-store-this-in-a-database ***
+
+ Currently, I'm working on a project to manage maintenance windows on a database of servers, etc. Basically, I only need to be accurate down to the hour, but allow for them to be set to allow, or disallow, for each day of the week. 
+ I've had a few ideas on how to do this, but since I work by myself, I'm not wanting to commit to anything without some feedback. 
+ **To visualize this, it's something like the flowing "graph"**
+
+ 
+ Is there a standard way of doing this or a resource that might give me some ideas to... 
+ 
+ Make a format that can be saved and restored easily 
+ Make it searchable within the database (for example, not having to deserialize it to search for a time) 
+ 
+ **[Update]**
+
+ It is worth mentioning that a day could, even though unlikely, be set to "allow, deny, allow, deny...etc...". The span isn't guaranteed to be the only one for the whole day. 
+ This is also not the only schedule, there will be hundreds of devices each with their own schedule, so it's going to get hairy... lol?? 
+ **Rob**
+ asked if each week needed to be tracked - It does not. This is a generic schedule that will apply to the entire year (regularly scheduled maintenance) 
+ 
+ I would consider for (1) using a format that includes both start and end times, and an integer field for the day of the week.  I know you stated the blocks will always be one hour, but that can be enforced by your code.  Also, if your requirements change one day, you'll have a lot less to worry about in step (2) than if your DB statements are all written to assume 1 hour blocks. 
+ 
+ For (2), if each record has a start and end time associated with it, then it's very easy to check for windows for any given time: 
+ 
+ (where   represents the date and time you want to check).   
+ The allowing or disallowing for each day of the week would be handled by separate records.  IMHO, this is more flexible than hard-coding for each day of the week, since you'll then be using some kind of case statement or if-else switch to check the right DB column for the day you're interested in. 
+ **Note:**
+ Be sure you know which standard your DB uses for the integer day of the week, and try to make your code independent of it (always ask the DB).  We've had lots of fun with different standards for the start of the week (Sunday or Monday) and the starting index (0 or 1). 
+ 
+ If it is going to be different every week, then set up the table like this; 
+ 
+ If a start time for a particular date/hour is set, then assume that it is allowed, otherwise deny. 
+ If it is a generic configuration for a generic week that doesn't change, try this; 
+ 
+ Then add rows for every hour/day combination. 
+ 
+ I've actually used this design before, basically creating a bitmap for the time span you want to regularly schedule divided by the number of periods you want. So in your example you want a week schedule with hourly periods, so you'll have a 168 bit bitmap which is only 21 bytes long. A couple of datetimes are 16 bytes together and you'll need multiple rows of these to represent the possible schedules for a given week so if you care at all about size I don't think you can beat it. 
+ I will admit it is a little trickier to deal with and less flexible than the previous suggestions. Consider if you all of a sudden wanted to use 1/2 hour periods, you would need to transcode all your existing data to a new 336 bit bitmap and distribute values out. 
+ If you're using SQL, you can either store this as a binary blog and do the bit twiddling to compare whether a bit is on or off yourself or you can store each bit as a column. MS SQL Server supports up to 1024 for standard or 30k for wide tables so you could easily get granularity down to 10 minutes for either or a great deal finer for a 30k table. 
+ I hope this adds a little different perspective on how it might be done. It's really only necessary if you are worried about space/size or if you have perhaps 10s or 100s of millions of them. 
+ 
+ You could easily just record the "allowed" times in a table. That way, if it isn't there, it isn't allowed. If you need to have a more variable "schedule" you could easily add a year and month field. 
+ 
+ For December, 2008: 
+ 
+ You have all the days for Dec 2008 on which maintenance can be performed. Display however you wish. 
+ 
+ Every proposed solution is good to me, anyway i would consider this one should you face performance and/or table size issues. Since you would probably make a relation between time and your entity (i.e. a server), size will increase by entity_number * entity_times. If you have a row for each timespan this could be a pain. 
+ This proposal is little uglier in terms of table structure but more efficient when it comes to disk space and table scan speed. 
+ 
+ Consider the example where you want to assign 16:00 - 20:00 uptime to a server on sunday and monday, you will have only two rows like 
+ 
+ You will assume that every missing row means server is down. 
+ Should you need this, you could consider using a DATE format for the day column to set specific dates (i.e. uptime only 2013/10/02 between 16:00 and 20:00).  
+ Hope it helps 
+ 
+ Maybe something like  
+ 
+ 
+ Written in Python, a module like this might work-  https://github.com/AndrewPashkin/pytempo 
+ 

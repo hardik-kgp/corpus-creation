@@ -1,0 +1,130 @@
+*** grant-privileges-for-a-particular-database-in-postgresql ***
+
+ I'm moving from MySQL to PostgreSQL and have hit a wall with user privileges. I am used to assigning a user all privileges to all tables of a database with the following command: 
+ 
+ It appears to me that the PostgreSQL 9.x solution involves assigning privileges to a "schema", but the effort required of me to figure out exactly what SQL to issue is proving excessive. I know that a few more hours of research will yield an answer, but I think everyone moving from MySQL to PostgreSQL could benefit from having at least one page on the web that provides a simple and complete recipe. This is the only command I have ever needed to issue for users. I'd rather not have to issue a command for every new table. 
+ I don't know what scenarios have to be handled differently in PostgreSQL, so I'll list some of the scenarios that I have typically had to handle in the past. Assume that we only mean to modify privileges to a single database that has already been created. 
+ 
+ (1a) Not all of the tables have been created yet, or (1b) the tables have already been created. 
+ (2a) The user has not yet been created, or (2b) the user has already been created. 
+ (3a) Privileges have not yet been assigned to the user, or (3b) privileges were previously assigned to the user. 
+ (4a) The user only needs to insert, update, select, and delete rows, or (4b) the user also needs to be able to create and delete tables. 
+ 
+ I have seen answers that grant all privileges to all databases, but that's not what I want here. Please, I am looking for a simple recipe, although I wouldn't mind an explanation as well. 
+ I don't want to grant rights to all users and all databases, as seems to be the conventional shortcut, because that approach compromises all databases when any one user is compromised. I host multiple database clients and assign each client a different login. 
+ It looks like I also need the   privilege to get the increasing values of a   column, but I have to grant it on some sort of sequence. My problem got more complex. 
+ 
+ **Basic concept in Postgres**
+
+ Roles are global objects that can access all databases in a db cluster - given the required privileges. 
+ A  cluster  holds many  databases , which hold many  schemas . Schemas (even with the same name) in different DBs are unrelated. Granting privileges for a schema only applies to this particular schema in the current DB (the current DB at the time of granting). 
+ Every database starts with a schema   by default. That's a convention, and many settings start with it. Other than that, the schema   is just a schema like any other. 
+ Coming from MySQL, you may want to start with a single schema  , effectively ignoring the schema layer completely. I am using dozens of schema per database regularly. 
+Schemas are a bit (but not completely) like directories in the file system. 
+ Once you make use of multiple schemas, be sure to understand   setting: 
+ 
+ How does the search_path influence identifier resolution and the "current schema" 
+ 
+ **Default privileges**
+
+ Per documentation on  : 
+ 
+ PostgreSQL grants default privileges on some types of objects to
+   . No privileges are granted to   by default on tables,
+  columns, schemas or tablespaces. For other types, the default
+  privileges granted to   are as follows:   and  
+  for databases;   privilege for functions; and   privilege for languages. 
+ 
+ All of these defaults can be changed with  : 
+ 
+ Grant all on a specific schema in the db to a group role in PostgreSQL 
+ 
+ **Group role**
+
+ Like @Craig commented , it's best to   privileges to a group role and then make a specific user member of that role (  the group role to the user role). this way it is simpler to deal out and revoke bundles of privileges needed for certain tasks. 
+ A group role is just another role without login. Add a login to transform it into a user role. More:   
+ 
+ Why did PostgreSQL merge users and groups into roles? 
+ 
+ **Recipe**
+
+ Say, we have a new database  , a group  , and a user   ...   
+ While connected to the database in question as superuser (  for instance): 
+ 
+ To assign   like you wrote (I might be more restrictive): 
+ 
+ To set default privileges for future objects, run for  every role  that creates objects in this schema: 
+ 
+ Now, grant the group to the user: 
+ 
+ Related answer: 
+ 
+ PostgreSQL - DB user should only be allowed to call functions 
+ 
+ **Alternative (non-standard) setting**
+
+ Coming from MySQL, and since you want to keep privileges on databases separated, you might like this non-standard setting  .  Per documentation: 
+ 
+ This parameter enables per-database user names. It is off by default. 
+ 
+ Read the manual carefully. I don't use this setting. It does not void the above. 
+ 
+ 
+ Maybe you could give me an example that grants a specific user
+  select/insert/update/delete on all tables -- those existing and not
+  yet created -- of a specific database? 
+ 
+ What you call a database in MySQL more closely resembles a PostgreSQL schema than a PostgreSQL database. 
+ Connect to database "test" as a superuser. Here that's 
+ 
+ Change the default privileges  for the existing user "tester". 
+ 
+ Changing default privileges has no effect on existing tables. That's by design. For existing tables, use standard GRANT and REVOKE syntax. 
+ You can't assign privileges for a user that doesn't exist. 
+ 
+ 
+ I don't want to grant rights to all users and all databases, as seems to be the conventional shortcut, because that approach compromises all databases when any one user is compromised. I host multiple database clients and assign each client a different login. 
+ 
+ **OK. When you assign tables to the correct role, the privileges granted will be role-specific and not to all users! Then you can decide who to give **
+** to.**
+
+ 
+ Create a   for each database. A role can hold many users. 
+ Then assign a   to the correct role.  
+ Also assign   to each role if needed. 
+ 
+ 
+ 
+ (1a) Not all of the tables have been created yet, or (1b) the tables have already been created. 
+ 
+ **OK. You can create tables later.**
+
+When you are ready, assign tables to the correct client  .  
+ 
+ 
+ 
+ (2a) The user has not yet been created, or (2b) the user has already been created. 
+ 
+ **OK. Create usernames when you are ready.**
+ If your client needs more than one username simply create a second  .  
+ 
+ 
+ 
+ (3a) Privileges have not yet been assigned to the user, or (3b) privileges were previously assigned to the user. 
+ 
+ **OK. When you are ready to give privileges, create the user and assign the correct role to her.**
+
+Use GRANT-TO command to assign roles to users. 
+ 
+ 
+ 
+ (4a) The user only needs to insert, update, select, and delete rows, or (4b) the user also needs to be able to create and delete tables. 
+ 
+ **OK. You run these commands to add permissions to your users.**
+
+ 
+ 
+ You can forget about the schema if you only use PUBLIC.
+Then you do something like this: ( see doc here ) 
+ 
+ 

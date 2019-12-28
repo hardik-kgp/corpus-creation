@@ -1,0 +1,35 @@
+*** storing-and-querying-gps-coordinates-effectively ***
+
+ I want to create a large database of GPS coordinates that can be queried by saying "Return all coordinates that are within 'n' metres of [this coordinate]". 
+ I need it to be as efficient as possible so looping through all the coordinates in the database and calculating whether a coordinate is within 'n' metres wouldn't be a desired solution. 
+ Is there an easier solution? 
+ Thanks 
+ 
+ I typically do this sort of query using lat/lon. Using spherical geometry, you can put a bounding box around a specific point. For example, say you have a point (X,Y) that you want all coordinates within 1 mile (conversion to meters I'll leave as an exercise for the reader). You can determine a bounding box of (X-1,Y-1),(X+1,Y+1). Then you query your points database using the BETWEEN operator (SELECT foo FROM bar WHERE LAT BETWEEN X-1 AND X+1 AND LON BETWEEN Y-1 AND Y+1). Then you do your detail distance calculation to "round the corners" of your bounding box. 
+ The caveat is that longitude lines are closer together at the top of the sphere, so you'll get skewed results the further away you are from the equator. But it still serves to quickly filter down your results sets. 
+ Google "Great Circle Distance" for the calculations. 
+ **EDIT:**
+ There are 0.167469 degrees of longitude per mile (it actually ranges from 0.167469 to 0.014564), and 0.014483 degrees of latitude per mile. So your bounding box is  
+ 
+ There is support in SQL Server 2008 for storing  spatial data . I've never worked with it myself but I do know you can create queries of the type you want. 
+ 
+ Many database systems have function for working with geospatial data. 
+ Here is comparsion geospatial functions between SQL Server 2008, PosGIS and MySQL
+ http://www.bostongis.com/PrinterFriendly.aspx?content_name=sqlserver2008_postgis_mysql_compare 
+ 
+ Following up on Erich - if you have your choice use PostGIS (postgresql) it's free and open source, does the queries you are describing very very quickly, runs on almost all platforms, and did I mention it is free? 
+ 
+ GIS databases (e.g. PostgreSQL with PostGIS) actually provide data structures for two- or three dimensional region-searches ( spatial indices ). The simplest one is the grid index, then the different search trees (kd-tree, quad-tree) with R-tree as the most frequently used (a generalized B-tree for more dimensions). These methods seem adequate.  
+ A basic grid-index (partitioning the space into grid-cells, and searching only in the nearby cells) can be implemented easily and can reduce the search time significantly. Search trees are a bit harder to implement, but there are lots of open-source implementations for lots of programming languages and DBs (like PostGIS or Geopandas etc.). Using them for problems like this one usually pays off. 
+ 
+ If you can have your choice of DB, I would recommend the same as rwwilden and use SQL 2008 with its spatial data capabilities. If you cannot use that solution or one which includes spatial querying, you can take a look at Microsoft's own paper on  Hierarchical Triangular Mesh  and implement those things.  The SDK for MSSQL '05 came with a whole solution for HTM out-of-the-box as well, so you could just take that and convert it to whatever platform you are looking at using. 
+ EDIT: 
+ Here is a more detail  document  explaining HTM and implementation. You can of course convert to your DB of choice.  You can find the source code to a full HTM implementation in the SDK for 2005. 
+ 
+ If you want to avoid a GIS extension, I adapted the functions from  this post  to postgres sql: 
+ 
+ using those you can do some surrounding-square queries: 
+ 
+ if you used it frequently enough I'm sure turning the between statements into a single function would be easy. I never did any actual "within radius" queries with this though. 
+ For anything more complicated, you'll probably want a GIS extension like other answers have said. PostGIS is good, but I found a lot of the gis-specific functions can be hard to get right, and unless you utilize bounding-box indices your spacial queries might take a day if your data set is large enough. But the tradeoff in complexity is definitely worth it for all the fancy things, like outputting your data in geojson format, etc. 
+ 

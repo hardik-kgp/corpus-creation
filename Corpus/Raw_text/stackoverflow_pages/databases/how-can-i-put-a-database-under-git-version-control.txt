@@ -1,0 +1,179 @@
+*** how-can-i-put-a-database-under-git-version-control ***
+
+ I'm doing a web app, and I need to make a branch for some major changes, the thing is, these changes require changes to the database schema, so I'd like to put the entire database under git as well. 
+ How do I do that? is there a specific folder that I can keep under a git repository? How do I know which one? How can I be sure that I'm putting the right folder? 
+ I need to be sure, because these changes are not backward compatible; I can't afford to screw up. 
+ The database in my case is PostgreSQL 
+ **Edit:**
+
+ Someone suggested taking backups and putting the backup file under version control instead of the database. To be honest, I find that really hard to swallow.  
+ There has to be a better way. 
+ **Update:**
+
+ OK, so there' no better way, but I'm still not quite convinced, so I will change the question a bit: 
+ I'd like to put the entire database under version control, what database engine can I use so that I can put the actual database under version control instead of its dump? 
+ Would sqlite be git-friendly? 
+ Since this is only the development environment, I can choose whatever database I want. 
+ **Edit2:**
+
+ What I really want is not to track my development history, but to be able to switch from my "new radical changes" branch to the "current stable branch" and be able for instance to fix some bugs/issues, etc, with the current stable branch. Such that when I switch branches, the database auto-magically becomes compatible with the branch I'm currently on.
+I don't really care much about the actual data. 
+ 
+ Take a database dump, and version control that instead. This way it is a flat text file. 
+ Personally I suggest that you keep both a data dump, and a schema dump. This way using diff it becomes fairly easy to see what changed in the schema from revision to revision. 
+ If you are making big changes, you should have a secondary database that you make the new schema changes to and not touch the old one since as you said you are making a branch. 
+ 
+ Check out Refactoring Databases ( http://databaserefactoring.com/ ) for a bunch of good techniques for maintaining your database in tandem with code changes. 
+ Suffice to say that you're asking the wrong questions.  Instead of putting your database into git you should be decomposing your changes into small verifiable steps so that you can migrate/rollback schema changes with ease. 
+ If you want to have full recoverability you should consider archiving your postgres WAL logs and use the PITR (point in time recovery) to play back/forward transactions to specific known good states. 
+ 
+ I'm starting to think of a really simple solution, don't know why I didn't think of it before!! 
+ 
+ Duplicate the database, (both the schema and the data). 
+ In the branch for the new-major-changes, simply change the project configuration to use the new duplicate database.  
+ 
+ This way I can switch branches without worrying about database schema changes. 
+ **EDIT:**
+
+ By duplicate, I mean create another database with a different name (like  ); not doing a dump or anything like that. 
+ 
+ Use something like  LiquiBase  this lets you keep revision control of your Liquibase files. you can tag changes for production only, and have lb keep your DB up to date for either production or development, (or whatever scheme you want). 
+ 
+ There is a great project called Migrations under Doctrine that built just for this purpose. 
+ Its still in alpha state and built for php. 
+ http://docs.doctrine-project.org/projects/doctrine-migrations/en/latest/index.html 
+ 
+ Faced similar need and here is what my research on database version control systems threw up: 
+ 
+ Sqitch - perl based open source; available for all major databases including PostgreSQL  https://github.com/sqitchers/sqitch 
+ Mahout - only for PostgreSQL;  open source database schema version control. 
+ https://github.com/cbbrowne/mahout 
+ Liquibase - another open source db version control sw. free version of Datical.  http://www.liquibase.org/index.html 
+ Datical - commercial version of Liquibase -  https://www.datical.com/ 
+ Flyway by BoxFuse - commercial sw.  https://flywaydb.org/ 
+ Another open source project  https://gitlab.com/depesz/Versioning 
+Author provides a guide here:  https://www.depesz.com/2010/08/22/versioning/   
+ Red Gate Change Automation - only for SQL Server. 
+ https://www.red-gate.com/products/sql-development/sql-change-automation/ 
+ 
+ 
+ I've come across this question, as I've got a similar problem, where something approximating a DB based Directory structure, stores 'files', and I need git to manage it.  It's distributed, across a cloud, using replication, hence it's access point will be via MySQL.   
+ The gist of the above answers, seem to similarly suggest an alternative solution to the problem asked, which kind of misses the point, of using Git to manage something in a Database, so I'll attempt to answer that question.   
+ Git is a system, which in essence stores a database of deltas (differences), which can be reassembled, in order, to reproduce a context.  The normal usage of git assumes that context is a filesystem, and those deltas are diff's in that file system, but really all git is, is a hierarchical database of deltas (hierarchical, because in most cases each delta is a commit with at least 1 parents, arranged in a tree). 
+ As long as you can generate a delta, in theory, git can store it.  The problem is normally git expects the context, on which it's generating delta's to be a file system, and similarly, when you checkout a point in the git hierarchy, it expects to generate a filesystem.   
+ If you want to manage change, in a database, you have 2 discrete problems, and I would address them separately (if I were you).  The first is schema, the second is data (although in your question, you state data isn't something you're concerned about).  A problem I had in the past, was a Dev and Prod database, where Dev could take incremental changes to the schema, and those changes had to be documented in CVS, and propogated to live, along with additions to one of several 'static' tables.  We did that by having a 3rd database, called Cruise, which contained only the static data.  At any point the schema from Dev and Cruise could be compared, and we had a script to take the diff of those 2 files and produce an SQL file containing ALTER statements, to apply it.  Similarly any new data, could be distilled to an SQL file containing INSERT commands.  As long as fields and tables are only added, and never deleted, the process could automate generating the SQL statements to apply the delta.   
+ The mechanism by which git generates deltas is   and the mechanism by which it combines 1 or more deltas with a file, is called  .  If you can come up with a method for diffing and merging from a different context, git should work, but as has been discussed you may prefer a tool that does that for you.  My first thought towards solving that is this  https://git-scm.com/book/en/v2/Customizing-Git-Git-Configuration#External-Merge-and-Diff-Tools  which details how to replace git's internal diff and merge tool.  I'll update this answer, as I come up with a better solution to the problem, but in my case I expect to only have to manage data changes, in-so-far-as a DB based filestore may change, so my solution may not be exactly what you need.   
+ 
+ Take a look at RedGate SQL Source Control. 
+ http://www.red-gate.com/products/sql-development/sql-source-control/ 
+ This tool is a SQL Server Management Studio snap-in which will allow you to place your database under Source Control with Git. 
+ It's a bit pricey at $495 per user, but there is a 28 day free trial available. 
+ NOTE
+I am not affiliated with RedGate in any way whatsoever. 
+ 
+ I want to make something similar, add my database changes to my version control system. 
+ I am going to follow the ideas in this post from Vladimir Khorikov  "Database versioning best practices" . In summary i will 
+ 
+ store both its schema and the reference data in a source control system. 
+ for every modification we will create a separate SQL script with the changes 
+ 
+ In case it helps! 
+ 
+ You can't do it without atomicity, and you can't get atomicity without either using pg_dump or a snapshotting filesystem. 
+ My postgres instance is on zfs, which I snapshot occasionally.  It's approximately instant and consistent. 
+ 
+ What you want, in spirit, is perhaps something like  Post Facto , which stores versions of a database in a database.  Check this  presentation . 
+ The project apparently never really went anywhere, so it probably won't help you immediately, but it's an interesting concept.  I fear that doing this properly would be very difficult, because even version 1 would have to get all the details right in order to have people trust their work to it. 
+ 
+ I've released a tool for sqlite that does what you're asking for. It uses a custom diff driver leveraging the sqlite projects tool 'sqldiff', UUIDs as primary keys, and leaves off the sqlite rowid. It is still in alpha so feedback is appreciated. 
+ Postgres and mysql are trickier, as the binary data is kept in multiple files and may not even be valid if you were able to snapshot it. 
+ https://github.com/cannadayr/git-sqlite 
+ 
+ 
+ Irmin 
+ Flur.ee 
+ Crux DB 
+ 
+ I have been looking for the same feature for Postgres (or SQL databases in general) for a while, but I found no tools to be suitable (simple and intuitive) enough. This is probably due to the binary nature of how data is stored.  Klonio  sounds ideal but looks dead.  Noms DB  looks interesting ( and alive ). Also take a look at  Irmin  (OCaml-based with Git-properties). 
+ Though this doesn't answer the question in that it would work with Postgres, check out the  Flur.ee  database. It has a "time-travel" feature that allows you to query the data from an arbitrary point in time. I'm guessing it should be able to work with a "branching" model. 
+ This database was recently being developed for blockchain-purposes. Due to the nature of blockchains, the data needs to be recorded in increments, which is exactly how git works. They are  targeting an open-source release in Q2 2019 . 
+ 
+ Because each Fluree database is a blockchain, it stores the entire history of every transaction performed. This is part of how a blockchain ensures that information is immutable and secure . 
+ 
+ **Update**
+: Also check out the  Crux database , which can query across the time dimension of inserts, which you could see as 'versions'. Crux seems to be an open-source implementation of the highly appraised Datomic. 
+ 
+ Crux is a bitemporal database that stores transaction time and valid time histories. While a [uni]temporal database enables "time travel" querying through the transactional sequence of database states from the moment of database creation to its current state, Crux also provides "time travel" querying for a discrete valid time axis without unnecessary design complexity or performance impact. This means a Crux user can populate the database with past and future information regardless of the order in which the information arrives, and make corrections to past recordings to build an ever-improving temporal model of a given domain. 
+ 
+ 
+ I think X-Istence is on the right track, but there are a few more improvements you can make to this strategy. First, use: 
+ 
+ to dump the tables, sequences, etc and place this file under version control. You'll use this to separate the compatibility changes between your branches. 
+ Next, perform a data dump for the set of tables that contain configuration  required  for your application to operate (should probably skip user data, etc), like form defaults and other data non-user modifiable data. You can do this selectively by using: 
+ 
+ This is a good idea because the repo can get really clunky when your database gets to 100Mb+ when doing a full data dump. A better idea is to back up a more minimal set of data that you require to test your app. If your default data is very large though, this may still cause problems though. 
+ If you absolutely need to place full backups in the repo, consider doing it in a branch outside of your source tree. An external backup system with some reference to the matching svn rev is likely best for this though. 
+ Also, I suggest using text format dumps over binary for revision purposes (for the schema at least) since these are easier to diff. You can always compress these to save space prior to checking in. 
+ Finally, have a look at the  postgres backup documentation  if you haven't already. The way you're commenting on backing up 'the database' rather than a dump makes me wonder if you're thinking of file system based backups (see section  23.2  for caveats). 
+ 
+ This question is pretty much answered but I would like to complement X-Istence's and Dana the Sane's answer with a small suggestion. 
+ If you need revision control with some degree of granularity, say daily, you could couple the text dump of both the tables and the schema with a tool like  rdiff-backup  which does incremental backups. The advantage is that instead of storing snapshots of daily backups, you simply store the differences from the previous day. 
+ With this you have both the advantage of revision control and you don't waste too much space. 
+ In any case, using git directly on big flat files which change very frequently is not a good solution. If your database becomes too big, git will start to have some problems managing the files. 
+ 
+ I would recommend  neXtep  for version controlling the database it has got a good set of documentation and forums that explains how to install and the errors encountered. I have tested it for postgreSQL 9.1 and 9.3, i was able to get it working for 9.1 but for 9.3 it doesn't seems to work. 
+ 
+ What I do in my personal projects is, I store my whole database to dropbox and then point MAMP, WAMP workflow to use it right from there.. That way database is always up-to-date where ever I need to do some developing. But that's just for dev! Live sites is using own server for that off course! :) 
+ 
+ Storing  **each level of database changes**
+ under git versioning control is like pushing your  **entire**
+ database with each commit and  **restoring**
+ your entire database with each pull.
+If your database is so prone to crucial changes and you cannot afford to loose them, you can just update your  **pre_commit**
+ and  **post_merge**
+ hooks. 
+I did the same with one of my projects and you can find the directions  here . 
+ 
+ That's how I do it:  
+ Since your have free choise about DB type use a filebased DB like e.g. firebird. 
+ Create a template DB which has the schema that fits your actual branch and store it in your repository. 
+ When executing your application programmatically create a copy of your template DB, store it somewhere else and just work with that copy. 
+ This way you can put your DB schema under version control without the data.  And if you change your schema you just have to change the template DB 
+ 
+ We used to run a social website, on a standard LAMP configuration. We had a Live server, Test server, and Development server, as well as the local developers machines. All were managed using GIT. 
+ On each machine, we had the PHP files, but also the MySQL service, and a folder with Images that users would upload. The Live server grew to have some 100K (!) recurrent users, the dump was about 2GB (!), the Image folder was some 50GB (!). By the time that I left, our server was reaching the limit of its CPU, Ram, and most of all, the concurrent net connection limits (We even compiled our own version of network card driver to max out the server 'lol'). We could not ( nor should you assume with your website ) put 2GB of data and 50GB of images in GIT. 
+ To manage all this under GIT easily, we would ignore the binary folders (the folders containing the Images) by inserting these folder paths into .gitignore. We also had a folder called SQL outside the Apache documentroot path. In that SQL folder, we would put our SQL files from the developers in incremental numberings (001.florianm.sql, 001.johns.sql, 002.florianm.sql, etc). These SQL files were managed by GIT as well. The first sql file would indeed contain a large set of DB schema. We don't add user-data in GIT (eg the records of the users table, or the comments table), but data like configs or topology or other site specific data, was maintained in the sql files (and hence by GIT). Mostly its the developers (who know the code best) that determine what and what is not maintained by GIT with regards to SQL schema and data. 
+ When it got to a release, the administrator logs in onto the dev server, merges the live branch with all developers and needed branches on the dev machine to an update branch, and pushed it to the test server. On the test server, he checks if the updating process for the Live server is still valid, and in quick succession, points all traffic in Apache to a placeholder site, creates a DB dump, points the working directory from 'live' to 'update', executes all new sql files into mysql, and repoints the traffic back to the correct site. When all stakeholders agreed after reviewing the test server, the Administrator did the same thing from Test server to Live server. Afterwards, he merges the live branch on the production server, to the master branch accross all servers, and rebased all live branches. The developers were responsible themselves to rebase their branches, but they generally know what they are doing. 
+ If there were problems on the test server, eg. the merges had too many conflicts, then the code was reverted (pointing the working branch back to 'live') and the sql files were never executed. The moment that the sql files were executed, this was considered as a non-reversible action at the time. If the SQL files were not working properly, then the DB was restored using the Dump (and the developers told off, for providing ill-tested SQL files). 
+ Today, we maintain both a sql-up and sql-down folder, with equivalent filenames, where the developers have to test that both the upgrading sql files, can be equally downgraded. This could ultimately be executed with a bash script, but its a good idea if human eyes kept monitoring the upgrade process. 
+ It's not great, but its manageable. Hope this gives an insight into a real-life, practical, relatively high-availability site. Be it a bit outdated, but still followed. 
+ 
+ Use a tool like iBatis Migrations ( manual ,  short tutorial video ) which allows you to version control  the changes  you make to a database throughout the lifecycle of a project, rather than the database itself. 
+ This allows you to selectively apply individual changes to different environments, keep a changelog of which changes are in which environments, create scripts to apply changes A through N, rollback changes, etc. 
+ 
+ 
+ I'd like to put the entire database under version control, what
+  database engine can I use so that I can put the actual database under
+  version control instead of its dump? 
+ 
+ This is not database engine dependent. By Microsoft SQL Server there are lots of version controlling programs. I don't think that problem can be solved with git, you have to use a pgsql specific schema version control system. I don't know whether such a thing exists or not... 
+ 
+ Here is what i am trying to do in my projects: 
+ 
+ separate data and schema and default data. 
+ 
+ The database configuration is stored in configuration file that is not under version control (.gitignore) 
+ The database defaults (for setting up new Projects) is a simple SQL file under version control. 
+ For the database schema create a database schema dump under the version control. 
+ The most common way is to have update scripts that contains SQL Statements, (ALTER Table.. or UPDATE). You also need to have a place in your database where you save the current version of you schema) 
+ Take a look at other big open source database projects (piwik,or your favorite cms system), they all use updatescripts (1.sql,2.sql,3.sh,4.php.5.sql) 
+ But this a very time intensive job, you have to create, and test the updatescripts and you need to run a common updatescript that compares the version and run all necessary update scripts. 
+ So theoretically (and thats what i am looking for) you could
+dumped the the database schema after each change (manually, conjob, git hooks (maybe before commit))
+(and only in some very special cases create updatescripts) 
+ After that in your common updatescript (run the normal updatescripts, for the special cases) and then compare the schemas (the dump and current database) and then automatically generate the nessesary ALTER Statements. There some tools that can do this already, but haven't found yet a good one. 
+ 
+ **Update Aug 26, 2019:**
+
+ Netlify CMS  is doing it with GitHub, an example implementation can be found here with all information on how they implemented it  netlify-cms-backend-github   
+ 

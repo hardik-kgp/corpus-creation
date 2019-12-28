@@ -1,0 +1,118 @@
+*** database-design-calculating-the-account-balance ***
+
+ How do I design the database to calculate the account balance? 
+ 1) Currently I calculate the account balance from the transaction table
+In my transaction table I have "description" and "amount" etc.. 
+ I would then add up all "amount" values and that would work out the user's account balance. 
+ 
+ I showed this to my friend and he said that is not a good solution, when my database grows its going to slow down???? He said I should create separate table to store the calculated account balance. If did this, I will have to maintain two tables, and its risky, the account balance table could go out of sync. 
+ Any suggestion? 
+ **EDIT**
+: OPTION 2: should I add an extra column to my transaction tables "Balance".
+now I do not need to go through many rows of data to perform my calculation. 
+ Example
+John buys $100 credit, he debt $60, he then adds $200 credit. 
+ Amount $100, Balance $100. 
+ Amount -$60, Balance $40. 
+ Amount $200, Balance $240. 
+ 
+ An age-old problem that has never been elegantly resolved. 
+ All the banking packages I've worked with store the balance with the account entity. Calculating it on the fly from movement history is unthinkable. 
+ The right way is: 
+ 
+ The movement table has an 'opening
+balance' transaction for each and every account. You'll need
+this in a few year's time when you
+need to move old movements out of the
+active movement table to a history
+table. 
+ The account entity has a balance
+field 
+ There is a trigger on the movement
+table which updates the account
+balances for the credited and debited accounts. Obviously, it has commitment
+control. If you can't have a trigger, then there needs to be a  **unique**
+ module which writes movements under commitment control  
+ You have a 'safety net' program you
+can run offline, which re-calculates
+all the balances and displays (and
+optionally corrects) erroneous
+balances. This is very useful for
+testing. 
+ 
+ Some systems store all movements as positive numbers, and express the credit/debit by inverting the from/to fields or with a flag. Personally, I prefer a credit field, a debit field and a signed amount, this makes reversals much easier to follow. 
+ Notice that these methods applies both to cash and securities.  
+ Securities transactions can be much trickier, especially for corporate actions, you will need to accommodate a single transaction that updates one or more buyer and seller cash balances, their security position balances and possibly the broker/depository. 
+ 
+ You should store the current account balance and keep it up to date at all times. The transaction table is just a record of what has happened in the past and shouldn't be used at a high frequency just to fetch the current balance. Consider that many queries don't just want balances, they want to filter, sort and group by them, etc. The performance penalty of summing every transaction you've ever created in the middle of complex queries would cripple even a database of modest size. 
+ All updates to this pair of tables should be in a transaction and should ensure that either everything remains in sync (and the account never overdraws past its limit) or the transaction rolls back. As an extra measure, you could run audit queries that check this periodically. 
+ 
+ This is a database design I got with only one table for just storing a history of operations/transactions. Currently working as charm on many small projects. 
+ This doesn't replace a specific design. This is a generic solution that could fit most of the apps. 
+ **id**
+:int
+    standard row id 
+ **operation_type**
+:int
+    operation type. pay, collect, interest, etc 
+ **source_type**
+:int
+    from where the operation proceeds.
+    target table or category: user, bank, provider, etc 
+ **source_id**
+:int
+    id of the source in the database 
+ **target_type**
+:int
+    to what the operation is applied.
+    target table or category: user, bank, provider, etc 
+ **target_id**
+:int
+    id of the target in the database 
+ **amount**
+:decimal(19,2 signed)
+    price value positive or negative to by summed 
+ **account_balance**
+:decimal(19,2 signed)
+    resulting balance 
+ **extra_value_a**
+:decimal(19,2 signed) [this was the most versatile option without using string storage]
+    you can store an additional number: interest percentage, a discount, a reduction, etc. 
+ **created_at**
+:timestamp 
+ For the source_type and target_type it would be better to use an enum or tables appart. 
+ If you want a particular balance you can just query the last operation sorted by created_at descending limit to 1. You can query by source, target, operation_type, etc. 
+ For better performance it's recommended to store the current balance in the required target object. 
+ 
+ A common solution to this problem is to maintain a (say) monthly opening balance in a snapshot schema.  Calculating the current balance can be done by adding transactional data for the month to the monthly opening balance.  This approach is often taken in accounts packages, particularly where you might have currency conversion and revaluations. 
+ If you have problems with data volume you can archive off the older balances. 
+ Also, the balances can be useful for reporting if you don't have a dedicated external data warehouse or a management reporting facility on the system. 
+ 
+ Of course you need to store your current balance with each row, otherwise it is too slow. To simplify development, you can use constraints, so that you dont need triggers and periodic checks of data integrity. I described it here  Denormalizing to enforce business rules: Running Totals  
+ 
+ Your friend is wrong and you are right, and I would advise you don't change things now. 
+If your db ever goes slow because of this, and after you have verified all the rest (proper indexing), some denormalisation may be of use. 
+You could then put a BalanceAtStartOfYear field in the Accounts table, and summarize only this year records (or any similar approach). 
+But I would certainly not recommend this approach upfront.  
+ 
+ Here is would like to suggest you how can you store your opening balance with a very simple way:- 
+ 
+ Create a trigger function on the transaction table to be called only after update or insert. 
+ Create a column having name in the master table of account naming Opening Balance. 
+ save your opening balance in array in the opening balance column in master table. 
+ you even not need to use server side language use this store array simply you can use database array functions like available in PostgreSQL. 
+ when you want to recalculate you opening balance in array just group your transaction table with array function and update the whole data in the master table. 
+ 
+ I have done this in PostgreSQL and working fine. 
+ over the period of time when your transaction table will become heavy then you can partition for your transaction table on the base of date to speed up the performance.
+this approach is very easy and need not to use any extra table which can slow performance if joining table because lesser table in the joining will give you high performance. 
+ 
+ My approach is  to store the debits in a debit column, credit in the credit column and when fetching the data create two arrays, debit and credit array. Then keep appending the selected data to the array and do this for python: 
+ 
+ then  
+ 
+ 
+ Simple answer: Do all three. 
+ Store the current balance; and in each transaction store the movement and a snapshot of the current balance at that point in time. This would give something  extra  to reconcile in any audit. 
+ I've never worked on core banking systems, but I have worked on investment management systems, and in my experience this is how It's done. 
+ 

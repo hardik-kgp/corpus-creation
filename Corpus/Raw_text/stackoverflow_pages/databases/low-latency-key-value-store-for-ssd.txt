@@ -1,0 +1,39 @@
+*** low-latency-key-value-store-for-ssd ***
+
+ We are working on a SSD-backed key-value solution with the following properties:  
+ 
+ Throughput: 10000 TPS; 50/50 puts/gets;  
+ Latency: 1ms average, 99.9th percentile 10ms 
+ Data volume: ~1 billion values, ~150 bytes each; 64-bit keys; random access, 20% of data fits RAM 
+ 
+ We tried KyotoCabinet, LevelDB, and RethinkDB on commodity SSDs, with different Linux IO schedulers, ext3/xfs file systems; made a number of tests using  Rebench ; and found that in all cases: 
+ 
+ Read-only throughput/latency are very good 
+ Write/update-only throughout is moderate, but there are many high-latency outliers  
+ Mixed read/write workload causes catastrophic oscillation in throughput/latency  even in case of direct access to the block device (bypassing the file system)   
+ 
+ The picture below illustrates such behavior for KyotoCabinet (horizontal axis is time, three periods are clearly visible - read-only, mixed, update only). 
+ The question is: is it possible to achieve low latency for described SLAs using SSDs and what key-value stores are recommended?      
+ 
+ 
+ Highly variant write latency is a common attribute of SSDs (especially consumer models).  There is a pretty good explanation of why in this  AnandTech review  .   
+ Summary is that the SSD write performance worsens overtime as the wear leveling overhead increases.  As the number of free pages on the drive decreases the NAND controller must start defragmenting pages, which contributes to latency.  The NAND also must build an LBA to block map to track the random distribution of data across various NAND blocks.  As this map grows, operations on the map (inserts, deletions) will get slower. 
+ You aren't going to be able to solve a low level HW issue with a SW approach, you are going to need to either move up to an enterprise level SSD or relax your latency requirements. 
+ 
+ Aerospike  is a newer key/value (row) store that can run completely off of SSDs with < 1ms latency for read/write and very high TPS (reaching into millions). 
+ SSDs have great random read access but the key to reducing variance on writes is using sequential IO (this is similar to regular hard disks). It also greatly reduces wear leveling and fade that can occur with lots of writes on SSDs. 
+ If you're building your own key-value system, use a log-structured approach (like Aerospike) so that writes are in bulk and appended/written in large chunks. An in-memory index can maintain the correct data locations for the values while a background process cleans stale/deleted data from disk and defrags files. 
+ 
+ This is kind-of a harebrained idea but it MIGHT work.  Let's assume that your SSD is 128GB. 
+ 
+ Create a 128GB swap partition on the SSD 
+ Configure your machine to use that as swap 
+ Setup memcached on the machine and set a 128GB memory limit 
+ Benchmark 
+ 
+ Will the kernel be able to page stuff in and out fast enough?  No way to know.  That depends more on your hardware than the kernel. 
+ Poul-Henning Kamp does something very similar to this in Varnish by making the kernel keep track of things (virtual vs physical memory) for Varnish rather than making Varnish do it.
+ https://www.varnish-cache.org/trac/wiki/ArchitectNotes 
+ 
+ NuDB is specifically designed for your use-case. It features O(1) insertion and lookup, no matter how big the database gets. Currently it is serving the needs of rippled with a 9TB (9 terabytes) data file. The library is open source, header-only, and requires only C++11  https://github.com/CPPAlliance/NuDB 
+ 

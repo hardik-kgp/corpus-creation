@@ -1,0 +1,82 @@
+*** faster-method-for-wildcard-searching-of-250k-strings ***
+
+ I have an English dictionary in a MySQL database with just over 250K entries, and I'm using a simple ruby front-end to search it using wildcards at the beginning of the strings. So far I've been doing it like this: 
+ 
+ or even 
+ 
+ I always know the exact length of the word, but all but a single character are potentially unknown. 
+ This is slower than molasses, about fifteen times slower than a similar query without the leading wildcard because the index for the column cannot be used. 
+ I've tried a few methods to narrow the scope of the search. For example, I've added 26 additional columns containing each word's individual letter counts and narrow the search using those first. I've also tried narrowing by word length. These methods made almost no difference, thanks to the inherent inefficiency of leading-wildcard searches. I've experimented with the REGEXP statement, which is even slower. 
+ SQLite and PostgreSQL are just as limited as MySQL, and though I have limited experience with NoSQL systems, my research gives me the impression that they excel at scalability, not performance of the kind I need. 
+ My question then, is where should I look for a solution? Should I continue trying to find a way to optimize my queries or add supplementary columns that can narrow my potential recordset? Are there systems designed specifically to accomplish fast wildcard searching in this vein? 
+ 
+ With PostgreSQL 9.1 and the pg_trgm extension you can create indexes that are usable for a like condition you are describing. 
+ For an example see here:  http://www.depesz.com/2011/02/19/waiting-for-9-1-faster-likeilike/ 
+ I verified it on a table with 300k rows using   and it does use such an index. It took about 120ms to count the number of rows in that table (on an old laptop). Interesting enough the expression   is not faster, it's about the same speed.  
+ It also depends on the number of characters in the search term, the longe it gets, the slower it will be as far as I can tell. 
+ You would need to check with your data if the performance is acceptable. 
+ 
+ I'm assuming that the time initially taken to insert the words and set-up your indexing is inconsequential.  Also, you would not do updates to the word list very often so it's basically static data. 
+ You could try an approach like this:- 
+ 
+ Since you always know the word length, create a table containing all the words of length 1, another table of words length 2, etc. 
+ When you conduct a query, select out of the appropriate table based on word length.  It will still need to do a full scan of that table. 
+ 
+ If you RDBMS allows it, you would be better off with a single table and partitions by word length. 
+ If that is still not fast enough, you could further split it by length and known letter.  For example, you could have a table listing all 8 letter words containing a "Z". 
+ When you query, you know you have a 8 letter word containing an "E" and "Z".  First query the data dictionary to see which letter is rarest in 8 letter words, and then scan that table.  By query the data dictionary, I mean figure out if table   or table   has the least number of records. 
+ Regarding Normal Forms and Good Practice 
+ This is not the sort of thing I would typically recommend when modelling data.  In your particular case, storing the entire word in a single character column is not actually in  1st normal form .  This is because you care about individual elements within the word.  Given your use case, a word is a list of letters than a single word.  As always, how to model depends on what you care about. 
+ Your queries are giving you trouble because it's not in first normal form. 
+ The fully normalised model for this problem would have two tables: word (WordId PK) and WordLetter (WordId PK, Position PK, Letter).  You would then query for all words with multiple WHERE EXISTS a letter in the appropriate position. 
+ While correct according to database theory, I do not think this will perform well.  
+ 
+ It all comes down to indexing. 
+ You can create table like: 
+ 
+ Then index all of your words. 
+ If you want a list of all words with an 'e' in the 2nd position: 
+ 
+ If you want all of the words with 'e' in the 2nd position, and 's' in the fifth position: 
+ 
+ Or you can run two simple queries and merge the results yourself. 
+ Of course, simply caching and iterating through the list in memory is likely faster than any of these. But not fast enough to be worth loading the 250K list from the DB every time. 
+ 
+ You can index this query fully without having to scan any more than the size of the result set which is optimal. 
+ Create a lookup table like so: 
+ 
+ Which references your word table: 
+ 
+ Put an index on pattern and execute a select like so: 
+ 
+ Of course you'll need a little ruby script to create this lookup table where pattern is every possible pattern for every word in the dictionary.  In other words the patterns for mouse would be: 
+ 
+ The ruby to generate all patterns for a given word could look like: 
+ 
+ For example: 
+ 
+ 
+ A quick way to get it down by a factor of 10 or so is to create a column for string length, put an index on it, and use it in the where clause. 
+ 
+ You can try using  Apache Lucene , a full text search engine. It was made to answer queries like this, so you might have more luck. 
+ Wildcard searching with lucene . 
+ 
+ Create an in memory lookup table solution: You could have a sorted table for each length.  
+ Then to match, say you know 4th and 8th letter, loop through the words checking only each 4th letter. They are all same length so that will be quick. Only if letter matches check 8th letter.  
+ it's brute force, but will be fast. Let's say worst case you have 50,000 8 letter words. Thats 50,000 comparisons. assuming ruby run time perf issues it should still be < 1sec.  
+ Memory required would be 250k x 10. So 2.5 Meg.  
+ 
+ This is more of an exercise than a real-life solution. The idea is to split the words into characters.  
+ Lets design the needed table first. I assume your   table has the columns  : 
+ 
+ We'll need an auxilary "numbers" table: 
+ 
+ To populate our   table: 
+ 
+ The size of this search table will be about 10 * 250K rows (where 10, put the average size of your words). 
+ 
+ Finally, the query: 
+ 
+ will be written as: 
+ 
+ 

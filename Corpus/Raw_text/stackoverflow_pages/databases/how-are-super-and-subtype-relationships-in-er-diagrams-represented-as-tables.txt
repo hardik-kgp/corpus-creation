@@ -1,0 +1,74 @@
+*** how-are-super-and-subtype-relationships-in-er-diagrams-represented-as-tables ***
+
+ I am learning how to interpret Entity Relationship Diagrams into SQL DDL statements and I am confused by differences in notation. Consider a disjoint relationship as in the following diagram: 
+ 
+ Would this be represented as: 
+ 
+ Vehicle, 2WD and 4WD tables (2WD and 4WD would point to the PK of Vehicle); or  
+ ONLY the 2WD and 4WD tables (and NO Vehicle table), both of which would duplicate whatever attributes Vehicle would have had? 
+ 
+ I think these are other ways of writing the relationship: 
+ 
+ 
+ I'm looking for a clear explanation of the difference in regard to what tables you'd end up with for each diagram. 
+ 
+ **ER Notation**
+
+ There are several ER notations. I'm not familiar with the one you are using, but it's clear enough you are trying to represent a subtype (aka. inheritance, category, subclass, generalization hierarchy...). This is the relational cousin of the OOP inheritance. 
+ When doing subtyping, you are generally concerned with the following design decisions: 
+ 
+ **Abstract vs. concrete:**
+ Can the parent be instantiated? In your example: can a   exist  without  also being   or  ? 1 
+ **Inclusive vs. exclusive:**
+ Can more than one child be instantiated for the same parent? In your example, can   be  both    and  ? 2 
+ **Complete vs. incomplete:**
+ Do you expect more children to be added in the future? In your example, do you expect a   or a   (etc...) could be later added to the database model? 
+ 
+ The Information Engineering notation differentiates between inclusive and exclusive subtype relationship. IDEF1X notation, on the other hand, doesn't (directly) recognize this difference, but it does differentiate between complete and incomplete subtype (which IE doesn't). 
+ The following diagram from the  ERwin Methods Guide  (Chapter 5, Subtype Relationships) illustrates the difference: 
+ 
+ Neither IE nor IDEF1X directly allow specifying abstract vs. concrete parent. 
+ **Physical Representation**
+
+ Unfortunately, practical databases don't directly support inheritance, so you'll need to  transform  this diagram to real tables. There are generally 3 approaches for doing so: 
+ 
+ Put all classes in the same table and leave child fields NULL-able. You can then have a CHECK to make sure the right subset of the fields in non-NULL.
+
+ 
+ Pros: No JOINing, so some queries can benefit. Can enforce parent-level keys (e.g. if you want to avoid different   and   vehicles having the same ID). Can easily enforce inclusive vs. exclusive children and abstract vs. concrete parent (by just varying the CHECK). 
+ Cons: Some queries can be slower since they must filter-out "uninteresting" children. Depending on your DBMS, child-specific constraints can be problematic. A lot of NULLs can waste storage. Less suitable for incomplete subtyping - adding new child requires altering the existing table, which can be problematic in a production environment. 
+ 
+ Put all children in separate tables, but don't have a table for the parent (instead, repeat parent's fields and constraints in all children). Has most of the the characteristics of (3) while avoiding JOINs, at the price of lower maintainability (due to all these field and constraint repetitions) and inability to enforce parent-level keys or represent a concrete parent. 
+ Put both parent and children in separate tables.
+
+ 
+ Pros: Clean. No fields/constraints need to be artificially repeated. Enforces parent-level keys and easy to add child-specific constraints. Suitable for incomplete subtyping (relatively easy to add more child tables). Certain queries can benefit by only looking at "interesting" child table(s). 
+ Cons: Some queries can be JOIN-heavy. Can be hard to enforce inclusive vs. exclusive children and abstract vs. concrete parent (these can be enforced declaratively if the DBMS supports circular  and  deferred foreign keys, but enforcing them at the application level is usually considered a lesser evil). 
+ 
+ 
+ As you can see, the situation is less than ideal - you'll need to make compromises whatever approach you choose. The approach (3) should probably be your starting point, and only choose one of the alternatives if there is a compelling reason to do so. 
+ 
+ 1  I'm guessing this is what thickness of the line stands for in your diagrams. 
+ 2  I'm guessing this is what presence or absence of "disjoint" stands for in your diagrams. 
+ 
+ Usually when you do a Super-type/Sub-type relationship in your database design, you need to create a separate table for your General Entity type (Super-type) and separate tables for your Specialized Entity version/s (Sub-Type) disjointed or not.  In your case, you will need to create a table for VEHICLE and a primary key and some attributes that are common or being shared by all Sub-types. Then, you will need to create separate tables for the 2WD and 4WD along with attributes specific only to those tables. For example  
+ 
+ then you could query those tables by using SQL Joins 
+ 
+ What other responders said, plus the following which goes into primary keys for subclass tables. 
+ Your case looks like an instance of the design pattern known as “Generalization Specialization” , or Gen-Spec for short.  The question of how to model gen-spec using database tables comes up all the time in SO. 
+ If you were modeling gen-spec in an OOPL such as Java, you would use the subclass inheritance facility to take care of the details for you.  You would simply define a class to take care of the generalized objects, and then define a collection of subclasses, one for each type of specialized object.  Each subclass would extend the generalized class.  It’s easy and straightforward.   
+ Unfortunately the relational data model does not have subclass inheritance built in, and the SQL database systems don’t offer any such facility, to my knowledge. But you’re not out of luck.  You can design your tables to model gen-spec in a way that parallels the class structure of   OOP.   You then have to arrange to implement your own inheritance mechanism when new items are added to the generalized class.   Details follow. 
+ The class structure is fairly simple, with one table for the gen class and one table for each spec subclass.  Here’s a nice illustration, from Martin Fowler’s website.   Class Table Inheritance.   Note that in this diagram, Cricketer is both a subclass and a superclass.  You have to choose which attributes go in which tables.  The diagram shows one sample attribute in each table. 
+ The tricky detail is how you define primary keys for these tables.  The gen  class table gets a primary key in the usual way  (unless this table is a specialization of yet another generalization, like Cricketers).  Most designers give the primary key a standard name, like “Id”.  They use the autonumber feature to populate the Id field. The spec class tables get a primary key, which can be named “Id”,  but the autonumber feature is not used.  Instead the primary key of each subclass table is constrained to refer to the primary key of  the generalized  table.  This makes each of the specialized primary keys a foreign key as well as a primary key.   Note that in the case of Cricketers, the Id field will reference the Id field in Players, but the Id field in Bowlers will reference the Id field in Cricketers.  
+ Now, when you add new items, you have to maintain referential integrity,  Here’s how. 
+You first insert a new row into the gen table, providing data for all of its attributes, except the primary key.  The autonumber mechanism generates a unique primary key. Next you insert a new row into the appropriate spec table, including data for all of its attributes, including the primary key.  The primary key you use is a copy of the brand new primary key just generated.  This propagation of the primary key can be called “poor man’s inheritance”. 
+ Now when you want all the generalized data together with all the specialized data from just one subclass, all you have to do is join the two tables over the common keys.  All the data that does not pertain to the subclass in question will drop out of the join.  It’s slick, easy, and fast.  
+ 
+ There is not always only one way to implement any particular data model.  Often, there is a transformation that occurs when you move from a logical model to a physical model. 
+ Standard SQL doesn't have a clean way to enforce  **disjoint**
+ subtype constraints.   
+ If your goal is to enforce as many of your model's rules as possible using the schema, then the standard approach to implementing your model is to use a table for the supertype and one for each of the subtypes.  This ensures that only applicable attributes are used for each entity. 
+ There is a more or less standard SQL trick for enforcing the disjoint constraint.  It puts some people off because it violates normalization rules in an unimportant way.  Still, some people find the technique aesthetically offensive since there is a technical violation of 2NF. 
+ This technique involves adding a  partitioning attribute  to the supertype and including this partitioning attribute in each subtype, adding it to the primary key of the subtype.  Along with check constraints that impose specific values for the partitioning attributes, this ensures that each entity can have at most one subtype.  The technique is documented in detail in many places, such as  this blog . 
+ 

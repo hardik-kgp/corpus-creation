@@ -1,0 +1,71 @@
+*** why-do-we-care-about-data-types ***
+
+ Specifically, in relational database management systems, why do we need to know the data type of a column (more likely, the attribute of an object) at creation time? 
+ To me, data types feel like an optimization, because one data point can be implemented in any number of ways. Wouldn't it be better to assign semantic roles and constraints to a data point and then have the engine internally examine and optimize which data type best serves the user? 
+ I suspect this is where the heavy lifting is and why it's easier to just ask the user rather than to do the work. 
+ What do you think? Where are we headed? Is this a realistic expectation? Or do I have a misguided assumption? 
+ 
+ You're right: assigning a data type to a column is an implementation detail and has nothing to do with the set theory or calculus behind a database engine. As a theoretical model, a database ought to be "typeless" and able to store whatever we throw at it. 
+ But we have to implement the database on a real computer with real constraints. It's not practical, from a performance standpoint, to have the computer dynamically try to figure out how to best store the data. 
+ For example, let's say you have a table in which you store a few million integers. The computer could -- correctly -- figure out that it should store each datum as an integral value. But if you were to one day suddenly try to store a string in that table, should the database engine stop everything until it converts all the data to a more general string format? 
+ Unfortunately, specifying a data type is a necessary evil. 
+ 
+ The type expresses a desired constraint on the values of the column. 
+ 
+ The answer is storage space and fixed size rows. 
+ Fixed-size rows are much, MUCH faster to search than variable length rows, because you can seek directly to the correct byte if you know which record number and field you want. 
+ Edit:  Having said that, if you use proper indexing in your database tables, the fixed-size rows thing isn't as important as it used to be. 
+ 
+ **SQLite**
+ does not care. 
+ Other  **RDBMS**
+'s use principles that were designed in early  **80**
+'s, when it was vital for performance. 
+ **Oracle**
+, for instance, does not distinguish between a   and an empty string, and keeps its  's as sets of centesimal digits. 
+ That hardly makes sense today, but these were very clever solutions when  **Oracle**
+ was being developed. 
+ In one of the databases I developed, though, non-indexed values were used that were stored as  's, casted dynamically into appropriate datatypes depending on several conditions. 
+ That was quite a special thing, though: it was used for bulk loading key-value pairs in one call to the database using collections. 
+ Dynamic   statements were used for parsing data and putting them into appropriate tables based on key name. 
+ All values were loaded to the temporary   column as is and then converted into  's and  's to be put into their columns. 
+ 
+ Explicit data types are huge for efficiency, and storage.  If they are implicit they have to be 'figured' out and therefore incur speed costs.  Indexes would be hard to implement as well. 
+ I would suspect, although not positive, that having explicit types also on average incur less storage space.  For numbers especially, there is no comparison between a binary int and a string of digit characters. 
+ 
+ Hm... Your question is sort of confusing. 
+ If I understand it correctly, you're asking why it is that we specify data types for table columns, and why it is that the "engine" automatically determines what is needed for the user. 
+ Data types act as a constraint - they secure the data's integrity.  An int column will never have letters in it, which is a good thing.  The data type isn't automatically decided for you, you specify it when you create the database - almost always using SQL. 
+ 
+ If you know that some data item is supposed to be numeric integer, and you deliberately choose NOT to let the DBMS take care of enforcing this, then it becomes YOUR responsibility to ensure all sorts of things such as data integrity (ensuring that no value 'A' can be entered in the column, ensuring that no value 1.5 can be entered in the column), such as consistency of system behaviour (ensuring that the value '01' is considered equal to the value '1', which is not the behaviour you get from type String), ... 
+ Types take care of all those sorts of things for you. 
+ 
+ I'm not sure of the history of datatypes in databases, but to me it makes sense to know the datatype of a field. 
+ When would you want to do a sum of some fields which are entirely varchar?
+If I know that a field is an integer, it makes perfect sense to do a sum, avg, max, etc. 
+ 
+ Not all databases work this way.  SQLite was mentioned earlier, but a much older set of databases also does this, multivalued databases. 
+ Consider UniVerse (now an IBM property).  It does not do any data validation, nor does it require that you specify what type it is.  Searches are still (relatively) fast, it takes up less space (due to the way it stores data dynamically). 
+ You can describe what the data may look like using meta-data (dictionary items), but that is the limit of how you restrict the data. 
+ See the wikipedia article on  UniVerse 
+ 
+ When you're pushing half a billion rows in 5 months after go live, every byte counts (in our system) 
+ There is no such anti-pattern as "premature optimisation" in database design. 
+ Disk space is cheap, of course, but you use the data in memory. 
+ 
+ You should care about datatypes when it comes to filtering (WHERE clause) or sorting (ORDER BY). For example "200" is LOWER than "3" if those values are strings, and the opposite when they are integers.  
+ I believe sooner or later you wil have to sort or filter your data ("200" > "3" ?) or use some aggregate functions in reports (like sum() or (avg()). Until then you are good with text datatype :) 
+ 
+ A book I've been reading on database theory tells me that the SQL standard defines a concept of a  domain . For instance, height and width could be two different domains. Although both might be stored as numeric(10,2), a height and a width column could not be compared without casting. This allows for a "type" constraint that is not related to implementation. 
+ I like this idea in general, though, since I've never seen it implemented, I don't know what it would be like to use it. I can see that it would reduce the chance of errors in using values whose implementation happen to be the same, when their conceptual domain is quite different. It might also help keep people from comparing cm and inches, for instance. 
+ 
+ Constraint is perhaps the most important thing mentioned here. Data types exist for ensuring the correctness of your data so you are sure you can manipulate it correctly. There are 2 ways we can store a date. In a type of date or as a string "4th of January 1893". But the string could also have been "4/1 1893", "1/4 1893" or similar. Datatypes constrain that and defines a canonical form for a date. 
+ Furthermore, a datatype has the advantage that it can undergo checks. The string "0th of February 1975" is accepted as a string, but should not be as a date. How about "30th of February 1983"? Poor databases, like MySQL, does not make these checks by default (although you can configure MySQL to do it -- and you should!). 
+ data types will ensure the consistency of your data. This is one of the most important concepts as keeping your data sane will spare your head from insanity. 
+ 
+ RDBMs generally require definition of column types so it can perform lookups fast. If you want to get the 5th column of every row in a huge dataset, having the columns defined is a huge optimisation. 
+ Instead of scanning each row for some form of delimiter to retrieve the 5th column (if column widths were not fixed width), the RDBMs can just take the item at sizeOf(column1 - 4(bytes)) + sizeOf(column5(bytes)). Imagine how much quicker this would be on a table of say 10,000,000 rows. 
+ Alternatively, if you don't want to specify the types of each column, you have two options that I'm aware of. Specify each column as a varchar(255) and decide what you want to do with it within the calling program. Or you can use a different database system that uses key-value pairs such as  Redis . 
+ 
+ database is all about physical storage, data type define this!!! 
+ 

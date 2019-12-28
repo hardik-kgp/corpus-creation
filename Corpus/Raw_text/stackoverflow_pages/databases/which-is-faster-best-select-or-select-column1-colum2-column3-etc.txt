@@ -1,0 +1,165 @@
+*** which-is-faster-best-select-or-select-column1-colum2-column3-etc ***
+
+ I've heard that   is generally bad practice to use when writing SQL commands because it is more efficient to   columns you specifically need. 
+ If I need to   every column in a table, should I use  
+ 
+ or  
+ 
+ Does the efficiency really matter in this case? I'd think   would be more optimal internally if you really need all of the data, but I'm saying this with no real understanding of database. 
+ I'm curious to know what the best practice is in this case. 
+ **UPDATE:**
+ I probably should specify that the only situation where I would really  want  to do a   is when I'm selecting data from one table where I know all columns will always need to be retrieved, even when new columns are added.  
+ Given the responses I've seen however, this still seems like a bad idea and   should never be used for a lot more technical reasons that I ever though about. 
+ 
+ One reason that selecting specific columns is better is that it raises the probability that SQL Server can access the data from indexes rather than querying the table data.  
+ Here's a post I wrote about it:   **The real reason select queries are bad index coverage**
+  
+ It's also less fragile to change, since any code that consumes the data will be getting the same data structure regardless of changes you make to the table schema in the future. 
+ 
+ Given  **your**
+ specification that you  **are**
+ selecting all columns, there is little difference   **at this time**
+. Realize, however, that database schemas do change. If you use   you are going to get any new columns added to the table, even though in all likelihood, your code is not prepared to use or present that new data. This means that you are exposing your system to unexpected performance and functionality changes. 
+ You may be willing to dismiss this as a minor cost, but realize that columns that you don't need still must be: 
+ 
+ Read from database 
+ Sent across the network 
+ Marshalled into your process 
+ (for ADO-type technologies) Saved in a data-table in-memory 
+ Ignored and discarded / garbage-collected 
+ 
+ Item #1 has many hidden costs including eliminating some potential covering index, causing data-page loads (and server cache thrashing), incurring row / page / table locks that might be otherwise avoided. 
+ Balance this against the potential savings of specifying the columns versus an   and the only potential savings are: 
+ 
+ Programmer doesn't need to revisit the SQL to add columns 
+ The network-transport of the SQL is smaller / faster 
+ SQL Server query parse / validation time 
+ SQL Server query plan cache 
+ 
+ For item 1, the reality is that you're going to add / change code to use any new column you might add anyway, so it is a wash. 
+ For item 2, the difference is rarely enough to push you into a different packet-size or number of network packets. If you get to the point where SQL statement transmission time is the predominant issue, you probably need to reduce the rate of statements first. 
+ For item 3, there is NO savings as the expansion of the   has to happen anyway, which means consulting the table(s) schema anyway. Realistically, listing the columns will incur the same cost because they have to be validated against the schema. In other words this is a complete wash. 
+ For item 4, when you specify specific columns, your query plan cache could get larger but  **only**
+ if you are dealing with different sets of columns (which is not what you've specified). In this case, you  **do want**
+ different cache entries because you want different plans as needed. 
+ So, this all comes down, because of the way you specified the question, to the issue resiliency in the face of eventual schema modifications. If you're burning this schema into ROM (it happens), then an   is perfectly acceptable.  
+ However, my general guideline is that you should only select the columns you need, which means that  **sometimes**
+ it will look like you are asking for all of them, but DBAs and schema evolution mean that some new columns might appear that could greatly affect the query. 
+ My advice is that you should  **ALWAYS SELECT specific columns**
+. Remember that you get good at what you do over and over, so just get in the habit of doing it right. 
+ If you are wondering why a schema might change without code changing, think in terms of audit logging, effective/expiration dates and other similar things that get added by DBAs for systemically for compliance issues. Another source of underhanded changes is denormalizations for performance elsewhere in the system or user-defined fields. 
+ 
+ You should only select the columns that you need. Even if you need all columns it's still better to list column names so that the sql server does not have to query system table for columns. 
+ Also, your application might break if someone adds columns to the table. Your program will get columns it didn't expect too and it might not know how to process them. 
+ Apart from this if the table has a binary column then the query will be much more slower and use more network resources. 
+ 
+ There are four big reasons that   is a bad thing: 
+ 
+ The most significant practical reason is that it forces the user to magically know the order in which columns will be returned. It's better to be explicit, which also protects you against the table changing, which segues nicely into... 
+ If a column name you're using changes, it's better to catch it early (at the point of the SQL call) rather than when you're trying to use the column that no longer exists (or has had its name changed, etc.) 
+ Listing the column names makes your code far more self-documented, and so probably more readable. 
+ If you're transferring over a network (or even if you aren't), columns you don't need are just waste. 
+ 
+ 
+ Specifying the column list is  usually  the best option because your application won't be affected if someone adds/inserts a column to the table. 
+ 
+ Specifying column names is definitely faster - for the server. But if  
+ 
+ **performance is not a big issue**
+ (for example, this is a website content database with hundreds, maybe thousands - but not millions - of rows in each table); AND 
+ your job is to create  **many small, similar applications**
+ (e.g. public-facing content-managed websites) using a common framework, rather than creating a complex one-off application; AND 
+ **flexibility is important**
+ (lots of customization of the db schema for each site); 
+ 
+ then you're better off sticking with SELECT *. In our framework, heavy use of SELECT * allows us to introduce a new website managed content field to a table, giving it all of the benefits of the CMS (versioning, workflow/approvals, etc.), while only touching the code at a couple of points, instead of a couple dozen points.  
+ I know the DB gurus are going to hate me for this - go ahead, vote me down - but in my world, developer time is scarce and CPU cycles are abundant, so I adjust accordingly what I conserve and what I waste. 
+ 
+ SELECT * is a bad practice even if the query is not sent over a network.  
+ 
+ Selecting more data than you need makes the query less efficient - the server has to read and transfer extra data, so it takes time and creates unnecessary load on the system (not only the network, as others mentioned, but also disk, CPU etc.). Additionally, the server is unable to optimize the query as well as it might (for example, use covering index for the query). 
+ After some time your table structure might change, so SELECT * will return a different set of columns. So, your application might get a dataset of unexpected structure and break somewhere downstream. Explicitly stating the columns guarantees that you either get a dataset of known structure, or get a clear error on the database level (like 'column not found'). 
+ 
+ Of course, all this doesn't matter much for a small and simple system. 
+ 
+ Performance wise, SELECT with specific columns can be faster (no need to read in all the data). If your query really does use ALL the columns, SELECT with explicit parameters is still preferred. Any speed difference will be basically unnoticeable and near constant-time. One day your schema will change, and this is good insurance to prevent problems due to this.  
+ 
+ You should really be selecting only the fields you need, and only the required number, i.e. 
+ 
+ Outside of the database, dynamic queries run the risk of injection attacks and malformed data.  Typically you get round this using stored procedures or parameterised queries. Also (although not really that much of a problem) the server has to generate an execution plan each time a dynamic query is executed. 
+ 
+ Lots of good reasons answered here so far, here's another one that hasn't been mentioned. 
+ Explicitly naming the columns will help you with maintenance down the road. At some point you're going to be making changes or troubleshooting, and find yourself asking "where the heck is that column used".  
+ If you've got the names listed explicitly, then finding every reference to that column -- through all your stored procedures, views, etc -- is simple. Just dump a CREATE script for your DB schema, and text search through it. 
+ 
+ definitely defining the columns, because SQL Server will not have to do a lookup on the columns to pull them.  If you define the columns, then SQL can skip that step. 
+ 
+ It's always better to specify the columns you need, if you think about it one time, SQL doesn't have to think "wtf is *" every time you query. On top of that, someone later may add columns to the table that you actually do not need in your query and you'll be better off in that case by specifying all of your columns. 
+ 
+ The problem with "select *" is the possibility of bringing data you don't really need. During the actual database query, the selected columns don't really add to the computation. What's really "heavy" is the data transport back to your client, and any column that you don't really need is just wasting network bandwidth and adding to the time you're waiting for you query to return. 
+ Even if you do use all the columns brought from a "select *...", that's just for now. If in the future you change the table/view layout and add more columns, you'll start bring those in your selects even if you don't need them. 
+ Another point in which a "select *" statement is bad is on view creation. If you create a view using "select *" and later add columns to your table, the view definition and the data returned won't match, and you'll need to recompile your views in order for them to work again. 
+ I know that writing a "select *" is tempting, 'cause I really don't like to manually specify all the fields on my queries, but when your system start to evolve, you'll see that it's worth to spend this extra time/effort in specifying the fields rather than spending much more time and effort removing bugs on your views or optimizing your app. 
+ 
+ While explicitly listing columns is good for performance, don't get crazy. 
+ So if you use all the data, try SELECT * for simplicity (imagine having many columns and doing a JOIN... query may get awful). Then - measure. Compare with query with column names listed explicitly. 
+ Don't speculate about performance,  **measure it!**
+
+ Explicit listing helps most when you have some column containing big data (like body of a post or article), and don't need it in given query. Then by not returning it in your answer DB server can save time, bandwidth, and disk throughput. Your query result will also be smaller, which is good for any query cache. 
+ 
+ Select is equally efficient (in terms of velocity) if you use * or columns. 
+ The difference is about memory, not velocity. When you select several columns SQL Server must allocate memory space to serve you the query, including all data for all the columns that you've requested, even if you're only using one of them. 
+ What does matter in terms of performance is the excecution plan which in turn depends heavily on your WHERE clause and the number of JOIN, OUTER JOIN, etc ... 
+ For your question just use SELECT *. If you need all the columns there's no performance difference. 
+ 
+ It is NOT faster to use explicit field names versus *, if and only if, you need to get the data for all fields.   
+ Your client software shouldn't depend on the order of the fields returned, so that's a nonsense too. 
+ And it's possible (though unlikely) that you need to get all fields using * because you don't yet know what fields exist (think very dynamic database structure).   
+ Another disadvantage of using explicit field names is that if there are many of them and they're long then it makes reading the code and/or the query log more difficult. 
+ So the rule should be: if you need all the fields, use *, if you need only a subset, name them explicitly. 
+ 
+ The result is too huge. It is slow to generate and send the result from the SQL engine to the client. 
+ The client side, being a generic programming environment, is not and should not be designed to filter and process the results (e.g. the WHERE clause, ORDER clause), as the number of rows can be huge (e.g. tens of millions of rows). 
+ 
+ Naming each column you expect to get in your application also ensures your application won't break if someone alters the table, as long as your columns are still present (in any order). 
+ 
+ It depends on the version of your DB server, but modern versions of SQL can cache the plan either way. I'd say go with whatever is most maintainable with your data access code. 
+ 
+ One reason it's better practice to spell out exactly which columns you want is because of possible future changes in the table structure. 
+ If you are reading in data manually using an index based approach to populate a data structure with the results of your query, then in the future when you add/remove a column you will have headaches trying to figure out what went wrong.  
+ As to what is faster, I'll defer to others for their expertise. 
+ 
+ As with most problems, it depends on what you want to achieve. If you want to create a db grid that will allow all columns in any table, then "Select *" is the answer. However, if you will only need certain columns and adding or deleting columns from the query is done infrequently, then specify them individually.  
+ It also depends on the amount of data you want to transfer from the server. If one of the columns is a defined as memo, graphic, blob, etc. and you don't need that column, you'd better not use "Select *" or you'll get a whole bunch of data you don't want and your performance could suffer. 
+ 
+ To add on to what everyone else has said, if all of your columns that you are selecting are included in an index, your result set will be pulled from the index instead of looking up additional data from SQL. 
+ 
+ SELECT * is necessary if one wants to obtain metadata such as the number of columns. 
+ 
+ What everyone above said, plus: 
+ If you're striving for readable maintainable code, doing something like: 
+ SELECT foo, bar FROM widgets; 
+ is instantly readable and shows intent. If you make that call you know what you're getting back. If widgets only has foo and bar columns, then selecting * means you still have to think about what you're getting back, confirm the order is mapped correctly, etc. However, if widgets has more columns but you're only interested in foo and bar, then your code gets messy when you query for a wildcard and then only use some of what's returned. 
+ 
+ And remember if you have an inner join by definition you do not need all the columns as the data in the join columns is repeated. 
+ It's not like listing columns in SQl server is hard or even time-consuming. You just drag them over from the object browser (you can get all in one go by dragging from the word columns). To put a permanent performance hit on your system (becasue this can reduce the use of indexes and becasue sending unneeded data over the network is costly) and make it more likely that you will have unexpected problems as the database changes (sometimes columns get added that you do not want the user to see for instance) just to save less than a minute of development time is short-sighted and unprofessional. 
+ 
+ Absolutely define the columns you want to SELECT every time.  There is no reason not to and the performance improvement is well worth it. 
+ They should never have given the option to "SELECT *" 
+ 
+ If you need every column then just use SELECT * but remember that the order could potentially change so when you are consuming the results access them by name and not by index. 
+ I would ignore comments about how * needs to go get the list - chances are parsing and validating named columns is equal to the processing time if not more. Don't prematurely optimize ;-) 
+ 
+ In terms of execution efficiency I am not aware of any significant difference. But for programmers efficiency I would write the names of the fields because 
+ 
+ You know the order if you need to index by number, or if your driver behaves funny on blob-values, and you need a definite order 
+ You only read the fields you need, if you should ever add more fields 
+ You get an sql-error if you misspell or rename a field, not an empty value from a recordset/row 
+ You can better read what's going on. 
+ 
+ 
+ hey, be practical. use select * when prototyping and select specific columns when implementing and deploying. from an execution plan perspective, both are relatively identical on modern systems. however, selecting specific columns limits the amount of data that has to be retrieved from disk, stored in memory and sent over the network. 
+ ultimately the best plan is to select specific columns. 
+ 
+ Also keep changes in mind. Today, Select * only selects the columns that you need, but tomorrow it may also select that varbinary(MAX) column that i've just added without telling you, and you are now also retreiving all 3.18 Gigabytes of Binary Data that wasn't in the table yesterday. 
+ 

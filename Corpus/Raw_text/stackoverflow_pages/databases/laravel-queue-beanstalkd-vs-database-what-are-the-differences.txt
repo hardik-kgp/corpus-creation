@@ -1,0 +1,32 @@
+*** laravel-queue-beanstalkd-vs-database-what-are-the-differences ***
+
+ Is there much difference between using Beanstalkd and a database driver for queues?  
+ What would some pros and cons be? The database queue seems to easier to setup and run, what should I know about using it? 
+ Theres no real explanations in the docs about it.  
+ 
+ Using a database as a queue can be simpler to setup and probably easier to test on a development machine. But running a database as a queue in production may not be a very good idea; especially in a high traffic scenario. Although a database may not be the right tool for queueing, let's look at the pros & cons of using it as such. 
+ Pros: 
+ 
+ Easier to setup 
+ May reduce the number of moving parts in your application if you use the same database 
+ 
+ Cons: 
+ 
+ For lot's of reads and writes, there has to be some mechanism for locking rows and updating the indexes etc. 
+ Polling workers would also lock up an index in order to do work on it and update the row with the final status of the job.  
+ In such scenarios, the writes to the DB may be queued and would take longer to execute. 
+ 
+ Messaging queues such as SQS, Beanstalkd, RabbitMQ etc. are built to handle these scenarios. Since they only care about a message being stored and processed, they don't have to worry about locking and transaction logging (which is required by a database). Adding a messaging queue to your system will help it scale much more easily. Also, it'll let the database breathe by allowing it to do actual transaction processing without worrying about messaging as well. 
+ 
+ I did some testing on one of my production servers. 
+ The scenario:   (To insert a new entry, you need to make sure the   hasn't had a visit in the last 24 hours), so it also has a   query.  
+ (note: table size is in millions, and the instance is  , just to see what the worst case is) 
+ Here are the numbers I got: 
+ 
+ 
+ Obviously,   is the worst option, as the user has to sit there for 2.3 seconds, before he even starts receiving any data. 
+  has the best results, but as mentioned earlier, might not be the best solution for high visitor numbers. Additionally, you shouldn't forget that there is still an   being made into the   table. 
+  to my surprise was slower than using the database. I'm guessing it's because with   you already have established connections to the database in your connection pool, but the   has to establish a   connection every time. Hence, the additional 300-400ms. 
+ 
+ I honestly don't think that   was hard to setup (just follow the  guide ). I think the decision is based on what your visitor number is. 
+ 

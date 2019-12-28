@@ -1,0 +1,129 @@
+*** how-to-deal-with-multiple-database-results-from-different-servers-for-a-request ***
+
+ I have cloud statistics (Structured data :: CSV) information; which i have to expose to administrator and user. 
+ But for scalability; data collection will be collected by multiple machines (perf monitor) which is connected with individual DBs. 
+ Now Manager (Mgr) is responsible of multicasting the request to all perf monitor; to collect the overall stats data to satisfy single UI request. 
+ So questions are: 
+ 
+ 1) How will i make the mutiple monitor datas to be sorted based on
+  the client request at Mgr. Each monitor may give the result as per the client
+  request; but still how to merge multiple machines datas through java?
+  Means How to perform in memory sql aggregate/scalar (e.g. Groupby, orderby, avg) function on all the results retrieved from multiple clusters at MGR. How do i implement DB sql aggregate/scalar functionality in java side, any known APIs?
+  I think what i need is Reduce part of mapreduce technique in hadoop. 
+ 2) A request from UI (assume select count(*) from DB where Memory >
+  1000MB) have to be forwarded to multiple machines. Now how to send parallel
+  requests to individual monitor and consume only when all the nodes
+  are responded? Means how to wait User thread till consuming all the
+  responses from perf monitors? How to trigger parallel REST request for single UI request on MGR. 
+ 3) Do I have to authenticate UI user at both Mgr and Perf monitor? 
+ 4) Are you thinking any drawback in this approach? 
+ 
+ Notes: 
+ 1) I didn't go for NoSql because datas are structured and no joins are required. 
+ 2) I didn't go for node.js since i am new for that and may take more time on developing it. Also i am not developing any concurrent critical where single threaded are best suited. Here only push/retrieve of data is done. No modification happening. 
+ 3) I want individual DB for each monitor OR at-least two instances of DB's with multiple clusters for an instance to support faster accessing of real time BIG statistical data. 
+ 
+ 
+ You want to scale your app, but you designed an inherent bottleneck. Namely: the Mgr. 
+ What I would do is that I would split the Mgr into at least two parts. Front-end and backend. The front end could simply be an aggregator and/or controller which collects all the requests from all the different UI servers, timestamps those requests and put them in a queue (RabbitMQ, Kafka, Redis, whatever) making a message with the UI session ID or something similar which uniquely identifies the source of request. Then you just have to wait until you get a response on the queue (with a different topic of course). 
+ Then on your backend (the other side of the queue) you can set up as many nodes as your load requires and make them performing the same task. Namely: pull off requests from the queue and call those performance monitoring APIs as necessary. You can scale these backend nodes as much as you wish since they don't have any state, all the state which needs to be stored is already part of the messages in the queue which will be automagically persisted for you by Redis/Kafka/RabbitMQ or whatever else you choose. 
+ You can also use Apache Storm or something similar to do this for you in the backend, since it was designed for exactly this kind of applications. 
+ Apache Storm has also built-in merging capability exposed through the  Trident API . 
+ Note on the authentication: you should authenticate the HTTP requests on the front-end side and then you will be all right. Just assign unique IDs (session IDs most probably) to the users connected to your mgr and use this internal ID when you forward your requests further to downstream servers. 
+ 
+ Now how to send parallel requests to individual monitor and consume
+  only when all the nodes are responded? Means how to wait User thread
+  till consuming all the responses from perf monitors? How to trigger
+  parallel REST request for single UI request on MGR. 
+ 
+ Well if you have so many questions regarding handling user connections and serving those clients with responses then I would suggest to pick up a book on the Java servlets API. You might want to read this one for example:  Servlet & JSP: A Tutorial (A Tutorial series) . It is a bit outdated but well written. 
+ But with all due respect, if you have so many questions on these quite fundamental topics, then it might be better to leave the architecture design to someone more experienced. 
+ 
+ Don't reinvent the wheel, use some good existing BAM and Database monitoring tools, they have lot of built in dashboards and statistics, easy to connect with Java and work-flows. 
+ 
+ 
+ But for scalability; data collection will be collected by multiple
+  machines (perf monitor) which is connected with individual DBs. 
+ 
+ Approximately what sort of scaling do you anticipate ... is it 100s of GB's Multiple Terra Bytes .... Reason is these days SQL Server and Oracle can handle really large volumes of data. Once data is collected in a central db its game over as far as searching and crunching are concerned.  
+ 
+ Now Manager (Mgr) is responsible of multicasting the request to all
+  perf monitor; to collect the overall stats data to satisfy single UI
+  request. 
+ 
+ This will be a major task to write this and it will be really complex IMHO. That said Iam not an expert in this aspect.  
+ 
+ What I would do is to put a layer of Hazelcast or Infinispan or something like this in your Performance Monitor instead of the Hazelcast. The Performance monitor itself like a logic can be part of  the DataGrid. Then the MySQL will work as a persistent storage of this data grid. In this sense you can have more then one Mysql and each mysql will just hold a portion of the data It will just work as extension ability to go beyond your maximum RAM. Overtime you scale your performance monitor you will also scale your persistent capabilities. 
+ Young then Map Reduce or other distributed functions for aggregation can lead to massive amount of paralelism and ability to server significantly more requests. Also such architecture scales horizontal. At the end it should look something like this: 
+ 
+ And just on another note to say that it is not necessary in general to have 1 MySQL for each hazelcast. That depends on what the goal is. I also kind of forgot the Manager from the diagram but things there are simple it can either work as a gateway to the Data Grid or alternatively it can be merged with the grid. 
+ 
+ Not sure if my answer would be useful for you since this question has been posted sometimes back.  
+ I would like to answer it based on your question, problems in the current approach and proposed solution... 
+ 
+ 1) How will i make the mutiple monitor datas to be sorted based on the
+  client request at Mgr. Each monitor may give the result as per the
+  client request; but still how to merge multiple machines datas through
+  java? Means How to perform in memory sql aggregate/scalar (e.g.
+  Groupby, orderby, avg) function on all the results retrieved from
+  multiple clusters at MGR. How do i implement DB sql aggregate/scalar
+  functionality in java side, any known APIs? I think what i need is
+  Reduce part of mapreduce technique in hadoop. 
+ 
+ **Java provided in-build Java DB as part of Java distribution which is also available as Apache Derby database. This database can be used as in-memory SQL database. JavaDB & Apache Derby stores the data into disk. So you won't loose the data after restart. 
+Check here **
+**http://www.oracle.com/technetwork/java/javadb/overview/index.html**
+** **
+**https://db.apache.org/derby/**
+
+ **For Map-Reduce simple Java collection based approached would work. I don't think you need any special Map-Reduce framework in this case. You should however consider Out Of Memory, Network bandwidth etc. when you read data from multiple sources**
+
+ 
+ 2) A request from UI (assume select count(*) from DB where Memory >
+  1000MB) have to be forwarded to multiple machines. Now how to send
+  parallel requests to individual monitor and consume only when all the
+  nodes are responded? Means how to wait User thread till consuming all
+  the responses from perf monitors? How to trigger parallel REST request
+  for single UI request on MGR. 
+ 
+ **Ideally NodeJS kind of application are really best suite in this case where application get callback whenever there is a response of the HTTP call. However you can implement Observer Pattern like explained here **
+**How do I perform a JAVA callback between classes?**
+  
+ 
+ 3) Do I have to authenticate UI user at both Mgr and Perf monitor? 
+ 
+ **It should be based on your requirement**
+
+ 
+ 4) Are you thinking any drawback in this approach? 
+ 
+ **There are several drawbacks with this approach**
+
+ 
+ Data should not be pulled on-demand from UI. At-least data should be available in the centralised database whenever there is a request to generate the data. Pulling data from various end-points is expensive. 
+ Stats must be collected periodically to maintain history and reports must be generated based on the moving time window. 
+ JVM might go OutOfMemory if large data needs to be process. Proper handling is required. 
+ Large data might get transferred over the network every time there is a new request. It might be for the same data again. 
+ 
+ Notes: 
+ 
+ 1) I didn't go for NoSql because datas are structured and no joins are
+  required. 
+ 
+ **No SQL doesn't mean there is not structure followed. Even NoSQL database is the best fit for such data where you don't update the records, transactions etc are not required.**
+
+ 
+ 2) I didn't go for node.js since i am new for that and may take more
+  time on developing it. Also i am not developing any concurrent
+  critical where single threaded are best suited. Here only
+  push/retrieve of data is done. No modification happening. 
+ 
+ **NodeJS won't be a good choice since it is single threaded. NodeJS should not be used when you have CPU intensive job to perform. Like yours.**
+
+ 
+ 3) I want individual DB for each monitor OR at-least two instances of
+  DB's with multiple clusters for an instance to support faster
+  accessing of real time BIG statistical data. 
+ 
+ **I would rather suggest you to either store data into any database which can horizontally scale, process the data either as and when it arrives or batch processing so that your user experience is good. **  
+ 

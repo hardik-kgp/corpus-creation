@@ -1,0 +1,66 @@
+*** whats-the-life-span-of-a-postgresql-server-side-prepared-statement ***
+
+ According to the  PostgreSQL documentation , a prepared statement is bound to a database session/connection: 
+ 
+ PREPARE creates a prepared statement. A prepared statement is a
+  server-side object that can be used to optimize performance. When the
+  PREPARE statement is executed, the specified statement is parsed,
+  analyzed, and rewritten. When an EXECUTE command is subsequently
+  issued, the prepared statement is planned and executed. 
+ Prepared statements only last for the duration of the current database
+  session. When the session ends, the prepared statement is forgotten,
+  so it must be recreated before being used again. 
+ 
+ But then,  Markus Winand (author of SQL Performance Explained) says that : 
+ 
+ PostgreSQL does not have a shared query plan cache, but it has an
+  optional query plan cache for prepared statements. That means that the
+  developer has the choice to use a prepared statement with or without
+  cached query plan. But note that the cache is dropped when the
+  prepared statement is closed. 
+ 
+ Which one is true?  
+ Does the prepared statement live as long as the database connection is open, so when using a connection pool this can live as long as the pool doesn't explicitly closes the physical connection or does the server-side prepared statement is wiped out once the JDBC  PreparedStatement  is closed. 
+ 
+ So, your question finally boils down to "how   plays with PostgreSQL". See answer on "how this plays with server-prepared plans" in the end. 
+ Here's the answer: that depends on the JDBC driver you use. 
+ **TL;DR**
+: in modern drivers server-prepared statement lives until connection dies or until the statement is evicted by another one (regular LRU eviction). 
+ Note: PostgreSQL server cannot share prepared statement across database connections, thus the best JDBC driver can do is to keep plan cached in each connection. 
+ Note: JDBC spec mandates usage of   for bind placeholders, while server wants   thus JDBC drivers cache so-called parsed SQL texts as well. 
+ There are two well-known JDBC drivers: pgjdbc and pgjdbc-ng 
+ pgjdbc 
+ https://github.com/pgjdbc/pgjdbc 
+ Since  pgjdbc 9.4-1202  it automatically caches server-side plans when using  .
+Note: the statements are cached even if you   the  .
+In order to get to server-side prepare, you need to execute the query 5 times (that can be configured via  ). 
+ Currently, the cache is implemented per-connection. By default pgjdbc caches 256 ( ) queries and up to   of queries. This is a conservative setting, so you might want adjusting it. See  documentation  for the description of properties.
+The cache includes both parsed and server-prepared statements. 
+ github issue:  https://github.com/pgjdbc/pgjdbc/pull/319 
+ pgjdbc-ng 
+ https://github.com/impossibl/pgjdbc-ng 
+ I'm not into pgjdbc-ng, however it looks like it does both parsing (default cache size is  250  queries) and server-preparing (default cache size is  50  queries). The support of server-side prepared statements landed on 24 Feb 2014, so if you use somewhat recent version, you can get statement caching. 
+ Note: if you accidentally use very long queries, you can hit   since pgjdbc-ng cannot evict entries based on the number of retained bytes. 
+ The cache is per-connection, thus it is transparently used even if you close statements. 
+ I cannot say much about pgjdbc-ng performance though since last time I tried to throw jmh at it it failed with random exceptions. 
+ github issue:  https://github.com/impossibl/pgjdbc-ng/pull/69 
+ Server-prepared plans 
+ PostgreSQL has   and   commands to reference the statement when sending   over the wire. It optimizes two things: 
+ 
+ When using  d statement (in other words, server-prepared one), client does not have to send query text again and again. It just sends a short query name and the values for bind variables. 
+ Since 9.2, database still tries to replan first few executions of a query. It does so to try if the query needs multiple plans or if generic plan is good enough. Eventually (immediately if the query has no parameters), the database  might switch to a generic plan . 
+ 
+ In other words,   optimizes both query parsing at JDBC side and query planning at database side. 
+ More info here:  http://blog.endpoint.com/2014/04/custom-plans-prepared-statements-in.html 
+ Prepared statements in PL/pgSQL 
+ As per documentation, PostgreSQL  caches  plans for queries used in PL/pgSQL. This happens after a few executions (3 or 5, I do not remember the exact threshold), so after you create stored procedure it might be a bit slow, however then it will switch to cached plans (provided the database agrees to use generic plan for a particular query). 
+ In other words in order to achieve "cached execution plans", you either need to use up to date JDBC driver, or you can wrap all your queries into stored procedures.
+The call to procedure will replan at each execute, however the call itself is typically much shorter than queries that compose the procedure. 
+ 
+ I think both are true, but in doubt the PostgreSQL documentation usually more true than me. However, here I think the PostgreSQL doc might be inaccurate. 
+ It should probably read like this: 
+ 
+ Prepared statements only last until it is  DEALLOCATE ed and no longer than the duration of the current database session. 
+ 
+ Without checking I would strongly believe that the JDBC driver deallocates the server-side prepared statement when the JDBC PreparedStatement is closed. 
+ 

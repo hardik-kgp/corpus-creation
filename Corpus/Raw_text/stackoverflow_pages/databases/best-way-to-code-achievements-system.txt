@@ -1,0 +1,72 @@
+*** best-way-to-code-achievements-system ***
+
+ I'm thinking of the best way to design an achievements system for use on my site. The database structure can be found at  Best way to tell 3 or more consecutive records missing  and this thread is really an extension to get the ideas from developers. 
+ The problem I have with lots of talk about badges/achievement systems on this website is just that -- it's all talk and no code. Where's the actual code implemention examples? 
+ I propose here a design that I hope people could contribute to and hopefully create a good design for coding extensible achievement systems. I'm not saying this is the best, far from it, but it's a possible starting block. 
+ Please feel free to contribute your ideas. 
+ 
+ **my system design idea**
+
+ It seems the general consensus is to create an "event based system" -- whenever a known event occurs like a post is created, deleted, etc it calls the event class like so.. 
+ 
+ The event class then finds out what badges are "listening" for this event, then it   that file, and creates an instance of that class, like so: 
+ 
+ It then calls the default event passing the data received when   was called; 
+ 
+ **the badges**
+
+ This is then where the real magic happens. each badge has its own query/logic to determine if a badge should be awarded. Each badge is set out in e.g. this format: 
+ 
+  function comes from an extended class   which basically checks to see if the user has already be awarded that badge, if not, will update the badge db table. The badge class also takes care of retrieving all badges for a user and returning it in an array, etc (so badges can be e.g. displayed on the user profile) 
+ **what about when the system is very first implemented on an already live site?**
+
+ There is also a "cron" job query that can be added to each badge. The reason for this is because when the badge system is very first implemented and initilaised, the badges that should have already been earned have not yet be awarded because this is an event based system. So a CRON job is run on demand for each badge to award anything that needs to be. For example the CRON job for the above would look like: 
+ 
+ As the above cron class extends the main badge class, it can re-use the logic function  
+ The reason why I create a specialised query for this is although we could "simulate" previous events, i.e. go through every user post and trigger the event class like   it would be very slow, especially for many badges. So we instead create an optimized query. 
+ **what user gets the award? all about awarding **
+**other**
+** users based on event**
+
+ The   class   function acts on   -- they will always be given the award. By default the badge is awarded to the person who CAUSED the event to happen i.e. the session user id (this is true for the   function, although the CRON job obviously loops through all users and awards seperate users) 
+ So let's take an example, on a coding challenge website users submit their coding entry. The admin then judges the entries and when complete, posts the results to the challenge page for all to see. When this happens, a POSTED_RESULTS event is called. 
+ If you want to award badges for users for all the entries posted, lets say, if they were ranked within the top 5, you should use the cron job (although bare in mind this will update for all users, not just for that challenge the results were posted for) 
+ If you want to target a more specific area to update with the cron job, let's see if there is a way to add filtering parameters into the cron job object, and get the cron_job function to use them. For example: 
+ 
+ The cron function will still work even if the parameter is not supplied. 
+ 
+ I've implemented a reward system once in what you would call a document oriented database (this was a mud for players). Some highlights from my implementation, translated to PHP and MySQL: 
+ 
+ Every detail about the badge is stored in the users data. If you use MySQL I would have made sure that this data is in one record per user in the database for performance.  
+ Every time the person in question does something, the code triggers the badge code with a given flag, for instance flag('POST_MESSAGE').  
+ One event could also trigger a counter, for instance a count of number of posts. increase_count('POST_MESSAGE'). In here you could have a check (either by a hook, or just having a test in this method) that if the POST_MESSAGE count is > 300 then you should have reward a badge, for instance: flag("300_POST").  
+ In the flag method, I'd put the code to reward badges. For instance, if the Flag 300_POST is sent, then the badge reward_badge("300_POST") should be called. 
+ In the flag method, you should also have the users previous flags present. so you could say when the user has FIRST_COMMENT, FIRST_POST, FIRST_READ you grant badge("NEW USER"), and when you get 100_COMMENT, 100_POST, 300_READ you can grant badge("EXPERIENCED_USER") 
+ All of these flags and badges need to be stored somehow. Use some way where you think of the flags as bits. If you want this to be stored really efficiently, you think of them as bits and use the code below: (Or you could just use a bare string "000000001111000" if you don't want this complexity. 
+ 
+ 
+ 
+ 
+ 
+ A nice way of storing a document for the user is to use json and store the users data in a single text column. Use json_encode and json_decode to store/retrieve the data. 
+ For tracking activity on some of the users data manipulated by some other user, add a data structure on the item and use counters there as well. For instance read count. Use the same technique as described above for awarding badges, but the update should of course go into the owning users post. (For instance article read 1000 times badge). 
+ 
+ 
+ UserInfuser is an open source gamification platform which implements a badging/points service. You can check out its API here:
+ http://code.google.com/p/userinfuser/wiki/API_Documentation 
+ I implemented it and tried to keep the number of functions minimal. Here is the API for a php client: 
+ 
+ The end result is to show the data in a meaningful way through the use of widgets. These widgets include: trophy case, leaderboard, milestones, live notifications, rank and points.  
+ The implementation of the API can be found here:  http://code.google.com/p/userinfuser/source/browse/trunk/serverside/api/api.py 
+ 
+ Achievements can be burdensome and even more so if you have to add them in later, unless you have a well-formed   class. 
+ This segues into my technique of implementing achievements. 
+ I like to split them first into 'categories' and within those have tiers of accomplishment.  i.e. a   category in a game may have an award at 1 for first kill, 10 ten kills, 1000 thousand kills etc. 
+ Then to the spine of any good application, the class handling your events.  Again imagining a game with kills; when a player kills something, stuff happens.  The kill is noted, etc and that is best handled in a centralized location, like and   class that can dispatch info to other places involved.   
+ It falls perfectly into place there, that in the proper method, instantiate your   class and check it the player is due one. 
+ As building the   class it is trivial, just something that checks the database to see if the player has as many kills as are required for the next achievement. 
+ I like to store user's achievements in a BitField using Redis but the same technique can be used in MySQL.  That is, you can store the player's achievements as an   and then   that int with the bit you have defined as that achievement to see if they have already gained it.  That way it uses only a single   column in the database. 
+ The downside to this is you have to have them organized well and you will likely need to make some comments in your code so you will remember what 2^14 corresponds to later.  If your achievements are enumerated in their own table then you can just do 2^pk where   is the primary key of the achievements table.  That makes the check something like  
+ 
+ This way you can add achievements later and it will dovetail fine, just NEVER change the primary key of the achievements already awarded. 
+ 

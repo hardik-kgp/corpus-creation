@@ -1,0 +1,176 @@
+*** how-would-you-implement-sequences-in-microsoft-sql-server ***
+
+ Does anyone have a good way of implementing something like a sequence in SQL server? 
+ Sometimes you just don't want to use a GUID, besides the fact that they are ugly as heck. Maybe the sequence you want isn't numeric?  Besides, inserting a row and then asking the DB what the number is just seems so hackish. 
+ 
+ Sql Server 2012 has introduced   objects , which allow you to generate sequential numeric values not associated with any table. 
+ Creating them are easy: 
+ 
+ An example of using them before insertion: 
+ 
+ See my blog for an in-depth look at how to use sequences: 
+ http://sqljunkieshare.com/2011/12/11/sequences-in-sql-server-2012-implementingmanaging-performance/ 
+ 
+ As  sqljunkieshare  correctly said, starting from SQL Server 2012 there is a built-in   feature. 
+ The original question doesn't clarify, but I assume that requirements for the Sequence are: 
+ 
+ It has to provide a set of unique growing numbers  
+ If several users request next value of the sequence simultaneously they all should get different values. In other words, uniqueness of generated values is guaranteed no matter what.  
+ Because of possibility that some transactions can be rolled back it is possible that end result of generated numbers will have gaps. 
+ 
+ I'd like to comment the statement in the original question:  
+ 
+ "Besides, inserting a row and then asking the DB what the number just
+  seems so hackish." 
+ 
+ Well, there is not much we can do about it here. The DB is a provider of the sequential numbers and DB handles all these concurrency issues that you can't handle yourself. I don't see alternative to asking the DB for the next value of the sequence. There has to be an  atomic  operation "give me the next value of the sequence" and only DB can provide such  atomic  operation. No client code can guarantee that he is the only one working with the sequence. 
+ To answer the question in the title "how would you implement sequences" - We are using 2008, which doesn't have the   feature, so after some reading on this topic I ended up with the following. 
+ For each sequence that I need I create a separate helper table with just one   column (in the same fashion as in 2012 you would create a separate Sequence object). 
+ 
+ You can specify starting value and increment for it.
+Then I create a stored procedure that would return the next value of the sequence.
+Procedure would start a transaction, insert a row into the helper table, remember the generated identity value and roll back the transaction. Thus the helper table always remains empty. 
+ 
+ Few notes about the procedure.  
+ First, it was not obvious how to insert a row into a table that has only one identity column. The answer is  .  
+ Then, I wanted procedure to work correctly if it was called inside another transaction. The simple   rolls back everything if there are nested transactions. In my case I need to roll back only   into the helper table, so I used  . 
+ 
+ ROLLBACK TRANSACTION without a savepoint_name or transaction_name
+  rolls back to the beginning of the transaction. When nesting
+  transactions, this same statement rolls back all inner transactions to
+  the outermost BEGIN TRANSACTION statement. 
+ 
+ This is how I use the procedure (inside some other big procedure that, for example, creates a new contract): 
+ 
+ It all works fine if you need to generate sequence values one at a time. In case of contracts, each contract is created individually, so this approach works perfectly. I can be sure that all contracts always have unique contract numbers.  
+ NB: Just to prevent possible questions. These contract numbers are in addition to surrogate identity key that my Contracts table has. The surrogate key is internal key that is used for referential integrity. The generated contract number is a human-friendly number that is printed on the contract. Besides, the same Contracts table contains both final contracts and Proposals, which can become contracts or can remain as proposals forever. Both Proposals and Contracts hold very similar data, that's why they are kept in the same table. Proposal can become a contract by simply changing the flag in one row. Proposals are numbered using a separate sequence of numbers, for which I have a second table   and second procedure  . 
+ 
+ Recently, though, I came across a problem.
+I needed to generate sequence values in a batch, rather than one-by-one. 
+ I need a procedure that would process all payments that were received during a given quarter in one go. The result of such processing could be ~20,000 transactions that I want to record in the   table. I have similar design here.   table has internal   column that end user never sees and it has a human-friendly Transaction Number that would be printed on the statement. So, I need a way to generate a given number of unique values in a batch. 
+ Essentially, I used the same approach, but there are few peculiarities. 
+ First, there is no direct way to insert multiple rows in a table with only one   column. Though there is a workaround by (ab)using  , I didn't use it in the end. I decided that it was easier to add a dummy   column. My Sequence table is going to be always empty, so extra column doesn't really matter. 
+ The helper table looks like this: 
+ 
+ The procedure looks like this: 
+ 
+ And this is how it is used (inside some big stored procedure that calculates transactions): 
+ 
+ There are few things here that require explanation. 
+ I need to insert a given number of rows into the   table. I use a helper   table for this. This table simply holds integer numbers from 1 to 100,000. It is used in other places in the system as well. I check if there is enough rows in the   table and expand it to 100,000 * 100,000 by cross joining with itself if needed. 
+ I have to save the result of the bulk insert somewhere and pass it to the caller somehow. One way to pass a table outside of the stored procedure is to use a temporary table. I can't use table-valued parameter here, because it is read-only unfortunately. Also, I can't directly insert the generated sequence values into the temporary table  . I can't use   in the   clause, because   will clean it up. Fortunately, the table variables are not affected by the  .  
+ So, I use table variable   as a destination of the   clause. Then I   the transaction to clean up the Sequence table. Then copy the generated sequence values from table variable   to the temporary table  , because only temporary table   can be visible to the caller of the stored procedure. The table variable   is not visible to the caller of the stored procedure. 
+ Also, it is possible to use   clause to send the generated sequence directly to the caller (as you can see in the commented variant that uses  ). It works fine by itself, but I needed the generated values in some table for further processing in the calling stored procedure. When I tried something like this: 
+ 
+ I was getting an error  
+ 
+ Cannot use the ROLLBACK statement within an INSERT-EXEC statement.  
+ 
+ But, I need   inside the  , that's why I ended up having so many temporary tables. 
+ After all this, how nice would it be to switch to the latest version of SQL server which has a proper   object. 
+ 
+ An Identity column  is roughly analogous to a sequence. 
+ 
+ You could just use plain old tables and use them as sequences.   That means your inserts would always be:   
+ 
+ But don't do this.  The locking would be bad... 
+ I started on SQL Server and to me, the Oracle "sequence" scheme looked like a hack.   I guess you are coming from the other direction and to you, and scope_identity() looks like a hack. 
+ Get over it.  When in Rome, do as the Romans do.    
+ 
+ The way that i used to solve this problem was a table 'Sequences' that stores all my sequences and a 'nextval' stored procedure.   
+ Sql Table:   
+ 
+ The  **PK_Sequences**
+ is used just to be sure that there will never be sequences with the same name.   
+ Sql Stored Procedure:   
+ 
+ Insert some sequences:   
+ 
+ Finally get next value of a sequence,   
+ 
+ Some c# code to get the next value from Sequence table,   
+ 
+ 
+ In SQL Server 2012, you can simply use  
+ 
+ In 2005 and 2008, you can get an arbitrary list of sequential numbers using a common table expression. 
+ Here's an example (note that the MAXRECURSION option is important): 
+ 
+ 
+ Sequences as implemented by Oracle require a call to the database before the insert.
+identities as implemented by SQL Server require a call to the database after the insert. 
+ One is no more hackish than the other. The net effect is the same - a reliance/dependency on the data store to provide unique artificial key values and (in most cases) two calls to the store. 
+ I'm assuming that your relational model is based on artificial keys, and in this context, I'll offer the following observation: 
+ We should never seek to imbue artificial keys with meaning; their only purpose should be to link related records.   
+ What is your need related to ordering data?  can it be handled in the view (presentation) or is it a true attribute of your data which must be persisted?   
+ 
+ Create a stage table with an identifier on it.  
+ Before loading the stage table, truncate and reseed the identifier to start at 1. 
+ Load your table. Each row now has a unique value from 1 to N. 
+ Create a table that holds sequence numbers. This could be several rows, one for each sequence. 
+ Lookup the sequence number from the sequence table you created.
+Update the seqence number by adding the number of rows in the stage table to the sequence number. 
+ Update the stage table identifier by adding the seqence number you looked up to it. This is an easy one step process.
+or
+Load your target table, add the sequence number to the identifier as you load in ETL. This  can take advantage of the bulk loader and allow for other transformations. 
+ 
+ Consider the following snippet. 
+ 
+ 
+ As  sqljunkiesshare states , sequences were added to SQL Server 2012. Here's how to do it in the GUI. This is the equivolent of: 
+ 
+ 
+ In the  Object Explorer , expand the  Programmability  folder 
+ Under the  Programmability  folder, right click on the  Sequences 
+folder as shown below: 
+ 
+ 
+ 
+ Underlined are the values that you would update to get the
+equivalent of the SQL statement above, however, I would consider
+changing these depending on your needs (see notes below). 
+ 
+ 
+ Notes: 
+ 
+ The default Start value, Minimum value, and Maximum value were determined by the range of the data type which was an int in this case.  See here for more data type ranges if you want to use something other than an int . 
+ Pretty good chance you'll want your sequence to start at 1 and you
+might want you minimum value as 1, too. 
+ 
+ 
+ I totally agree and did this last year on a project. 
+ I just created a table with the name of the sequence, current value, & increment amount. 
+ Then I created a 2 procs to add & delete them.  And 2 functions to get next, & get current. 
+ 
+ If you want to insert data with a sequential key, but you don't want to have to query the database again to get the just-inserted key, I think your only two choices are: 
+ 
+ Perform the insert through a stored procedure which returns the newly-inserted key value 
+ Implement the sequence client-side (so that you know the new key before you insert) 
+ 
+ If I'm doing client-side key generation, I  love  GUIDs.  I think they're beautiful as heck. 
+ 
+ That line should be laying on the hood of a sportscar somewhere. 
+ 
+ If you are using SQL Server 2005 you have the option of using Row_Number 
+ 
+ The other problem with an identity columns is that if you have more than one table where the sequence numbers need to be unique, an identity column doesn't work. And like Corey Trager mentions, a roll-your-own type of sequence implementation might present some locking issues. 
+ The most straightforwardly equivalent solutions seems to be to create a SQL Server table with a single column for the identity, which takes the place of a separate type of "sequence" object. For example if in Oracle you would have two tables from one sequence such as Dogs <-- sequence object --> Cats then in SQL Server you would create three database objects, all tables like Dogs <-- Pets with identity column --> Cats. You would insert a row into the Pets table to get the sequence number where you would normally use NEXTVAL and then insert into the Dogs or Cats table as you normally would once you get the actual type of pet from the user. Any additional common columns could be moved from the Dogs/Cats tables into the Pets supertype table, with some consequences that 1) there would be one row for each sequence number, 2) any columns not able to be populated when getting the sequence number would need to have default values and 3) it would require a join to get all of the columns. 
+ 
+ By SQL you can use this strategy; 
+ 
+ and read the unique next value whit this SQL 
+ 
+ 
+ **TRANSACTION SAFE !**
+ For SQLServer versions before 2012... (thanks Matt G.)
+One thing missing in this discussion is transaction safety.  If you get a number from a sequence, that number must be unique, and no other app or code should be able to get that number.  In my case, we often pull unique numbers from sequences, but the actual transaction may span a considerable amount of time, so we don't want anyone else getting the same number before we commit the transaction.
+ **We needed to mimic the behavior of oracle sequences**
+, where a number was reserved when it was pulled.
+My solution is to use xp_cmdshell to get a separate session/transaction on the database, so that we can immediately update the sequence, for the whole database, even before the transaction is complete. 
+ 
+ The solution requires a single table to hold used sequence values,  and a procedure  **That creates a second autonomous transaction**
+ to insure that concurrent sessions don't get tangled up.  You can have as many unique sequences as you like, they are referenced by name.  Example code below is modified to omit requesting user and date stamp on the sequence history table (for audit) but I thought less-complex was better for  the example ;-). 
+ 
+ Now to get that procedure to work, you are going to need to enable xp_cmdshell, there are lots of good descriptions of how to do that, here are my personal notes that I made when I was trying to get things to work.  Basic idea is that you need xp_cmdshell turned on in SQLServer Surface Are a configuration and you need to set a user account as the account that the xp_cmdshell command will run under, that will access the database to insert the sequence number and commit it. 
+ 
+ 

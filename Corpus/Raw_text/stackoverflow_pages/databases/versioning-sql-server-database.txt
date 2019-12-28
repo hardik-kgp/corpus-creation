@@ -1,0 +1,226 @@
+*** versioning-sql-server-database ***
+
+ I want to get my databases under version control.  Does anyone have any advice or recommended articles to get me started? 
+ I'll always want to have at least  some  data in there (as  alumb  mentions: user types and administrators).  I'll also often want a large collection of generated test data for performance measurements. 
+ 
+ Martin Fowler wrote my favorite article on the subject,  http://martinfowler.com/articles/evodb.html .  I choose not to put schema dumps in under version control as  alumb  and others suggest because I want an easy way to upgrade my production database. 
+ For a web application where I'll have a single production database instance, I use two techniques: 
+ Database Upgrade Scripts 
+ A sequence database upgrade scripts that contain the DDL necessary to move the schema from version N to N+1.  (These go in your version control system.)  A _version_history_ table, something like 
+ 
+ gets a new entry every time an upgrade script runs which corresponds to the new version. 
+ This ensures that it's easy to see what version of the database schema exists and that database upgrade scripts are run only once.  Again, these are  **not**
+ database dumps.  Rather, each script represents the  **changes**
+ necessary to move from one version to the next.  They're the script that you apply to your production database to "upgrade" it. 
+ Developer Sandbox Synchronization 
+ 
+ A script to backup, sanitize, and shrink a production database.  Run this after each upgrade to the production DB. 
+ A script to restore (and tweak, if necessary) the backup on a developer's workstation.  Each developer runs this script after each upgrade to the production DB. 
+ 
+ A caveat: My automated tests run against a schema-correct but empty database, so this advice will not perfectly suit your needs. 
+ 
+ Red Gate's SQL Compare product not only allows you to do object-level comparisons, and generate change scripts from that, but it also allows you to export your database objects into a folder hierarchy organized by object type, with one [objectname].sql creation script per object in these directories.  The object-type hierarchy is like this: 
+ \Functions 
+\Security 
+\Security\Roles 
+\Security\Schemas 
+\Security\Users 
+\Stored Procedures 
+\Tables   
+ If you dump your scripts to the same root directory after you make changes, you can use this to update your SVN repo, and keep a running history of each object individually. 
+ 
+ This is one of the "hard problems" surrounding development. As far as I know there are no perfect solutions.  
+ If you only need to store the database structure and not the data you can export the database as SQL queries. (in Enterprise Manager: Right click on database -> Generate SQL script. I recommend setting the "create one file per object" on the options tab) You can then commit these text files to svn and make use of svn's diff and logging functions.  
+ I have this tied together with a Batch script that takes a couple parameters and sets up the database. I also added some additional queries that enter default data like user types and the admin user. (If you want more info on this, post something and I can put the script somewhere accessible) 
+ If you need to keep all of the data as well, I recommend keeping a back up of the database and using Redgate ( http://www.red-gate.com/ ) products to do the comparisons. They don't come cheap, but they are worth every penny. 
+ 
+ First, you must choose the version control system that is right for you:  
+ 
+ Centralized Version Control system - a standard system where users check out/check in before/after they work on files, and the files are being kept in a single central server 
+ Distributed Version Control system - a system where the repository is being cloned, and each clone is actually the full backup of the repository, so if any server crashes, then any cloned repository can be used to restore it
+After choosing the right system for your needs, you'll need to setup the repository which is the core of every version control system
+All this is explained in the following article:  http://solutioncenter.apexsql.com/sql-server-source-control-part-i-understanding-source-control-basics/ 
+ 
+ After setting up a repository, and in case of a central version control system a working folder, you can read  this article . It shows how to setup source control in a development environment using:  
+ 
+ SQL Server Management Studio via the MSSCCI provider,  
+ Visual Studio and SQL Server Data Tools 
+ A 3rd party tool ApexSQL Source Control 
+ 
+ 
+ Here at Red Gate we offer a tool,  SQL Source Control , which uses SQL Compare technology to link your database with a TFS or SVN repository. This tool integrates into SSMS and lets you work as you would normally, except it now lets you commit the objects. 
+ For a migrations-based approach (more suited for automated deployments), we offer  SQL Change Automation  (formerly called ReadyRoll), which creates and manages a set of incremental scripts as a Visual Studio project. 
+ In SQL Source Control it is possible to specify static data tables. These are stored in source control as INSERT statements. 
+ If you're talking about test data, we'd recommend that you either generate test data with a tool or via a post-deployment script you define, or you simply restore a production backup to the dev environment. 
+ 
+ You might want to look at Liquibase ( http://www.liquibase.org/ ). Even if you don't use the tool itself it handles the concepts of database change management or refactoring pretty well. 
+ 
+ +1 for everyone who's recommended the RedGate tools, with an additional recommendation and a caveat. 
+ SqlCompare also has a decently documented API: so you can, for instance, write a console app which syncs your source controlled scripts folder with a CI integration testing database on checkin, so that when someone checks in a change to the schema from their scripts folder it's automatically deployed along with the matching application code change. This helps close the gap with developers who are forgetful about propagating changes in their local db up to a shared development DB (about half of us, I think :) ). 
+ A caveat is that with a scripted solution or otherwise, the RedGate tools are sufficiently smooth that it's easy to forget about SQL realities underlying the abstraction. If you rename all the columns in a table, SqlCompare has no way to map the old columns to the new columns and will drop all the data in the table. It will generate warnings but I've seen people click past that. There's a general point here worth making, I think, that you can only automate DB versioning and upgrade so far - the abstractions are very leaky. 
+ 
+ We use  DBGhost  to manage our SQL database. Then you put your scripts to build a new database in your version control, and it'll either build a new database, or upgrade any existing database to the schema in version control. That way you don't have to worry about creating change scripts (although you can still do that, if for example you want to change the data type of a column and need to convert data). 
+ 
+ With VS 2010, use the Database project. 
+ 
+ Script out your database  
+ Make changes to scripts or directly on
+your db server  
+ Sync up using Data >
+    Schema Compare 
+ 
+ Makes a perfect DB versioning solution, and makes syncing DB's a breeze.  
+ 
+ It is a good approach to save database scripts into version control with change scripts so that you can upgrade any one database you have. Also you might want to save schemas for different versions so that you can create a full database without having to apply all the change scripts. Handling the scripts should be automated so that you don't have to do manual work. 
+ I think its important to have a separate database for every developer and not use a shared database. That way the developers can create test cases and development phases independently from other developers. 
+ The automating tool should have means for handling database metadata, which tells what databases are in what state of development and which tables contain version controllable data and so on. 
+ 
+ You could also look at a migrations solution.  These allow you to specify your database schema in C# code, and roll your database version up and down using MSBuild. 
+ I'm currently using  DbUp , and it's been working well. 
+ 
+ You didn't mention any specifics about your target environment or constraints, so this may not be entirely applicable... but if you're looking for a way to effectively track an evolving DB schema and aren't adverse to the idea of using Ruby, ActiveRecord's migrations are right up your alley. 
+ Migrations programatically define database transformations using a Ruby DSL; each transformation can be applied or (usually) rolled back, allowing you to jump to a different version of your DB schema at any given point in time. The file defining these transformations can be checked into version control like any other piece of source code. 
+ Because migrations are a part of  ActiveRecord , they typically find use in full-stack Rails apps; however, you can use ActiveRecord independent of Rails with minimal effort. See  here  for a more detailed treatment of using AR's migrations outside of Rails. 
+ 
+ Every database should be under source-code control.  What is lacking is a tool to automatically script all database objects - and "configuration data" - to file, which then can be added to any source control system.  If you are using SQL Server, then my solution is here :  http://dbsourcetools.codeplex.com/  .  Have fun.
+- Nathan. 
+ 
+ It's simple. 
+ 
+ When the base project is ready then you must create full database script. This script is commited to SVN. It is first version. 
+ After that all developers creates change scripts (ALTER..., new tables, sprocs, etc). 
+ When you need current version then you should execute all new change scripts. 
+ When app is released to production then you go back to 1 (but then it will be successive version of course). 
+ 
+ Nant will help you to execute those change scripts. :) 
+ And remember. Everything works fine when there is discipline. Every time when database change is commited then corresponding functions in code are commited too. 
+ 
+ If you have a small database and you want to version the entire thing,  this batch script  might help. It detaches, compresses, and checks a MSSQL database MDF file in to Subversion. 
+ If you mostly want to version your schema and just have a small amount of reference data, you can possibly use  SubSonic Migrations  to handle that. The benefit there is that you can easily migrate up or down to any specific version. 
+ 
+ To make the dump to a source code control system that little bit faster, you can see which objects have changed since last time by using the version information in sysobjects. 
+ **Setup:**
+ Create a table in each database you want to check incrementally to hold the version information from the last time you checked it (empty on the first run). Clear this table if you want to re-scan your whole data structure. 
+ 
+ **Normal running mode:**
+ You can take the results from this sql, and generate sql scripts for just the ones you're interested in, and put them into a source control of your choice. 
+ 
+ **Note:**
+ If you use a non-standard collation in any of your databases, you will need to replace   with your database collation. i.e.  
+ 
+ Because our app has to work across multiple RDBMSs, we store our schema definition in version control using the database-neutral  Torque  format (XML). We also version-control the reference data for our database in XML format as follows (where "Relationship" is one of the reference tables): 
+ 
+ We then use home-grown tools to generate the schema upgrade and reference data upgrade scripts that are required to go from version X of the database to version X + 1. 
+ 
+ We don't store the database schema, we store the changes to the database.  What we do is store the schema changes so that we build a change script for any version of the database and apply it to our customer's databases.  I wrote an database utility app that gets distributed with our main application that can read that script and know which updates need to be applied.  It also has enough smarts to refresh views and stored procedures as needed. 
+ 
+ We had the need to version our SQL database after we migrated to an x64 platform and our old version broke with the migration.  We wrote a C# application which used SQLDMO to map out all of the SQL objects to a folder: 
+ 
+                Root
+                    ServerName
+                       DatabaseName
+                          Schema Objects
+                             Database Triggers*
+                                .ddltrigger.sql
+                             Functions
+                                ..function.sql
+                             Security
+                                Roles
+                                   Application Roles
+                                      .approle.sql
+                                   Database Roles
+                                      .role.sql
+                                Schemas*
+                                   .schema.sql
+                                Users
+                                   .user.sql
+                             Storage
+                                Full Text Catalogs*
+                                   .fulltext.sql
+                             Stored Procedures
+                                ..proc.sql
+                             Synonyms*
+                                .synonym.sql
+                             Tables
+                                ..table.sql
+                                Constraints
+                                   ...chkconst.sql
+                                   ...defconst.sql
+                                Indexes
+                                   ...index.sql
+                                Keys
+                                   ...fkey.sql
+                                   ...pkey.sql
+                                   ...ukey.sql
+                                Triggers
+                                   ...trigger.sql
+                             Types
+                                User-defined Data Types
+                                   ..uddt.sql
+                                XML Schema Collections*
+                                   ..xmlschema.sql
+                             Views
+                                ..view.sql
+                                Indexes
+                                   ...index.sql
+                                Triggers
+                                   ...trigger.sql
+ 
+ The application would then compare the newly written version to the version stored in SVN and if there were differences it would update SVN.
+We determined that running the process once a night was sufficient since we do not make that many changes to SQL.  It allows us to track changes to all the objects we care about plus it allows us to rebuild our full schema in the event of a serious problem. 
+ 
+ I wrote this app a while ago,  http://sqlschemasourcectrl.codeplex.com/  which will scan your MSFT SQL db's as often as you want and automatically dump your objects (tables, views, procs, functions, sql settings) into SVN. Works like a charm. I use it with Unfuddle (which allows me to get alerts on checkins) 
+ 
+ The typical solution is to dump the database as necessary and backup those files. 
+ Depending on your development platform, there may be opensource plugins available. Rolling your own code to do it is usually fairly trivial. 
+ Note: You may want to backup the database dump instead of putting it into version control.  The files can get huge fast in version control, and cause your entire source control system to become slow (I'm recalling a CVS horror story at the moment). 
+ 
+ We just started using Team Foundation Server.  If your database is medium sized, then visual studio has some nice project integrations with built in compare, data compare, database refactoring tools, database testing framework, and even data generation tools. 
+ But, that model doesn't fit very large or third party databases (that encrypt objects) very well.  So, what we've done is to store only our customized objects.  Visual Studio / Team foundation server works very well for that. 
+ TFS Database chief arch. blog 
+ MS TFS site 
+ 
+ I agree with ESV answer and for that exact reason I started a little project a while back to help maintain database updates in a very simple file which could then be maintained a long side out source code. It allows easy updates to developers as well as UAT and Production. The tool works on but Sql Server and MySql. 
+ Some project features: 
+ 
+ Allows schema changes 
+ Allows value tree population 
+ Allows separate test data inserts for eg. UAT 
+ Allows option for rollback (not automated) 
+ Maintains support for SQL server and Mysql 
+ Has the ability to import your existing database into version control with one simple command(sql server only ... still working on mysql) 
+ 
+ The code is hosted on google code. Please check out Google code for some more information 
+ http://code.google.com/p/databaseversioncontrol/ 
+ 
+ A while ago I found a VB bas module that used DMO and VSS objects to get an entire db scripted off and into VSS.  I turned it into a VB Script and posted it  here . You could easily take out the VSS calls and use the DMO stuff to generate all the scripts, and then call SVN from the same batch file that calls the VBScript to check them in? 
+ Dave J 
+ 
+ I'm also using a version in the database stored via the database extended properties family of procedures. My application has scripts for each version step (ie. move from 1.1 to 1.2). When deployed, it looks at the current version and then runs the scripts one by one until it reaches the last app version. There is no script that has the straight 'final' version, even deploy on a clean DB does the deploy via a series of upgrade steps. 
+ Now what I like to add is that I've seen two days ago a presentation on the MS campus about the new and upcoming VS DB edition. The presentation was focused specifically on this topic and I was blown out of the water. You should definitely check it out, the new facilities are focused on keeping schema definition in T-SQL scripts (CREATEs), a runtime delta engine to compare deployment schema with defined schema and doing the delta ALTERs and integration with source code integration, up to and including MSBUILD continuous integration for automated build drops. The drop will contain a new file type, the .dbschema files, that can be taken to the deployment site and a command line tool can do the actual 'deltas' and run the deployment.
+I have a blog entry on this topic with links to the VSDE downloads, you should check them out:  http://rusanu.com/2009/05/15/version-control-and-your-database/ 
+ 
+ Its a very old question, however many are trying to solve this even now. All they have to do is to research about Visual Studio Database Projects. Without this, any database development looks very feeble. From code organization to deployment to versioning, it simplifies everything. 
+ 
+ In my experience the solution is twofold: 
+ 
+ You need to handle changes to the development database that are done by multiple developers during development. 
+ You need to handle database upgrades in customers sites. 
+ 
+ In order to handle #1 you'll need a strong database diff/merge tool. The best tool should be able to perform automatic merge as much as possible while allowing you to resolve unhandled conflicts manually.  
+ The perfect tool should handle merge operations by using a 3-way merge algorithm that brings into account the changes that were made in the THEIRS database and the MINE database, relative to the BASE database. 
+ I wrote a commercial tool that provides manual merge support for SQLite databases and I'm currently adding support for 3-way merge algorithm for SQLite. Check it out at  http://www.sqlitecompare.com 
+ In order to handle #2 you will need an upgrade framework in place.  
+ The basic idea is to develop an automatic upgrade framework that knows how to upgrade from an existing SQL schema to the newer SQL schema and can build an upgrade path for every existing DB installation.  
+ Check out my article on the subject in  http://www.codeproject.com/KB/database/sqlite_upgrade.aspx  to get a general idea of what I'm talking about.  
+ Good Luck 
+ Liron Levi 
+ 
+ Check out DBGhost  http://www.innovartis.co.uk/ . I have used in an automated fashion for 2 years now and it works great. It allows our DB builds to happen much like a Java or C build happens, except for the database. You know what I mean. 
+ 
+ I would suggest using comparison tools to improvise a version control system for your database. A good alternative are  xSQL Schema Compare  and  xSQL Data Compare .  
+ Now, if your goal is to have only the database's schema under version control you can simply use xSQL Schema Compare to generate xSQL Snapshots of the schema and add these files in your version control. Than, to revert or update to a specific version just compare the current version of the database with the snapshot for the destination version.  
+ Alas, if you want to have the data under version control as well, you can use xSQL Data Compare to generate change scripts for you database and add the .sql files in your version control. You could then execute these scripts to revert / update to any version you want. Keep in mind that for the 'revert' functionality you need to generate change scripts that when executed will make Version 3 the same as Version 2 and for the 'update' functionality, you need to generate change scripts that do the opposite.  
+ Lastly, with some basic batch programming skills you can automate the whole process by using the command line versions of xSQL Schema Compare and xSQL Data Compare 
+ Disclaimer: I'm affiliated to xSQL. 
+ 

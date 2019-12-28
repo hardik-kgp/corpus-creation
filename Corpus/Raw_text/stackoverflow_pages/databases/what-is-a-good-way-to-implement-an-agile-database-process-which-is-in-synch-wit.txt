@@ -1,0 +1,89 @@
+*** what-is-a-good-way-to-implement-an-agile-database-process-which-is-in-synch-wit ***
+
+ 
+ 
+ 
+ 
+ 
+ Closed . This question needs to be more  focused . It is not currently accepting answers.
+                            
+                         
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ Want to improve this question?  Update the question so it focuses on one problem only by  editing this post .
+                         
+ Closed  4 years ago . 
+ 
+ 
+ 
+ The project I am working on were are trying to come up with a solution for having the database and code be agile and be able to be built and deployed together. 
+ Since the application is a combination of code plus the database schema, and database code tables, you can not truly have a full build of the application unless you have a database that is versioned along with the code. 
+ We have not yet been able to come up with a good agile method of doing the database development along with the code in an agile/scrum environment. 
+ Here are some of my requirements: 
+ 
+ I want to be able to have a svn revision # that corresponds to a complete build of the system. 
+ I do not want to check in binary files into source control for the database. 
+ Developers need to be able to commit code to the continuous integration server and build the entire system and database together. 
+ Must be able to automate deployment to different environments without doing a rebuild other than the original build on the build server. 
+ 
+ (Update)
+I'll add some more info here to explain a bit further. 
+ No OR/M tool, since its a legacy project with a huge amount of code.
+I have read the agile database design information, and that process in isolation seems to work, but I am talking about combining it with active code development. 
+ Here are two scenario's 
+ 
+ Developer checks in a code change, that requires a database change.  The developer should be able to check in a database change at the same time, so that the automated build doesn't fail. 
+ Developer checks in a DB change, that should break code.  The automated build needs to  run and fail. 
+ 
+ The biggest problem is, how do these things synch up.  There is no such thing as "checking in a database change".  Right now the application of the DB changes is a manual process someone has to do, while code change are constantly being made.  They need to be made together and checked together, the build system needs to be able to build the entire system. 
+ (Update 2)
+One more add here: 
+ You can't bring down production, you must patch it.  Its not acceptable to rebuild the entire production database. 
+ 
+ You need a build process that constructs the database schema and adds any necessary bootstrapping data.  If you're using an O/R tool that supports schema generation, most of that work is done for you.  Whatever is not tool-generated, keep in scripts. 
+ For continuous integration, ideally a "build" should include a complete rebuild of the database and a reload of static testing data. 
+ I just saw that you have no ORM tool... here's what we had at a company I used to work for 
+ 
+ Arrange however necessary... each of those   scripts would be run in order to generate the structure.  Developers each had local copies of the DB, and any DB change was just another code change, nothing special. 
+ If you're working on a project that already has a build process (Java, C, C++), this is second nature.  If you're using scripts in such a way that there is no build process at all, this'll be a bit of extra work. 
+ 
+ "There is no such thing as "checking in a database change"." 
+ Actually, I think you can check in database change.  The trick is to stop using simple -- unversioned -- schema and table names. 
+ If you have a version number attached to a schema as a whole (or a table), then you can easily have a version check-in. 
+ Note that database versions doesn't have fancy major-minor-release.  The "major" revision in application software usually reflects a basic level of compatibility.  That basic level of compatibility should be defined as "uses the same data model".  
+ So app version 2.23 and 2.24 use the version 2 of a the database schema. 
+ The version check-in has two parts. 
+ 
+ The new table.  For example, MyTable_8 is version 8 of a given table. 
+ The migration script.  For example MyTable_8 includes a MyTable_7 to MyTable_8 script which moves the data, providing defaults or whatever is required. 
+ 
+ There are several ways this is used. 
+ 
+ Compatible upgrades.  When merely altering a table to add a column that permits nulls, the version number stays the same. 
+ Incompatible upgrades.  When adding non-null columns (that need initial values) or changing the fundamental shape of tables or data types of columns, you're making a big change and you have a migration script. 
+ 
+ Note that the old data stays in place until explicitly dropped at the end of the change procedure.  You have to run tests to assure that everything worked.   
+ You might have  two-part drop -- first rename, then (a week later) finally drop. 
+ 
+ Make sure that your O/R-Mapping tool is able to build the necessary tables out of the default configuration it has and also add missing columns. This should cover 90% of your cases. 
+ The other 10% are 
+ 
+ coping with missing values for columns that where added after the data was inserted 
+ write data-migration scripts for the rare case where you need to do more fundamental changes between versions 
+ 
+ 
+ See the DBDeploy open source project.  http://dbdeploy.com/ 
+ It allows you to check in database change scripts. It will then produce a consolidated change script including all changes that have not been applied.
+The site describes the process pretty well. 
+ This project is based on the techniques in the Martin Fowler article that was mentioned before. I was on the project that Martin based the article on. DbDeploy is a pretty good implementation of the process we used. 
+ 
+ The  migrations  facility of Ruby on Rails was developed to handle exactly this need.  If you're not using Rails for your application, you might see if this same concept has been ported to the framework of your choice, or read up on it and determine whether you could write some quick scripts that implement the same sort of functionality. 
+ 

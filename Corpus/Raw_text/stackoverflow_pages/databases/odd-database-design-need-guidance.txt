@@ -1,0 +1,86 @@
+*** odd-database-design-need-guidance ***
+
+ I am probably thinking about this wrong but here goes. 
+ A computer starts spitting out a gazillion random numbers between 11111111111111111111 and 99999999999999999999, in a linear row: 
+ 
+ Sometimes the computer adds a number to one end of the line. 
+ Sometimes the computer adds a number to the other end of the line. 
+ Each number has a number that comes, or will come, before. 
+ Each number has a number that comes, or will come, after. 
+ Not all numbers are unique, many, but not most, are repeated. 
+ The computer never stops spitting out numbers. 
+ 
+ As I record all of these numbers, I need to be able to make an educated guess, at any given time: 
+ 
+ If this is the second time I have seen a number I must know what number preceded it in line last time. 
+ If it has appeared more than two times, I must know the probability/frequency of numbers preceding it. 
+ If this is the second time I have seen a number, I must also know what number came after it in line last time. 
+ If it has appeared more than two times, I must know the probability/frequency of numbers coming after it. 
+ 
+ 
+ How the heck do I structure the tables in a MySQL database to store all these numbers?  Which engine do I use and why?  How do I formulate my queries?  I need to know fast, but capacity is also important because when will the thing stop spitting them out? 
+ My ill-conceived plan: 
+ 2 Tables:  
+ 
+ My thoughts: 
+ Unique ID's are almost always going to be shorter than the number = faster match.
+Numbers repeat = fewer ID rows = faster match initially. 
+ 
+ OR: 
+ 3 Tables: 
+ 
+ My thoughts: 
+ If I only need left/before, or only need after/right, im shrinking the size of the second query. 
+ 
+ OR 
+ 1 Table: 
+ 
+ Thoughts: 
+ Less queries = less time. 
+ 
+ I'm lost.... :(  Each number has four attributes, that which comes before+frequency and that which comes after+frequency. 
+ Would I be better off thinking of it in that way?  If I store and increment frequency in the table, I do away with repetition and thus speed up my queries?  I was initially thinking that if I store every occurrence, it would be faster to figure the frequency programmatically....... 
+ Such simple data, but I just don't have the knowledge of how databases function to know which is more efficient. 
+ 
+ In light of a recent comment, I would like to add a bit of information about the actual problem:  I have a string of indefinite length.  I am trying to store a Markov chain frequency table of the various characters, or chunks of characters, in this string.   
+ Given any point in the string I need to know the probability of the next state, and the probability of the previous state.   
+ I am anticipating user input, based on a corpus of text and past user input.  A major difference compared to other applications I have seen is that I am going farther down the chain, more states, at a given time and I need the frequency data to provide multiple possibilities. 
+ I hope that clarifies the picture a lot more.  I didn't want to get into the nitty gritty of the problem, because in the past I have created questions that are not specific enough to get a specific answer. 
+ 
+ This seems maybe a bit better.  My primary question with this solution is: Would providing the "key" (first few characters of the state) increase the speed of the system?  i.e query for state_key, then query only the results of that query for the full state? 
+ 
+ 
+ I'm not familiar with Markov Chains but here is an attempt to answer the question. Note: To simplify things, let's call each string of numbers a 'state'. 
+ First of all I imagine a table like this 
+ 
+ order: just use a sequential number (1,2,3,...,n) this will make it easy to search for the previous or next state. 
+ state_id: a unique number associated to the state. As an example, you can use the number 1 to represent the state '1111111111...1' (whatever the length of the sequence is). What's important is that a reoccurrence of a state needs to use the same state_id that was used before. You may be able to formulate the state_id based on the string (maybe substracting a number). Of course a state_id only makes sense if the number of possible states fits in a MySQL int field. 
+ state: that is the string of numbers '11111111...1' to '99999999...9' ... I'm guessing this can only be stored as a string but if it fits in an integer/number column you should try it as it may well be that you don't need the state_id  
+ The point of state_id is that searching number is quicker than searching texts, but there will always be trade-offs when it comes to performance ... profile and identify your bottlenecks to make better design decisions. 
+ So, how do you look for a previous occurrence of the state S_i ?  
+ "SELECT order, state_id, state FROM states WHERE state_id = " and then attach get_state_id(S_i) where get_state_id ideally uses a formula to generate a unique id for the state. 
+ Now, with order - 1 or order + 1 you can access the neighboring states issuing an additional query. 
+ Next we need to track the frequency of different occurrences. You can do that in a different table that could look like this: 
+ 
+ And only add records as you get the numbers. 
+ Finally, you can have tables to track frequency for the neighboring states: 
+ 
+ You will be able to infer probabilities (i guess this is what you are trying to do) by looking at the number of occurrences of a state (in state_frequencies) vs the number of occurrences of it's predecessor state (in prev_state_frequencies). 
+ I'm not sure if I got your problem right but if this makes sense I'm guessing I have. 
+ Hope it helps,
+AH 
+ 
+ It seems to me that the Markov Chain is finite, so first I would start by defining the limit of the chain (i.e. 26 characters with x number of spaces to fill) then you can calculate the total number of possible combinations. to determine the probability of a certain arrangement of characters the math if I remember correctly is: 
+ 
+ x = ((C)(C))(P)
+  
+where
+  
+C = the number of possible characters and
+  
+P = the total potential outcomes. 
+ 
+ this is a ton of data to store and creating procedures to filter through the data could turn out to be a seemingly endless task. 
+ ->
+if you are using an auto incremented id in your table you could query the table and use preg_match to test the new result against the previous results then insert the number of total matches with the new result into the table, this would also allow you to query the preceding results to see what came before it this should give you a general idea of the pattern within the results as well as a general base for statistical relevance and new algorithm generation 
+ 

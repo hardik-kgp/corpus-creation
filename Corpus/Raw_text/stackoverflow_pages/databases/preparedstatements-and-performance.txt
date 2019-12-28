@@ -1,0 +1,128 @@
+*** preparedstatements-and-performance ***
+
+ So I keep hearing that PreparedStatements are good for performance. 
+ We have a Java application in which we use the regular 'Statement' more than we use the 'PreparedStatement'. While trying to move towards using more PreparedStatements, I am trying to get a more thorough understanding of how PreparedStatements work - on the client side and the server side. 
+ So if we have some typical CRUD operations and update an object repeatedly in the application, does it help to use a PS? I understand that we will have to close the PS every time otherwise it will result in a cursor leak. 
+ So how does it help with performance? Does the driver cache the precompiled statement and give me a copy the next time I do connection.prepareStatement? Or does the DB server help?  
+ I understand the argument about the security benefits of PreparedStatements and I appreciate the answers below which emphasize it. However I really want to keep this discussion focused on the performance benefits of PreparedStatements. 
+ Update: When I say update data, I really mean more in terms of that method randomly being called several times. I understand the advantage in the answer offered below which asks to re-use the statement inside a loop. 
+ 
+ There is no way to actually reuse the 'ps' java object and I understand that the actual connection.prepareStatement call is quite expensive.  
+ Which is what brings me back to the original question. Is this "some sql" PreparedStatement still being cached and reused under the covers that I dont know about? 
+ I should also mention that we support several databases. 
+ Thanks in advance. 
+ 
+ The notion that prepared statements are primarily about performance is something of a misconception, although it's quite a common one. 
+ Another poster mentioned that he noted a speed improvement of about 20% in Oracle and SQL Server. I've noted a similar figure with MySQL. It turns out that parsing the query just isn't such a significant part of the work involved. On a very busy database system, it's also not clear that query parsing will affect overall throughput: overall, it'll probably just be using up CPU time that would otherwise be idle while data was coming back from the disk. 
+ So as a reason for using prepared statements, the  **protection against SQL injection attacks far outweighs**
+ the performance improvement. And if you're not worried about SQL injection attacks, you probably should be... 
+ 
+ Prepared statements can improve performance when re-using the same statement that you prepared: 
+ 
+ This is much faster than creating the statement in the loop. 
+ Some platforms also cache prepared statements so that even if you close them they can be reconstructed more quickly. 
+ However even if the performance were identical you should still use prepared statements to prevent SQL Injection.  At my company this is an interview question; get it wrong and we might not hire you. 
+ 
+ Prepared statements are indeed cached after their first use, which is what they provide in performance over standard statements.  If your statement doesn't change then it's advised to use this method.  They are generally stored within a statement cache for alter use. 
+ More info can be found here: 
+ http://www.theserverside.com/tt/articles/article.tss?l=Prepared-Statments 
+ and you might want to look at Spring JDBCTemplate as an alternative to using JDBC directly. 
+ http://static.springframework.org/spring/docs/2.0.x/reference/jdbc.html 
+ 
+ Parsing the SQL isn't the only thing that's going on.  There's validating that the tables and columns do indeed exist, creating a query plan, etc.  You pay that once with a PreparedStatement. 
+ Binding to guard against SQL injection is a very good thing, indeed.  Not sufficient, IMO.  You still should validate input prior to getting to the persistence layer. 
+ 
+ 
+ So how does it help with performance? Does the driver cache the
+  precompiled statement and give me a copy the next time I do
+  connection.prepareStatement? Or does the DB server help? 
+ 
+ I will answer in terms of performance. Others here have already stipulated that  s are resilient to SQL injection (blessed advantage). 
+ The application (JDBC Driver) creates the   and passes it to the RDBMS with placeholders (the  ). The RDBMS precompiles, applying query optimization (if needed) of the received   and (in some) generally caches them. During execution of the  , the precompiled   is used, replacing each placeholders with their relevant values and calculated. This is in contrast to   which compiles it and executes it directly, the   compiles and optimizes the query  only once . Now, this scenario explained above is not an absolute case by ALL JDBC vendors but in essence that's how   are used and operated on. 
+ 
+ Anecdotally: I did some experiments with prepared vs. dynamic statements using ODBC in Java 1.4 some years ago, with both Oracle and SQL Server back-ends. I found that prepared statements could be as much as 20% faster for certain queries, but there were vendor-specific differences regarding which queries were improved to what extent. (This should not be surprising, really.) 
+ The bottom line is that if you will be re-using the same query repeatedly, prepared statements may help improve performance; but if your performance is bad enough that you need to do something about it immediately, don't count on the use of prepared statements to give you a radical boost. (20% is usually nothing to write home about.) 
+ Your mileage may vary, of course. 
+ 
+ Which is what brings me back to the original question. Is this "some sql" PreparedStatement still being cached and reused under the covers that I dont know about? 
+ Yes at least with Oracle. Per Oracle® Database JDBC Developer's Guide  Implicit Statement Caching  (emphasis added), 
+ 
+ When you enable implicit Statement caching, JDBC automatically caches the prepared or callable statement when you call the   method of this statement object. The prepared and callable statements are cached and retrieved using standard connection object and statement object methods. 
+ Plain statements are not implicitly cached, because implicit Statement caching uses a SQL string as a key and plain statements are created without a SQL string. Therefore, implicit Statement caching applies only to the   and   objects, which are created with a SQL string. You cannot use implicit Statement caching with OracleStatement. When you create an   or  , the JDBC driver  **automatically searches the cache for a matching statement**
+. 
+ 
+ 
+ **1. PreparedStatement allows you to write dynamic and parametric query**
+
+ By using PreparedStatement in Java you can write parametrized sql queries and send different parameters by using same sql queries which is lot better than creating different queries.  
+ **2. PreparedStatement is faster than Statement in Java**
+
+ One of the major benefits of using PreparedStatement is better performance. PreparedStatement gets pre compiled
+In database and there access plan is also cached in database, which allows database to execute parametric query written using prepared statement much faster than normal query because it has less work to do. You should always try to use PreparedStatement in production JDBC code to reduce load on database. In order to get performance benefit its worth noting to use only parametrized version of sql query and not with string concatenation 
+ **3. PreparedStatement prevents SQL Injection attacks in Java**
+
+ Read more:  http://javarevisited.blogspot.com/2012/03/why-use-preparedstatement-in-java-jdbc.html#ixzz3LejuMnVL 
+ 
+ Prepared statements have some advantages in terms of performance with respect to normal statements, depending on how you use them. As someone stated before, if you need to execute the same query multiple times with different parameters, you can reuse the prepared statement and pass only the new parameter set. The performance improvement depends on the specific driver and database you are using. 
+ As instance, in terms of database performance, Oracle database caches the execution plan of some queries after each computation (this is not true for all versions and all configuration of Oracle). You can find improvements even if you close a statement and open a new one, because this is done at RDBMS level. This kind of caching is activated only if the two subsequent queries are (char-by-char) the same. This does not holds for normal statements because the parameters are part of the query and produce different SQL strings.  
+ Some other RDBMS can be more "intelligent", but I don't expect they will use complex pattern matching algorithms for caching the execution plans because it would lower performance. You may argue that the computation of the execution plan is only a small part of the query execution. For the general case, I agree, but.. it depends. Keep in mind that, usually, computing an execution plan can be an expensive task, because the rdbms needs to consult off-memory data like statistics (not only Oracle). 
+ However, the argument about caching range from execution-plans to other parts of the extraction process. Giving to the RDBMS multiple times the same query (without going in depth for a particular implementation) helps identifying already computed structures at JDBC (driver) or RDBMS level. If you don't find any particular advantage in performance now, you can't exclude that performance improvement will be implemented in future/alternative versions of the driver/rdbms. 
+ Performance improvements for updates can be obtained by using prepared statements in batch-mode but this is another story. 
+ 
+ **Short answer:**
+
+ PreparedStatement helps performance because typically DB clients perform the same query repetitively, and this makes it possible to  **do some pre-processing**
+ for the initial query  **to speed up the following repetitive queries**
+. 
+ **Long answer:**
+
+ According to  Wikipedia , the typical workflow of using a prepared statement is as follows: 
+ 
+ **Prepare**
+: The statement template is created by the application and sent
+  to the database management system (DBMS). Certain values are left
+  unspecified, called parameters, placeholders or bind variables
+  (labelled "?" below): INSERT INTO PRODUCT (name, price) VALUES (?, ?) 
+ **(Pre-compilation)**
+: The DBMS parses, compiles, and performs query optimization on the
+  statement template, and stores the result without executing it. 
+ **Execute**
+: At a later time, the application supplies (or binds) values
+  for the parameters, and the DBMS executes the statement (possibly
+  returning a result). The application may execute the statement as many
+  times as it wants with different values. In this example, it might
+  supply 'Bread' for the first parameter and '1.00' for the second
+  parameter. 
+ 
+ **Prepare:**
+
+ In JDBC, the "Prepare" step is done by calling java.sql.Connection. prepareStatement (String sql) API. According to its Javadoc: 
+ 
+ This method is optimized for handling parametric SQL statements that benefit from precompilation. If the driver supports precompilation, the method prepareStatement will send the statement to the database for precompilation. Some drivers may not support precompilation. In this case, the statement may not be sent to the database until the PreparedStatement object is executed. This has no direct effect on users; however, it does affect which methods throw certain SQLException objects. 
+ 
+ Since calling this API may send the SQL statement to database, it is an expensive call typically. Depending on JDBC driver's implementation, if you have the same sql statement template, for better performance, you may have to avoiding calling this API multiple times in client side for the same sql statement template. 
+ **Precompilation:**
+
+ The sent statement template will be  **pre-compiled on database**
+ and cached in db server. The database will probably use the connection and sql statement template as the key, and the pre-compiled query and the computed query plan as value in the cache. Parsing query may need to validate table, columns to be queried, so it could be an expensive operation, and computation of  query plan  is an expensive operation too. 
+ **Execute:**
+
+ For following queries from the same connection and sql statement template, the pre-compiled query and query plan will be looked up directly from cache by database server without re-computation again.  
+ **Conclusion:**
+
+ From performance perspective, using prepare statement is a two-phase process: 
+ 
+ Phase 1, prepare-and-precompilation, this phase is expected to be
+done once and add some overhead for the performance.  
+ Phase 2,
+repeated executions of the same query, since phase 1 has some pre
+processing for the query, if the number of repeating query is large
+enough, this can save lots of pre-processing effort for the same
+query. 
+ 
+ And if you want to know more details, there are some articles explaining the benefits of PrepareStatement: 
+ 
+ http://javarevisited.blogspot.com/2012/03/why-use-preparedstatement-in-java-jdbc.html 
+ http://docs.oracle.com/javase/tutorial/jdbc/basics/prepared.html 
+ 
+ 

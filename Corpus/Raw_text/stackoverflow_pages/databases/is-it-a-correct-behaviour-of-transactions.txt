@@ -1,0 +1,66 @@
+*** is-it-a-correct-behaviour-of-transactions ***
+
+ I have three transaction services that are executed within a transaction boundary (stratTransaction or begin transaction). All three services uses different connection (No_Transaction, Local_Transaction and XA_Transaction) for their processing respectively. Now I want to know, when I start a transaction (using javax.transaction.TransactionManager) and run these three services within the transaction boundary, I can see that the service that used NO and LOCAL transactions are able to insert data into the tables. Now I am inserting data more than the table constraints in a column using the Service XA (and I know it is supposed to fail) and calling the commit (and a rollback procedure if there are any failures). Now I have data in tables of NO and Local connection tables while XA connection table don't have any data. Now: 
+ **I want to know that when the transaction has failed at one point it is suppossed to rollback all the data from all the tables or it is just supposed to rollback data of XA Service only?**
+
+ **I also wanted to know: 'Transaction' as I know is a procedure of transferring data atomicly. So why connection creation includes defining the type of transaction that can be performed by connection isn't it a property of transactions?**
+
+ **I also want to know that why we have to define transaction type in connection properties instead we must define the type of transaction when we start a transacion and that transaction manager must perform the given type of transactions.**
+
+ Thanks in advance. 
+ 
+ Let's start with the simplest transaction mode and increase complexity.  
+ **No transaction**
+
+ A 'no transaction' connection is one that does not 'commit' or 'roll back' data such as sending email. Once you have passed the message object to the email server, it is sent to the recipient and no amount of pleading will ever get the message back again. It's almost as if every call is committed by the time the call returns. Examples of this kind of connection include connection to SMTP, SMS gateways, printers and so on. 
+ I believe that you can use a database connection in this manner if you have auto-commit on, but it begs the question on why you have a full ACID database in the first place...  
+ **'Normal' transactions**
+
+ The normal connection, for example to a SQL database, has the ability to store up a series of state change commands in an internal buffer. When everything has been done, and all appears OK, then the whole buffer of changes is written to the data store and other connections can see the changes. If something goes wrong, before or even during the commit, the whole set of changes can be discarded (rolled back). 
+ One  critical  limitation of this type of connection is the scope of the buffer - the buffer is part of the connection itself. In other words, it is only through the connection that you can write to the buffer. 
+ An important responsibility of the application server is to manage these connections. When you ask the connection pool to give you the connection, you magically get the same connection each time (within a single transaction). This is true even when when one EJB calls another or when an EJB calls into a Resource Adapter (assuming you use the REQUIRES_TRANSACTION semantics. You can override this with REQUIRES_NEW). This behaviour means that one web request can multiple EJB calls, each of which can interact with multiple entity beans, and all the data manipulation occurs on a single connection with a single internal buffer. It will all be committed or rolled back together. 
+ **Transactions with multiple connections**
+
+ This is great when you have a single database - but (by definition) you need separate connections if you talk to separate database instances (eg on different machines). So what happens then? Your EJB transaction ends up associated with multiple connections - each connection to a unique database. This appears to work well, except in one situation: 
+ 
+ You have Connection A to Database A and Connection B to Database B 
+ You execute DML statements on A and B 
+ You commit the EJB connection. The Application Server now:
+ 
+ Commits Connection A - success 
+ Commits Connection B - fail (eg constraint fails) and Connection B rolls back 
+ 
+ 
+ This is a disaster - you have committed the transaction in Database A, and this cannot now be rolled back. However, the transaction (and the whole EJB) is rolled back on Database B. 
+ (Interestingly, your example is almost identical to this - you have data committed to the no transaction and normal transaction, but not in the XA transaction - the  **last**
+ of the three connections) 
+ **XA Transactions**
+
+ This is where XA comes in. It provides logic to co-ordinate transactions being committed against  different data sources  and  simulates  a single transaction over multiple data sources. XA commits with a "two-phase commit" managed by a transaction co-ordinator that manages a number of XA-connections co-opted into the XA Transaction. The co-ordinator 
+ 
+ Sends a message to each data source through the XA Connection to see if the transaction  can be  committed: All constraint and database logic is executed up to the point just before a final commit. If any database reports a failure, the XA co-ordinator rolls back the whole transaction. Phase 1 is where almost all the transaction work is carried out and so takes comparatively long 
+ When every database has reported that the transaction  can be  committed, the co-ordinator sends a message to every database to commit the transaction. This happens very fast. 
+ 
+ Note that the two-phase commit  can fail  if something goes wrong in phase 2 (eg part of the network crashes or one of the databases is powered off between phase 1 and phase 2). 
+ Because an XA connection behaves so differently from a normal connection, it typically needs a different ConnectionFactory object which instantiates different object instances than a non-XA ConnectionFactory. In addition, the XA ConnectionFactory needs configuration parameters for the XA transaction co-ordinator, such as XA transaction timeouts, which are in addition to the ordinary transaction properties. 
+ Another constraint: Only Connections created by an XA ConnectionFactory can join an XA Transaction and the associated two-phase commit. You  can  have both XA and non-XA connections participating in a single Application Server transaction, but then the entire transaction cannot reliably commit/rollback as a single transaction (as above). 
+ **Specific answers**
+
+ 
+ I want to know that when the transaction has failed at one point it is suppossed to rollback all the data from all the tables or it is just supposed to rollback data of XA Service only? 
+ 
+ If the transaction fails before the application server attempts a commit (eg your EJB gets a NPE or you deliberately roll back), each connection will receive a rollback, and everything should be just as you expect. 
+ However, if the transaction fails in the commit logic (eg a database constraint), then the transaction manager will attempt to roll everything back; this cannot happen if a non-XA connection has already committed. 
+ 
+ I also wanted to know: 'Transaction' as I know is a procedure of transferring data atomicly. So why connection creation includes defining the type of transaction that can be performed by connection isn't it a property of transactions? 
+ 
+ The XA connection uses a different library and protocol than the ordinary connection, because the connection itself needs to communicate with the XA Transaction Co-ordinator. Normal connections don't do this. 
+ 
+ I also want to know that why we have to define transaction type in connection properties instead we must define the type of transaction when we start a transacion and that transaction manager must perform the given type of transactions. 
+ 
+ Because the XA connection uses different code, the connection pool needs to load a different class when compared to the normal connection. This is why the connection pool (not connection) properties are different.  
+ 
+ yes if a transaction is failed to write its commit entry in log file then it rollbacks completely(Atomic property of trxn ). 
+ Trxn is an atomic unit of database processing.Whatever opr you perform in database using txn , that action will be atomic. 
+By default the transaction is of autocommit type. but if you use your own code for stating the start point and commit point of a txn then it is of explicit type.(http://msdn.microsoft.com/en-us/library/ms172353.aspx) 
+ 

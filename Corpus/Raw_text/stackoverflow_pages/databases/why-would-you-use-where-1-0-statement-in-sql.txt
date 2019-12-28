@@ -1,0 +1,87 @@
+*** why-would-you-use-where-1-0-statement-in-sql ***
+
+ I saw a query run in a log file on an application. and it contained a query like: 
+ 
+ what is the use of such a query that is bound to return nothing? 
+ 
+ A query like this can be used to ping the database. The clause: 
+ 
+ Ensures that non data is sent back, so no CPU charge, no Network traffic or other resource consumption. 
+ A query like that can test for: 
+ 
+ server availability 
+ CUST_ATTR49 table existence 
+ ID column existence 
+ Keeping a connection alive 
+ Cause a trigger to fire without changing any rows 
+ manage many OR conditions in dynamic queries (e.g  ) 
+ 
+ 
+ A usecase I can think of: you have a filter form where you don't want to have any search results. If you specify some filter, they get added to the where clause. 
+ Or it's usually used if you have to create a sql query by hand. E.g. you don't want to check whether the where clause is empty or not..and you can just add stuff like this: 
+ 
+ (if you connect the clauses with OR you need 0=1, if you have AND you have 1=1) 
+ 
+ This may be also used to extract the table schema from a table without extracting any data inside that table. As Andrea Colleoni said those will be the other benefits of using this. 
+ 
+ Some systems use scripts and can dynamically set selected records to be hidden from a full list; so a false condition needs to be passed to the SQL. For example, three records out of 500 may be marked as Privacy for medical reasons and should not be visible to everyone. A dynamic query will control the 500 records are visible to those in HR, while 497 are visible to managers. A value would be passed to the SQL clause that is conditionally set, i.e. ' WHERE 1=1 ' or ' WHERE 1=0 ', depending who is logged into the system. 
+ 
+ As an answer - but also as further clarification to what @AndreaColleoni already mentioned: 
+ 
+ manage many OR conditions in dynamic queries (e.g  ) 
+ 
+ Purpose as an on/off switch 
+ I am using this as a switch (on/off) statement for portions of my Query. 
+ If I were to use 
+ 
+ Then I can use the first bind variable ( ) to turn on or off the   search criterium. , and the third bind variable ( ) to turn on or off the   criterium. 
+ I have also added a literal   just for esthetics so the text of the query aligns nicely.   
+ For just those two criteria, it does not appear that helpful, as one might thing it is just easier to do the same by dynamically building your WHERE condition by either putting only   or  , or both, or none. So your code will have to dynamically build 4 versions of the same query. Imagine what would happen if you have 10 different criteria to consider, then how many combinations of the same query will you have to manage then? 
+ Compile Time Optimization 
+ I also might add that adding in the 0=? as a bind variable switch will not work very well if all your criteria are indexed. The run time optimizer that will select appropriate indexes and execution plans, might just not see the cost benefit of using the index in those slightly more complex predicates. Hence I usally advice, to inject the 0 / 1 explicitly into your query (string concatenating it in in your sql, or doing some search/replace). Doing so will give the compiler the chance to optimize out redundant statements, and give the Runtime Executer a much simpler query to look at. 
+ 
+ In the second statement above the compiler knows that it never has to even consider the second part of the condition ( ), and it will simply remove the entire predicate. If it were a bind variable, the compiler could never have accomplished this. 
+ Because you are simply, and forcedly, injecting a 0/1, there is zero chance of SQL injections. 
+ In my SQL's, as one approach, I typically place my sql injection points as ${literal_name}, and I then simply search/replace using a regex any ${...} occurrence with the appropriate literal, before I even let the compiler have a stab at it. This basically leads to a query stored as follows: 
+ 
+ Looks good, easily understood, the compiler handles it well, and the Runtime Cost Based Optimizer understands it better and will have a higher likelihood of selecting the right index. 
+ I take special care in what I inject. Prime way for passing variables is and remains bind variables for all the obvious reasons. 
+ 
+ quoted from Greg 
+ 
+ If the list of conditions is not known at compile time and is instead
+  built at run time, you don't have to worry about whether you have one
+  or more than one condition. You can generate them all like: 
+ and  
+ and concatenate them all together. With the 1=1 at the start, the
+  initial and has something to associate with. 
+ I've never seen this used for any kind of injection protection, as you
+  say it doesn't seem like it would help much. I have seen it used as an
+  implementation convenience. The SQL query engine will end up ignoring
+  the 1=1 so it should have no performance impact. 
+ 
+ Why would someone use WHERE 1=1 AND <conditions> in a SQL clause? 
+ 
+ This is very good in metadata fetching and makes thing generic.
+Many DBs have optimizer so they will not actually execute it but its still a valid SQL statement and should execute on all DBs.
+This will not fetch any result, but you know column names are valid, data types etc. If it does not execute you know something is wrong with DB(not up etc.)
+So many generic programs execute this dummy statement for testing and fetching metadata. 
+ 
+ If the user intends to only append records, then the fastest method is open the recordset without returning any existing records. 
+ 
+ It can be useful when only table metadata is desired in an application. For example, if you are writing a JDBC application and want to get the column display size of columns in the table. 
+ Pasting a code snippet here 
+ 
+ Here having a query like "select * from table" can cause performance issues if you are dealing with huge data because it will try to fetch all the records from the table. Instead if you provide a query like "select * from table  **where 1=0**
+" then it will fetch only table metadata and not the records so it will be efficient. 
+ 
+ Per  user milso in another thread , another purpose for "WHERE 1=0": 
+ 
+ CREATE TABLE New_table_name as select * FROM Old_table_name WHERE 1 =
+  2; 
+ this will create a new table with same schema as old table. (Very
+  handy if you want to load some data for compares) 
+ 
+ 
+ It seems like, that someone is trying to hack your database. It looks like someone tried mysql injection. You can read more about it here:  Mysql Injection 
+ 

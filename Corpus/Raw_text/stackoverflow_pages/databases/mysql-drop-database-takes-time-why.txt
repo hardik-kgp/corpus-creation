@@ -1,0 +1,22 @@
+*** mysql-drop-database-takes-time-why ***
+
+ mysql5.0 with a pair of databases "A" and "B", both with large innodb tables. "drop database A;" freezes database "B" for a couple minutes. Nothing is using "A" at that point, so why is this such an intensive operation? 
+ Bonus points: Given that we use "A", upload data into "B", and then switch to using "B", how can we do this faster? Dropping databases isn't the sort of thing one typically has to do all the time, so this is a bit off the charts. 
+ 
+ So I'm not sure  Matt Rogish's answer  is going to help 100%. 
+ The problem is that MySQL* has a mutex (mutually exclusive lock) around opening and closing tables, so that basically means that if a table is in the process of being closed/deleted,  no  other tables can be opened. 
+ This is described by a colleague of mine here:
+ http://www.mysqlperformanceblog.com/2009/06/16/slow-drop-table/ 
+ One excellent impact reduction strategy is to use a filesystem like XFS. 
+ The workaround is ugly.  You essentially have to nibble away at all the data in the tables before dropping them (see comment #11 on the link above). 
+ 
+ Following off of skaffman: 
+ Change your my.cnf (and restart MySQL) to include: 
+ 
+ ( http://mysqldba.blogspot.com/2006/12/innodbfilepertable.html ) 
+ This will give your databases dedicated file storage and take it out of the shared pool. It will then let you do fun things like place the tables/indexes on different physical disks to even further split up I/O and improve performance. 
+ Note this doesn't change existing tables; you'll have to do work to get 'em in their own file ( http://capttofu.livejournal.com/11791.html ). 
+ 
+ By default, all innodb databases in a given mysql server installation use the same physical pool of data files, so conceivably "drop database A"  could affect database B.  Since "drop database" is likely to involve heavy reorgainsing of the innodb data files, it's conceivable that it's a blocking operation, either because of the intensity of the operation, or by design. 
+ However, I think you can make each database use different physical files, although I haven't tried that myself, so you'll have to figure out the specifics for yourself. Failing that, then you may need to use two different mysql installs side-by-side on the same machine, which is perfectly doable. 
+ 

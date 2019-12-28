@@ -1,0 +1,53 @@
+*** how-do-you-query-dynamodb ***
+
+ I'm looking at Amazon's DynamoDB as it looks like it takes away all of the hassle of maintaining and scaling your database server. I'm currently using MySQL, and maintaining and scaling the database is a complete headache. 
+ I've gone through the documentation and I'm having a hard time trying to wrap my head around how you would structure your data so it could be easily retrieved. 
+ I'm totally new to NoSQL and non-relational databases. 
+ From the Dynamo documentation it sounds like you can only query a table on the primary hash key, and the primary range key with a limited number of comparison operators.  
+ Or you can run a full table scan and apply a filter to it. The catch is that it will only scan 1Mb at a time, so you'd likely have to repeat your scan to find X number of results. 
+ I realize these limitations allow them to provide predictable performance, but it seems like it makes it really difficult to get your data out. And performing full table scans  seems  like it would be really inefficient, and would only become less efficient over time as your table grows. 
+ For Instance, say I have a Flickr clone. My Images table might look something like: 
+ 
+ Image ID (Number, Primary Hash Key) 
+ Date Added (Number, Primary Range Key) 
+ User ID (String) 
+ Tags (String Set) 
+ etc 
+ 
+ So using query I would be able to list all images from the last 7 days and limit it to X number of results pretty easily. 
+ But if I wanted to list all images from a particular user I would need to do a full table scan and filter by username. Same would go for tags. 
+ And because you can only scan 1Mb at a time you may need to do multiple scans to find X number of images. I also don't see a way to easily stop at X number of images. If you're trying to grab 30 images, your first scan might find 5, and your second may find 40.  
+ Do I have this right? Is it basically a trade-off? You get really fast predictable database performance that is virtually maintenance free. But the trade-off is that you need to build way more logic to deal with the results? 
+ Or am I totally off base here? 
+ 
+ Yes, you are correct about the trade-off between performance and query flexibility.  
+ But there are a few tricks to reduce the pain - secondary indexes/denormalising probably being the most important.  
+ You would have another table keyed on user ID, listing all their images, for example. When you add an image, you update this table as well as adding a row to the table keyed on image ID. 
+ You have to decide what queries you need, then design the data model around them. 
+ 
+ I think you need create your own  **secondary index**
+, using another table. 
+ This table "schema" could be: 
+ 
+ -- 
+ That way you can query by User ID and filter by Date as well 
+ 
+ You can use  **composite hash-range key**
+ as primary index. 
+ From the DynamoDB Page: 
+ 
+ A primary key can either be a single-attribute hash key or a composite
+  hash-range key. A single attribute hash primary key could be, for
+  example, “UserID”. This would allow you to quickly read and write data
+  for an item associated with a given user ID. 
+ A composite hash-range key is indexed as a hash key element and a
+  range key element. This multi-part key maintains a hierarchy between
+  the first and second element values. For example, a composite
+  hash-range key could be a combination of “UserID” (hash) and
+  “Timestamp” (range). Holding the hash key element constant, you can
+  search across the range key element to retrieve items.  **This would
+  allow you to use the Query API to, for example, retrieve all items for
+  a single UserID across a range of timestamps.**
+
+ 
+ 

@@ -1,0 +1,64 @@
+*** alternatives-to-traditional-relational-databases-for-activity-streams ***
+
+ I'm wondering if some other non-relational database would be a good fit for activity streams - sort of like what you see on Facebook, Flickr ( http://www.flickr.com/activity ), etc. Right now, I'm using MySQL but it's pretty taxing (I have tens of millions of activity records) and since they are basically read-only once written and always viewed chronologically, I was thinking that an alternative DB might work well. 
+ The activities are things like: 
+ 
+ 6 PM: John favorited Bacon 
+ 5:30 PM: Jane commented on Snow Crash 
+ 5:15 PM: Jane added a photo of Bacon to her album 
+ 
+ The catch is that unlike Twitter and some other systems, I can't just simply append activities to lists for each user who is interested in the activity - if I could it looks like  Redis would be a good fit  (with its list operations).  
+ I need to be able to do the following: 
+ 
+ Pull activities for a set  **or subset**
+ of people who you are following ("John" and "Jane"), in reverse date order 
+ Pull activities for a thing (like "Bacon") in reverse date order 
+ Filter by activity type ("favorite", "comment")  
+ Store at least 30 million activities 
+ Ideally, if you added or removed a person who you are following, your activity stream would reflect the change. 
+ 
+ I have been doing this with MySQL. My "activities" table is as compact as I could make it, the keys are as small as possible, and the it is indexed appropriately. It works, but it just feels like the wrong tool for this job. 
+ **Is anybody doing anything like this outside of a traditional RDBMS?**
+
+ Update November 2009 : It's too early to answer my own question, but my current solution is to stick with MySQL but augment with Redis for fast access to the fresh activity stream data. More information in my answer here:  How to implement the activity stream in a social network ... 
+ **Update August 2014**
+: Years later, I'm still using MySQL as the system of record and using Redis for very fast access to the most recent activities for each user. Dealing with schema changes on a massive MySQL table has become a non-issue thanks to  pt-online-schema-change 
+ 
+ I'd really, really, suggest stay with MySQL (or a RDBMS) until you fully understand the situation. 
+ I have no idea how much performance or much data you plan on using, but 30M rows is not very many.  
+ If you need to optimise certain range scans, you can do this with (for example) InnoDB by choosing a (implicitly clustered) primary key judiciously, and/or denormalising where necessary. 
+ But like most things, make it work first, then fix performance problems you detect in your performance test lab on production-grade hardware. 
+ 
+ EDIT:Some other points: 
+ 
+ key/value database such as Cassandra, Voldermort etc, do not generally support secondary indexes 
+ Therefore, you cannot do a CREATE INDEX 
+ Most of them also don't do range scans (even on the main index) because they're using hashing to implement partitioning (which they mostly do). 
+ Therefore they also don't do range expiry (DELETE FROM tbl WHERE ts < NOW() - INTERVAL 30 DAYS) 
+ Your application must do ALL of this itself or manage without it; secondary indexes are really the killer 
+ ALTER TABLE ... ADD INDEX takes quite a long time in e.g. MySQL with a large table, but at least you don't have to write much code to do it. In a "nosql" database, it will also take a long time BUT also you have to write heaps and heaps of code to maintain the new secondary index, expire it correctly, AND modify your queries to use it. 
+ 
+ In short... you can't use a key/value database as a shortcut to avoid ALTER TABLE. 
+ 
+ I am also planning on moving away from SQL. I have been looking at  CouchDB , which looks promising. Looking at your requirements, I think all can be done with CouchDB views, and the list api. 
+ 
+ It seems to me that what you want to do -- Query a large set of data in several different ways and order the results -- is exactly and precisely what RDBMeS were designed for. 
+ I doubt you would find any other datastore that would do this as well as a modern commercial DBMS (Oracle, SQLServer, DB2 etc.) or any opn source tool that would accomplish
+this any better than MySql. 
+ You could have a look at Googles BigTable, which is really a relational database but
+it can present an 'object'y personality to your program. Its exceptionaly good for free format text 
+searches, and complex predicates. As the whole thing (at least the version you can download) is implemented in Python I doubt it would beat MySql in a query marathon. 
+ 
+ For a project I once needed a simple database that was fast at doing lookups and which would do lots of lookups and just an occasional write. I just ended up writing my own file format. 
+ While you could do this too, it is pretty complex, especially if you need to support it from a web server. With a web server, you would at least need to protect every write to the file and make sure it can be read from multiple threads. The design of this file format is something you should work out as good as possible with plenty of testing and experiments. One minor bug could prove fatal for a web project in this style, but if you get it working, it can work real well and extremely fast. 
+ But for 99.999% of all situations, you don't want such a custom solution. It's easier to just upgrade the hardware, move to Oracle, SQL Server or InterBase, use a dedicated database server, use faster hard disks, install more memory, upgrade to a 64-bit system. Those are the more generic tricks to improve performance with the least effort. 
+ 
+ I'd recommend learning about  **message queue**
+ technology.  There are several open-source options available, and also robust commercial products that would serve up the volume you describe as a tiny snack. 
+ 
+ CouchDB  is schema-free, and it's fairly simple to retrieve a huge amount of data quickly, because you are working only with indexes.  You are not "querying" the database each time, you are retrieving only matching keys (which are pre-sorted making it even faster).   
+ "Views" are re-indexed everytime new data is entered into the database, but this takes place transparently to the user, so while there might be potential delay in generating an updated view, there will virtually never be any delay in retrieving results.   
+ I've just started to explore building an "activity stream" solution using CouchDB, and because the paradigm is different, my thinking about the process had to change from the SQL thinking.   
+ Rather than figure out how to query the data I want and then process it on the page, I instead generate a view that keys all documents by date, so I can easily create multiple groups of data, just by using the appropriate date key, essentially running several queries simultaneously, but with no degradation in performance. 
+ This is ideal for activity streams, and I can isolate everything by date, or along with date isolation I can further filter results of a particular subtype, etc - by creating a view as needed, and because the view itself is just using javascript and all data in CouchDB is JSON, virtually everything can be done client-side to render your page. 
+ 

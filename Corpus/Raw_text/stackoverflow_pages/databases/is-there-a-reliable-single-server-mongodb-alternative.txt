@@ -1,0 +1,70 @@
+*** is-there-a-reliable-single-server-mongodb-alternative ***
+
+ I like the idea of document databases, especially MongoDB. It allows for faster development as we don't have to adjust database schema's. However MongoDB doesn't support multi-document transactions and doesn't guarantee that modifications get written to disk immediately like normal databases (I know that you can make the time between flushes quite small, but it's still no guarantee).  
+ Most of our projects are not that big that they need things like multi-server environments. So keeping that in mind. Are there any single server MongoDB-like document databases that support multi-document transactions and reliable flushing to disk?  
+ 
+ A very short answer to your specific (but brief) requirements: 
+ 
+ Are there any single server MongoDB-like document databases that support multi-document transactions and reliable flushing to disk? 
+ 
+ 
+ RavenDB [ 1 ] provides support for multi-doc transactions [ 2 ]. Unfortunately I don't know it handles durability. 
+ CouchDB [ 3 ] provides durable writes, but no multi-doc transactions 
+ RethinkDB [ 4 ] provides durable writes, but no multi-doc transactions. 
+ 
+ So you might wonder what's different about these 3 solutions? Most of the time is their querying support (I'd say RethinkDB has the most advanced one covering pretty much all types of queries: sub-queries, JOINs, aggregations, etc.), their history (read: production readiness -- here I'd probably say CouchDB is in the lead), their distribution model (you mentioned that's not interesting for you), their licensing (RavenDB: commercial, CouchDB: Apache License, Rethinkdb: AGPL).  
+ The next step would be for you to briefly look over their feature set and figure out which one comes close to your needs and give it a try. 
+ 
+ It might be worthwhile to look at  ArangoDB . It is a multi model database with a flexible data model for documents, graphs, and key-values. With respect to your specific requirements, ArangoDB database has full ACID transactions which can span over multiple documents in the same collection as well as over multiple collections (see  Transactions in ArangoDB ). That is, you can execute a group of manipulations to your documents together in a transaction and have guaranteed atomicity and isolation. If you additionally set  
+(as described further down on said page), you get a guaranteed sync to disk before your transaction reports completion. Note that this happens automatically if your transaction spans multiple collections. 
+ 
+ I have some experience with CouchDB and ArangoDB which I can share: 
+ You can run CouchDB with durability turned on (delayed_commits = false) so it will also sync your data to disk. 
+However, this is a global setting so it affects all writes. AFAIK you cannot set it on a per-collection level (the CouchDB term for "collection" would be "database"). 
+ Regarding multi-document operations: CouchDB has MVCC, so reading multiple documents from the same database provides a consistent result even in the face of parallel writers.
+Writing multiple documents to the same database can also be made transactional for special cases, e.g. when using the bulk documents API. 
+But there is no way to execute cross-database operations in CouchDB. This is just not intended. 
+ On ArangoDB: in ArangoDB you can turn on immediate syncing to disk on a per-collection level: you can turn it on for collections which you cannot tolerate any data loss in. You can turn immediate syncing off for not-so-important collections for performance reasons. It will then still sync modifications to disk frequently, but not immediately. It provides multi-document and multi-collection transactions. 
+ 
+ Checkout the following: 
+ 
+ arangodb 
+ rethinkdb 
+ 
+ 
+ I would suggest you look at Couchbase.   
+ Couchbase can be run single server & you can add nodes later if you want. 
+ Couchbase has memcached integrated so you have fast caching of common data, with a reliable method of writing updates to disk. 
+ They also have a new query language (in development but you can use it now) called NQL ("Nickel") that gives you SQL like access, if that's important to you. 
+ With cross-datacenter replication, you can keep two DBs on different machines or data centers in sync, which is good for having an offsite backup.   This also allows you to add elastic search if you wish to have a full text search engine for those types of queries. 
+ In short, Couchbase is a pretty complete solution, all open source and has intelligent (in my opinion) architecture for addressing the typical problems with distributed databases (e.g.: every document is "owned" by a given node, so all changes go to that node, and then the updates are replicated, this is better, I think, than say Riak where you can have updates go to two nodes and then have to be reconciled.)  
+ You can use Couchbase on one node to run the database for many projects by separating the projects into different buckets. 
+ 
+ there are so many nosql databases and definitely its hard to choose one. You will have to come up with proper requirements and know   exactly  what you want.
+Following link compared almost all the popular nosql databases 
+ http://kkovacs.eu/cassandra-vs-mongodb-vs-couchdb-vs-redis 
+ I hope this helps. 
+ 
+ Berkeley DB is one we used. It supports ACID.  It does have transactions, but as to your term "multidocument" applies, I'm not entirely sure. I imagine so long as each database (i.e. individual document) shares the same BDB environment (i.e. where transactions are stored) then maybe that gets what you want.  BDB does have other tradeoffs though. With fully durability and high concurrency, commits are pretty slow.  
+ 
+ Give a try to:  http://www.orientdb.org/ 
+ "OrientDB has the flexibility of the Document databases and the power of the Graph databases to manage relationships. It can work in schema-less mode, schema-full or a mix of both. Supports advanced features such as ACID Transactions, Fast Indexes, Native and SQL queries. It imports and exports documents in JSON. OrientDB uses a new indexing algorithm called MVRB-Tree, derived from the Red-Black Tree and from the B+Tree with benefits of both: fast insertion and ultra fast lookup". 
+ 
+ You do not have to adjust schemas in document data stores, but that does not mean you do not need some sort of schema as you probably want to do something meaningful with your data.  It appears you would like an ACID database.  If you have relational data, and you need transactions with that data, well it sounds very much like you need a relational database.   
+ With "NoSQL" databases like Mongo, you are giving up ACID for features like many writable replicas, sharding, and quick accessing of document data.  Sounds like you do not benefit from that so why take the tradeoff? A lot of people have been doing hybrid approaches lately with PostgreSQL by storing documents in a relational table as blobs of JSON.  With this, you can have the advantage of storing your data as not strictly structured columns where it is not needed.   
+ So if you have multiple documents that you need to be transactional on update, you can column out the keys, and have a column "document" or something where it is simply a blob of JSON where you serialize and deserialize it.  This is not criticizing Mongo or other document stores as a database but it is just not really a good choice for transactional multidocument data.  MarkLogic I believe does ACID over multiple documents too. 
+ I think a lot of people find appeal with mongodb due to the schema-less-ness but I think in the end they get bit by trying to shoehorn a relational model into it.  So as always the DB choice depends on how your data is. 
+ 
+ If I were you I would take a close look at Solr. The underlying data-layer (Lucene) is by far the most mature of the NoSQL databases, and Solr makes installing, configuring, and integrating a single-host lucene store trivial. 
+ In answer to your question, it supports user-delineated transactions. The read-optimised nature of Lucene can make it unsuitable for many applications, but most of those are well suited to Solr/Lucene+[SQL,Cassandra,CouchDB,RDF] depending on the requirements. 
+ Personally I tend to start with Solr+SQL or Solr+RDF, but I know some people who love the whole NodeJS+CouchDB style, and I am convinced of the value of the flexibility that provides. 
+ The bottom line is that there are enough NoSQL and SQL-extensions out there that care about data integrity to satisfy any requirement you have without you having to compromise you or your users' data. 
+ 
+ Personally I believe you really need to check what your requirements are. 
+ Due to the dynamics of how the OS of your server works it is complicated to say that everything "immediately" goes to disk even when you tell it to. certainly I know ACID techs like SQL are vulnerable to partial corruption through unfinished business and losing operations within a specific window when a single server goes down, unfortunately this is one of the problems of using a single server; you have no choice but to accept it. 
+ I should note that a transaction does not ensure that your server will receive the entire data before failure (  http://en.wikipedia.org/wiki/Database_transaction  ), I mean what if the server dies part way through a transaction? 
+ You can perform a safe rollback based on constraints with transactions but few databases will provide the ability to continue playing the transaction unless they have already received all necessary data for it (which isn't normally the case), by which time the data might even be stale anyway. 
+ In fact due to the weight of some transactions and the amount of queries performed within them I reckon you might get a greater window of operational loss using transactions than you might from the 60ms write to disk window on MongoDB at times. But of course that depends upon abuse, however, just like stored procedures, this abuse is common place. 
+ Transactions shine on cascading deletes and typical scenarios like transferring money in a bank account, however, cascadable deletes are normally better done (as most sites do) by a cronjob with the application marking the row as deleted (to avoid the rollback of a transaction showing the deleted data back to the user again); this way you can do a lot of stuff to ensure consistency that you cannot in real-time do while the user is using your application. 
+ So you should really question why you need a tech and what it will succeed in doing, atm the brevity of your question tells me your not sure about your requirements completely. 
+ 

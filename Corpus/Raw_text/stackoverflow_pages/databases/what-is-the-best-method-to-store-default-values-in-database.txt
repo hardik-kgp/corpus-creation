@@ -1,0 +1,79 @@
+*** what-is-the-best-method-to-store-default-values-in-database ***
+
+ I have several tables like  ,  ,  ,  , e.t.c. 
+ Each one of those has a default value, e.g. the default   is  , the default   is  , and so on. 
+ I would like to save those default values in a database (so that user could change them). 
+ I thought to add   column to each one of the tables, but it seems to be ineffective because only one row in each table may be the default. 
+ Then I thought that the best would be to have   table that will contain all the default values. This table will have 1 row and N columns, where N is the number of the default values: 
+ 
+ But, this seems to be not the best approach because the table structure changes when a new default value is added. 
+ What would be the best approach to store default values ? 
+ 
+ **Just to be clear.**
+
+ The best way is with a column on each table which dropdowns source from.  
+ **And here's why...**
+
+ 
+ "Shouldn't I worry about space when
+  saving data in a database?" 
+ 
+ The short answer is no. The longer answer is what you should worry about is performance. Focusing on space will lead you to do very bad things.  
+ Bad things that you'll do if space is a concern. 
+ 
+ You'll bury meaning into Primary Keys. i.e. Smart Keys. 
+ You'll try to store mulitple values in one column.  
+ You'll index too little 
+ (No doubt we could create a list of 50 bad practices which save space) 
+ 
+ 
+ suppose there are 50 shops (select box
+  with 50 possible values). In this
+  case, to store the default shop you
+  need 50 boolean fields, 
+ 
+ Well it's  **ONE**
+ Boolean column. It exists on each row. 
+ Let me ask you this. If you created a table with 1 date column and inserted 1 row, how much space would you use on disk? 
+ If you said a 7 or 8 bytes then you're off by about 1000 times. 
+ The smallest unit of disk space is a block. Blocks are typical 8kb (the can be as small as 2kb as large as 32kb, in general  (no nitpicking here, the actual limits are unimportant)) 
+ Let's say you have 8kb blocks then your 1 column, 1 row table takes 8Kb. If you insert another 999 rows it will still take up 8KB.  (Again no nitpicking there is overhead per block and per row - it's an example) 
+ So in your look up table with 50 store names, the likelihood that adding 50 bytes to the size of the table forces you to expand from 1 block to 2 is slim to none and completely irrelevant.  
+ On the other hand, your default table will certainly take up at least one additional block.
+But the worst hit to  **PERFORMANCE**
+ is that your call to fill a drop down will need two round trips to the database, one to get the list, one to get the default.  (yes, you may be able to do this in one but go with it) 
+ So you've saved exactly zero space and doubled your network traffic. 
+ You see what I'm saying. 
+ 
+ Another  **crucial**
+ reason to stop worrying about space is you're giving up clarity. think of the developer you're going to hire to run this app. When he joins the team and looks at the database, imagine the two scenarios. 
+ 
+ There's a Boolean column named Default_value 
+ There's a table with no relationships to anything that's named Default_Values 
+ 
+ You ask him to build a new for with a dropdown for 'store'.  
+ In scenario 1 he finds the store table, wires up the dropdown to a simple query of the table and uses the default_value field to select the initial value. 
+ In scenario 2, without some training, how would he know to look for a separate table? Maybe he'd see the table but by the time you're hiring, your datamodel now has hundreds of tables. 
+ Again, a little contrived but the point is salient. Clarity in the database is well, well worth a byte per row.  
+ 
+ Technical stuff 
+ I'm not a MySQL guy but in Oracle, a null column at the end of a row take no additional space. In Oracle I would use a Varchar2(1) and let 'T' = Default and leave the others null. That would have the effect on only using 1 addition byte total, and not per row. YMMV with MySQL, you can pose that question separately if you can't Google the answer. 
+ But the time to worry about that is on millions of rows, not hundreds. Any table which feeds a dropdown will never be big enough to start worrying about extra bytes. 
+ 
+ What if you create an XML and then store that XML in the table in an XML column. The XML column would contain the XML, and the XML could have tags of tables and a sub node of default values. 
+ 
+ You should rather create a a table with two columns and n rows 
+ 
+ This way you can add new values without having to change table structure 
+ 
+ You can create a  **catalog table**
+ (some kind of  **metadata table**
+) containing the  default values as strings  for the desired table columns. Then you can use the  **convert**
+ function for getting the appropriate value. Below is a sample table definition ( Transact-SQL  was used): 
+ 
+ 
+ What you are trying to store is not meta data information. First of all, so I will not invent an external data store to store this data.(coupled with extra code ) 
+ I assume you have a PK Sequence generation logic (under your control). I will assign a magic number x and I will insert a record in each table with _id = x as the default value. So if you want to show the user the default value, you can handle in your query in a uniform way or you can handle this in application logic while insert. The good thing about this is, you have access to default value all the time and without writing any extra logic and the logic for maintaining default value of a table can be maintained using the same code (templating ;)
+(From the lessons W3c learned from modeling schema information of  XML using DTD.) 
+ Only catch is this logic should be made explicit either using some extensive documentation or could be hard imposed by using  a trigger. 
+ 

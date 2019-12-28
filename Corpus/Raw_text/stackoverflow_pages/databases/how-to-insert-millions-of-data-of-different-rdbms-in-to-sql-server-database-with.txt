@@ -1,0 +1,70 @@
+*** how-to-insert-millions-of-data-of-different-rdbms-in-to-sql-server-database-with ***
+
+ I have two databases in my SQL Server with each database containing 1 single table as of now. 
+ I have 2 database like below : 
+ 1) Db1 (MySQL) 
+ 2) Db2 (Oracle) 
+ Now what I want to do is fill my database table of SQL Server db1 with data from Db1 from MySQL like below : 
+ 
+ 
+ Select * from Table1(Mysql Db1) - Data coming from Mysql database 
+ Insert into Table1(Sql server Db1) - Insert data coming from Mysql
+  database considering same schema 
+ 
+ I don't want to use sqlbulk copy as I don't want to insert chunk by chunk data. I want to insert all data in 1 go considering millions of data as my operation is just not limited to insert records in database. So user have to sit wait for a long like first millions of data inserting chunk by chunk in database and then again for my further operation which is also long running operation. 
+ So if I have this process speed up then I can have my second operation also speed up considering all records are in my 1 local sql server instance. 
+ Is this possible to achieve in a C# application? 
+ **Update:**
+ I researched about Linked server as  **@GorDon Linoff**
+ suggested me that linked server can be use to achieve this scenario but based on my research it seems like i cannot create linked server through code. 
+ I want to do this with the help of  **ado.net**
+. 
+ This is what I am trying to do exactly: 
+ Consider I have 2 different client RDBMS with 2 database and some tables in client premises. 
+ So database is like this : 
+ 
+ Now I want to compare Amount column from source (SQL Server) to destination database (MySQL or Oracle). 
+ I will be use to join this 2 different RDBMS databases tables to compare Amount columns. 
+ In C# what I can do is like fetch chunk by chunk records in my  **datatable (in memory)**
+ then compare this records with the help of code but this will take so much time considering millions of records. 
+ So I want to do something better than this. 
+ Hence I was thinking that i bring out this 2 RDBMS records in my local SQL server instance in 2 databases and then create join query joining this 2 tables based on Id and then take advantage of DBMS processing capability which can compare this millions of records efficiently. 
+ Query like this compares millions of records efficiently : 
+ 
+ Above query works when I have this 2 different RDBMS data in my local server instance with database : SqlServerDb and MysqlDb and this will fetch below records whose amount is not matching : 
+ So I am trying to get those records from source(Sql server Db) to MySQL whose Amount column value is not matching. 
+ **Expected Output :**
+  
+ 
+ So there is any way to achieve this scenario? 
+ 
+ On the   side, create a   file (tab-delimited) using  
+ On the   side, use   (or whatever the target machine syntax is). 
+ Doing it all at once may be easier to code than chunking, and may (or may not) be faster running. 
+ 
+  can accept either a   or a   as its input.  
+ Using your query to read the source DB, set up a ADO.Net   on the source MySQL or Oracle DB and pass the reader to the   method of the  .  
+ This can copy almost any number of rows without limit. I have copied hundreds of millions of rows using the data reader approach. 
+ 
+ What about adding a changed date in the remote database. 
+ Then you could get all rows that have changed since the last sync and just compare those? 
+ 
+ First of all do not use linked server. It is tempting but it will more trouble than it is bringing on the table. Like updates and inserts will fetch all of the target db to source db and do insert/update and post all data to target back. 
+ As far as I understand you are trying to copy changed data to target system for some stuff. 
+ I recommend using a timestamp column on source table. When anything changes on source table timestamp column is updated by sql server. 
+ On target, get max ID and max timestamp. two queries at max. 
+ On source, rows where   is true, are the rows that changed after last sync (need update). And rows where   is true, are the rows that are inserted after last sync. 
+ Now you do not have to compare two worlds, and you just got all updates and inserts. 
+ 
+ You need to create a linked server connection using ODBC and the proper driver, after that you can execute the queries using openquery. 
+ Take a look at openquery: 
+ https://msdn.microsoft.com/en-us/library/ms188427(v=sql.120).aspx 
+ 
+ Yes, SQL Server is very efficient when it's working with sets so let's keep that in play. 
+ In a nutshell, what I'm pitching is  
+ 
+ Load data from the source to a staging table on the target database (staging table = table to temporarily hold raw data from the source table, same structure as the source table... add tracking columns to taste). This will be done by your C# code... select from source_table into DataTable then SqlBulkCopy to the staging table. 
+ Have a stored proc on the target database to reconcile the data between your target table and the staging table. Your C# code calls the stored proc. 
+ 
+ Given that you're talking about millions of rows, another thing that can make things faster is dropping indices on the staging table before inserting to it and recreating those after the inserts and before any select is performed. 
+ 

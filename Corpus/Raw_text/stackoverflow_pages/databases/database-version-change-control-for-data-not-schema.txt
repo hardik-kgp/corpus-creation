@@ -1,0 +1,35 @@
+*** database-version-change-control-for-data-not-schema ***
+
+ After reading a few articles here and around, I have realised that database version control in a development team is actually of high importance. 
+ Until now I have been using a simple   each time there is an update, if only 1 table was altered sometimes we can get away with just dumping the single table then reimporting. Not the best but it works quite well, for additive changes and we haven't had any hiccups yet. 
+ Now, I save a   file in the git repository of the project I'm working on.
+Then I also use  dbv  for  , along with git, with each branch being named based on the project and it's working quite well. This allows me to version schematic changes with the ability to revert or rollback. 
+ However, what about the data contained in the tables. How can this be maintained? Maybe I'm better off just sticking with the old method. I understand on projects with the same DB structure but different data that's fine but what about sites with specific database data that needs to be versioned and managed. 
+ Also what about the base of already deployed sites that need database changes, how can this be seamless. Some have suggested the use of update/alter scripts and that works fine with default values and such. But what if I have made a change on a website platform that requires every websites database to be changed, and keep the data intact? 
+ 
+ I've worked mostly in business application development and configuration management. Your question is representative for the challenges in such an environment; when you upgrade for instance Microsoft Word, you don't need to change all documents right away from doc to docx. And the documents even have a more simple structure a full relation database.  
+ Not so for business applications; users skip releases, make unauthorized changes to the data model and the system needs to keep running and providing the correct numbers... 
+ We use for our own applications (largest one is like 600 tables) a self-developed CASE tool which includes branching/merging, but the approach can also be done manually. 
+ Versioning Datamodel 
+ The data model can be written down in a structured way. For instance as table contents (CSV to be loaded in a table with meta data) or as code that detects the version in use and adds columns and tables when missing, including non-trivial migrations.  
+ This even allows multiple users at the same time to change the data model. 
+ When you use auto-detection (for instance, we use a call named "verify_column" instead of "add_column"), this even allows smooth migration independent of the release number the customer is starting the upgrade from. Such a procedure analyzes the table to be changed and issues the correct DDL such as   when a column is missing or   when the column was already present but nullable. 
+ For Oracle and SQL Server I can provide you with a few sample procedures. In MySQL I would code this using a client side language, preferably OS independent to allow installations to run on Windows and Linux. Maybe using Apache Ant when you have experience with that. 
+ Versioning Data 
+ We split the tables in four categories: 
+ 
+ R: referential data; data the application site must provide before he actually use the system. For instance, general ledger account codes. The referential data seldomly changes after go live and does not continuously grow in size. The contents reflect the site's business model where the application is used. 
+ T: transaction data; data the site registers, changes and removes during use of the application. For instance, general ledger entries. The transaction data starts at 0 an grows continuously. When company doubles in revenues, transaction data also doubles. 
+ S: seeded data; data NOT maintained by the user at the site but provided and maintained by the developing party. Essentially this is code turned into data. For example, 'F' stands for 'Female'. Errors in seeded data can lead to system errors. 
+ O: the rest (ideally not needed, since they are technical, but some systems require a temporary table A or a scratch table B). 
+ 
+ The contents of tables of category 'S' (seeded data) is placed under version control. We normally register these as metadata in our case tool, then named 'data sets', but you can also use for instance Microsoft Excel or even code. 
+ For example, in Excel you would have a list of rows of seeded data. In column A you might enter an Excel function like   which concatenates everything and makes it suitable for loading by a loader tool. 
+ For example in code, you might have a call like: 
+ 
+ The Excel is a little bit hard to bring under version control allowing multiple users to change contents at the same time. The approach with code is very simple. 
+ Please remember to also add features to remove obsoleted seeded data. For instance, by explicitly listing obsoleted seeded data or by automatically removing all seeded data present in the tables but not touched by the last installation. 
+ 
+ You would need to keep a journal of transactions on your datamodel that is synchronised to your code versions. For each update that adds information (i.e. a new field) you can simply enter the statements like 'ALTER TABLE x ADD COLUMN y ...' and provide a DEFAULT VALUE (with a function perhaps) in an update script. And a 'ALTER TABLE x REMOVE COLUMN y ...' for the downdate script. You would need to export your data before you truncate information in a table. You can convert the dumped table data to SQL for the inverse transaction so that you can add the missing information using these. 
+ You can use a 'journal' table within your data-model to keep track of these transactions using simple ordinals that denote the applied scripts. Whenever the software is installed it can compare these numbers to create a list of transactions to play to move the database from state N to state X, backwards or forwards, without losing any data! 
+ 

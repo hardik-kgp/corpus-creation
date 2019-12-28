@@ -1,0 +1,38 @@
+*** postgresql-defining-a-primary-key-on-a-large-database ***
+
+ I am planing a database to store lots of text. (blog posts, news articles, etc.) The database needs to have the title, content (50k characters max), date, link and language fields. The same content can't occur on one link. Old content (older then 30 days, for example) will be deleted. 
+ Now, the problem is the primary key. I could just set a automatically incrementing (SERIAL type) field and use it as a primary key. But, it seems stupid and a waste of disc space, because the field wouldn't serve any purpose but to be a primary key. (and the field could eventually run out, or not?) And there's always the other performance issue: the content of each new row inserted needs to be checked for duplicates. So the other solution for the primary key I've come up with would be to calculate a sha256 hash of content+link value and then put that in a new 'hash' column and use that as a primary key. Two birds with one stone. Of course, the problem with that are hash collisions. Is it a big threat? 
+ I don't have any experience with PostgreSQL, and very little experience with DBMS's generally, so I would appreciate a second opinion before a create a database with the performance characteristics of a snail on the highway (horrible comparison). 
+ Please help me out here if you have any experience with large databases. Is setting a 64 character string as a primary key field a good idea in my situation? (because I'm under the impression that generally this is avoided) 
+ 
+ Just did this exact test for a rather medium-large DB (200GB+), bigserial won by quite a large margin.  It was faster to generate, faster to join, less code, smaller footprint.  Because of the way postgres stores it, a bigint is negligible compared to a normal int.  You'll run out of storage space from your content long before you ever have to worry about overflowing the bigint.  Having done the computed hash vs bigint - surrogate bigint all the way.   
+ 
+ I would choose to use a surrogate key, ie. a key that isn't part of the business data of your application. The additional space requirements of an additional 64-bit integer when you're dealing with upto 50 kilobytes of text per record is negligible. You will actually be using  less  space as soon as you're starting using this key as a foreign key in other tables. 
+ Using a hash of the data stored in a record is a very bad candidate for a primary key, should the data on which the hash is based ever change. You will then have changed the primary key as well, resulting in updates all over the place if you have relations from other tables to this one. 
+ PS. A similar question has been asked and answered here  before . 
+ Here's another nice write-up about the topic:
+ http://www.agiledata.org/essays/keys.html 
+ 
+ You'd have to have an awful lot of records before your primary key integer ran out.  
+ The integer will be faster for joins than a 64 character  string primary key would be. Also it is much easier for people writing queries to deal with.   
+ If a collision is ever possible, you can't use the hash as your primary key. Primary keys must be guarnateed to be unique by definintion. 
+ I've seen hundreds of production databases for different corporations and government entities and not one used a hash primary key. Think there might be a reason? 
+ 
+ But, it seems stupid and a waste of disc space, because the field wouldn't serve any purpose but to be a primary key.  
+ 
+ Since a surrogate primary key should always be meaningless except as a primary key, I'm not sure what your objection would be. 
+ 
+ Some suggestions: 
+ 
+ The disk storage of a 64 bit primary-key integer is negligible no matter how much content you have. 
+ You'll never collide SHA256, and using it as a unique id isn't a bad idea. 
+ 
+ One nice thing about the hash method is that you don't have a single sequence source to generate new primary keys.  This can be useful if your database needs to be segmented in some manner (say geographical distribution) for future scaling, as you don't have to worry about collisions, or a single-point-of-failure that generates sequences. 
+ From a coding perspective, having a single primary key can be vital for joining on extra tables of data you may add in the future.  I highly recommend you use one.  There are benefits to either of your proposed approaches, but the hash method might be the preferred one, just because autoincrement/sequence values can cause scalability issues sometimes. 
+ 
+ Hashes are bad ideas for primary keys. They make the inserts end up in random order in the table, and that gets very costly as things have to be reallocated (though Postgres doesn't really apply that the way others do). I suggest a sequential primary key which may be a fine-grained timestamp / timestamp with sequential number following, letting you kill two birds with a stone, and a second unique index that contains your hash codes. Keep in mind you want to keep your primary key as a smaller (64 bit or less) column. 
+ See the table at  http://en.wikipedia.org/wiki/Birthday_attack#The_mathematics  so you can be confident you won't have a collision. 
+ Don't forget to vacuum. 
+ 
+ I would use an ordinary 32bit integer as a primary key. I don't think you will exceed that number very soon :-) The whole Wikipedia has about 3,5 millions articles... If you wrote 1000 articles per day it would take almost 6000 years to reach the maximum of the integer type. 
+ 

@@ -1,0 +1,58 @@
+*** sql-query-for-courses-enrolment-on-moodle ***
+
+ I was looking for the proper SQL queries for retrieving all students enrolled in a certain course, or all courses a certain student has enrolled in, on  **Moodle**
+. 
+ I have found a few solutions from the Internet, and most of them suggest joining these tables: 
+ **context, role_assignments, course, user, role**
+
+ But then when I looked at the database, I found that there is a table named  , and it seems to me that I could get the results by joining the following tables: 
+ **user_enrolments, user, course, enrol**
+
+ For example, 
+ 
+ and 
+ 
+ (where 5 is the id for the role  ) 
+ These 2 queries give me the  **SAME**
+ set of results. (tested on a small set of data only) 
+ So I would like to ask what are the differences between the two approaches? 
+Thank you for any assistance in advance. 
+ 
+ The first query gives you a list of users who are enroled on the course, whatever role they have assigned to them (it is possible to be enroled on a course and have no role assigned at all). 
+ The second query shows all the users who have role 5 assigned to them at the course level. It is possible (though unusual) to have a role assigned at the course level, without actually being enroled in the course itself. 
+ However, both of the queries are flawed. 
+ The first query could return duplicate results if the user was enroled in a course via more than one enrolment method (unusual, but possible). It also fails to take into account the following: 
+ 
+ The enrolment plugin may be disabled at site level 
+ The enrolment plugin may be disabled at the course level (check for 'e.status = 0' to only find active enrolment plugins) 
+ The enrolment may be time-limited - the user's enrolment may have expired (check for 'ue.timeend = 0 OR ue.timeend > NOW()' to find only unexpired enrolments) 
+ 
+ The second query assumes that the student role is id 5 (and also that there are no other roles, based on the student role, that are in use). I would normally either use an extra query to check the id of the 'student' role in the table 'mdl_role' and then use that value, or change the last couple of lines to the following: 
+ JOIN mdl_role r ON r.id = ra.roleid AND r.shortname = 'student'. 
+ The second query also fails to check the 'contextlevel' - it is possible to have a multiple contexts with the same instance id (as it is possible to have course id 5, course category id 5, user id 5, etc.) - so you need to check that the context found is a 'course' context (contextlevel = 50). 
+ Neither query checks for suspended users or deleted users (although, in the case of deleted users, they should have been automatically unenroled from all courses at the point where they were deleted). 
+ A fully complete solution (possibly overly complex for most situations) would combine both queries together to check the user was enroled and assigned the role of student and not suspended: 
+ 
+ (Note I haven't double-checked that query extensively - it runs, but you would need to carefully cross-reference against actual enrolments to check I hadn't missed anything). 
+ 
+ The following code generates a list of all your courses together with how many students are enrolled in each. Useful to find out if you have any courses with no one enrolled. 
+ My Answer :  
+ 
+ 
+ In the case of need the count of the  **enrolled students for a course**
+. It may be achieved simply using the  **enrollment api**
+. The secret key here is supplying   parameter to the   function that only the   role has. For example: 
+ 
+ Here   is a capability that only student able to do, so the returned int number will not include other common roles such as Teachers enrolled in the course. 
+ I have used the above code for Moodle 3.1 in theme   to show the enrolled students count for each course in the courses list at the front page. 
+ 
+ The first query will give you everyone regardless of their role - the table is used to store the type of enrolment -  http://docs.moodle.org/26/en/Enrolment_plugins 
+ The second one will only give you students - so will be more useful. 
+ They are the same results because only students have been assigned to the courses. 
+ If you go to a course and enrol users. Then at the top of the popup window choose assign roles = teacher and enrol a user. So on the course you will now have student(s) and a teacher 
+ Then re-run the queries, the second query will have fewer results because it will only have students. 
+ 
+ If you want to get the courses that an individual user is signed up for... 
+ 
+ (The last line is optional and can be used to filter for courses of a particular type. Note that   is an optional and manually editable field.) 
+ 

@@ -1,0 +1,68 @@
+*** sqlite-as-a-production-database-for-a-low-traffic-site ***
+
+ I'm considering using SQLite as a production database for a site that would receive perhaps 20 simultaneous users, but with the potential for a peak that could be many multiples of that (since the site would be accessible on the open internet and there's always a possibility that someone will post a link somewhere that could drive many people to the site all at once).  
+ Is SQLite a possibility?  
+ I know it's not an ideal production scenario. I'm only asking if this is within the realm of being a realistic possibility. 
+ 
+ SQLite doesn't support any kind of concurrency, so you may have problems running it on a production website. If you're looking for a 'lighter' database, perhaps consider trying a contemporary object-document store like CouchDB. 
+ By all means, continue to develop against SQLite, and you're probably fine to use it initially. If you find your application has more users down the track, you're going to want to transition to Postgres or MySQL however. 
+ The author of SQLite addresses this  on the website : 
+ 
+ SQLite works great as the database engine for most low to medium traffic websites (which is to say, most websites). The amount of web traffic that SQLite can handle depends on how heavily the website uses its database. Generally speaking, any site that gets fewer than 100K hits/day should work fine with SQLite. The 100K hits/day figure is a conservative estimate, not a hard upper bound. SQLite has been demonstrated to work with 10 times that amount of traffic. 
+ The SQLite website ( https://www.sqlite.org/ ) uses SQLite itself, of course, and as of this writing (2015), it handles about 400K to 500K HTTP requests per day, about 15-20% of which are dynamic pages touching the database. Dynamic content uses about 200 SQL statements per webpage. This setup runs on a single VM that shares a physical server with 23 others and yet still keeps the load average below 0.1 most of the time. 
+ 
+ So I think the long and short of it is, go for it, and if it's not working well for you, making the transition to an enterprise-class database is fairly trivial anyway. Do take care of your schema, however, and design your database with growth and efficiency in mind. 
+ 
+ Here's  a thread  with some more independent comments around using SQLite for a production web application. It sounds like it has been used with some mixed results. 
+ 
+ **Edit (2014)**
+: 
+ Since this answer was posted, SQLite now features a  multi-threaded mode  and  write ahead logging mode  which may influence your evaluation of its suitability for low-medium traffic sites.  
+ Charles Leifer has written  a blog post  about SQLite's WAL (write ahead logging) feature and some well-considered opinions on appropriate use cases. 
+ 
+ The small excerpt from SQLite  website  says it all.  
+ 
+ 
+ Is the  **data separated**
+ from the application by a network? → choose
+   **client/server**
+
+ Many  **concurrent**
+ writers? → choose  **client/server**
+
+ **Big data**
+? → choose client/server 
+ Otherwise → choose  **SQLite**
+! 
+ 
+ 
+ SQLite "just works" (until it doesn't of course) 
+ 
+ We often use SQLite for internal databases; The employee directory, our calendar of events, and other intranet services all run on lightweight databases.  It would be major overkill to be running these apps at the scale we do on a "real" database like mySQL.  This is especially true when you factor in that they're running along side 4 other virtual machines on a single mid-range computer. 
+ At one point we had an outward facing site that ran on an sqlite db for months with only a single reboot required.  Obviously, it was very low traffic, but it putted along nicely for what it did. 
+ 
+ We have encountered a similar option on an environment with  absolutely no writes , and we selected using SQLite. 
+ See my  blog post  on the subject: 
+ 
+ Well, the main assumption which makes this solution theoretically
+  possible is that our SQLite database is totally read-only. Our server
+  code should never change it. This would solve any locking problems, as
+  there are no read locks. We could find nowhere on the internet anyone
+  saying there is a problem in high-throughput reading of SQLite when
+  there are no writes - it could be possible! 
+ 
+ 
+ I think it would depend mostly on what your read/write ratio will be. If it's mostly reading from the database, you may be okay. Multi-user writing in SQLite can be a problem because of how it locks the database. 
+ 
+ People speak about concurrency problems, but sqlite has a way to cache incoming requests and have them wait for some time. It doesn't timeout immediately. 
+ I've read things about the default timeout setting begin zero, meaning it times out immediately and that's nonsense. Maybe people didn't adjust this setting? 
+ 
+ Depends on the usage of the site. If most of the time you're just reading data, you can pretty much use anything for a DB and cache the data in the application to achieve good performance. 
+ 
+ I am using it in a very low traffic web server (it is a genomic database) and I don't have any problems. But there are only SELECT statements,  **no writing to the DB involved**
+. 
+ 
+ To add to an already brilliant answer: Since you are working with a server-less solution in this case, you can say goodbye to replication, or any sort of horizontal scaling of your db, as well as other advanced options.  It also isn't the best choice if you have multiple users updating the same exact chunk of information. If you were to shard the database in the future you would have to migrate the data and move to something else. Also if you have a load balancer and multiple systems involved it would be difficult to maintain data centrality if using sqlite.  These are just some of the reasons why it isn't recommended.  Its great for smaller projects, and great for development. 
+ 
+ It seems like with queuing you could also get away with avoiding a lot of the concurrency write problems with SQLite.  Instead of writing directly to the sqlite db you would write to a queue that then in turn sequentially writes to the sqlite db in a first in first out mode. Not sure if your application reaches to where you would need this if it would be worth writing or just moving on to client/server DB...but a thought. 
+ 

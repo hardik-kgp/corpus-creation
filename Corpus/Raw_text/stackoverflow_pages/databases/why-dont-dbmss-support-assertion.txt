@@ -1,0 +1,79 @@
+*** why-dont-dbmss-support-assertion ***
+
+ So I recently learned about ASSERTION in my databases course, and my prof noted that major databases don't support it, even though it is in the SQL-92 standard.  I tried googling to find out why, but there doesn't seem to be any discussion on the topic. 
+ So, why isn't ASSERTION supported by the vast majority of relational database packages?  Is it soley a performance issue or is there something intrinsically hard about it? 
+ 
+ If you can, please note any database packages that implement it as well (example: if there's an academic/teaching DB). Also, why is there so little discussion on the issue; it's not even mentioned in the Wikipedia page for SQL or SQL-92) But answer the main question first, or answer in comments. 
+ I'm  not  looking for how to implement it with triggers or anything else. 
+ 
+ There are four levels of constraint: column-level, row-level, table-level and schema-level.  
+ A table-level could, for example, involve a target table other than the source table on which it was declared but only gets checked when the source table changes. In theory a schema-level constraint would be checked for every change in every table in the schema but in practise the optimizer would be able to detect changes in a more granular way; consequently, if your DBMS had support for schema-level constraint then you wouldn't find much use for table-level constraints in practise. 
+ No current SQL product supports schema-level constraints i.e.  . Apparently  Rdb  did support it when it was looked after by DEC but that is no longer the case. -- UPDATE: in a private message I was advised that Sybase's SQL Anywhere supports   but with serious errors that allow such constraints sometimes to be violated! 
+ The only SQL-like product I've used that currently supports subqueries in   constraints, which enables table-level constraints, is the Access database engine (ACE, Jet, whatever).  It has issues , though. First, there is not support for SQL-92 functionality (or equivalent) to defer constraint checking. Second, table-level constraints are checked for each row affected, rather than when the statement completes as required by the SQL-92 Standard. Needless to say, the workaround is very clunky e.g. drop the constraint and in doing so lock the table, execute the update, recreate the constraint. Schema-level constraints, arguably achievable by adding the same constraint to all the tables it involves, is virtually unworkable.  
+ Possibly for these reasons, the Access Team have never publicized its   constraint functionality  at all  beyond  the initial announcements for Jet 4.0  (it remains missing from the Access Help, for example). All that said, for intra-table constraints (e.g. a sequenced key in a valid-state 'history' temporal table) the functionality works well, especially when you consider that Access only got trigger-like functionality (not SQL based, though) last year. 
+ SQL of course has   constraints and referential integrity constraints that are of course table-level but these are special cases. Therefore, all constraints you will encounter 'in the wild' will be either colum- or row-level.  
+ Do be aware with MySQL that, although using   in SQL DDL will parse without error, it will have no effect. How users can tolerate a SQL product with no   constraints at all is beyond me! PostgreSQL has a excellent constraints model, hint hint :) 
+ So why are inter-table constraints so rarelt supported? One reason must be due to historical circumstances. As @gbn correctly identifies (under the title Concurrency), the Sybase/SQL Server family of SQL implementations is based on a model that cannot cope with inter-table constraint checking and that's not something that is likely to ever change.  
+ Consider looking at this the other way around: if you were creating a SQL product today, would you include  ? If you did, you would certainly have to also implement   constraints (even though  multiple assignment  is arguably the better model). But you would be able to draw on a lot more research and experience if you went down the route of building a 'traditional' optimizer. And perhaps you'd find there is no commercial demand for schema-level constraints (if MySQL can get anyway without CHECK constraints...) If PostgreSQL doesn't do it, I don't think anyone ever will. 
+ I think the real show stopper is that most industrial-strength products have already developed trigger functionality that allows users to write 'constraints' of arbitrary complexity (plus can a lot more e.g. send an email to tell something happened). Sure, they are procedural rather than declarative, the coder has to do a lot of extra work that the system would take care of with true constraints, and the performance tends to be not so great. But the fact is they existing in real products today and do provide a 'get out of jail free card' card for vendors. Why should they bother implementing worthy features if  customers are not banging the table for them ? 
+ As regards academic/teaching langauges, as @Damien_The_Unbeliever correctly identifies, a  Tutorial D    are always 'schema'-level, hence allow for global constraints of arbitrary conplexity by definition. If you are looking to design your own DBMS(!!) with this kind of functionality, you should consider implementing the D specification while using an existing SQL DBMS for storage, as  Dataphor  have done. 
+ 
+ A question has been bothering me: given that existing 'industrial strength' SQL DBMSs support triggers, why don't they simply map declarative   to a trigger under the covers? I've long suspected the answer is because they know that performance would be appalling given their legacy technology.   
+ A more satisfying answer is provided in  Applied Mathematics for Database Professionals  By Lex de Haan, Toon Koppelaars , chapter 11. They define various execution models to use when using triggers to enforce multi-tuple constraints. The most sophisticated (though still highly doable) model, which they call EM6, involves the following steps: 
+ 
+ Translate the formal specification into a constraint validation query. 
+ Develop code to maintain transition effects. 
+ Devise transition effect (TE) queries that ensure the constraint validation query is only run when necessary [e.g. Can I limit the check to only the updated rows? Can a DELETE ever violate this constraint? Are there only specific columns that an UPDATE must involve to require the constraint to be checked? etc] 
+ Discover a means to optimize the constraint validation query by having the TE query provide values that can be used in the validation query. 
+ Devise and add a serialization strategy to the data integrity (DI) code. [i.e. solve the concurrecy problem where a transaction cannot read the 'bad' data another transaction is writing]. 
+ 
+ They then assert (no pun intended!): 
+ 
+ Because we believe that it is not possible for a DBMS vendor to
+  program an algorithm that accepts an arbitrarily complex predicate and
+  then computes efficient transition effect (TE) queries, a minimal
+  validation query, and optimal serialization code to implement
+  execution model EM6, we should not expect full support for multi-tuple
+  constraints—in a practical, usable and acceptable way—from these
+  vendors in the future. The best we can hope for is that database
+  researchers first come up with more common classes of constraints and
+  develop convenient shorthands for these. The DBMS vendors, in their
+  turn, should then provide us with new declarative constructs,
+  consistent with these shorthands, to state these common classes of
+  constraints easily to the DBMS. Given such a common class declaration,
+  the DBMS vendor should be able to program an algorithm that provides
+  us with an EM6-like execution model under the covers to implement the
+  constraint. 
+ 
+ One such common class of database constraint is a foreign key, which is already widely implemented, of course. 
+ 
+ My 2 pennies: 
+ 
+ Concurrency: If you take the "CHECK constraint using a scalar udf with table access" solution for SQL Server, it simply isn't safe. An assertion would  probably  be the same in Sybase/SQL Server type engines 
+ 
+ Edit: what I mean is described in these links:  Scalar UDFs wrapped in CHECK constraints are very slow and may fail for multirow updates  and from  Tony Rogerson 
+ 
+ Performance: A 10k row insert would require 10k udf-style executions each with table access. Ouch. Given the ASSERTION is per row, then this is how it has to operate. If it could work for "all rows in the INSERT", then it's simpler as a trigger, no? 
+ Design: There are patterns (superkey, subtype tables etc) for maintaining data integrity on related tables using simpler constraints. If you need to check some random table for data integrity I'd say you have something wrong... 
+ 
+ 
+ (Non-SQL, generally considered academic, not called ASSERTION)  D  (aka. Tutorial D) has CONSTRAINT which can be an arbitrary constraint on the database. One implementation is called  Rel 
+ 
+ There is some rudimentary support in Oracle 10g: 
+ http://download.oracle.com/docs/cd/B28359_01/appdev.111/b28419/d_assert.htm 
+ I'm sure, other RDBMS with stored procedure support ship with similar built-in procedures... Clearly, that's not part of any SQL standard, though. The standard does specify: 
+ 
+ See chapter 11.34 of  http://www.contrib.andrew.cmu.edu/~shadow/sql/sql1992.txt 
+ I'm not sure about the   statement. I haven't encountered it in any RDBMS so far, and I don't think many RDBMS actually implement that. On the other hand, a   clause on a single table column can be considered an assertion, too. 
+ 
+ Yeah, I asked this question to my instructor in the class a few months ago. It may be in standards but many DBMS vendors do not obey standards at all.  
+ Probably, the reason behind DBMSes to not to support assertions is it is a very expensive operation and nobody is going to use it for this reason.  
+ In order to provide a convenient way, DBMSes implemented  s and  s. By this way, nobody needs assertions indeed. 
+ 
+ "If you can, please note any database packages that implement it as well" 
+ SIRA_PRISE supports this feature in full.  Disclosure : I am the author. 
+ (As for the actual question "why aren't DBMS vendors offering this" : you'd really have to ask the vendors, but (a) it is an  extremely  difficult problem to solve even in a truly relational system, (b) that complexity is severely exacerbated by the fact that SQL is nowhere near truly relational and (c) it is highly probable that most programmers believe themselves to be competent enough to achieve the same effects as declarative ASSERTIONS using triggers, and this at a not so much higher development cost.) 
+ 
+ Oracle is considering this as possible enhancement for the next version after 12c Release 2, see  this post  from May 2016 by Toon Koppelaars. 
+ If you are interested in the feature, I suggest upvoting it. 
+ 

@@ -1,0 +1,121 @@
+*** how-to-store-7-3-billion-rows-of-market-data-optimized-to-be-read ***
+
+ I have a dataset of 1 minute data of 1000 stocks since 1998, that total around   rows. 
+ Most (99.9%) of the time I will perform only  **read**
+ requests. 
+ What is the best way to store this data in a db? 
+ 
+ 1 big table with 7.3B rows? 
+ 1000 tables (one for each stock symbol) with 7.3M rows each? 
+ any recommendation of database engine? (I'm planning to use Amazon RDS' MySQL) 
+ 
+ I'm not used to deal with datasets this big, so this is an excellent opportunity for me to learn. I will appreciate a lot your help and advice. 
+ Edit: 
+ This is a sample row: 
+ 
+ 'XX', 20041208, 938, 43.7444, 43.7541, 43.735, 43.7444, 35116.7, 1, 0, 0 
+ 
+ Column 1 is the stock symbol, column 2 is the date, column 3 is the minute, the rest are open-high-low-close prices, volume, and 3 integer columns. 
+ Most of the queries will be like "Give me the prices of AAPL between April 12 2012 12:15 and April 13 2012 12:52" 
+ About the hardware: I plan to use Amazon RDS so I'm flexible on that  
+ 
+ Tell us about the queries, and your hardware environment. 
+ I would be very very tempted to go  NoSQL , using  Hadoop  or something similar, as long as you can take advantage of parallelism. 
+ **Update**
+
+ Okay, why? 
+ First of all, notice that I asked about the queries.  You can't -- and we certainly can't -- answer these questions without knowing what the workload is like.  (I'll co-incidentally have an article about this appearing soon, but I can't link it today.)  But the  scale  of the problem makes me think about moving away from a Big Old Database because 
+ 
+ My experience with similar systems suggests the access will either be big sequential (computing some kind of time series analysis) or very very flexible data mining (OLAP).  Sequential data can be handled better and faster sequentially; OLAP means computing lots and lots of indices, which either will take lots of time or lots of space. 
+ If You're doing what are effectively big runs against many data in an OLAP world, however, a column-oriented approach might be best. 
+ If you want to do random queries, especially making cross-comparisons, a Hadoop system might be effective.  Why? Because 
+ 
+ you can better exploit parallelism on relatively small commodity hardware. 
+ you can also better implement high reliability and redundancy 
+ many of those problems lend themselves naturally to the MapReduce paradigm. 
+ 
+ 
+ But the fact is, until we know about your workload, it's impossible to say anything definitive. 
+ 
+ So databases are for situations where you have a large complicated schema that is constantly changing.  You only have one "table" with a hand-full of simple numeric fields.  I would do it this way: 
+ Prepare a C/C++ struct to hold the record format: 
+ 
+ Then calculate sizeof(StockPrice[N]) where N is the number of records.  (On a 64-bit system)  It should only be a few hundred gig, and fit on a $50 HDD. 
+ Then truncate a file to that size and mmap (on linux, or use CreateFileMapping on windows) it into memory: 
+ 
+ Cast the mmaped pointer to StockPrice*, and make a pass of your data filling out the array.  Close the mmap, and now you will have your data in one big binary array in a file that can be mmaped again later. 
+ 
+ You can now mmap it again read-only from any program and your data will be readily available: 
+ 
+ So now you can treat it just like an in-memory array of structs.  You can create various kinds of index data structures depending on what your "queries" are.  The kernel will deal with swapping the data to/from disk transparently so it will be insanely fast. 
+ If you expect to have a certain access pattern (for example contiguous date) it is best to sort the array in that order so it will hit the disk sequentially. 
+ 
+ 
+ I have a dataset of 1 minute data of 1000 stocks [...] most (99.9%) of the time I will perform only  **read**
+ requests. 
+ 
+ Storing once and reading many times time-based numerical data is a use case termed "time series". Other common time series are sensor data in the Internet of Things, server monitoring statistics, application events etc. 
+ This question was asked in 2012, and since then, several database engines have been developing features specifically for managing time series. I've had great results with the  InfluxDB , which is open sourced, written in Go, and MIT-licensed. 
+ InfluxDB has been specifically optimized to store and query time series data.  Much more so than Cassandra , which is often touted as great for storing time series: 
+ 
+ Optimizing for time series involved certain tradeoffs. For example: 
+ 
+ Updates to existing data are a rare occurrence and contentious updates never happen. Time series data is predominantly new data that is never updated. 
+ Pro: Restricting access to updates allows for increased query and write performance 
+ Con: Update functionality is significantly restricted 
+ 
+ In  open sourced benchmarks ,  
+ 
+ InfluxDB outperformed MongoDB in all three tests with 27x greater write throughput, while using 84x less disk space, and delivering relatively equal performance when it came to query speed. 
+ 
+ 
+ Queries are also very simple. If your rows look like  , with InfluxDB you can store just that, then query easily. Say, for the last 10 minutes of data: 
+ 
+ There are no IDs, no keys, and no joins to make. You can do a lot of  interesting aggregations . You don't have to  vertically partition the table as with PostgreSQL , or  contort your schema into arrays of seconds as with MongoDB . Also, InfluxDB compresses really well, while  PostgreSQL won't be able to perform any compression on the type of data you have . 
+ 
+ Okay, so this is somewhat away from the other answers, but... it feels to me like if you have the data in a file system (one stock per file, perhaps) with a fixed record size, you can get at the data  really  easily: given a query for a particular stock and time range, you can seek to the right place, fetch all the data you need (you'll know exactly how many bytes), transform the data into the format you need (which could be very quick depending on your storage format) and you're away. 
+ I don't know anything about Amazon storage, but if you don't have anything like direct file access, you could basically have blobs - you'd need to balance large blobs (fewer records, but probably reading more data than you need each time) with small blobs (more records giving more overhead and probably more requests to get at them, but less useless data returned each time). 
+ Next you add caching - I'd suggest giving different servers different stocks to handle for example - and you can pretty much just serve from memory. If you can afford enough memory on enough servers, bypass the "load on demand" part and just load all the files on start-up. That would simplify things, at the cost of slower start-up (which obviously impacts failover, unless you can afford to always have  two  servers for any particular stock, which would be helpful). 
+ Note that you don't need to  store  the stock symbol, date or minute for each record - because they're implicit in the file you're loading and the position within the file. You should also consider what accuracy you need for each value, and how to store that efficiently - you've given 6SF in your question, which you could store in 20 bits. Potentially store three 20-bit integers in 64 bits of storage: read it as a   (or whatever your 64-bit integer value will be) and use masking/shifting to get it back to three integers. You'll need to know what scale to use, of course - which you could probably encode in the spare 4 bits, if you can't make it constant. 
+ You haven't said what the other three integer columns are like, but if you could get away with 64 bits for those three as well, you could store a whole record in 16 bytes. That's only ~110GB for the whole database, which isn't really very much... 
+ EDIT: The other thing to consider is that presumably the stock doesn't change over the weekend - or indeed overnight. If the stock market is only open 8 hours per day, 5 days per week, then you only need 40 values per week instead of 168. At that point you could end up with only about 28GB of data in your files... which sounds a lot smaller than you were probably originally thinking. Having that much data in memory is  very  reasonable. 
+ EDIT: I think I've missed out the explanation of  why  this approach is a good fit here: you've got a very predictable aspect for a large part of your data - the stock ticker, date and time. By expressing the ticker  once  (as the filename) and leaving the date/time entirely implicit in the  position  of the data, you're removing a whole bunch of work. It's a bit like the difference between a   and a   - knowing that your array index always starts at 0 and goes up in increments of 1 up to the length of the array allows for quick access and more efficient storage. 
+ 
+ It is my understanding that  HDF5  was designed specifically with the time-series storage of stock data as one potential application. Fellow stackers have demonstrated that HDF5 is good for large amounts of data:  chromosomes ,  physics . 
+ 
+ Here is an attempt to create a Market Data Server on top of the Microsoft SQL Server 2012 database which should be good for OLAP analysis, a free open source project: 
+ http://github.com/kriasoft/market-data 
+ 
+ First, there isn't 365 trading days in the year, with holidays 52 weekends (104) = say 250 x the actual hours of day market is opened like someone said, and to use the symbol as the primary key is not a good idea since symbols change, use a k_equity_id  (numeric) with a symbol (char) since symbols can be like this A , or GAC-DB-B.TO , then in your data tables of price info, you have, so your estimate of 7.3 billion is vastly over calculated since it's only about 1.7 million rows per symbol for 14 years. 
+ k_equity_id
+k_date
+k_minute 
+ and for the EOD table (that will be viewed 1000x over the other data) 
+ k_equity_id
+k_date 
+ Second, don't store your OHLC by minute data in the same DB table as and EOD table (end of day) , since anyone wanting to look at a pnf, or line chart, over a year period , has zero interest in the by the minute information. 
+ 
+ Let me recommend that you take a look at  apache solr , which I think would be ideal for your particular problem.  Basically, you would first index your data (each row being a "document"). Solr is optimized for searching and natively supports range queries on dates. Your nominal query,  
+ 
+ would translate to something like: 
+ 
+ Assuming "stock" is the stock name and "date" is a "DateField" created from the "date" and "minute" columns of your input data on indexing.  Solr is incredibly flexible and I really can't say enough good things about it.  So, for example, if you needed to maintain the fields in the original data, you can probably find a way to dynamically create the "DateField" as part of the query (or filter). 
+ 
+ You should compare the slow solutions with a simple optimized in memory model. Uncompressed it fits in a 256 GB ram server. A snapshot fits in 32 K and you just index it positionally on datetime and stock. Then you can make specialized snapshots, as open of one often equals closing of the previous. 
+ [edit] Why do you think it makes sense to use a database at all (rdbms or nosql)? This data doesn't change, and it fits in memory. That is not a use case where a dbms can add value. 
+ 
+ I think any major RDBMS would handle this. At the atomic level, a one table with correct partitioning seems reasonable (partition based on your data usage if fixed - this is ikely to be either symbol or date). 
+ You can also look into building aggregated tables for faster access above the atomic level. For example if your data is at day, but you often get data back at the wekk or even month level, then this can be pre-calculated in an aggregate table. In some databases this can be done though a cached view (various names for different DB solutions - but basically its a view on the atomic data, but once run the view is cached/hardened intoa fixed temp table - that is queried for subsequant matching queries. This can be dropped at interval to free up memory/disk space). 
+ I guess we could help you more with some idea as to the data usage. 
+ 
+ If you have the hardware, I recommend  MySQL Cluster . You get the MySQL/RDBMS interface you are so familiar with, and you get fast and parallel writes. Reads will be slower than regular MySQL due to network latency, but you have the advantage of being able to parallelize queries and reads due to the way MySQL Cluster and the NDB storage engine works. 
+ Make sure that you have enough MySQL Cluster machines and enough memory/RAM for each of those though - MySQL Cluster is a heavily memory-oriented database architecture. 
+ Or  Redis , if you don't mind a key-value / NoSQL interface to your reads/writes. Make sure that Redis has enough memory - its super-fast for reads and writes, you can do basic queries with it (non-RDBMS though) but is also an in-memory database. 
+ Like others have said, knowing more about the queries you will be running will help. 
+ 
+ You will want the data stored in a  columnar table / database .  Database systems like Vertica and Greenplum are columnar databases, and I believe SQL Server now allows for columnar tables.  These are extremely efficient for  ing from very large datasets.  They are also efficient at importing large datasets. 
+ A free columnar database is  MonetDB . 
+ 
+ If your use case is to simple read rows without aggregation, you can use Aerospike cluster. It's in memory database with support of file system for persistence. It's also SSD optimized. 
+ If your use case needs aggregated data, go for Mongo DB cluster with date range sharding. You can club year vise data in shards. 
+ 

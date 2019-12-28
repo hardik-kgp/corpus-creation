@@ -1,0 +1,98 @@
+*** should-application-users-be-database-users ***
+
+ My previous job involved maintenance and programming for a very large database with massive amounts of data.  Users viewed this data primarily through an intranet web interface.  Instead of having a table of user accounts, each user account was a real first-class account in the RDBMS, which permitted them to connect with their own query tools, etc., as well as permitting us to control access through the RDBMS itself instead of using our own application logic. 
+ Is this a good setup, assuming you're not on the public intranet and dealing with potentially millions of (potentially malicious) users or something?  Or is it always better to define your own means of handling user accounts, your own permissions, your own application security logic, and only hand out RDBMS accounts to power users with special needs? 
+ 
+ I don't agree that using the database for user access control is as dangerous others are making it out to be.  I come from the Oracle Forms Development realm, where this type of user access control is the norm.  Just like any design decision, it has it's advantages and disadvantages.   
+ One of the advantages is that I could control select/insert/update/delete privileges for EACH table from a single setting in the database.  On one system we had 4 different applications (managed by different teams and in different languages) hitting the same database tables.  We were able to declare that only users with the Manager role were able to insert/update/delete data in a specific table.  If we didn't manage it through the database, then each application team would have to correctly implement (duplicate) that logic throughout their application.  If one application got it wrong, then the other apps would suffer.  Plus you would have duplicate code to manage if you ever wanted to change the permissions on a single resource. 
+ Another advantage is that we did not need to worry about storing user passwords in a database table (and all the restrictions that come with it). 
+ I don't agree that "Database user accounts are inherently more dangerous than anything in an account defined by your application".  The privileges required to change database-specific privileges are normally MUCH tougher than the privileges required to update/delete a single row in a "PERSONS" table. 
+ And "scaling" was not a problem because we assigned privileges to Oracle roles and then assigned roles to users.  With a single Oracle statement we could change the privilege for millions of users (not that we had that many users).   
+ Application authorization is not a trivial problem.  Many custom solutions have holes that hackers can easily exploit.  The big names like Oracle have put a lot of thought and code into providing a robust application authorization system.  I agree that using Oracle security doesn't work for every application.  But I wouldn't be so quick to dismiss it in favor of a custom solution. 
+ 
+ Edit: I should clarify that despite anything in the OP, what you're doing is logically defining an application even if no code exists. Otherwise it's just a public database with all the dangers that entails by itself. 
+ Maybe I'll get flamed to death for this post, but  **I think this is an extraordinarily dangerous anti-pattern in security and design terms**
+. 
+ A user object should be defined by the system it's running in. If you're actually defining these in another application (the database) you have a loss of control. 
+ It makes no sense from a design point of view because if you wanted to extend those accounts with any kind of data at all (email address, employee number, MyTheme...) you're not going to be able to extend the DB user and you're going to need to build that users table anyway. 
+ Database user accounts are inherently more dangerous than anything in an account defined by your application because they could be promoted, deleted, accessed or otherwise manipulated by not only the database and any passing DBA, but anything else connected to the database. You've exposed a critical system element as public. 
+ Scaling is out of the question. Imagine an abstraction where you're going to have tens or hundreds of thousands of users. That's just not going to manageable as DB accounts, but as records in a table it's just data. The age old argument of "well there's onyl ever going to be X users" doesn't hold any water with me because I've seen very limited internal apps become publicly exposed when the business feels it's could add value to the customer or the company just got bought by a giant partner who now needs access. You  must  plan for reasonable extensibility. 
+ You're not going to be able to share conn pooling, you're not going to be any more secure than if you just created a handful of e.g. role accounts, and you're not necessarily going to be able to affect mass changes when you need to, or backup effectively. 
+ All in there seems to be numerous serious problems to me, and I imagine other more experienced SOers could list more. 
+ 
+ "each user account was a real first-class account in the RDBMS, which permitted them to connect with their own query tools, etc.," 
+ not a good idea if the RDBMS contains: 
+ 
+ any information covered by HIPAA or Sarbanes-Oxley or The Official Secrets Act (UK) 
+ credit card information or other customer credit info (POs, lines of credit etc) 
+ personal information (ssn, dob, etc) 
+ competitive, proprietary, or IP information 
+ 
+ because when users can use their own non-managed query tools the company has no way of knowing or auditing what information was queried or where the query results were delivered.  
+ oh and what @annakata said. 
+ 
+ I think generally. In your traditional database application they shouldnt be. For all the reason already given. In a traditional database application there is a business layer that handles all the security and this is because there is such a strong line between people who interact with the application, and people who interact with the database. 
+ In this situation is is generally better to manage these users and roles yourself. You can decide what information you need to store about them, and what you log and audit. And most importantly you define access based on pure business rules rather than database rules. Its got nothing to do with which tables they access and everything to do with whether they can  insert business action here . However these are not technical issues. These are design issues. If that is what you are required to control then it makes sense to manage your users yourself. 
+ You have described a system where you allow users to query the database directly. In this case why not use DB accounts. They will do the job far better than you will if you attempt to analyse the querys that users write and vet them against some rules that you have designed. That to me sounds like a nightmare system to write and maintain. 
+ Don't lock things down because you can. Explain to those in charge what the security implications are but dont attempt to prevent people from doing things because you can. Especially not when they are used to accessing the data directly. 
+ Our job as developers is to enable people to do what they need to do. And in the situation you have described. Specifically connect to the database and query it with their own tools. Then I think that anything other than database accounts is either going to be insecure, or unneccasarily restrictive. 
+ 
+ I would avoid giving any user database access. Later, when this starts causing problems, taking away their access becomes very dificult. 
+ At the very least, give them access to a read-only replica of the database so they can't kill your whole company with a bad query. 
+ 
+ A lot of database query tools are very advanced these days, and it can feel a real shame to reimplement the world just to add restrictions. And as long as the database user permissions are properly locked down it might be okay. However in many cases you can't do this, you should be exposing a high-level API to the database to insert objects over many tables properly, without the user needing specific training that they should "just add an address into that table there, why isn't it working?". 
+ If they only want to use the data to generate reports in Excel, etc, then maybe you could use a reporting front end like BIRT instead. 
+ So basically: if the users are knowledgeable about databases, and resources to implement a proper front-end are low, keep on doing this. However is the resource does come up, it is probably time to get people's requirements in for creating a simpler, task-oriented front-end for them. 
+ 
+ This is, in a way, similar to:  is sql server/AD good for anything 
+ I don't think it's a bad idea to throw your security model, at least a basic one, in the database itself.  You can add restrictions in the application layer for cosmetics, but whichever account the user is accessing the database with, be it based on the application or the user, it's best if that account is restricted to only the operations the user is allowed. 
+ I don't speak for all apps, but there are a large number I have seen where capturing the password is as simple as opening the code in notepad, using an included dll to decrypt the configuration file, or finding a backup file (e.g. web.config.bak in asp.net) that can be accessed from the browser. 
+ 
+ *not a good idea if the RDBMS contains:
+    *   any information covered by HIPAA or Sarbanes-Oxley or The Official Secrets Act (UK)
+    *   credit card information or other customer credit info (POs, lines of credit etc)
+    *   personal information (ssn, dob, etc)
+    *   competitive, proprietary, or IP information* 
+ Not true, one can perfectly manage which data a database user can see and which data it can modify. A database (at least Oracle) can also audit all activities, including selects. To have thousands of database users is also perfectly normal.    
+ It is more difficult to build good secure applications because you have to program this security, a database offers this security and you can configure it in a declarative way, no code required.  
+ 
+ I know, I am replying to a very old post, but recently came across same situation in my current project. I was also thinking on similar lines, whether "Application users be Database users?".
+This is what I analysed: 
+ 
+ Definitely it doesn't make sense to create that big number of application users on database(if your application is going to be used by many users). 
+ Let's say you created X(huge number) of users on database. You are opening a clear gateway to your database. 
+ 
+ Let's take a scenario for the solution: 
+ There are two types of application users (Managers and Assistant). Both needs access to database for some transactions.  
+ It's obvious you would create two roles, one for each type(Manager and Assistant) in database. But how about database user to connect from application. If you create one account per user then you would end up linearly creating the accounts on the database. 
+ What I suggest: 
+ 
+ Create one database account per Role. (Let's say  ) 
+ Let your application have business logic to map an application user with corresponding role.(User Tom with Manager role to  ) 
+ Use the database user( ) corresponding to identified role in #2 to connect to database and execute your query. 
+ 
+ Hope this makes sense! 
+ Updated: As I said, I came across similar situation in my project (with respect to Postgresql database at back end and a Java Web app at front end), I found something very useful called as  **Proxy Authentication**
+. 
+ This means that you can login to the database as one user but limit or extend your privileges based on the Proxy user.
+I found very good links explaining the same.  
+ 
+ For Postgresql below  Choice of authentication approach for
+financial app on PostgreSQL 
+ 
+ For Oracle  Proxy Authentication 
+ 
+ 
+ Hope this helps! 
+ 
+ It depends (like most things). 
+ Having multiple database users negates connection pooling, since most libraries handle pooling based on connection strings and user accounts. 
+ On the other hand, it's probably a more secure solution than anything you or I will do from scratch.  It leaves security up to the OS and Database server, which I trust much more than myself.  However, this is only the case if you go to the effort to configure the database permissions well.  If you're using a bunch of OS/db users with the same permissions,it won't help much.  You'll still get an audit trail, but that's about it. 
+ All that said, I don't know that I'd feel comfortable letting normal users connect directly to the database with their own tools.   
+ 
+ I think it's worth highlighting what other answers have touched upon: 
+ A database can only define restrictions based on the data. Ie restrict select/insert/update/delete on particular tables or columns. I'm sure some databases can do somewhat cleverer things, but they'll never be able to implement business-rule based restrictions like an application can. What if a certain user is allowed to update a column only to certain values (say <1000) or only increase prices, or change either of two columns but not both? 
+ I'd say unless you are absolutely sure you'll never need anything but table/column granularity, this is reason enough by itself. 
+ 
+ This is not a good idea for any application where you store data for multiple users in the same table and you don't want one user to be able to read or modify another user's data. How would you restrict access in this case? 
+ 

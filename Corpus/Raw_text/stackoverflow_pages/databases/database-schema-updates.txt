@@ -1,0 +1,38 @@
+*** database-schema-updates ***
+
+ I'm working on an AIR application that uses a local SQLite database and was wondering how I could manage database schema updates when I distribute new versions of the application. Also considering updates that skip some versions. E.g. instead of going from 1.0 to 1.1, going from 1.0 to 1.5. 
+ What technique would you recommend? 
+ 
+ We script every DDL change to the DB and when we make a "release" we concatenate them into a single "upgrade" script, together with any Stored Procedures which have changed "since last time" 
+ We have a table that stores the version number of the latest patch applied - so upgrade tools can apply any newer patches. 
+ Every Stored Procedure is in a separate file.  Each starts with an "insert" statement to a logging table that stores Name of SProc, Version and "now". (Actually an SProc is executed to store this, its not a raw insert statement). 
+ Sometimes during deployment we manually change an SProc, or rollout odds & ends from DEV, and comparing the log on client's TEST and PRODUCTION databases enables us to check that everything is at the same version. 
+ We also have a "release" master-database, to which we apply the updates, and we use a restored backup of that for new installations (saves the time of running the scripts, which obviously increase over time). We update that as & when, because obviously if it is a bit stale the later patch scripts can be applied. 
+ Our Release database also contains sanitised starter data (which is deleted, or sometimes adopted & modified, before a new installation goes live - so this is not included in any update scripts) 
+ SQL Server has a toolbar button to script a change - so you can use the GUI tools to make all the changes, but rather than saving them generate a script instead. (actually, there is a checkbox to  **always**
+ generate a script, so if you forget and just press SAVE it still gives you the script it used after-the-fact, which can be saved as the patch file) 
+ 
+ In the case of SQLite, you can make use of the user_version pragma to track the version of the database.  To get the version: 
+ 
+ To set the version: 
+ 
+ I then keep each group of updates in an SQL file (that's embedded in the app) and run the updates needed to get up to the most recent version: 
+ 
+ This allows the app to update itself to the most recent version regardless of the current version of the DB. 
+ 
+ What I am considering is adding a SchemaVersion table to the database which holds a record for every version that exists. The last version of the SchemaVersion table is the current level of the database. 
+ I am going to create (SQL) scripts that perform the initial setup of 1.0 and thereafter the upgrade from 1.0 to 1.1, 1.1 to 1.2, etc. 
+ Even a fresh install to e.g. 1.2 will run through all these scripts. This might seem a little slow, but is only done once and on an (almost) empty database.  
+ The big advantage of this is that a fresh install will have the same database schema as an upgraded install. 
+ As I said: I am considering this. I will probably start implementing this tomorrow. If you're interested I can share my experiences. I will be implementing this for a c# application that uses LINQ-to-entities with SQL Server and MySQL as DBMSes. 
+ I am interested to hear anybody else's suggestions and ideas and if somebody can point me out an open source .Net library or classes that implements something like this, that would be great. 
+ EDIT:
+In the answer to a different  question here on SO  I found a reference to Migrator.Net. I started using it today and it looks like it is exactly what I was looking for.  
+ 
+ IMO the easiest thing to do is to treat an update from e.g. 1.0 to 1.5 as a succession of updates from 1.0 to 1.1, 1.1 to 1.2, and so forth. For each version change, keep a conversion script/piece of code around. 
+ Then, keep a table with a version field in the database, and compile into the the app the required version. On startup, if the version field does not match the compiled-in version, run all the required conversion scripts, one by one. 
+ The conversion scripts should ideally start a transaction and write the new version into the database as the last statement before committing the transaction. 
+ 
+ I had the same problem in a .net application I was writing. 
+ In the end I wrote my own upgrade framework to do the job (won't work for you because it was written in C#). You may want to look in  link text  to get some ideas. 
+ 

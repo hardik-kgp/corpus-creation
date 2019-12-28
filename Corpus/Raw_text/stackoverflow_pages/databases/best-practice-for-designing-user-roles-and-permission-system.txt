@@ -1,0 +1,68 @@
+*** best-practice-for-designing-user-roles-and-permission-system ***
+
+ I need to add user roles and permission system into my web application built using PHP/MySQL. I want to have this functionality:  
+ 
+ One root user can create sub-roots, groups, rules and normal users( all privileges) . 
+ Sub-roots can create only rules, permissions and users for his/her own group ( no groups). 
+ A user can access either content created by him or his group, based on the permission assigned to him, by group root. 
+ 
+ I need the system to be flexible enough, so that new roles and permissions are assigned to content. 
+ I have a   table storing group key along with other information. Currently I am using two feilds in each content table i.e.   and  , and using that as the point whether a certain user has permissions. But its not flexible enough, because for every new content, I have to go throug all data updates and permission updates. Please help me by discussing your best practices for schema design. 
+ 
+ The pattern that suits your needs is called  role-based access control . 
+ There are several good implementations in PHP, including  Zend_Acl  (good documenation),  phpGACL  and  TinyACL . Most frameworks also have their own implementations of an ACL in some form. 
+ Even if you choose to roll your own, it'll help you to review well factored solutions such as those. 
+ 
+ I Think bitwise operator are the best way to implement user permission.
+Here I am showing how we can implement it with MySQL. 
+ Below is a sample tables with some sample data: 
+ **Table 1**
+: Permission table to store permission name along with it bit like 1, 2, 4, 8.. etc (multiple of 2) 
+ 
+ Insert some sample data into the table.   
+ 
+ **Table 2**
+: User table to store user id,name and role. Role will be calculated as sum of permissions. 
+Example:   
+ If user 'Ketan' having permission of 'User-Add' (bit=1) and 'Blog-Delete' (bit-64) so role will be 65 (1+64). 
+If user 'Mehata' having permission of 'Blog-View' (bit=128) and 'User-Delete' (bit-4) so role will be 132 (128+4).   
+ 
+ Sample data- 
+ 
+ Loding permission of user
+After login if we want to load user permission then we can query below to get the permissions: 
+ 
+ Here user.role "&" permission.bit is a Bitwise operator which will give output as - 
+ 
+ If we want to check weather a particular user have user-edit permission or not- 
+ 
+ Output = No rows. 
+ You can see also:  http://sforsuresh.in/implemention-of-user-permission-with-php-mysql-bitwise-operators/ 
+ 
+ You might not want groups of permissions.  Instead create user groups, give user groups permissions, and put users in groups.  Users should also be able to override permissions from the groups they are in.  Deny should always override grant where a user is in more than one group with the pemission. 
+ In summary: 
+ 
+ User has zero or more permissions (grany, deny) 
+ User is in zero or more groups 
+ Group has zero or more permissions (grant, deny) 
+ 
+ 
+ I had a slightly different structure, but it should be able to serve as a reference. 
+ Each user has a 'Role', 'GroupID' associate with it, and  Group table for which the GroupID refers to.
+Then I have 3 permission table.  
+ 
+  and  
+ 
+ PermissionMaster holds the name/form/module for which the permission refers to. PermissionChild will list all the possible permission available for each Master, such as 'Create', 'View', 'Edit', 'Delete', and description (I didn't have this on the first version, and it started to get confusing when there's too many permission setup even for 1 module). I allow adding more children to specifically refer to some function like 'ChangeTimeStamp', which would also allow more specific permission then 'Edit' 
+ Then PermissionGroupChild is the link between PermissionChild and Group table. Every group will have a set of PermissionChild copied and set with default setting. Then I had a permission class which does the table query and check for each user. I only load it during login. Then in every form/module, I check for it's appropriate permission and applies the UI properly. 
+ As for role, I only use it at the Login configuration page. Smaller Role value means higher ranked. So user can only see itself and those of Role value higher than itself. He/she can edit those of lower rank than itself but not similar. 
+ 
+ I have groups and users (like active directory LDAP solution). So if I give access to group I need that users in this group have herited accesses. 
+ So, based on the @suresh-kamrushi answer below, I made this :  
+ 
+ If user have bit  , I take first two digits   that means   and   are herited from group permissions.  
+ If user have bit  , I take first two digits   that means   will prime on group permissions, so this user have no add permission. This bitwise says that user can only view. 
+ It's also working with parent groups. 
+ What do you think about this solution ?
+Does anyone have got better way for that ? 
+ 

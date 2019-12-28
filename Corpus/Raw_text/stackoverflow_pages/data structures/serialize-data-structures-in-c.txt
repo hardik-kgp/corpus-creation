@@ -1,0 +1,78 @@
+*** serialize-data-structures-in-c ***
+
+ I'd like a C library that can serialize my data structures to disk, and then load them again later. It should accept arbitrarily nested structures, possibly with circular references. 
+ I presume that this tool would need a configuration file describing my data structures. The library is allowed to use code generation, although I'm fairly sure it's possible to do this without it.  
+ Note I'm not interested in data portability. I'd like to use it as a cache, so I can rely on the environment not changing. 
+ Thanks. 
+ 
+ Results 
+ Someone suggested  Tpl  which is an awesome library, but I believe that it does not do arbitrary object graphs, such as a tree of Nodes that each contain two other Nodes. 
+ Another candidate is  Eet , which is a project of the Enlightenment window manager. Looks interesting but, again, seems not to have the ability to serialize nested structures. 
+ 
+ Check out  tpl .  From the overview: 
+ 
+ Tpl is a library for serializing C
+  data. The data is stored in its
+  natural binary form. The API is small
+  and tries to stay "out of the way".
+  Compared to using XML, tpl is faster
+  and easier to use in C programs. Tpl
+  can serialize many C data types,
+  including structures. 
+ 
+ 
+ I know you're asking for a library. If you can't find one (::boggle::, you'd think this was a solved problem!), here is an outline for a solution: 
+ You should be able to write a code generator[1] to serialize trees/graphs without (run-time) pre-processing fairly simply.  
+ You'll need to parse the node structure (  handling?), and write the included data values in a straight ahead fashion, but treat the pointers with some care. 
+ 
+ For pointer to other objects (i.e.  ) which you  know  are singly referenced, you can serialize the target data directly.  
+ For objects that might be multiply refernced and for other nodes of your tree you'll have to represent the pointer structure. Each object gets assigned a serialization number, which is what is written out in-place of the pointer. Maintain a translation structure between current memory position and serialization number. On encountering a pointer, see if it is already assigned a number, if not, give it one and queue that object up for serialization. 
+ 
+ Reading back also requires a node-#/memory-location translation step, and might be easier to do in two passes: regenerate the nodes with the node numbers in the pointer slots (bad pointer, be warned) to find out where each node gets put, then walk the structure again fixing the pointers. 
+ I don't know anything about tpl, but you might be able to piggy-back on it. 
+ 
+ The on-disk/network format should probably be framed with some type information. You'll need a name-mangling scheme. 
+ 
+ [1]  ROOT  uses this mechanism to provide very flexible serialization support in C++. 
+ 
+ **Late addition:**
+ It occurs to me that this is not always as easy as I implied above. Consider the following (contrived and badly designed) declaration: 
+ 
+ and assume that we initalize out   items so that   points at  . 
+ When we go to serialize the data, what do we do with  ? 
+ **You will need to take care in designing your data structures and/or bring some case-specific intelligence to the serialization process.**
+
+ 
+ This is my solution. It uses my own implementation of malloc, free and mmap, munmap system calls. Follow the given example codes. Ref:  http://amscata.blogspot.com/2013/02/serialize-your-memory.html 
+ In my approach I create a char array as my own RAM space. Then there are functions for allocate the memory and free them. After creating the data structure, by using  , I write the char array to a file. 
+ Whenever you want to load it back to the memory there is a function which used   to put the data structure again to the char array. Since it has virtual addresses for your pointers, you can re use your data structure. That means, you can create data structure, save it, load it, again edit it, and save it again. 
+ 
+ You can take a look on  eet . A library of the enlightenment project to store C data types (including nested structures). Although nearly all libs of the enlightenment project are in pre-alpha state, eet is already released. I'm not sure, however, if it can handle circular references. Probably not. 
+ 
+ http://s11n.net/c11n/ 
+ HTH 
+ 
+ you should checkout gwlib. the serializer/deserializer is extensive. and there are extensive tests available to look at.  http://gwlib.com/ 
+ 
+ I'm assuming you are talking about storing a graph structure, if not then disregard... 
+ If your storing a graph, I personally think the best idea would be implementing a function that converts your graph into an adjacency matrix. You can then make a function that converts an adjacency matrix to your graph data structure. 
+ This has three benefits (that may or may not matter in your application): 
+ 
+ adjacency matrix are a very natural way to create and store a graph 
+ You can create an adjacency matrix and import them into your applications 
+ You can store and read your data in a meaningful way. 
+ 
+ I used this method during a CS project and is definitely how I would do it again. 
+ You can read more about adjacency matrix here:  http://en.wikipedia.org/wiki/Modified_adjacency_matrix   
+ 
+ Another option is  Avro C , an implementation of  Apache Avro  in C. 
+ 
+ Here is an example using the  Binn  library (my creation): 
+ 
+ If you don't want to use strings as keys you can use a binn_map which uses  integers as keys. 
+ There is also support for lists, and all these structures can be nested: 
+ 
+ 
+ In theory YAML should do what you want  http://code.google.com/p/yaml-cpp/   
+ Please let me know if it works for you. 
+ 

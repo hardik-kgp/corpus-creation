@@ -1,0 +1,197 @@
+*** difference-between-partition-key-composite-key-and-clustering-key-in-cassandra ***
+
+ I have been reading articles around the net to understand the differences between the following   types. But it just seems hard for me to grasp. Examples will definitely help  make understanding better. 
+ 
+ 
+ There is a lot of confusion around this, I will try to make it as simple as possible.  
+ The primary key is a general concept to indicate one or more columns used to retrieve data from a Table. 
+ The primary key may be  **SIMPLE**
+ and even declared inline: 
+ 
+ That means that it is made by a single column. 
+ But the primary key can also be  **COMPOSITE**
+ (aka  **COMPOUND**
+), generated from more columns. 
+ 
+ In a situation of  **COMPOSITE**
+ primary key, the "first part" of the key is called  **PARTITION KEY**
+ (in this example  **key_part_one**
+ is the partition key) and the second part of the key is the  **CLUSTERING KEY**
+ (in this example  **key_part_two**
+) 
+ **Please note that the both partition and clustering key can be made by more columns**
+, here's how: 
+ 
+ Behind these names ... 
+ 
+ The  **Partition Key**
+ is responsible for data distribution across your nodes. 
+ The  **Clustering Key**
+ is responsible for data sorting within the partition. 
+ The  **Primary Key**
+ is equivalent to the  **Partition Key**
+ in a single-field-key table (i.e.  **Simple**
+). 
+ The  **Composite/Compound Key**
+ is just any multiple-column key 
+ 
+ Further usage information:  DATASTAX DOCUMENTATION 
+ 
+Small usage and content examples 
+ **SIMPLE**
+ KEY:
+
+ 
+ **table content**
+
+ 
+ **COMPOSITE/COMPOUND KEY**
+ can retrieve "wide rows" (i.e. you can query by just the partition key, even if you have clustering keys defined) 
+ 
+ **table content**
+
+ 
+ But you can query with all key (both partition and clustering) ... 
+ 
+ **query output**
+
+ 
+ Important note: the partition key is the minimum-specifier needed to perform a query using a  .
+If you have a composite partition key, like the following 
+ eg:  
+ You can perform query only by passing at least both col1 and col2, these are the 2 columns that define the partition key. The "general" rule to make query is you have to pass at least all partition key columns, then you can add optionally each clustering key in the order they're set. 
+ so the valid queries are ( **excluding secondary indexes**
+) 
+ 
+ col1 and col2 
+ col1 and col2 and col10 
+ col1 and col2 and col10 and col 4 
+ 
+ Invalid: 
+ 
+ col1 and col2 and col4 
+ anything that does not contain both col1 and col2 
+ 
+ Hope this helps. 
+ 
+ Adding a summary answer as the accepted one is quite long. The terms "row" and "column" are used in the context of CQL, not how Cassandra is actually implemented. 
+ 
+ A  **primary key**
+ uniquely identifies a row. 
+ A  **composite key**
+ is a key formed from multiple columns. 
+ A  **partition key**
+ is the primary lookup to find a set of rows, i.e. a partition. 
+ A  **clustering key**
+ is the part of the primary key that isn't the partition key (and defines the ordering within a partition). 
+ 
+ Examples: 
+ 
+ : The partition key is  . 
+ : The partition key is  , the clustering key is  . 
+ : The composite partition key is  . 
+ : The partition key is  , the composite clustering key is  . 
+ : The composite partition key is  , the clustering key is  . 
+ : The composite partition key is  , the composite clustering key is  . 
+ 
+ 
+ In cassandra , the difference between primary key,partition key,composite key, clustering key always makes some confusion.. So I am going to explain below and co relate to each others. We use CQL (Cassandra Query Language) for Cassandra database access. 
+Note:- Answer is as per updated version of Cassandra. 
+  **Primary Key :-**
+  
+ **In cassandra there are 2 different way to use primary Key .**
+
+ 
+ 
+ 
+ 
+ In CQL, the order in which columns are defined for the PRIMARY KEY matters. The first column of the key is called the partition key having property that all the rows sharing the same partition key (even across table in fact) are stored on the same physical node. Also, insertion/update/deletion on rows sharing the same partition key for a given table are performed atomically and in isolation. Note that it is possible to have a composite partition key, i.e. a partition key formed of multiple columns, using an extra set of parentheses to define which columns forms the partition key. 
+ **Partitioning and Clustering**
+
+The PRIMARY KEY definition is made up of two parts: the Partition Key and the Clustering Columns. The first part maps to the storage engine row key, while the second is used to group columns in a row. 
+ 
+ Here device_id is partition key and checked_at is cluster_key.  
+ We can have multiple cluster key as well as partition key too which depends on declaration.  
+ 
+ **Primary Key**
+: Is composed of partition key(s) [and optional clustering keys(or columns)] 
+ **Partition Key**
+: The hash value of Partition key is used to determine the specific node in a cluster to store the data 
+ **Clustering Key**
+: Is used to sort the data in each of the partitions(or responsible node and it's replicas) 
+ **Compound Primary Key**
+: As said above, the clustering keys are optional in a Primary Key. If they aren't mentioned, it's a simple primary key. If clustering keys are mentioned, it's a Compound primary key. 
+ **Composite Partition Key**
+: Using just one column as a partition key, might result in  **wide row issues**
+ (depends on use case/data modeling). Hence the partition key is sometimes specified as a combination of more than one column. 
+ **Regarding confusion of which one is mandatory**
+, which one can be skipped etc. in a query, trying to  **imagine Cassandra as a giant HashMap**
+ helps. So in a HashMap, you can't retrieve the values without the Key.  Here, the  **Partition keys**
+ play the role of that key. So each query needs to have them specified. Without which Cassandra won't know which node to search for. 
+The  **clustering keys**
+ (columns, which are optional) help in further narrowing your query search after Cassandra finds out the specific node(and it's replicas) responsible for that specific  **Partition key**
+. 
+ 
+ In brief sense: 
+ **Partition Key**
+ is nothing but  **identification**
+ for a row, that identification most of the times is the single column (called  **Primary Key**
+) sometimes a combination of multiple columns (called  **Composite Partition Key**
+).  
+ **Cluster key**
+ is nothing but  **Indexing**
+ &  **Sorting**
+. Cluster keys depend on few things:          
+ 
+ What columns you use in where clause except primary key columns. 
+ If you have very large records then on what concern I can divide the date for easy management. Example, I have data of 1million a county population records. So for easy management, I cluster data based on state and after pincode and so on. 
+ 
+ 
+ Worth to note, you will probably use those lots more than in similar concepts in relational world (composite keys). 
+ Example - suppose you have to find last N users who recently joined user group X. How would you do this efficiently given reads are predominant in this case? Like that (from offical  Cassandra guide ): 
+ 
+ Here,  **partitioning key**
+ is compound itself and the  **clustering key**
+ is a joined date. The reason why a  **clustering key**
+ is a join date is that results are already  **sorted**
+ (and stored, which makes lookups fast). But why do we use a compound key for  **partitioning key**
+? Because  **we always want to read as few partitions as possible**
+. How putting  **join_date**
+ in there helps? Now users from the same group and the same join date will reside in a single partition! This means we will always read as few partitions as possible (first start with the newest, then move to older and so on, rather than jumping between them). 
+ In fact, in extreme cases you would also need to use the hash of a  join_date  rather than a  join_date  alone - so that if you query for last 3 days often those share the same hash and therefore are available from same partition! 
+ 
+ The primary key in Cassandra usually consists of two parts - Partition key and Clustering columns. 
+ primary_key((partition_key), clustering_col ) 
+ Partition key - The first part of the primary key. The main aim of a partition key is to identify the node which stores the particular row.  
+ CREATE TABLE phone_book (
+phone_num int,
+name text, 
+age int,
+city text,
+PRIMARY KEY ((phone_num, name), age); 
+ Here, (phone_num, name) is the partition key. While inserting the data, the hash value of the partition key is generated and this value decides which node the row should go into. 
+ Consider a 4 node cluster, each node has a range of hash values it can store.
+(Write)
+INSERT INTO phone_book VALUES (7826573732, ‘Joey’, 25, ‘New York’); 
+ Now, the hash value of the partition key is calculated by Cassandra partitioner. 
+say, hash value(7826573732, ‘Joey’) → 12 , now, this row will be inserted in Node C. 
+ (Read)
+SELECT * FROM phone_book
+WHERE phone_num=7826573732 and name=’Joey’; 
+ Now, again the hash value of the partition key (7826573732,’Joey’) is calculated, which is 12 in our case which resides in Node C, from which the read is done. 
+ 
+ Clustering columns - Second part of the primary key. The main purpose of having clustering columns is to store the data in a sorted order. By default, the order is ascending. 
+ 
+ There can be more than one partition key and clustering columns in a primary key depending on the query you are solving. 
+ primary_key((pk1, pk2), col 1,col2) 
+ 
+ In database design, a compound key is a set of superkeys that is not minimal. 
+ A composite key is a set that contains a compound key and at least one attribute that is not a superkey 
+ Given table: EMPLOYEES {employee_id, firstname, surname} 
+ Possible superkeys are: 
+ 
+ {employee_id} is the only minimal superkey, which also makes it the only candidate key--given that {firstname} and {surname} do not guarantee uniqueness. Since a primary key is defined as a chosen candidate key, and only one candidate key exists in this example, {employee_id} is the minimal superkey, the only candidate key, and the only possible primary key. 
+ The exhaustive list of compound keys is: 
+ 
+ The only composite key is {employee_id, firstname, surname} since that key contains a compound key ({employee_id,firstname}) and an attribute that is not a superkey ({surname}). 
+ 
